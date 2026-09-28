@@ -1,0 +1,144 @@
+@import 'tailwindcss';
+@import './sja-tokens.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: var(--sja-font-sans, "Inter", ui-sans-serif, system-ui, sans-serif);
+    background-color: var(--sja-background, #F0F8FF);
+    color: var(--sja-heading, #0B1F63);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Custom helper classes matching Corporate Maritime Tokens */
+.bg-sja-primary { background-color: var(--sja-primary, #0060F4); }
+.bg-sja-primary-dark { background-color: var(--sja-primary-dark, #082870); }
+.bg-sja-heading { background-color: var(--sja-heading, #0B1F63); }
+.bg-sja-secondary-text { color: var(--sja-secondary-text, #52658E); }
+.bg-sja-background { background-color: var(--sja-background, #F0F8FF); }
+.bg-sja-surface { background-color: var(--sja-surface, #FFFFFF); }
+.bg-sja-border { background-color: var(--sja-border, #DCEAF8); }
+.bg-sja-primary-soft { background-color: var(--sja-primary-soft, #E0F0FF); }
+.bg-sja-accent { background-color: var(--sja-accent, #19B5F7); }
+.bg-sja-sidebar { background-color: var(--sja-sidebar-background, #0D2945); }
+.bg-sja-sidebar-hover { background-color: var(--sja-sidebar-hover, #173B5C); }
+.bg-sja-sidebar-active { background-color: var(--sja-sidebar-active, #285585); }
+
+.text-sja-primary { color: var(--sja-primary, #0060F4); }
+.text-sja-primary-dark { color: var(--sja-primary-dark, #082870); }
+.text-sja-heading { color: var(--sja-heading, #0B1F63); }
+.text-sja-secondary { color: var(--sja-secondary-text, #52658E); }
+.text-sja-sidebar { color: var(--sja-sidebar-text, #E7F0FA); }
+.text-sja-sidebar-muted { color: var(--sja-sidebar-muted, #B5C8DC); }
+
+.border-sja-border { border-color: var(--sja-border, #DCEAF8); }
+.border-sja-primary { border-color: var(--sja-primary, #0060F4); }
+
+.shadow-sja-card { box-shadow: var(--sja-shadow-card, 0 2px 12px rgb(8 40 112 / 0.05)); }
+.radius-sja-card { border-radius: var(--sja-radius-card, 16px); }
+.radius-sja-control { border-radius: var(--sja-radius-control, 12px); }
+
+/* =========================================================================
+   Corporate Maritime — Dark Mode Global Adaptation
+   ========================================================================= */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: var(--sja-background, #071322);
+  color: var(--sja-heading, #F1F5F9);
+}
+
+/* Maritime Dark Typography & Contrast */
+html.dark .text-\[\#0B1F63\] {
+  color: #F1F5F9;
+}
+
+html.dark .text-\[\#52658E\] {
+  color: #94A3B8;
+}
+
+html.dark .text-\[\#8C9BB9\] {
+  color: #64748B;
+}
+
+/* Maritime Dark Borders */
+html.dark .border-\[\#DCEAF8\],
+html.dark .border-\[\#DCEAF8\]\/80,
+html.dark .border-\[\#DCEAF8\]\/60,
+html.dark .border-\[\#DCEAF8\]\/50 {
+  border-color: #1E3A5F;
+}
+
+/* Maritime Dark Surfaces & Panels */
+html.dark .bg-\[\#F0F8FF\] {
+  background-color: #071322;
+}
+
+html.dark .bg-\[\#F0F8FF\]\/60,
+html.dark .bg-\[\#F0F8FF\]\/40,
+html.dark .bg-\[\#F0F8FF\]\/30 {
+  background-color: rgba(15, 34, 61, 0.6);
+}
+
+html.dark .bg-\[\#E0F0FF\] {
+  background-color: #132847;
+}
+
+/* Forms, inputs, dropdowns in Dark Mode */
+html.dark input[type="text"],
+html.dark input[type="email"],
+html.dark input[type="password"],
+html.dark input[type="search"],
+html.dark input[type="number"],
+html.dark input[type="date"],
+html.dark select,
+html.dark textarea {
+  background-color: #0C1D36;
+  border-color: #1E3A5F;
+  color: #F1F5F9;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748B;
+}
+
+/* Custom dark scrollbars */
+html.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: #071322;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #1E3A5F;
+  border-radius: 4px;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #285585;
+}
+
+/* Waving Hand Continuous Animation */
+@keyframes sja-wave {
+  0% { transform: rotate(0deg); }
+  15% { transform: rotate(16deg); }
+  30% { transform: rotate(-10deg); }
+  45% { transform: rotate(16deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(12deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.animate-waving-hand {
+  display: inline-block;
+  transform-origin: 70% 70%;
+  animation: sja-wave 2s infinite ease-in-out;
+}
+

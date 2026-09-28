@@ -1,0 +1,75 @@
+/* PT Samudra Jaya Andalas — Corporate Maritime.
+ * Import melalui entry frontend yang dipakai Vite, lalu gunakan var(--sja-*).
+ * Installer tidak mengubah entry CSS/React existing secara otomatis.
+ * Screenshot hanyalah referensi; token status mengikuti brief pengguna.
+ */
+:root {
+  --sja-primary: #0060F4;
+  --sja-primary-dark: #082870;
+  --sja-heading: #0B1F63;
+  --sja-secondary-text: #52658E;
+  --sja-background: #F0F8FF;
+  --sja-surface: #FFFFFF;
+  --sja-border: #DCEAF8;
+  --sja-primary-soft: #E0F0FF;
+  --sja-accent: #19B5F7;
+  --sja-sidebar-background: #0D2945;
+  --sja-sidebar-hover: #173B5C;
+  --sja-sidebar-active: #285585;
+  --sja-sidebar-text: #E7F0FA;
+  --sja-sidebar-muted: #B5C8DC;
+  --sja-status-info-foreground: #0057D9;
+  --sja-status-info-background: #E0F0FF;
+  --sja-status-waiting-foreground: #A65300;
+  --sja-status-waiting-background: #FFF0CC;
+  --sja-status-success-foreground: #087443;
+  --sja-status-success-background: #DCF7E8;
+  --sja-status-processing-foreground: #6840BB;
+  --sja-status-processing-background: #EFE7FF;
+  --sja-status-danger-foreground: #C62840;
+  --sja-status-danger-background: #FFE7EC;
+  --sja-status-inactive-foreground: #526580;
+  --sja-status-inactive-background: #EDF2F7;
+  --sja-font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --sja-radius-card: 16px;
+  --sja-radius-control: 12px;
+  --sja-control-height: 48px;
+  --sja-focus-ring: #0060F4;
+  --sja-space-page-mobile: 16px;
+  --sja-space-page-desktop: 24px;
+  --sja-gap-mobile: 16px;
+  --sja-gap-desktop: 20px;
+  --sja-sidebar-width: 240px;
+  --sja-topbar-height: 64px;
+  --sja-shadow-card: 0 2px 12px rgb(8 40 112 / 0.05);
+}
+
+.dark {
+  --sja-primary: #3B82F6;
+  --sja-primary-dark: #1D4ED8;
+  --sja-heading: #F1F5F9;
+  --sja-secondary-text: #94A3B8;
+  --sja-background: #071322;
+  --sja-surface: #0C1D36;
+  --sja-border: #1A3358;
+  --sja-primary-soft: #132847;
+  --sja-accent: #38BDF8;
+  --sja-sidebar-background: #050E1A;
+  --sja-sidebar-hover: #0C1D36;
+  --sja-sidebar-active: #173B66;
+  --sja-sidebar-text: #F1F5F9;
+  --sja-sidebar-muted: #8EA8C4;
+  --sja-status-info-foreground: #60A5FA;
+  --sja-status-info-background: rgba(59, 130, 246, 0.15);
+  --sja-status-waiting-foreground: #FBBF24;
+  --sja-status-waiting-background: rgba(245, 158, 11, 0.15);
+  --sja-status-success-foreground: #34D399;
+  --sja-status-success-background: rgba(16, 185, 129, 0.15);
+  --sja-status-processing-foreground: #C084FC;
+  --sja-status-processing-background: rgba(168, 85, 247, 0.15);
+  --sja-status-danger-foreground: #F87171;
+  --sja-status-danger-background: rgba(239, 68, 68, 0.15);
+  --sja-status-inactive-foreground: #94A3B8;
+  --sja-status-inactive-background: rgba(148, 163, 184, 0.15);
+  --sja-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.35);
+}

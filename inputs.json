@@ -1,0 +1,94 @@
+{
+  "project": "PT Samudra Jaya Andalas",
+  "locale": "id-ID",
+  "timezone": "Asia/Jakarta",
+  "visual_direction": "Corporate Maritime",
+  "stack": [
+    "Laravel",
+    "React",
+    "Inertia",
+    "PostgreSQL",
+    "Redis"
+  ],
+  "master_prompt": "docs/sja/PROMPT-INDUK.md",
+  "design": "docs/sja/DESIGN.md",
+  "css_tokens": "resources/css/sja-tokens.css",
+  "component_directory": "resources/js/components",
+  "all_modules_require_desktop_and_mobile": true,
+  "colors": {
+    "primary": "#0060F4",
+    "primary-dark": "#082870",
+    "heading": "#0B1F63",
+    "secondary-text": "#52658E",
+    "background": "#F0F8FF",
+    "surface": "#FFFFFF",
+    "border": "#DCEAF8",
+    "primary-soft": "#E0F0FF",
+    "accent": "#19B5F7",
+    "sidebar-background": "#0D2945",
+    "sidebar-hover": "#173B5C",
+    "sidebar-active": "#285585",
+    "sidebar-text": "#E7F0FA",
+    "sidebar-muted": "#B5C8DC"
+  },
+  "status_colors": {
+    "info": {
+      "foreground": "#0057D9",
+      "background": "#E0F0FF"
+    },
+    "waiting": {
+      "foreground": "#A65300",
+      "background": "#FFF0CC"
+    },
+    "success": {
+      "foreground": "#087443",
+      "background": "#DCF7E8"
+    },
+    "processing": {
+      "foreground": "#6840BB",
+      "background": "#EFE7FF"
+    },
+    "danger": {
+      "foreground": "#C62840",
+      "background": "#FFE7EC"
+    },
+    "inactive": {
+      "foreground": "#526580",
+      "background": "#EDF2F7"
+    }
+  },
+  "font": "Inter",
+  "verification_widths_px": [
+    360,
+    390,
+    768,
+    1024,
+    1280,
+    1440,
+    1536
+  ],
+  "references": [
+    {
+      "path": "docs/sja/references/Tampilan Desktop Bu Titik - Admin - Operasional.png",
+      "purpose": "Dashboard desktop: sidebar navy, topbar, banner, KPI, tabel dan panel pendukung."
+    },
+    {
+      "path": "docs/sja/references/1. Tampilan Mobile Staff Lapangan - Pak Prima.png",
+      "purpose": "Beranda staf mobile, sambutan, aksi utama, kapal dan navigasi bawah."
+    },
+    {
+      "path": "docs/sja/references/2. Menu Kapal.png",
+      "purpose": "Pencarian/filter kapal, kartu kapal, status, metadata dan jadwal."
+    },
+    {
+      "path": "docs/sja/references/392eab1d-e854-4fe7-91fe-ee93e31d3bc1.png",
+      "purpose": "Daftar pengajuan, filter, form bertahap, review, sukses dan detail."
+    }
+  ],
+  "reference_notes": [
+    "Periksa file sebenarnya; daftar path bukan bukti bahwa gambar tersedia.",
+    "Screenshot adalah acuan layout, bukan gambar halaman yang dipasang sebagai UI.",
+    "Jangan menyalin angka transaksi, cuaca, nama akun atau badge mockup menjadi data produksi.",
+    "Gunakan token status pada brief ketika warna antar-gambar berbeda."
+  ]
+}
