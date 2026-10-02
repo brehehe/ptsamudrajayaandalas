@@ -1,18 +1,44 @@
 import React, { forwardRef, InputHTMLAttributes } from 'react';
+import { CircleAlert } from 'lucide-react';
 
-export interface MoneyInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'size'> {
+export interface MoneyInputProps extends Omit<
+    InputHTMLAttributes<HTMLInputElement>,
+    'type' | 'value' | 'onChange' | 'size'
+> {
     value: number | string;
-    onChange: (value: number) => void;
+    onChange: (value: string) => void;
     label?: string;
     helperText?: string;
     error?: string;
     currencySymbol?: string;
+    allowNegative?: boolean;
     sizeVariant?: 'sm' | 'md' | 'lg';
 }
 
-const formatRupiah = (val: number | string): string => {
-    if (val === '' || val === null || val === undefined || isNaN(Number(val))) return '';
-    return new Intl.NumberFormat('id-ID').format(Number(val));
+export const normalizeRupiahInput = (value: number | string, allowNegative = false): string => {
+    const textValue = String(value ?? '');
+    const digits = textValue.replace(/\D/g, '');
+    const isNegative = allowNegative && textValue.trimStart().startsWith('-');
+
+    if (digits === '') {
+        return isNegative ? '-' : '';
+    }
+
+    const normalizedDigits = digits.replace(/^0+(?=\d)/, '');
+
+    return `${isNegative ? '-' : ''}${normalizedDigits}`;
+};
+
+export const formatRupiahInput = (value: number | string, allowNegative = false): string => {
+    const normalizedValue = normalizeRupiahInput(value, allowNegative);
+
+    if (normalizedValue === '' || normalizedValue === '-') {
+        return normalizedValue;
+    }
+
+    return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(
+        Number(normalizedValue),
+    );
 };
 
 const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
@@ -24,6 +50,7 @@ const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
             helperText,
             error,
             currencySymbol = 'Rp',
+            allowNegative = false,
             sizeVariant = 'md',
             className = '',
             id,
@@ -34,6 +61,8 @@ const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
         ref
     ) => {
         const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+        const helperId = inputId ? `${inputId}-helper` : undefined;
+        const errorId = inputId ? `${inputId}-error` : undefined;
 
         const sizeStyles = {
             sm: 'h-9 text-xs pl-10 pr-3 rounded-lg',
@@ -42,9 +71,7 @@ const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
         };
 
         const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-            const rawDigits = e.target.value.replace(/\D/g, '');
-            const num = rawDigits ? parseInt(rawDigits, 10) : 0;
-            onChange(num);
+            onChange(normalizeRupiahInput(e.target.value, allowNegative));
         };
 
         return (
@@ -55,12 +82,19 @@ const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
                         className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] select-none"
                     >
                         {label}
-                        {required && <span className="text-[#C62840] dark:text-[#F87171] ml-0.5">*</span>}
+                        {required && (
+                            <span className="text-[#C62840] dark:text-[#F87171] ml-0.5">*</span>
+                        )}
                     </label>
                 )}
 
                 <div className="relative flex items-center">
-                    <span className="absolute left-3.5 text-xs font-bold text-[#52658E] dark:text-[#94A3B8] select-none pointer-events-none">
+                    <span
+                        className={
+                            'absolute left-3.5 text-xs font-bold text-[#52658E] ' +
+                            'dark:text-[#94A3B8] select-none pointer-events-none'
+                        }
+                    >
                         {currencySymbol}
                     </span>
 
@@ -71,17 +105,27 @@ const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
                         inputMode="numeric"
                         disabled={disabled}
                         required={required}
-                        value={formatRupiah(value)}
+                        value={formatRupiahInput(value, allowNegative)}
                         onChange={handleChange}
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby={error ? errorId : helperText ? helperId : undefined}
                         className={`w-full bg-white dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] font-semibold tracking-wide border placeholder-[#8C9BB9] dark:placeholder-[#64748B] transition-all outline-none ${
                             sizeStyles[sizeVariant]
                         } ${
                             error
-                                ? 'border-[#C62840] dark:border-[#EF4444] focus:border-[#C62840] dark:focus:border-[#EF4444] focus:ring-2 focus:ring-[#C62840]/20 dark:focus:ring-[#EF4444]/20'
-                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] focus:border-[#0060F4] dark:focus:border-[#38BDF8] focus:ring-2 focus:ring-[#0060F4]/20 dark:focus:ring-[#38BDF8]/20'
+                                ? 'border-[#C62840] dark:border-[#EF4444] ' +
+                                  'focus:border-[#C62840] dark:focus:border-[#EF4444] ' +
+                                  'focus:ring-2 focus:ring-[#C62840]/20 ' +
+                                  'dark:focus:ring-[#EF4444]/20'
+                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] ' +
+                                  'focus:border-[#0060F4] dark:focus:border-[#38BDF8] ' +
+                                  'focus:ring-2 focus:ring-[#0060F4]/20 ' +
+                                  'dark:focus:ring-[#38BDF8]/20'
                         } ${
                             disabled
-                                ? 'bg-[#F0F8FF]/60 dark:bg-[#071322]/60 text-[#8C9BB9] dark:text-[#64748B] border-[#DCEAF8] dark:border-[#1E3A5F] cursor-not-allowed select-none'
+                                ? 'bg-[#F0F8FF]/60 dark:bg-[#071322]/60 text-[#8C9BB9] ' +
+                                  'dark:text-[#64748B] border-[#DCEAF8] dark:border-[#1E3A5F] ' +
+                                  'cursor-not-allowed select-none'
                                 : 'hover:border-[#0060F4]/50 dark:hover:border-[#38BDF8]/50'
                         } ${className}`}
                         {...props}
@@ -89,12 +133,12 @@ const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(
                 </div>
 
                 {error ? (
-                    <p className="text-[11px] text-[#C62840] dark:text-[#F87171] font-semibold flex items-center gap-1">
-                        <span>⚠</span>
+                    <p id={errorId} role="alert" className="text-[11px] text-[#C62840] dark:text-[#F87171] font-semibold flex items-center gap-1">
+                        <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />
                         <span>{error}</span>
                     </p>
                 ) : helperText ? (
-                    <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{helperText}</p>
+                    <p id={helperId} className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{helperText}</p>
                 ) : null}
             </div>
         );

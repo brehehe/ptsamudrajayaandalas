@@ -17,6 +17,7 @@ class ShipRequest extends Model
 
     protected $fillable = [
         'request_number',
+        'batch_number',
         'ship_id',
         'created_by',
         'status',
@@ -27,6 +28,8 @@ class ShipRequest extends Model
         'port_call_id',
         'port_id',
         'service_type',
+        'requested_port_call_status',
+        'operational_occurred_at',
         'company_id',
         'forwarded_to_director_at',
         'director_reviewed_at',
@@ -38,6 +41,7 @@ class ShipRequest extends Model
             'request_date' => 'date',
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'operational_occurred_at' => 'datetime',
             'forwarded_to_director_at' => 'datetime',
             'director_reviewed_at' => 'datetime',
         ];

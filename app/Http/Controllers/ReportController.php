@@ -14,6 +14,7 @@ class ReportController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $portCalls = PortCall::with(['ship.company', 'port', 'invoices', 'outgoingPayments'])
             ->orderByDesc('created_at')
             ->get();
@@ -31,7 +32,7 @@ class ReportController extends Controller
             'agency_revenue' => $agencyRevenue,
             'reimburse_revenue' => $reimburseRevenue,
             'total_expenses' => $totalExpenses,
-            'net_agency_margin' => $netMargin > 0 ? $netMargin : $agencyRevenue * 0.35, // realistic agency margin estimate
+            'net_agency_margin' => $netMargin,
             'completed_requests' => ShipRequest::where('status', 'Selesai')->count(),
             'pending_requests' => ShipRequest::where('status', 'Menunggu Approval')->count(),
         ];
@@ -46,7 +47,7 @@ class ReportController extends Controller
                 'job_number' => $call->job_number,
                 'ship_name' => $call->ship ? $call->ship->name : 'N/A',
                 'company_name' => $call->ship && $call->ship->company ? $call->ship->company->name : 'N/A',
-                'port_name' => $call->port ? $call->port->name : 'Gresik',
+                'port_name' => $call->port ? $call->port->name : '-',
                 'status' => $call->status,
                 'eta' => $call->eta_at ? $call->eta_at->format('d M Y H:i') : '-',
                 'etd' => $call->etd_at ? $call->etd_at->format('d M Y H:i') : '-',

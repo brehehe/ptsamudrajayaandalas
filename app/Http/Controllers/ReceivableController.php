@@ -2,19 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreClientReceiptRequest;
 use App\Models\ClientReceipt;
 use App\Models\Invoice;
 use App\Models\ShipCompany;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReceivableController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $search = $request->query('search');
 
         $unpaidInvoicesQuery = Invoice::query()
@@ -23,7 +28,7 @@ class ReceivableController extends Controller
             ->whereIn('status', ['released', 'sent']);
 
         $receiptsQuery = ClientReceipt::query()
-            ->with(['company', 'recorder'])
+            ->with(['company', 'recorder', 'allocations.invoice:id,invoice_number'])
             ->orderByDesc('received_date');
 
         if ($search) {
@@ -75,18 +80,22 @@ class ReceivableController extends Controller
         ]);
     }
 
-    public function storeReceipt(Request $request): RedirectResponse
+    public function storeReceipt(StoreClientReceiptRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'company_id' => ['required', 'exists:ship_companies,id'],
-            'received_date' => ['required', 'date'],
-            'amount' => ['required', 'numeric', 'min:1'],
-            'destination_account' => ['required', 'string', 'max:255'],
-            'bank_reference' => ['required', 'string', 'max:100'],
-            'invoice_id' => ['nullable', 'exists:invoices,id'],
-        ]);
+        $validated = $request->validated();
 
-        return DB::transaction(function () use ($request, $validated) {
+        return DB::transaction(function () use ($request, $validated): RedirectResponse {
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($validated['invoice_id']);
+            if ($invoice->company_id !== $validated['company_id']) {
+                throw ValidationException::withMessages(['invoice_id' => 'Invoice tidak dimiliki oleh perusahaan yang dipilih.']);
+            }
+            if (! in_array($invoice->status, ['released', 'sent'], true)) {
+                throw ValidationException::withMessages(['invoice_id' => 'Pembayaran hanya dapat dialokasikan ke invoice yang sudah dirilis.']);
+            }
+            if ((float) $validated['amount'] > (float) $invoice->outstanding_amount) {
+                throw ValidationException::withMessages(['amount' => 'Nominal pembayaran melebihi sisa piutang invoice.']);
+            }
+
             $receipt = ClientReceipt::create([
                 'company_id' => $validated['company_id'],
                 'received_date' => $validated['received_date'],
@@ -94,26 +103,39 @@ class ReceivableController extends Controller
                 'currency' => 'IDR',
                 'destination_account' => $validated['destination_account'],
                 'bank_reference' => $validated['bank_reference'],
-                'proof_path' => 'proofs/receipt-manual.pdf',
+                'proof_path' => $request->file('proof')->store('sja/client-receipts', 'local'),
                 'status' => 'confirmed',
                 'recorded_by' => $request->user()->id,
             ]);
+            $receipt->allocations()->create([
+                'invoice_id' => $invoice->id,
+                'amount' => $validated['amount'],
+            ]);
 
-            // If an invoice is specified, allocate payment
-            if (! empty($validated['invoice_id'])) {
-                $invoice = Invoice::lockForUpdate()->find($validated['invoice_id']);
-                if ($invoice) {
-                    $newPaid = min((float) $invoice->grand_total, (float) $invoice->paid_amount + (float) $validated['amount']);
-                    $newOutstanding = max(0, (float) $invoice->grand_total - $newPaid);
-                    $invoice->update([
-                        'paid_amount' => $newPaid,
-                        'outstanding_amount' => $newOutstanding,
-                        'status' => $newOutstanding == 0 ? 'paid' : 'sent',
-                    ]);
-                }
-            }
+            $newPaid = (float) $invoice->paid_amount + (float) $validated['amount'];
+            $newOutstanding = max(0, (float) $invoice->grand_total - $newPaid);
+            $invoice->update([
+                'paid_amount' => $newPaid,
+                'outstanding_amount' => $newOutstanding,
+                'status' => $newOutstanding <= 0 ? 'paid' : 'sent',
+                'paid_at' => $newOutstanding <= 0 ? now() : null,
+            ]);
+
+            activity('client-receipt')
+                ->performedOn($receipt)
+                ->causedBy($request->user())
+                ->withProperties(['invoice_id' => $invoice->id, 'amount' => (float) $validated['amount']])
+                ->log('Pembayaran klien dicatat dan dialokasikan');
 
             return redirect()->back()->with('success', "Penerimaan pembayaran dari klien ref {$validated['bank_reference']} berhasil dicatat.");
         });
+    }
+
+    public function downloadReceipt(Request $request, ClientReceipt $clientReceipt): StreamedResponse
+    {
+        abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
+        abort_unless($clientReceipt->proof_path && Storage::disk('local')->exists($clientReceipt->proof_path), 404);
+
+        return Storage::disk('local')->download($clientReceipt->proof_path);
     }
 }

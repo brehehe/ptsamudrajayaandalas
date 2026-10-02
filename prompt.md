@@ -112,22 +112,6 @@ Desktop dan mobile memakai backend, aturan bisnis, dan sumber data yang sama.
 
 Sediakan loading, empty, error, validation, hover, focus, active, dan disabled state. Pastikan keyboard navigation, label form, aria-label tombol ikon, serta pengelolaan fokus dialog berfungsi.
 
-Aturan bisnis SJA
-
-Ikuti detail docs/sja/PROMPT-INDUK.md; terapkan bagian yang terkait halaman:
-
-SPK → input Prima → review Titik → pembayaran Pelindo kedatangan terverifikasi sebelum kesiapan Clearance In.
-
-Permintaan kapal → Prima input → Titik review → Prima order/penawaran vendor → Titik verifikasi biaya → Direktur approval → Kopra → Ryan ACC → dana diterima Titik → pembayaran vendor.
-
-Catat realisasi layanan dan laporan harian Prima; detail wajib, foto opsional. Semua transaksi terhubung ke kunjungan/job yang tepat.
-
-Clearance Out → serah terima Prima → Titik → Ryan → Nota Rampung/APBS/nota tambahan → rekonsiliasi → penyelesaian saldo Pelindo.
-
-Setelah prasyarat terpenuhi, release Invoice Keagenan/Jasa dan Invoice Reimburse secara terpisah → unggah invoice bertanda tangan → catat pengiriman → piutang dan pembayaran klien.
-
-Pisahkan selesai operasional dan selesai keuangan. Jangan menggandakan biaya Pelindo awal saat nota final diterima. Perubahan nilai setelah approval harus ditinjau ulang. Tarif pajak mengikuti konfigurasi. Jangan mengasumsikan integrasi bank/Kopra/Pelindo; pencatatan transfer tidak memindahkan dana. INAPORTNET di luar cakupan.
-
 Verifikasi akhir
 
 Uji route, data backend, form, permission, transisi status, dan komponen yang terkait. Pastikan import komponen hasil setup valid dan perubahan komponen bersama tetap kompatibel dengan pemakaiannya. Periksa desktop, tablet, mobile, keyboard, dan overflow. Jalankan test relevan, typecheck/lint, serta production build sesuai script proyek. Laporkan hasil aktual, file yang berubah, dan kendala yang belum teratasi.

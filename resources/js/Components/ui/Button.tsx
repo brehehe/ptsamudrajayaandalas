@@ -27,15 +27,22 @@ export const Button: React.FC<ButtonProps> = ({
 
     const variantClasses = {
         primary:
-            'bg-[#0060F4] hover:bg-[#0050D0] active:bg-[#082870] dark:bg-[#2563EB] dark:hover:bg-[#1D4ED8] text-white shadow-sm font-medium transition-colors focus:ring-2 focus:ring-[#0060F4]/30',
+            'bg-[#0060F4] hover:bg-[#0050D0] active:bg-[#082870] dark:bg-[#2563EB] ' +
+            'dark:hover:bg-[#1D4ED8] text-white shadow-sm font-medium transition-colors ' +
+            'focus:ring-2 focus:ring-[#0060F4]/30',
         secondary:
-            'bg-[#E0F0FF] dark:bg-[#152E52] hover:bg-[#D0E6FC] dark:hover:bg-[#1E3D6B] active:bg-[#BCE0FD] text-[#0060F4] dark:text-[#60A5FA] font-medium transition-colors',
+            'bg-[#E0F0FF] dark:bg-[#152E52] hover:bg-[#D0E6FC] dark:hover:bg-[#1E3D6B] ' +
+            'active:bg-[#BCE0FD] text-[#0060F4] dark:text-[#60A5FA] font-medium ' +
+            'transition-colors',
         outline:
-            'border border-[#DCEAF8] dark:border-[#1E3A5F] hover:border-[#0060F4] dark:hover:border-[#38BDF8] hover:bg-[#F0F8FF] dark:hover:bg-[#132847] text-[#0B1F63] dark:text-[#F1F5F9] font-medium transition-colors bg-white dark:bg-[#0C1D36]',
+            'border border-[#DCEAF8] dark:border-[#1E3A5F] hover:border-[#0060F4] ' +
+            'dark:hover:border-[#38BDF8] hover:bg-[#F0F8FF] dark:hover:bg-[#132847] ' +
+            'text-[#0B1F63] dark:text-[#F1F5F9] font-medium transition-colors bg-white ' +
+            'dark:bg-[#0C1D36]',
         ghost:
-            'hover:bg-[#E0F0FF]/50 dark:hover:bg-[#152E52]/50 text-[#0B1F63] dark:text-[#F1F5F9] hover:text-[#0060F4] dark:hover:text-[#38BDF8] font-medium transition-colors',
-        danger:
-            'bg-[#C62840] hover:bg-[#B01F35] text-white font-medium shadow-sm transition-colors',
+            'hover:bg-[#E0F0FF]/50 dark:hover:bg-[#152E52]/50 text-[#0B1F63] dark:text-[#F1F5F9] ' +
+            'hover:text-[#0060F4] dark:hover:text-[#38BDF8] font-medium transition-colors',
+        danger: 'bg-[#C62840] hover:bg-[#B01F35] text-white font-medium shadow-sm transition-colors',
     };
 
     return (
@@ -46,7 +53,7 @@ export const Button: React.FC<ButtonProps> = ({
         >
             {isLoading ? (
                 <svg
-                    className="animate-spin h-4 w-4 text-current"
+                    className="size-4 animate-spin text-current motion-reduce:animate-none"
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
@@ -62,7 +69,10 @@ export const Button: React.FC<ButtonProps> = ({
                     <path
                         className="opacity-75"
                         fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        d={
+                            'M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 01' +
+                            '4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
+                        }
                     />
                 </svg>
             ) : (

@@ -21,7 +21,10 @@ interface MasterVendorsIndexProps {
     search: string;
 }
 
-export default function MasterVendorsIndex({ vendors, search: initialSearch }: MasterVendorsIndexProps) {
+export default function MasterVendorsIndex({
+    vendors,
+    search: initialSearch,
+}: MasterVendorsIndexProps) {
     const [search, setSearch] = useState(initialSearch);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
@@ -73,9 +76,24 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
 
             <div className="space-y-4 max-w-7xl mx-auto pb-10">
                 {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-[#DCEAF8]">
-                    <div className="flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border border-[#DCEAF8] self-start">
-                        <div className="px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 bg-[#0060F4] text-white shadow-sm">
+                <div
+                    className={
+                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
+                        'border-b border-[#DCEAF8]'
+                    }
+                >
+                    <div
+                        className={
+                            'flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border ' +
+                            'border-[#DCEAF8] self-start'
+                        }
+                    >
+                        <div
+                            className={
+                                'px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex ' +
+                                'items-center gap-2 bg-[#0060F4] text-white shadow-sm'
+                            }
+                        >
                             <span>🏢</span>
                             <span>Master Vendor</span>
                             <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-white/20 text-white">
@@ -90,7 +108,12 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                             reset();
                             setIsCreateModalOpen(true);
                         }}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white text-xs sm:text-sm font-bold shadow-sm transition-all flex-shrink-0 cursor-pointer self-start sm:self-auto"
+                        className={
+                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
+                            'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
+                            'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
+                            'flex-shrink-0 cursor-pointer self-start sm:self-auto'
+                        }
                     >
                         <span className="text-base leading-none font-bold">+</span>
                         <span>Tambah Vendor Baru</span>
@@ -104,15 +127,27 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                             Master Data Vendor & Penyedia Jasa
                         </h1>
                         <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                            Daftar vendor penyedia air tawar, BBM, perahu motor tambat, dan logistik kapal
+                            Daftar vendor penyedia air tawar, BBM, perahu motor tambat, dan logistik
+                            kapal
                         </p>
                     </div>
                 </div>
 
                 {/* ── Search Bar ── */}
                 <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8C9BB9]">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <div
+                        className={
+                            'absolute inset-y-0 left-0 pl-3.5 flex items-center ' +
+                            'pointer-events-none text-[#8C9BB9]'
+                        }
+                    >
+                        <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            viewBox="0 0 24 24"
+                        >
                             <circle cx="11" cy="11" r="8" />
                             <line x1="21" y1="21" x2="16.65" y2="16.65" />
                         </svg>
@@ -122,11 +157,20 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Cari kode vendor, nama perusahaan, email, atau kontak..."
-                        className="w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
+                        className={
+                            'w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] ' +
+                            'rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs ' +
+                            'focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 ' +
+                            'focus:border-[#0060F4]'
+                        }
                     />
                     <button
                         type="submit"
-                        className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        className={
+                            'absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] ' +
+                            'hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg ' +
+                            'transition-colors cursor-pointer'
+                        }
                     >
                         Cari
                     </button>
@@ -137,7 +181,12 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] font-semibold uppercase tracking-wider">
+                                <tr
+                                    className={
+                                        'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
+                                        'font-semibold uppercase tracking-wider'
+                                    }
+                                >
                                     <th className="py-3 px-4">Kode Vendor</th>
                                     <th className="py-3 px-4">Nama Perusahaan Vendor</th>
                                     <th className="py-3 px-4">Email & Telepon</th>
@@ -148,7 +197,10 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                             </thead>
                             <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
                                 {vendors.map((v) => (
-                                    <tr key={v.id} className="hover:bg-[#F0F8FF]/50 transition-colors">
+                                    <tr
+                                        key={v.id}
+                                        className="hover:bg-[#F0F8FF]/50 transition-colors"
+                                    >
                                         <td className="py-3.5 px-4 font-mono font-bold text-[#0060F4]">
                                             {v.code}
                                         </td>
@@ -157,7 +209,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                                         </td>
                                         <td className="py-3.5 px-4">
                                             <div className="text-neutral-800">{v.phone || '-'}</div>
-                                            <div className="text-[11px] text-[#52658E]">{v.email || '-'}</div>
+                                            <div className="text-[11px] text-[#52658E]">
+                                                {v.email || '-'}
+                                            </div>
                                         </td>
                                         <td className="py-3.5 px-4 max-w-xs text-[#52658E]">
                                             {v.address || '-'}
@@ -211,7 +265,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                 <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Kode Vendor</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Kode Vendor
+                            </label>
                             <input
                                 type="text"
                                 maxLength={20}
@@ -224,7 +280,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Nomor Telepon</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Nomor Telepon
+                            </label>
                             <input
                                 type="text"
                                 value={data.phone}
@@ -236,7 +294,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                     </div>
 
                     <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Nama Perusahaan Vendor</label>
+                        <label className="font-semibold text-[#082870] block mb-1">
+                            Nama Perusahaan Vendor
+                        </label>
                         <input
                             type="text"
                             value={data.name}
@@ -248,7 +308,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                     </div>
 
                     <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Email Kontak</label>
+                        <label className="font-semibold text-[#082870] block mb-1">
+                            Email Kontak
+                        </label>
                         <input
                             type="email"
                             value={data.email}
@@ -259,7 +321,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                     </div>
 
                     <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Alamat Kantor / Dermaga</label>
+                        <label className="font-semibold text-[#082870] block mb-1">
+                            Alamat Kantor / Dermaga
+                        </label>
                         <textarea
                             value={data.address}
                             onChange={(e) => setData('address', e.target.value)}
@@ -273,7 +337,12 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                         <Button variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
                             Batal
                         </Button>
-                        <Button type="submit" variant="primary" disabled={processing} className="bg-[#0060F4] text-white">
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            disabled={processing}
+                            className="bg-[#0060F4] text-white"
+                        >
                             {processing ? 'Menyimpan...' : 'Simpan Vendor'}
                         </Button>
                     </div>
@@ -290,19 +359,26 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                     <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="font-semibold text-[#082870] block mb-1">Kode Vendor</label>
+                                <label className="font-semibold text-[#082870] block mb-1">
+                                    Kode Vendor
+                                </label>
                                 <input
                                     type="text"
                                     maxLength={20}
                                     value={data.code}
                                     onChange={(e) => setData('code', e.target.value.toUpperCase())}
-                                    className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white font-mono"
+                                    className={
+                                        'w-full text-xs rounded-xl border border-[#DCEAF8] ' +
+                                        'p-2.5 bg-white font-mono'
+                                    }
                                     required
                                 />
                             </div>
 
                             <div>
-                                <label className="font-semibold text-[#082870] block mb-1">Telepon</label>
+                                <label className="font-semibold text-[#082870] block mb-1">
+                                    Telepon
+                                </label>
                                 <input
                                     type="text"
                                     value={data.phone}
@@ -313,7 +389,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Nama Vendor</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Nama Vendor
+                            </label>
                             <input
                                 type="text"
                                 value={data.name}
@@ -334,7 +412,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Alamat</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Alamat
+                            </label>
                             <textarea
                                 value={data.address}
                                 onChange={(e) => setData('address', e.target.value)}
@@ -344,7 +424,9 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Status</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Status
+                            </label>
                             <select
                                 value={data.is_active ? '1' : '0'}
                                 onChange={(e) => setData('is_active', e.target.value === '1')}
@@ -359,7 +441,12 @@ export default function MasterVendorsIndex({ vendors, search: initialSearch }: M
                             <Button variant="secondary" onClick={() => setEditingVendor(null)}>
                                 Batal
                             </Button>
-                            <Button type="submit" variant="primary" disabled={processing} className="bg-[#0060F4] text-white">
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                disabled={processing}
+                                className="bg-[#0060F4] text-white"
+                            >
                                 {processing ? 'Memperbarui...' : 'Perbarui Vendor'}
                             </Button>
                         </div>

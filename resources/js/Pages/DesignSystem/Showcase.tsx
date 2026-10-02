@@ -7,6 +7,7 @@ import {
     Pagination,
     Modal,
     Input,
+    DateTimePicker,
     MoneyInput,
     Textarea,
     Toggle,
@@ -20,6 +21,9 @@ import {
     Chart,
     Button,
     StatusBadge,
+    ConfirmDialog,
+    AlertToast,
+    type AlertToastMessage,
 } from '../../Components';
 
 interface SampleVessel {
@@ -100,7 +104,8 @@ export default function Showcase() {
 
     // Form Controls State
     const [inputText, setInputText] = useState('MV Samudra Nusantara');
-    const [inputMoney, setInputMoney] = useState(12500000);
+    const [dateTimeValue, setDateTimeValue] = useState({ date: '', time: '' });
+    const [inputMoney, setInputMoney] = useState('12500000');
     const [textareaVal, setTextareaVal] = useState(
         'Permintaan bunker fresh water 15 ton dan koordinasi clearance in dengan karantina pelabuhan.'
     );
@@ -113,6 +118,8 @@ export default function Showcase() {
 
     // Modal State
     const [modalOpen, setModalOpen] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [demoToast, setDemoToast] = useState<AlertToastMessage | null>(null);
     const [modalSize, setModalSize] = useState<'sm' | 'md' | 'lg' | 'xl' | 'full'>('md');
 
     // Chart Data
@@ -139,9 +146,19 @@ export default function Showcase() {
 
             <div className="space-y-10 max-w-7xl mx-auto pb-16">
                 {/* Header Banner */}
-                <div className="rounded-2xl p-6 sm:p-8 bg-gradient-to-r from-[#0D2945] via-[#082870] to-[#0060F4] text-white shadow-md relative overflow-hidden">
+                <div
+                    className={
+                        'rounded-2xl p-6 sm:p-8 bg-gradient-to-r from-[#0D2945] via-[#082870] ' +
+                        'to-[#0060F4] text-white shadow-md relative overflow-hidden'
+                    }
+                >
                     <div className="relative z-10 space-y-2">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-[#19B5F7] text-xs font-bold backdrop-blur-xs">
+                        <div
+                            className={
+                                'inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 ' +
+                                'text-[#19B5F7] text-xs font-bold backdrop-blur-xs'
+                            }
+                        >
                             <span>⚓ Corporate Maritime Design System</span>
                             <span>•</span>
                             <span>Setup Penuh</span>
@@ -150,8 +167,9 @@ export default function Showcase() {
                             Galeri Komponen UI PT Samudra Jaya Andalas
                         </h1>
                         <p className="text-xs sm:text-sm text-[#DCEAF8] max-w-2xl leading-relaxed">
-                            Pustaka komponen antarmuka terstandarisasi untuk sistem keagenan kapal. Mendukung
-                            desktop dan mobile staf lapangan, validasi interaktif, token maritim, serta aksesibilitas.
+                            Pustaka komponen antarmuka terstandarisasi untuk sistem keagenan kapal.
+                            Mendukung desktop dan mobile staf lapangan, validasi interaktif, token
+                            maritim, serta aksesibilitas.
                         </p>
                     </div>
                 </div>
@@ -162,8 +180,12 @@ export default function Showcase() {
                 <section className="space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h2 className="text-lg font-extrabold text-[#0B1F63]">1. Stat / KPI Cards</h2>
-                            <p className="text-xs text-[#52658E]">Ringkasan metrik operasional dan keuangan.</p>
+                            <h2 className="text-lg font-extrabold text-[#0B1F63]">
+                                1. Stat / KPI Cards
+                            </h2>
+                            <p className="text-xs text-[#52658E]">
+                                Ringkasan metrik operasional dan keuangan.
+                            </p>
                         </div>
                     </div>
 
@@ -181,7 +203,11 @@ export default function Showcase() {
                         <StatCard
                             title="Pengajuan Pending"
                             value="7 Berkas"
-                            trend={{ value: '3 Berkas', isPositive: false, label: 'perlu ACC Titik' }}
+                            trend={{
+                                value: '3 Berkas',
+                                isPositive: false,
+                                label: 'perlu ACC Titik',
+                            }}
                             icon={<span>📋</span>}
                             iconBg="bg-[#FFF0CC]"
                             iconColor="text-[#A65300]"
@@ -215,14 +241,21 @@ export default function Showcase() {
                 <section className="space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div>
-                            <h2 className="text-lg font-extrabold text-[#0B1F63]">2. Chart Visualizations</h2>
+                            <h2 className="text-lg font-extrabold text-[#0B1F63]">
+                                2. Chart Visualizations
+                            </h2>
                             <p className="text-xs text-[#52658E]">
                                 Grafik performa kapal, kunjungan, dan distribusi status.
                             </p>
                         </div>
 
                         {/* Chart Switcher Buttons */}
-                        <div className="inline-flex rounded-xl p-1 bg-[#F0F8FF] border border-[#DCEAF8] self-start sm:self-auto">
+                        <div
+                            className={
+                                'inline-flex rounded-xl p-1 bg-[#F0F8FF] border border-[#DCEAF8] ' +
+                                'self-start sm:self-auto'
+                            }
+                        >
                             {(['bar', 'line', 'donut'] as const).map((t) => (
                                 <button
                                     key={t}
@@ -234,7 +267,11 @@ export default function Showcase() {
                                             : 'text-[#52658E] hover:text-[#0B1F63]'
                                     }`}
                                 >
-                                    {t === 'bar' ? 'Bar Chart' : t === 'line' ? 'Line Area' : 'Donut Ring'}
+                                    {t === 'bar'
+                                        ? 'Bar Chart'
+                                        : t === 'line'
+                                          ? 'Line Area'
+                                          : 'Donut Ring'}
                                 </button>
                             ))}
                         </div>
@@ -270,7 +307,9 @@ export default function Showcase() {
                 {/* ======================================================== */}
                 <section className="space-y-4">
                     <div>
-                        <h2 className="text-lg font-extrabold text-[#0B1F63]">3. Filter & FilterBar</h2>
+                        <h2 className="text-lg font-extrabold text-[#0B1F63]">
+                            3. Filter & FilterBar
+                        </h2>
                         <p className="text-xs text-[#52658E]">
                             Kontrol pencarian, chips kategori, dan tag filter aktif.
                         </p>
@@ -289,7 +328,9 @@ export default function Showcase() {
                         activeChipId={activeChip}
                         onChipChange={setActiveChip}
                         activeFilters={activeFilters}
-                        onRemoveFilter={(key) => setActiveFilters((prev) => prev.filter((f) => f.key !== key))}
+                        onRemoveFilter={(key) =>
+                            setActiveFilters((prev) => prev.filter((f) => f.key !== key))
+                        }
                         onResetFilters={() => setActiveFilters([])}
                         onOpenFilterModal={() => setModalOpen(true)}
                         filterCountBadge={activeFilters.length}
@@ -311,7 +352,12 @@ export default function Showcase() {
                         </div>
 
                         {/* Mode View Switcher */}
-                        <div className="inline-flex rounded-xl p-1 bg-[#F0F8FF] border border-[#DCEAF8] self-start sm:self-auto">
+                        <div
+                            className={
+                                'inline-flex rounded-xl p-1 bg-[#F0F8FF] border border-[#DCEAF8] ' +
+                                'self-start sm:self-auto'
+                            }
+                        >
                             <button
                                 type="button"
                                 onClick={() => setTableViewMode('desktop')}
@@ -368,7 +414,9 @@ export default function Showcase() {
                                     sortable: true,
                                     render: (v) => (
                                         <div>
-                                            <span className="font-bold text-[#0B1F63] block">{v.name}</span>
+                                            <span className="font-bold text-[#0B1F63] block">
+                                                {v.name}
+                                            </span>
                                             <span className="text-[11px] text-[#52658E] font-mono">
                                                 IMO: {v.imo}
                                             </span>
@@ -379,20 +427,29 @@ export default function Showcase() {
                                     key: 'type',
                                     header: 'Tipe Kapal',
                                     sortable: true,
-                                    render: (v) => <span className="text-xs font-medium">{v.type}</span>,
+                                    render: (v) => (
+                                        <span className="text-xs font-medium">{v.type}</span>
+                                    ),
                                 },
                                 {
                                     key: 'status',
                                     header: 'Status',
                                     render: (v) => (
-                                        <StatusBadge status={v.status} label={v.status} showDot size="sm" />
+                                        <StatusBadge
+                                            status={v.status}
+                                            label={v.status}
+                                            showDot
+                                            size="sm"
+                                        />
                                     ),
                                 },
                                 {
                                     key: 'eta',
                                     header: 'Estimasi Kedatangan (ETA)',
                                     sortable: true,
-                                    render: (v) => <span className="text-xs text-[#52658E]">{v.eta}</span>,
+                                    render: (v) => (
+                                        <span className="text-xs text-[#52658E]">{v.eta}</span>
+                                    ),
                                 },
                                 {
                                     key: 'dwt',
@@ -414,7 +471,12 @@ export default function Showcase() {
                                             <button
                                                 type="button"
                                                 onClick={() => setModalOpen(true)}
-                                                className="px-2.5 py-1 rounded-lg bg-[#E0F0FF] text-[#0060F4] font-bold text-xs hover:bg-[#0060F4] hover:text-white transition"
+                                                className={
+                                                    'px-2.5 py-1 rounded-lg bg-[#E0F0FF] ' +
+                                                    'text-[#0060F4] font-bold text-xs ' +
+                                                    'hover:bg-[#0060F4] hover:text-white ' +
+                                                    'transition'
+                                                }
                                             >
                                                 Detail
                                             </button>
@@ -433,7 +495,13 @@ export default function Showcase() {
                                 <StatusBadge status={v.status} label={v.status} showDot size="sm" />
                             )}
                             imageRender={() => (
-                                <div className="w-11 h-11 rounded-xl bg-[#E0F0FF] text-[#0060F4] flex items-center justify-center text-lg font-black flex-shrink-0 border border-[#DCEAF8]">
+                                <div
+                                    className={
+                                        'w-11 h-11 rounded-xl bg-[#E0F0FF] text-[#0060F4] flex ' +
+                                        'items-center justify-center text-lg font-black ' +
+                                        'flex-shrink-0 border border-[#DCEAF8]'
+                                    }
+                                >
                                     🚢
                                 </div>
                             )}
@@ -495,10 +563,11 @@ export default function Showcase() {
                 <section className="space-y-4">
                     <div>
                         <h2 className="text-lg font-extrabold text-[#0B1F63]">
-                            5. Input, MoneyInput, Select, Combobox & Toggles
+                            5. Input, DateTimePicker, MoneyInput, Select, Combobox & Toggles
                         </h2>
                         <p className="text-xs text-[#52658E]">
-                            Komponen masukan data standar SJA dengan validasi, mata uang, pencarian, dan switch.
+                            Komponen masukan data standar SJA dengan validasi, mata uang, pencarian,
+                            dan switch.
                         </p>
                     </div>
 
@@ -527,7 +596,9 @@ export default function Showcase() {
 
                         {/* Money Input & Textarea */}
                         <Card className="p-4 sm:p-5 border border-[#DCEAF8] space-y-4">
-                            <h3 className="font-bold text-sm text-[#0B1F63]">MoneyInput & Textarea</h3>
+                            <h3 className="font-bold text-sm text-[#0B1F63]">
+                                MoneyInput & Textarea
+                            </h3>
                             <MoneyInput
                                 label="Estimasi Biaya Tambat / Labuh"
                                 value={inputMoney}
@@ -545,9 +616,28 @@ export default function Showcase() {
                             />
                         </Card>
 
+                        <Card className="space-y-4 border border-[#DCEAF8] p-4 sm:p-5 md:col-span-2 lg:col-span-1">
+                            <h3 className="font-bold text-sm text-[#0B1F63]">DateTimePicker</h3>
+                            <DateTimePicker
+                                id="showcase-schedule"
+                                label="Jadwal Dibutuhkan"
+                                dateValue={dateTimeValue.date}
+                                timeValue={dateTimeValue.time}
+                                onDateChange={(date) =>
+                                    setDateTimeValue((current) => ({ ...current, date }))
+                                }
+                                onTimeChange={(time) =>
+                                    setDateTimeValue((current) => ({ ...current, time }))
+                                }
+                                helperText="Tanggal dan waktu dapat diisi tanpa memuat ulang halaman."
+                            />
+                        </Card>
+
                         {/* Select & SelectSearch */}
                         <Card className="p-4 sm:p-5 border border-[#DCEAF8] space-y-4">
-                            <h3 className="font-bold text-sm text-[#0B1F63]">Select & SelectSearch</h3>
+                            <h3 className="font-bold text-sm text-[#0B1F63]">
+                                Select & SelectSearch
+                            </h3>
                             <Select
                                 label="Kategori Layanan Pelabuhan"
                                 value={selectVal}
@@ -596,7 +686,9 @@ export default function Showcase() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5 relative z-10">
                         {/* Radio Group Card Variant */}
                         <Card className="p-4 sm:p-5 border border-[#DCEAF8] space-y-3">
-                            <h3 className="font-bold text-sm text-[#0B1F63]">Radio Group (Card Variant)</h3>
+                            <h3 className="font-bold text-sm text-[#0B1F63]">
+                                Radio Group (Card Variant)
+                            </h3>
                             <RadioGroup
                                 name="priority"
                                 value={radioVal}
@@ -621,7 +713,9 @@ export default function Showcase() {
 
                         {/* Checkboxes */}
                         <Card className="p-4 sm:p-5 border border-[#DCEAF8] space-y-4">
-                            <h3 className="font-bold text-sm text-[#0B1F63]">Checkbox & Indeterminate</h3>
+                            <h3 className="font-bold text-sm text-[#0B1F63]">
+                                Checkbox & Indeterminate
+                            </h3>
                             <Checkbox
                                 checked={checkboxVal}
                                 onChange={(e) => setCheckboxVal(e.target.checked)}
@@ -645,7 +739,7 @@ export default function Showcase() {
                                 checked={toggleState}
                                 onChange={setToggleState}
                                 label="Notifikasi WhatsApp Staff Lapangan"
-                                description="Kirim pembaruan status langsung ke ponsel Pak Prima."
+                                description="Kirim pembaruan status langsung ke ponsel petugas."
                             />
 
                             <div className="pt-2 border-t border-[#DCEAF8]">
@@ -665,6 +759,48 @@ export default function Showcase() {
                 {/* ======================================================== */}
                 {/* 6. MODAL & OVERLAY DEMO                                  */}
                 {/* ======================================================== */}
+                <section className="space-y-4 rounded-2xl border border-sja-border bg-sja-surface p-5">
+                    <h2 className="text-lg font-bold text-[var(--sja-heading)]">
+                        Konfirmasi &amp; Alert Toast
+                    </h2>
+                    <p className="text-sm text-[var(--sja-secondary-text)]">
+                        Pratinjau komponen reusable. Tidak mengubah status kapal atau menyimpan data
+                        operasional.
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                        <Button type="button" onClick={() => setConfirmOpen(true)}>
+                            Pratinjau konfirmasi
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                                setDemoToast({
+                                    variant: 'error',
+                                    message:
+                                        'Contoh pesan gagal. Periksa kembali data sebelum mencoba lagi.',
+                                })
+                            }
+                        >
+                            Pratinjau toast gagal
+                        </Button>
+                    </div>
+                </section>
+                <ConfirmDialog
+                    isOpen={confirmOpen}
+                    title="Contoh konfirmasi"
+                    description="Ini hanya pratinjau. Tidak ada data operasional yang diubah."
+                    confirmLabel="Lanjutkan pratinjau"
+                    onClose={() => setConfirmOpen(false)}
+                    onConfirm={() => {
+                        setConfirmOpen(false);
+                        setDemoToast({
+                            variant: 'success',
+                            message: 'Contoh notifikasi berhasil. Tidak ada data yang disimpan.',
+                        });
+                    }}
+                />
+                {demoToast && <AlertToast {...demoToast} onClose={() => setDemoToast(null)} />}
                 <Modal
                     isOpen={modalOpen}
                     onClose={() => setModalOpen(false)}
@@ -713,21 +849,26 @@ export default function Showcase() {
                                 ℹ Fitur Otomatis Mobile Bottom Sheet
                             </div>
                             <p className="text-xs text-[#52658E] leading-relaxed">
-                                Di layar ponsel atau tablet kecil, dialog modal ini otomatis bertransformasi
-                                menjadi <strong>Mobile Bottom Sheet Drawer</strong> dengan animasi tarikan sentuh,
-                                memudahkan jempol pengguna lapangan (Pak Prima) saat bertugas di dermaga.
+                                Di layar ponsel atau tablet kecil, dialog modal ini otomatis
+                                bertransformasi menjadi <strong>Mobile Bottom Sheet Drawer</strong>{' '}
+                                dengan animasi tarikan sentuh, memudahkan jempol pengguna lapangan
+                                (Pak Prima) saat bertugas di dermaga.
                             </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 text-xs">
                             <div className="p-3 rounded-xl border border-[#DCEAF8]">
-                                <span className="text-[#8C9BB9] text-[11px] block">Jenis Permintaan</span>
+                                <span className="text-[#8C9BB9] text-[11px] block">
+                                    Jenis Permintaan
+                                </span>
                                 <span className="font-bold text-[#0B1F63] mt-0.5 block">
                                     Fresh Water 15 Ton
                                 </span>
                             </div>
                             <div className="p-3 rounded-xl border border-[#DCEAF8]">
-                                <span className="text-[#8C9BB9] text-[11px] block">Lokasi Sandar</span>
+                                <span className="text-[#8C9BB9] text-[11px] block">
+                                    Lokasi Sandar
+                                </span>
                                 <span className="font-bold text-[#0B1F63] mt-0.5 block">
                                     Dermaga Jamrud Utara
                                 </span>

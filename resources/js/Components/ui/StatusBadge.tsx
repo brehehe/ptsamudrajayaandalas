@@ -78,7 +78,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         bg = 'bg-[#EFE7FF] dark:bg-[#8B5CF6]/20 border border-transparent dark:border-[#8B5CF6]/30';
         text = 'text-[#6840BB] dark:text-[#C084FC]';
         dot = 'bg-[#6840BB] dark:bg-[#C084FC]';
-        displayLabel = displayLabel || (normalized.includes('berangkat') ? 'Berangkat' : 'Dalam Proses');
+        displayLabel =
+            displayLabel || (normalized.includes('berangkat') ? 'Berangkat' : 'Dalam Proses');
     } else if (
         normalized.includes('tolak') ||
         normalized.includes('perlu') ||

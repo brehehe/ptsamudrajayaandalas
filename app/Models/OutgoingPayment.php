@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class OutgoingPayment extends Model
@@ -27,6 +28,14 @@ class OutgoingPayment extends Model
         'recorded_by',
         'verified_by',
         'verified_at',
+        'funding_request_id',
+        'beneficiary_user_id',
+        'payment_destination',
+        'notes',
+        'actual_amount',
+        'remaining_amount',
+        'usage_proof_path',
+        'realized_at',
     ];
 
     protected function casts(): array
@@ -35,6 +44,9 @@ class OutgoingPayment extends Model
             'payment_date' => 'date',
             'verified_at' => 'datetime',
             'amount' => 'decimal:2',
+            'actual_amount' => 'decimal:2',
+            'remaining_amount' => 'decimal:2',
+            'realized_at' => 'datetime',
         ];
     }
 
@@ -51,5 +63,20 @@ class OutgoingPayment extends Model
     public function verifier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function fundingRequest(): BelongsTo
+    {
+        return $this->belongsTo(FundingRequest::class);
+    }
+
+    public function beneficiary(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'beneficiary_user_id');
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(OutgoingPaymentAllocation::class);
     }
 }

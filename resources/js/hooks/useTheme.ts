@@ -4,12 +4,22 @@ export type Theme = 'light' | 'dark' | 'system';
 
 const STORAGE_KEY = 'sja_theme';
 
+const getStoredTheme = (): Theme => {
+    if (typeof window === 'undefined') {
+        return 'system';
+    }
+
+    try {
+        const storedTheme = localStorage.getItem(STORAGE_KEY);
+
+        return storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'system';
+    } catch {
+        return 'system';
+    }
+};
+
 export function useTheme() {
-    const [theme, setThemeState] = useState<Theme>(() => {
-        if (typeof window === 'undefined') return 'system';
-        const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-        return stored || 'system';
-    });
+    const [theme, setThemeState] = useState<Theme>(getStoredTheme);
 
     const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
         if (typeof window === 'undefined') return 'light';
@@ -29,10 +39,14 @@ export function useTheme() {
             setResolvedTheme('light');
         }
 
-        if (targetTheme === 'system') {
-            localStorage.removeItem(STORAGE_KEY);
-        } else {
-            localStorage.setItem(STORAGE_KEY, targetTheme);
+        try {
+            if (targetTheme === 'system') {
+                localStorage.removeItem(STORAGE_KEY);
+            } else {
+                localStorage.setItem(STORAGE_KEY, targetTheme);
+            }
+        } catch {
+            // Theme switching still works when browser storage is unavailable.
         }
 
         window.dispatchEvent(
@@ -51,9 +65,10 @@ export function useTheme() {
     );
 
     const toggleTheme = useCallback(() => {
-        const nextTheme: Theme = resolvedTheme === 'dark' ? 'light' : 'dark';
+        const isCurrentlyDark = document.documentElement.classList.contains('dark');
+        const nextTheme: Theme = isCurrentlyDark ? 'light' : 'dark';
         setTheme(nextTheme);
-    }, [resolvedTheme, setTheme]);
+    }, [setTheme]);
 
     useEffect(() => {
         const handleSync = (e: Event) => {

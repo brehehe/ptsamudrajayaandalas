@@ -1,6 +1,9 @@
 import React, { forwardRef, InputHTMLAttributes, ReactNode, useEffect, useRef } from 'react';
 
-export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'size'> {
+export interface CheckboxProps extends Omit<
+    InputHTMLAttributes<HTMLInputElement>,
+    'type' | 'size'
+> {
     checked: boolean;
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     indeterminate?: boolean;
@@ -38,7 +41,9 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
             }
         }, [indeterminate, resolvedRef]);
 
-        const checkboxId = id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+        const checkboxId =
+            id ||
+            (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
         const sizeStyles = {
             sm: 'w-4 h-4 rounded-md',
@@ -73,7 +78,12 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
                     {(label || description) && (
                         <div className="space-y-0.5">
                             {label && (
-                                <span className="text-xs sm:text-sm font-semibold text-[#0B1F63] dark:text-[#F1F5F9] block leading-snug">
+                                <span
+                                    className={
+                                        'text-xs sm:text-sm font-semibold text-[#0B1F63] ' +
+                                        'dark:text-[#F1F5F9] block leading-snug'
+                                    }
+                                >
                                     {label}
                                 </span>
                             )}

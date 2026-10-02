@@ -83,9 +83,7 @@ export default function Modal({
                     <div
                         onClick={() => closeOnBackdrop && onClose()}
                         className={`relative z-10 min-h-full flex ${
-                            asBottomSheetOnMobile
-                                ? 'items-end sm:items-center'
-                                : 'items-center'
+                            asBottomSheetOnMobile ? 'items-end sm:items-center' : 'items-center'
                         } justify-center p-0 sm:p-4 text-center cursor-pointer`}
                     >
                         <motion.div
@@ -117,7 +115,10 @@ export default function Modal({
                             {/* Mobile Pull Bar for Bottom Sheet */}
                             {asBottomSheetOnMobile && (
                                 <div
-                                    className="sm:hidden flex justify-center pt-3 pb-1 bg-white dark:bg-[#0C1D36] rounded-t-[28px]"
+                                    className={
+                                        'sm:hidden flex justify-center pt-3 pb-1 bg-white ' +
+                                        'dark:bg-[#0C1D36] rounded-t-[28px]'
+                                    }
                                 >
                                     <div className="w-12 h-1.5 rounded-full bg-[#DCEAF8] dark:bg-[#1E3A5F]" />
                                 </div>
@@ -126,16 +127,31 @@ export default function Modal({
                             {/* Header */}
                             {(title || showCloseButton) && (
                                 <div
-                                    className="px-5 py-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F] flex items-center justify-between gap-3 flex-shrink-0 bg-white dark:bg-[#0C1D36]"
+                                    className={
+                                        'px-5 py-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F] ' +
+                                        'flex items-center justify-between gap-3 flex-shrink-0 ' +
+                                        'bg-white dark:bg-[#0C1D36]'
+                                    }
                                 >
                                     <div className="min-w-0 flex-1">
                                         {title && (
-                                            <div className="text-base sm:text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] leading-snug">
+                                            <div
+                                                className={
+                                                    'text-base sm:text-lg font-extrabold ' +
+                                                    'text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                                                    'leading-snug'
+                                                }
+                                            >
                                                 {title}
                                             </div>
                                         )}
                                         {subtitle && (
-                                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5 leading-relaxed">
+                                            <p
+                                                className={
+                                                    'text-xs text-[#52658E] dark:text-[#94A3B8] ' +
+                                                    'mt-0.5 leading-relaxed'
+                                                }
+                                            >
                                                 {subtitle}
                                             </p>
                                         )}
@@ -145,11 +161,28 @@ export default function Modal({
                                         <button
                                             type="button"
                                             onClick={onClose}
-                                            className="w-8 h-8 rounded-full flex items-center justify-center text-[#52658E] dark:text-[#94A3B8] hover:text-[#C62840] dark:hover:text-[#F87171] hover:bg-[#FFE7EC] dark:hover:bg-[#EF4444]/20 transition-colors flex-shrink-0 cursor-pointer"
+                                            className={
+                                                'w-8 h-8 rounded-full flex items-center ' +
+                                                'justify-center text-[#52658E] ' +
+                                                'dark:text-[#94A3B8] hover:text-[#C62840] ' +
+                                                'dark:hover:text-[#F87171] hover:bg-[#FFE7EC] ' +
+                                                'dark:hover:bg-[#EF4444]/20 transition-colors ' +
+                                                'flex-shrink-0 cursor-pointer'
+                                            }
                                             aria-label="Tutup dialog"
                                         >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                            <svg
+                                                className="w-4 h-4"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2.5}
+                                                    d="M6 18L18 6M6 6l12 12"
+                                                />
                                             </svg>
                                         </button>
                                     )}
@@ -158,7 +191,10 @@ export default function Modal({
 
                             {/* Body */}
                             <div
-                                className="px-5 py-4 overflow-y-auto flex-1 text-xs sm:text-sm text-[#0B1F63] dark:text-[#F1F5F9] bg-white dark:bg-[#0C1D36]"
+                                className={
+                                    'px-5 py-4 overflow-y-auto flex-1 text-xs sm:text-sm ' +
+                                    'text-[#0B1F63] dark:text-[#F1F5F9] bg-white dark:bg-[#0C1D36]'
+                                }
                             >
                                 {children}
                             </div>
@@ -166,7 +202,11 @@ export default function Modal({
                             {/* Footer */}
                             {footer && (
                                 <div
-                                    className="px-5 py-3.5 border-t border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F0F8FF] dark:bg-[#071322] flex items-center justify-end gap-2.5 flex-shrink-0"
+                                    className={
+                                        'px-5 py-3.5 border-t border-[#DCEAF8] ' +
+                                        'dark:border-[#1E3A5F] bg-[#F0F8FF] dark:bg-[#071322] flex ' +
+                                        'items-center justify-end gap-2.5 flex-shrink-0'
+                                    }
                                 >
                                     {footer}
                                 </div>

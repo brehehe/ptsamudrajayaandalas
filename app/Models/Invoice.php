@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Invoice extends Model
@@ -36,6 +37,11 @@ class Invoice extends Model
         'version',
         'notes',
         'released_at',
+        'printed_at',
+        'signed_at',
+        'sent_at',
+        'paid_at',
+        'delivery_proof_path',
     ];
 
     protected function casts(): array
@@ -51,6 +57,10 @@ class Invoice extends Model
             'grand_total' => 'decimal:2',
             'paid_amount' => 'decimal:2',
             'outstanding_amount' => 'decimal:2',
+            'printed_at' => 'datetime',
+            'signed_at' => 'datetime',
+            'sent_at' => 'datetime',
+            'paid_at' => 'datetime',
         ];
     }
 
@@ -67,5 +77,10 @@ class Invoice extends Model
     public function request(): BelongsTo
     {
         return $this->belongsTo(ShipRequest::class, 'request_id');
+    }
+
+    public function receiptAllocations(): HasMany
+    {
+        return $this->hasMany(ClientReceiptAllocation::class);
     }
 }

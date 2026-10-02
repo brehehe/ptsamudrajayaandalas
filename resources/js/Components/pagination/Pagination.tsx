@@ -54,14 +54,30 @@ export default function Pagination({
                 <div>
                     {from !== undefined && to !== undefined && total !== undefined ? (
                         <span>
-                            Menampilkan <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{from}</span>–
-                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{to}</span> dari{' '}
-                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{total}</span> data
+                            Menampilkan{' '}
+                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {from}
+                            </span>
+                            –
+                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {to}
+                            </span>{' '}
+                            dari{' '}
+                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {total}
+                            </span>{' '}
+                            data
                         </span>
                     ) : (
                         <span>
-                            Halaman <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{currentPage}</span> dari{' '}
-                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{lastPage}</span>
+                            Halaman{' '}
+                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {currentPage}
+                            </span>{' '}
+                            dari{' '}
+                            <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {lastPage}
+                            </span>
                         </span>
                     )}
                 </div>
@@ -69,15 +85,27 @@ export default function Pagination({
                 {/* Per Page Selector */}
                 {onPerPageChange && (
                     <div className="flex items-center gap-1.5 ml-2">
-                        <span className="text-[11px] text-[#8C9BB9] dark:text-[#64748B]">Baris:</span>
+                        <span className="text-[11px] text-[#8C9BB9] dark:text-[#64748B]">
+                            Baris:
+                        </span>
                         <select
                             value={perPage}
                             onChange={(e) => onPerPageChange(Number(e.target.value))}
-                            className="text-xs py-1 px-2 rounded-lg border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] focus:border-[#0060F4] dark:focus:border-[#38BDF8] focus:ring-1 focus:ring-[#0060F4] dark:focus:ring-[#38BDF8]"
+                            className={
+                                'text-xs py-1 px-2 rounded-lg border border-[#DCEAF8] ' +
+                                'dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] ' +
+                                'text-[#0B1F63] dark:text-[#F1F5F9] focus:border-[#0060F4] ' +
+                                'dark:focus:border-[#38BDF8] focus:ring-1 focus:ring-[#0060F4] ' +
+                                'dark:focus:ring-[#38BDF8]'
+                            }
                             aria-label="Jumlah baris per halaman"
                         >
                             {perPageOptions.map((opt) => (
-                                <option key={opt} value={opt} className="dark:bg-[#0C1D36] dark:text-[#F1F5F9]">
+                                <option
+                                    key={opt}
+                                    value={opt}
+                                    className="dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
+                                >
                                     {opt}
                                 </option>
                             ))}
@@ -87,7 +115,10 @@ export default function Pagination({
             </div>
 
             {/* Pagination Controls */}
-            <nav className="flex items-center gap-1 self-center sm:self-auto" aria-label="Navigasi Halaman">
+            <nav
+                className="flex items-center gap-1 self-center sm:self-auto"
+                aria-label="Navigasi Halaman"
+            >
                 {links && links.length > 0 ? (
                     // Inertia links mode
                     links.map((link, idx) => {
@@ -113,10 +144,15 @@ export default function Pagination({
                                 href={link.url}
                                 preserveScroll
                                 preserveState
-                                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                aria-current={link.active ? 'page' : undefined}
+                                className={`inline-flex min-h-11 min-w-11 items-center justify-center px-2.5 py-1.5 rounded-xl text-xs font-bold transition-[color,background-color,border-color,box-shadow,transform] motion-reduce:transition-none ${
                                     link.active
                                         ? 'bg-[#0060F4] text-white shadow-xs border border-[#0060F4]'
-                                        : 'bg-white dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] border border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#132847] hover:border-[#0060F4]/40 dark:hover:border-[#38BDF8]/40 active:scale-95'
+                                        : 'bg-white dark:bg-[#0C1D36] text-[#0B1F63] ' +
+                                          'dark:text-[#F1F5F9] border border-[#DCEAF8] ' +
+                                          'dark:border-[#1E3A5F] hover:bg-[#F0F8FF] ' +
+                                          'dark:hover:bg-[#132847] hover:border-[#0060F4]/40 ' +
+                                          'dark:hover:border-[#38BDF8]/40 active:scale-95'
                                 } ${isPrevOrNext ? 'text-[11px]' : ''}`}
                             >
                                 {cleaned}
@@ -130,7 +166,13 @@ export default function Pagination({
                             type="button"
                             disabled={currentPage <= 1}
                             onClick={() => onPageChange?.(currentPage - 1)}
-                            className="px-3 py-1.5 rounded-xl text-[11px] font-bold border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] hover:bg-[#F0F8FF] dark:hover:bg-[#132847] disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            className={
+                                'px-3 py-1.5 rounded-xl text-[11px] font-bold border ' +
+                                'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white ' +
+                                'dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                                'hover:bg-[#F0F8FF] dark:hover:bg-[#132847] ' +
+                                'disabled:opacity-40 disabled:cursor-not-allowed transition'
+                            }
                         >
                             ← Sebelumnya
                         </button>
@@ -143,7 +185,13 @@ export default function Pagination({
                             type="button"
                             disabled={currentPage >= lastPage}
                             onClick={() => onPageChange?.(currentPage + 1)}
-                            className="px-3 py-1.5 rounded-xl text-[11px] font-bold border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] hover:bg-[#F0F8FF] dark:hover:bg-[#132847] disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            className={
+                                'px-3 py-1.5 rounded-xl text-[11px] font-bold border ' +
+                                'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white ' +
+                                'dark:bg-[#0C1D36] text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                                'hover:bg-[#F0F8FF] dark:hover:bg-[#132847] ' +
+                                'disabled:opacity-40 disabled:cursor-not-allowed transition'
+                            }
                         >
                             Berikutnya →
                         </button>

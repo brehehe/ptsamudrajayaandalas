@@ -74,9 +74,24 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
 
             <div className="space-y-4 max-w-7xl mx-auto pb-10">
                 {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-[#DCEAF8]">
-                    <div className="flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border border-[#DCEAF8] self-start">
-                        <div className="px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 bg-[#0060F4] text-white shadow-sm">
+                <div
+                    className={
+                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
+                        'border-b border-[#DCEAF8]'
+                    }
+                >
+                    <div
+                        className={
+                            'flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border ' +
+                            'border-[#DCEAF8] self-start'
+                        }
+                    >
+                        <div
+                            className={
+                                'px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex ' +
+                                'items-center gap-2 bg-[#0060F4] text-white shadow-sm'
+                            }
+                        >
                             <span>⚓</span>
                             <span>Master Pelabuhan</span>
                             <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-white/20 text-white">
@@ -91,7 +106,12 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                             reset();
                             setIsCreateModalOpen(true);
                         }}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white text-xs sm:text-sm font-bold shadow-sm transition-all flex-shrink-0 cursor-pointer self-start sm:self-auto"
+                        className={
+                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
+                            'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
+                            'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
+                            'flex-shrink-0 cursor-pointer self-start sm:self-auto'
+                        }
                     >
                         <span className="text-base leading-none font-bold">+</span>
                         <span>Tambah Pelabuhan Baru</span>
@@ -105,15 +125,27 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                             Master Data Pelabuhan & Terminal
                         </h1>
                         <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                            Daftar pelabuhan operasional dan dermaga keagenan PT Samudra Jaya Andalas
+                            Daftar pelabuhan operasional dan dermaga keagenan PT Samudra Jaya
+                            Andalas
                         </p>
                     </div>
                 </div>
 
                 {/* ── Search Bar ── */}
                 <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8C9BB9]">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <div
+                        className={
+                            'absolute inset-y-0 left-0 pl-3.5 flex items-center ' +
+                            'pointer-events-none text-[#8C9BB9]'
+                        }
+                    >
+                        <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            viewBox="0 0 24 24"
+                        >
                             <circle cx="11" cy="11" r="8" />
                             <line x1="21" y1="21" x2="16.65" y2="16.65" />
                         </svg>
@@ -123,11 +155,20 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Cari kode pelabuhan, nama terminal, atau kota..."
-                        className="w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
+                        className={
+                            'w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] ' +
+                            'rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs ' +
+                            'focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 ' +
+                            'focus:border-[#0060F4]'
+                        }
                     />
                     <button
                         type="submit"
-                        className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                        className={
+                            'absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] ' +
+                            'hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg ' +
+                            'transition-colors cursor-pointer'
+                        }
                     >
                         Cari
                     </button>
@@ -138,7 +179,12 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] font-semibold uppercase tracking-wider">
+                                <tr
+                                    className={
+                                        'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
+                                        'font-semibold uppercase tracking-wider'
+                                    }
+                                >
                                     <th className="py-3 px-4">Kode Port</th>
                                     <th className="py-3 px-4">Nama Pelabuhan / Terminal</th>
                                     <th className="py-3 px-4">Kota & Wilayah</th>
@@ -150,7 +196,10 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                             </thead>
                             <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
                                 {ports.map((port) => (
-                                    <tr key={port.id} className="hover:bg-[#F0F8FF]/50 transition-colors">
+                                    <tr
+                                        key={port.id}
+                                        className="hover:bg-[#F0F8FF]/50 transition-colors"
+                                    >
                                         <td className="py-3.5 px-4 font-mono font-bold text-[#0060F4]">
                                             {port.code}
                                         </td>
@@ -164,7 +213,12 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                                             {port.timezone}
                                         </td>
                                         <td className="py-3.5 px-4">
-                                            <span className="bg-[#E0F0FF] text-[#0060F4] px-2 py-0.5 rounded-full text-[11px] font-semibold">
+                                            <span
+                                                className={
+                                                    'bg-[#E0F0FF] text-[#0060F4] px-2 py-0.5 ' +
+                                                    'rounded-full text-[11px] font-semibold'
+                                                }
+                                            >
                                                 {port.port_calls_count} Kunjungan
                                             </span>
                                         </td>
@@ -217,7 +271,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                 <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Kode Port (UN/LOCODE)</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Kode Port (UN/LOCODE)
+                            </label>
                             <input
                                 type="text"
                                 maxLength={10}
@@ -230,7 +286,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Negara (2 Huruf ISO)</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Negara (2 Huruf ISO)
+                            </label>
                             <input
                                 type="text"
                                 maxLength={2}
@@ -244,7 +302,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                     </div>
 
                     <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Nama Pelabuhan / Terminal</label>
+                        <label className="font-semibold text-[#082870] block mb-1">
+                            Nama Pelabuhan / Terminal
+                        </label>
                         <input
                             type="text"
                             value={data.name}
@@ -257,7 +317,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Kota / Kabupaten</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Kota / Kabupaten
+                            </label>
                             <input
                                 type="text"
                                 value={data.city}
@@ -269,7 +331,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Zona Waktu</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Zona Waktu
+                            </label>
                             <select
                                 value={data.timezone}
                                 onChange={(e) => setData('timezone', e.target.value)}
@@ -286,7 +350,12 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                         <Button variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
                             Batal
                         </Button>
-                        <Button type="submit" variant="primary" disabled={processing} className="bg-[#0060F4] text-white">
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            disabled={processing}
+                            className="bg-[#0060F4] text-white"
+                        >
                             {processing ? 'Menyimpan...' : 'Simpan Pelabuhan'}
                         </Button>
                     </div>
@@ -303,32 +372,46 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                     <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="font-semibold text-[#082870] block mb-1">Kode Port</label>
+                                <label className="font-semibold text-[#082870] block mb-1">
+                                    Kode Port
+                                </label>
                                 <input
                                     type="text"
                                     maxLength={10}
                                     value={data.code}
                                     onChange={(e) => setData('code', e.target.value.toUpperCase())}
-                                    className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white font-mono"
+                                    className={
+                                        'w-full text-xs rounded-xl border border-[#DCEAF8] ' +
+                                        'p-2.5 bg-white font-mono'
+                                    }
                                     required
                                 />
                             </div>
 
                             <div>
-                                <label className="font-semibold text-[#082870] block mb-1">Negara</label>
+                                <label className="font-semibold text-[#082870] block mb-1">
+                                    Negara
+                                </label>
                                 <input
                                     type="text"
                                     maxLength={2}
                                     value={data.country}
-                                    onChange={(e) => setData('country', e.target.value.toUpperCase())}
-                                    className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white font-mono"
+                                    onChange={(e) =>
+                                        setData('country', e.target.value.toUpperCase())
+                                    }
+                                    className={
+                                        'w-full text-xs rounded-xl border border-[#DCEAF8] ' +
+                                        'p-2.5 bg-white font-mono'
+                                    }
                                     required
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Nama Pelabuhan</label>
+                            <label className="font-semibold text-[#082870] block mb-1">
+                                Nama Pelabuhan
+                            </label>
                             <input
                                 type="text"
                                 value={data.name}
@@ -340,7 +423,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="font-semibold text-[#082870] block mb-1">Kota</label>
+                                <label className="font-semibold text-[#082870] block mb-1">
+                                    Kota
+                                </label>
                                 <input
                                     type="text"
                                     value={data.city}
@@ -351,7 +436,9 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                             </div>
 
                             <div>
-                                <label className="font-semibold text-[#082870] block mb-1">Status</label>
+                                <label className="font-semibold text-[#082870] block mb-1">
+                                    Status
+                                </label>
                                 <select
                                     value={data.is_active ? '1' : '0'}
                                     onChange={(e) => setData('is_active', e.target.value === '1')}
@@ -367,7 +454,12 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                             <Button variant="secondary" onClick={() => setEditingPort(null)}>
                                 Batal
                             </Button>
-                            <Button type="submit" variant="primary" disabled={processing} className="bg-[#0060F4] text-white">
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                disabled={processing}
+                                className="bg-[#0060F4] text-white"
+                            >
                                 {processing ? 'Memperbarui...' : 'Perbarui Pelabuhan'}
                             </Button>
                         </div>

@@ -2,19 +2,26 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UpdateInvoiceWorkflowRequest;
 use App\Models\Invoice;
 use App\Models\PortCall;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InvoiceController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $type = $request->query('type', 'all'); // 'all' | 'agency' | 'reimburse'
         $status = $request->query('status', 'all');
         $search = $request->query('search');
@@ -69,6 +76,7 @@ class InvoiceController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        abort_unless($request->user()?->isOperationalAdmin() || $request->user()?->isOwner(), 403);
         $validated = $request->validate([
             'port_call_id' => ['required', 'exists:port_calls,id'],
             'company_id' => ['required', 'exists:ship_companies,id'],
@@ -81,16 +89,30 @@ class InvoiceController extends Controller
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $prefix = $validated['invoice_type'] === 'agency' ? 'INV-AGY-26-' : 'INV-RMB-26-';
-        $count = Invoice::where('invoice_type', $validated['invoice_type'])->count() + 1;
-        $invNumber = sprintf('%s%04d', $prefix, $count);
+        $portCall = PortCall::query()->with(['workOrder', 'costReconciliation'])->findOrFail($validated['port_call_id']);
+        if (! $portCall->reconciled_at || ! $portCall->costReconciliation) {
+            throw ValidationException::withMessages(['port_call_id' => 'Invoice klien hanya dapat dibuat setelah rekonsiliasi biaya selesai.']);
+        }
+        if ($portCall->workOrder?->company_id && $portCall->workOrder->company_id !== $validated['company_id']) {
+            throw ValidationException::withMessages(['company_id' => 'Perusahaan tidak sesuai dengan SPK/Kunjungan yang dipilih.']);
+        }
+        $shipRequest = ShipRequest::query()->with('items')->findOrFail($validated['request_id']);
+        if ($shipRequest->port_call_id !== $portCall->id) {
+            throw ValidationException::withMessages(['request_id' => 'Pengajuan tidak terhubung ke Kunjungan/Job yang dipilih.']);
+        }
+        if ($shipRequest->items->isEmpty() || $shipRequest->items->contains(fn ($item) => $item->director_status !== 'approved')) {
+            throw ValidationException::withMessages(['request_id' => 'Semua item invoice harus sudah disetujui Direktur.']);
+        }
+
+        $prefix = $validated['invoice_type'] === 'agency' ? 'INV-AGY' : 'INV-RMB';
+        $invNumber = sprintf('%s-%s-%s', $prefix, now()->format('ymd'), Str::upper(Str::random(6)));
 
         $subtotal = (float) $validated['subtotal'];
         $addon = (float) ($validated['addon_total'] ?? 0);
         $tax = (float) ($validated['tax'] ?? 0);
         $grandTotal = $subtotal + $addon + $tax;
 
-        Invoice::create([
+        $invoice = Invoice::create([
             'invoice_number' => $invNumber,
             'port_call_id' => $validated['port_call_id'],
             'company_id' => $validated['company_id'],
@@ -112,28 +134,70 @@ class InvoiceController extends Controller
             'version' => 1,
         ]);
 
+        activity('client-invoice')
+            ->performedOn($invoice)
+            ->causedBy($request->user())
+            ->withProperties(['port_call_id' => $portCall->id, 'type' => $validated['invoice_type']])
+            ->log('Invoice klien dibuat');
+
         return redirect()->back()->with('success', "Invoice {$invNumber} berhasil dibuat sebagai draft.");
     }
 
-    public function release(Request $request, string $id): RedirectResponse
+    public function release(UpdateInvoiceWorkflowRequest $request, string $id): RedirectResponse
     {
-        $invoice = Invoice::findOrFail($id);
-        $invoice->update([
-            'status' => 'released',
-            'released_at' => now(),
-        ]);
+        $validated = $request->validated();
+        abort_unless($validated['action'] === 'release', 422);
+        $invoice = DB::transaction(function () use ($request, $id): Invoice {
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($id);
+            if ($invoice->status !== 'draft') {
+                throw ValidationException::withMessages(['action' => 'Hanya invoice draft yang dapat dirilis.']);
+            }
+            $invoice->update([
+                'status' => 'released',
+                'signed_document_path' => $request->file('document')->store('sja/client-invoices/signed', 'local'),
+                'printed_at' => now(),
+                'signed_at' => now(),
+                'released_at' => now(),
+            ]);
+
+            return $invoice;
+        });
 
         return redirect()->back()->with('success', "Invoice {$invoice->invoice_number} resmi dirilis dan siap dikirim ke klien.");
     }
 
-    public function markSent(Request $request, string $id): RedirectResponse
+    public function markSent(UpdateInvoiceWorkflowRequest $request, string $id): RedirectResponse
     {
-        $invoice = Invoice::findOrFail($id);
-        $invoice->update([
-            'status' => 'sent',
-            'delivery_status' => 'delivered',
-        ]);
+        $validated = $request->validated();
+        abort_unless($validated['action'] === 'mark_sent', 422);
+        $invoice = DB::transaction(function () use ($request, $id): Invoice {
+            $invoice = Invoice::query()->lockForUpdate()->findOrFail($id);
+            if ($invoice->status !== 'released' || ! $invoice->signed_document_path) {
+                throw ValidationException::withMessages(['action' => 'Invoice harus dirilis dan mempunyai dokumen bertanda tangan sebelum dikirim.']);
+            }
+            $invoice->update([
+                'status' => 'sent',
+                'delivery_status' => 'delivered',
+                'delivery_proof_path' => $request->file('delivery_proof')->store('sja/client-invoices/delivery-proofs', 'local'),
+                'sent_at' => now(),
+            ]);
+
+            return $invoice;
+        });
 
         return redirect()->back()->with('success', "Status invoice {$invoice->invoice_number} tercatat telah dikirim ke klien.");
+    }
+
+    public function download(Request $request, Invoice $invoice, string $type): StreamedResponse
+    {
+        abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
+        $path = match ($type) {
+            'signed' => $invoice->signed_document_path,
+            'delivery' => $invoice->delivery_proof_path,
+            default => abort(404),
+        };
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
+        return Storage::disk('local')->download($path);
     }
 }

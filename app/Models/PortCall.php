@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PortCall extends Model
@@ -29,6 +30,8 @@ class PortCall extends Model
         'financial_status',
         'arrival_payment_exception',
         'arrival_payment_exception_note',
+        'completion_note_due_at',
+        'reconciled_at',
     ];
 
     protected function casts(): array
@@ -40,6 +43,8 @@ class PortCall extends Model
             'berthed_at' => 'datetime',
             'departed_at' => 'datetime',
             'arrival_payment_exception' => 'boolean',
+            'completion_note_due_at' => 'datetime',
+            'reconciled_at' => 'datetime',
         ];
     }
 
@@ -68,6 +73,25 @@ class PortCall extends Model
         return $this->hasMany(OutgoingPayment::class, 'port_call_id');
     }
 
+    public function verifiedArrivalPayments(): HasMany
+    {
+        return $this->outgoingPayments()
+            ->where('payment_type', 'Pelindo Kedatangan')
+            ->where('verification_status', 'verified')
+            ->whereNotNull('verified_by')
+            ->whereNotNull('verified_at')
+            ->where('amount', '>', 0);
+    }
+
+    public function clearanceInBlockReason(): ?string
+    {
+        if ($this->status !== 'scheduled') {
+            return 'Clearance In sudah dicatat untuk kunjungan ini.';
+        }
+
+        return null;
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class, 'port_call_id');
@@ -76,5 +100,25 @@ class PortCall extends Model
     public function requests(): HasMany
     {
         return $this->hasMany(ShipRequest::class, 'port_call_id');
+    }
+
+    public function expenseRequests(): HasMany
+    {
+        return $this->hasMany(ExpenseRequest::class);
+    }
+
+    public function costDocuments(): HasMany
+    {
+        return $this->hasMany(CostDocument::class);
+    }
+
+    public function completionNote(): HasOne
+    {
+        return $this->hasOne(CompletionNote::class);
+    }
+
+    public function costReconciliation(): HasOne
+    {
+        return $this->hasOne(CostReconciliation::class);
     }
 }

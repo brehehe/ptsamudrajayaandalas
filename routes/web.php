@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\ApprovalController;
+use App\Http\Controllers\CompletionNoteController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\FundingWorkflowController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MasterCompanyController;
 use App\Http\Controllers\MasterPortController;
@@ -10,6 +12,7 @@ use App\Http\Controllers\MasterProductController;
 use App\Http\Controllers\MasterRoleController;
 use App\Http\Controllers\MasterUserController;
 use App\Http\Controllers\MasterVendorController;
+use App\Http\Controllers\MasterVesselController;
 use App\Http\Controllers\NeedController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\ProfileController;
@@ -17,7 +20,9 @@ use App\Http\Controllers\ReceivableController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RequestController;
 use App\Http\Controllers\ServiceTypeController;
+use App\Http\Controllers\VendorInvoiceController;
 use App\Http\Controllers\VesselController;
+use App\Http\Controllers\WorkOrderController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -34,12 +39,20 @@ Route::get('/', function () {
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-    // Vessels / Kapal & Master Perusahaan
+    // SPK / Work Order
+    Route::get('/work-orders', [WorkOrderController::class, 'index'])->name('work-orders.index');
+    Route::get('/work-orders/create', [WorkOrderController::class, 'create'])->name('work-orders.create');
+    Route::post('/work-orders', [WorkOrderController::class, 'store'])->name('work-orders.store');
+    Route::patch('/work-orders/{workOrder}/status', [WorkOrderController::class, 'updateStatus'])->name('work-orders.status');
+    Route::get('/work-orders/{workOrder}/document', [WorkOrderController::class, 'download'])->name('work-orders.document');
+
+    // Kedatangan kapal
     Route::get('/vessels', [VesselController::class, 'index'])->name('vessels.index');
     Route::post('/vessels', [VesselController::class, 'store'])->name('vessels.store');
+    Route::post('/ship-arrivals', [VesselController::class, 'storeArrival'])->name('ship-arrivals.store');
     Route::post('/companies', [VesselController::class, 'storeCompany'])->name('companies.store');
     Route::get('/vessels/{id}', [VesselController::class, 'show'])->name('vessels.show');
-    Route::get('/master/ships', fn () => redirect()->route('vessels.index'))->name('master.ships.index');
+    Route::redirect('/master/ships', '/master/vessels')->name('master.ships.index');
 
     // Kebutuhan (Logistik Armada)
     Route::get('/needs', [NeedController::class, 'index'])->name('needs.index');
@@ -49,9 +62,13 @@ Route::middleware(['auth'])->group(function () {
     // Requests / Pengajuan Kebutuhan (Form Wizard 3-Langkah Lapangan & Admin Actions)
     Route::get('/requests', [RequestController::class, 'index'])->name('requests.index');
     Route::get('/requests/create', [RequestController::class, 'create'])->name('requests.create');
+    Route::get('/requests/{shipRequest}/detail', [RequestController::class, 'show'])->name('requests.detail');
+    Route::get('/requests/{shipRequest}', [RequestController::class, 'show'])->name('requests.show');
     Route::post('/requests', [RequestController::class, 'store'])->name('requests.store');
     Route::post('/requests/wizard', [RequestController::class, 'storeWizard'])->name('requests.store-wizard');
+    Route::post('/requests/multi', [RequestController::class, 'storeMulti'])->name('requests.store-multi');
     Route::post('/requests/{id}/forward-director', [RequestController::class, 'forwardToDirector'])->name('requests.forward-director');
+    Route::post('/requests/{requestId}/items/{itemId}/revision', [RequestController::class, 'requestItemRevision'])->name('requests.items.revision');
     Route::post('/requests/{id}/create-clearance-in-invoice', [RequestController::class, 'createClearanceInInvoice'])->name('requests.clearance-in-invoice');
     Route::post('/requests/{id}/split-invoices', [RequestController::class, 'splitInvoices'])->name('requests.split-invoices');
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
@@ -66,6 +83,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Operasional & Laporan Lapangan Pak Prima
     Route::get('/operations', [OperationController::class, 'index'])->name('operations.index');
+    Route::post('/operations/activities', [OperationController::class, 'storeActivity'])->name('operations.activities.store');
     Route::post('/operations/daily-reports', [OperationController::class, 'storeDailyReport'])->name('operations.daily-reports.store');
     Route::patch('/operations/port-calls/{id}/status', [OperationController::class, 'updateStatus'])->name('operations.port-calls.status');
 
@@ -73,21 +91,47 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
 
+    // Pengajuan biaya, approval Direktur, pencatatan Kopra, pencairan, dan realisasi
+    Route::get('/funding', [FundingWorkflowController::class, 'index'])->name('funding.index');
+    Route::post('/funding/requests', [FundingWorkflowController::class, 'store'])->name('funding.requests.store');
+    Route::post('/funding/batches', [FundingWorkflowController::class, 'storeBatch'])->name('funding.batches.store');
+    Route::post('/funding/expense-requests/{expenseRequest}/admin-review', [FundingWorkflowController::class, 'adminReview'])->name('funding.admin-review');
+    Route::post('/funding/expense-requests/{expenseRequest}/director-review', [FundingWorkflowController::class, 'directorReview'])->name('funding.director-review');
+    Route::post('/funding/requests/{fundingRequest}/transition', [FundingWorkflowController::class, 'updateFunding'])->name('funding.transition');
+    Route::post('/funding/payments/{payment}/transition', [FundingWorkflowController::class, 'updatePayment'])->name('funding.payments.transition');
+    Route::get('/funding/documents/{type}/{id}', [FundingWorkflowController::class, 'download'])->name('funding.documents.download');
+
+    // Invoice vendor diterima, diverifikasi, lalu dipilih ke batch pendanaan.
+    Route::get('/vendor-invoices', [VendorInvoiceController::class, 'index'])->name('vendor-invoices.index');
+    Route::post('/vendor-invoices', [VendorInvoiceController::class, 'store'])->name('vendor-invoices.store');
+    Route::post('/vendor-invoices/{costDocument}/verify', [VendorInvoiceController::class, 'verify'])->name('vendor-invoices.verify');
+    Route::get('/vendor-invoices/{costDocument}/document', [VendorInvoiceController::class, 'download'])->name('vendor-invoices.document');
+
+    // Nota Rampung Pelindo dan rekonsiliasi biaya per Kunjungan/Job.
+    Route::get('/completion-notes', [CompletionNoteController::class, 'index'])->name('completion-notes.index');
+    Route::post('/completion-notes', [CompletionNoteController::class, 'store'])->name('completion-notes.store');
+    Route::post('/completion-notes/{completionNote}/transition', [CompletionNoteController::class, 'update'])->name('completion-notes.transition');
+    Route::get('/completion-notes/{completionNote}/document', [CompletionNoteController::class, 'download'])->name('completion-notes.document');
+
     // Invoice & Tagihan (Dual Invoices: Keagenan & Reimburse)
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::post('/invoices', [InvoiceController::class, 'store'])->name('invoices.store');
     Route::post('/invoices/{id}/release', [InvoiceController::class, 'release'])->name('invoices.release');
     Route::post('/invoices/{id}/mark-sent', [InvoiceController::class, 'markSent'])->name('invoices.mark-sent');
+    Route::get('/invoices/{invoice}/documents/{type}', [InvoiceController::class, 'download'])->name('invoices.documents.download');
 
     // Piutang Klien & Aging
     Route::get('/receivables', [ReceivableController::class, 'index'])->name('receivables.index');
     Route::post('/receivables/receipts', [ReceivableController::class, 'storeReceipt'])->name('receivables.receipts.store');
+    Route::get('/receivables/receipts/{clientReceipt}/document', [ReceivableController::class, 'downloadReceipt'])->name('receivables.receipts.document');
 
     // Laporan Rekonsiliasi & Operasional
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
 
     // Master Data 1-8:
-    // 1. Kapal (/vessels & /master/ships)
+    // 1. Kapal (/master/vessels)
+    Route::get('/master/vessels', [MasterVesselController::class, 'index'])->name('master.vessels.index');
+
     // 2. Perusahaan (/master/companies)
     Route::get('/master/companies', [MasterCompanyController::class, 'index'])->name('master.companies.index');
     Route::post('/master/companies', [MasterCompanyController::class, 'store'])->name('master.companies.store');
@@ -139,3 +183,5 @@ Route::middleware(['auth'])->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+Route::redirect('/', 'dashboard');

@@ -5,6 +5,7 @@ use App\Models\Product;
 use App\Models\ProductPortPrice;
 use App\Models\User;
 use App\Models\Vendor;
+use Spatie\Permission\Models\Role;
 
 test('authenticated user can view master products index', function () {
     $user = User::factory()->create();
@@ -125,6 +126,7 @@ test('product lookup endpoint returns price based on port and service type', fun
 
 test('authenticated user can view master companies and roles', function () {
     $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
 
     $compResponse = $this->actingAs($user)->get('/master/companies');
     $compResponse->assertStatus(200);

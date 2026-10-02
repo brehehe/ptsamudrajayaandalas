@@ -15,18 +15,20 @@ export interface SjaNotificationPayload {
 
 // Default dummy config for web client; will be overridden by window.FIREBASE_CONFIG or .env if set
 export const defaultFirebaseConfig = {
-    apiKey: "AIzaSyDummyApiKeyForSjaMaritimeAgency2026",
-    authDomain: "sja-keagenan.firebaseapp.com",
-    projectId: "sja-keagenan",
-    storageBucket: "sja-keagenan.appspot.com",
-    messagingSenderId: "109823485721",
-    appId: "1:109823485721:web:a1b2c3d4e5f6g7h8i9j0"
+    apiKey: 'AIzaSyDummyApiKeyForSjaMaritimeAgency2026',
+    authDomain: 'sja-keagenan.firebaseapp.com',
+    projectId: 'sja-keagenan',
+    storageBucket: 'sja-keagenan.appspot.com',
+    messagingSenderId: '109823485721',
+    appId: '1:109823485721:web:a1b2c3d4e5f6g7h8i9j0',
 };
 
 /**
  * Register service worker and request notification permission
  */
-export async function registerFirebasePush(onMessageReceived?: (notification: SjaNotificationPayload) => void): Promise<string | null> {
+export async function registerFirebasePush(
+    onMessageReceived?: (notification: SjaNotificationPayload) => void
+): Promise<string | null> {
     if (typeof window === 'undefined' || !('Notification' in window)) {
         console.warn('[SJA Push] Push notifications are not supported in this browser.');
         return null;
@@ -40,7 +42,9 @@ export async function registerFirebasePush(onMessageReceived?: (notification: Sj
         }
 
         if ('serviceWorker' in navigator) {
-            const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            const registration = await navigator.serviceWorker.register(
+                '/firebase-messaging-sw.js'
+            );
             console.log('[SJA Push] FCM Service Worker registered:', registration);
         }
 
@@ -68,7 +72,9 @@ export async function registerFirebasePush(onMessageReceived?: (notification: Sj
 /**
  * Broadcast notification locally and across tabs with maritime chime
  */
-export function broadcastSjaNotification(payload: Omit<SjaNotificationPayload, 'id' | 'timestamp' | 'read'>): SjaNotificationPayload {
+export function broadcastSjaNotification(
+    payload: Omit<SjaNotificationPayload, 'id' | 'timestamp' | 'read'>
+): SjaNotificationPayload {
     const fullPayload: SjaNotificationPayload = {
         ...payload,
         id: 'notif-' + Date.now(),

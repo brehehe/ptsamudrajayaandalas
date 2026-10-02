@@ -13,7 +13,19 @@
         <script>
             (function() {
                 try {
-                    const theme = localStorage.getItem('sja_theme');
+                    const storageKey = 'sja_theme';
+                    const legacyStorageKey = 'theme';
+                    const storedTheme = localStorage.getItem(storageKey);
+                    const legacyTheme = localStorage.getItem(legacyStorageKey);
+                    const hasLegacyTheme = legacyTheme === 'light' || legacyTheme === 'dark';
+                    const theme = hasLegacyTheme ? legacyTheme : storedTheme;
+
+                    if (hasLegacyTheme) {
+                        localStorage.setItem(storageKey, legacyTheme);
+                    }
+
+                    localStorage.removeItem(legacyStorageKey);
+
                     if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
                         document.documentElement.classList.add('dark');
                     } else {

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Card from '../ui/Card';
+import Skeleton from '../feedback/Skeleton';
 
 export interface ChartDataPoint {
     label: string;
@@ -18,6 +19,7 @@ export interface ChartProps {
     secondaryLabel?: string;
     valuePrefix?: string;
     valueSuffix?: string;
+    isLoading?: boolean;
     className?: string;
 }
 
@@ -40,9 +42,23 @@ export default function Chart({
     secondaryLabel,
     valuePrefix = '',
     valueSuffix = '',
+    isLoading = false,
     className = '',
 }: ChartProps) {
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+    if (isLoading) {
+        return (
+            <Card className={`p-4 sm:p-5 ${className}`} aria-busy="true">
+                <div role="status">
+                    <span className="sr-only">Memuat grafik…</span>
+                    <Skeleton className="h-5 w-40 rounded-lg" />
+                    <Skeleton className="mt-2 h-3 w-56 max-w-full rounded-full opacity-70" />
+                    <Skeleton className="mt-5 w-full rounded-xl opacity-60" style={{ height }} />
+                </div>
+            </Card>
+        );
+    }
 
     const values = data.map((d) => d.value);
     const maxValue = Math.max(...values, 1);
@@ -64,18 +80,29 @@ export default function Chart({
                     {data.map((item, idx) => {
                         const barHeightPercent = Math.max((item.value / maxValue) * 100, 4);
                         const isHovered = hoveredIndex === idx;
-                        const barColor = item.color || SJA_CHART_COLORS[idx % SJA_CHART_COLORS.length];
+                        const barColor =
+                            item.color || SJA_CHART_COLORS[idx % SJA_CHART_COLORS.length];
 
                         return (
                             <div
                                 key={`bar-${idx}`}
                                 onMouseEnter={() => setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
-                                className="flex-1 flex flex-col items-center justify-end h-full group cursor-pointer relative"
+                                className={
+                                    'flex-1 flex flex-col items-center justify-end h-full ' +
+                                    'group cursor-pointer relative'
+                                }
                             >
                                 {/* Tooltip */}
                                 {isHovered && (
-                                    <div className="absolute -top-10 z-20 px-2.5 py-1 rounded-lg bg-[#0B1F63] text-white text-[11px] font-bold shadow-lg pointer-events-none whitespace-nowrap animate-in fade-in zoom-in-90 duration-150">
+                                    <div
+                                        className={
+                                            'absolute -top-10 z-20 px-2.5 py-1 rounded-lg ' +
+                                            'bg-[#0B1F63] text-white text-[11px] font-bold ' +
+                                            'shadow-lg pointer-events-none whitespace-nowrap ' +
+                                            'animate-in fade-in zoom-in-90 duration-150'
+                                        }
+                                    >
                                         <span>{item.label}: </span>
                                         <span className="text-[#19B5F7]">
                                             {valuePrefix}
@@ -94,12 +121,20 @@ export default function Chart({
                                         maxWidth: `${barWidth}px`,
                                     }}
                                     className={`rounded-t-lg transition-all duration-300 ${
-                                        isHovered ? 'brightness-110 shadow-md scale-y-[1.02]' : 'opacity-90'
+                                        isHovered
+                                            ? 'brightness-110 shadow-md scale-y-[1.02]'
+                                            : 'opacity-90'
                                     }`}
                                 />
 
                                 {/* X-Axis Label */}
-                                <span className="text-[10px] sm:text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8] mt-2 block truncate max-w-full text-center">
+                                <span
+                                    className={
+                                        'text-[10px] sm:text-[11px] font-semibold text-[#52658E] ' +
+                                        'dark:text-[#94A3B8] mt-2 block truncate max-w-full ' +
+                                        'text-center'
+                                    }
+                                >
                                     {item.label}
                                 </span>
                             </div>
@@ -143,7 +178,10 @@ export default function Chart({
 
         return (
             <div className="w-full relative overflow-x-auto">
-                <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto overflow-visible">
+                <svg
+                    viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                    className="w-full h-auto overflow-visible"
+                >
                     <defs>
                         <linearGradient id="sjaAreaGradient" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#0060F4" stopOpacity="0.25" />
@@ -185,7 +223,12 @@ export default function Chart({
                 </svg>
 
                 {/* X Labels */}
-                <div className="flex justify-between px-2 pt-1 text-[10px] sm:text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                <div
+                    className={
+                        'flex justify-between px-2 pt-1 text-[10px] sm:text-[11px] font-semibold ' +
+                        'text-[#52658E] dark:text-[#94A3B8]'
+                    }
+                >
                     {data.map((item, idx) => (
                         <span key={`xlabel-${idx}`}>{item.label}</span>
                     ))}
@@ -241,7 +284,9 @@ export default function Chart({
                                 strokeDasharray={seg.strokeDasharray}
                                 strokeDashoffset={seg.strokeDashoffset}
                                 className={`transition-all duration-300 cursor-pointer ${
-                                    hoveredIndex === idx ? 'opacity-100 stroke-[30px]' : 'opacity-90'
+                                    hoveredIndex === idx
+                                        ? 'opacity-100 stroke-[30px]'
+                                        : 'opacity-90'
                                 }`}
                                 onMouseEnter={() => setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
@@ -250,8 +295,15 @@ export default function Chart({
                     </svg>
 
                     {/* Center Text */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-                        <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8] font-bold uppercase">Total</span>
+                    <div
+                        className={
+                            'absolute inset-0 flex flex-col items-center justify-center ' +
+                            'pointer-events-none text-center'
+                        }
+                    >
+                        <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8] font-bold uppercase">
+                            Total
+                        </span>
                         <span className="text-xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
                             {valuePrefix}
                             {totalValue.toLocaleString('id-ID')}
@@ -304,11 +356,20 @@ export default function Chart({
             {(title || subtitle) && (
                 <div className="mb-3">
                     {title && (
-                        <h3 className="text-sm sm:text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] leading-snug">
+                        <h3
+                            className={
+                                'text-sm sm:text-base font-extrabold text-[#0B1F63] ' +
+                                'dark:text-[#F1F5F9] leading-snug'
+                            }
+                        >
                             {title}
                         </h3>
                     )}
-                    {subtitle && <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">{subtitle}</p>}
+                    {subtitle && (
+                        <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                            {subtitle}
+                        </p>
+                    )}
                 </div>
             )}
 
@@ -317,17 +378,25 @@ export default function Chart({
             {type === 'donut' && renderDonutChart()}
 
             {showLegend && type !== 'donut' && (
-                <div className="mt-3 pt-3 border-t border-[#DCEAF8] dark:border-[#1E3A5F] flex items-center justify-center gap-4 flex-wrap text-xs">
+                <div
+                    className={
+                        'mt-3 pt-3 border-t border-[#DCEAF8] dark:border-[#1E3A5F] flex ' +
+                        'items-center justify-center gap-4 flex-wrap text-xs'
+                    }
+                >
                     {data.slice(0, 4).map((item, idx) => (
                         <div key={`legend-bar-${idx}`} className="flex items-center gap-1.5">
                             <span
                                 className="w-2.5 h-2.5 rounded-full"
                                 style={{
                                     backgroundColor:
-                                        item.color || SJA_CHART_COLORS[idx % SJA_CHART_COLORS.length],
+                                        item.color ||
+                                        SJA_CHART_COLORS[idx % SJA_CHART_COLORS.length],
                                 }}
                             />
-                            <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium">{item.label}</span>
+                            <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium">
+                                {item.label}
+                            </span>
                         </div>
                     ))}
                 </div>

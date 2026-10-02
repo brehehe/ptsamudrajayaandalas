@@ -66,4 +66,21 @@ class RequestItem extends Model
     {
         return $this->item_type === 'jasa' || ($this->product && $this->product->item_type === 'jasa');
     }
+
+    public function isLocked(): bool
+    {
+        return $this->director_status === 'approved';
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (RequestItem $item) {
+            if (
+                $item->getOriginal('director_status') === 'approved'
+                && $item->isDirty(['hpp_price', 'selling_price'])
+            ) {
+                throw new \DomainException('HPP dan Harga Jual yang telah disetujui Direktur tidak dapat diubah tanpa proses revisi.');
+            }
+        });
+    }
 }

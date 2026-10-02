@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import Skeleton from '../feedback/Skeleton';
 
 export interface Column<T> {
     key: string;
@@ -55,14 +56,18 @@ export default function Table<T>({
     minWidth,
     className = '',
 }: TableProps<T>) {
-    const isAllSelected = data.length > 0 && data.every((row, idx) => selectedKeys.includes(keyExtractor(row, idx)));
+    const isAllSelected =
+        data.length > 0 && data.every((row, idx) => selectedKeys.includes(keyExtractor(row, idx)));
     const isSomeSelected = selectedKeys.length > 0 && !isAllSelected;
 
     const handleSelectAllChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         onSelectAll?.(e.target.checked);
     };
 
-    const handleRowSelectChange = (key: string | number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleRowSelectChange = (
+        key: string | number,
+        e: React.ChangeEvent<HTMLInputElement>
+    ) => {
         e.stopPropagation();
         onSelectRow?.(key, e.target.checked);
     };
@@ -85,7 +90,11 @@ export default function Table<T>({
     };
 
     return (
-        <div className={`w-full overflow-x-auto rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] shadow-xs ${className}`}>
+        <div
+            aria-busy={isLoading || undefined}
+            className={`w-full overflow-x-auto rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] shadow-xs ${className}`}
+        >
+            {isLoading && <span className="sr-only">Memuat data…</span>}
             <table
                 className={`w-full text-left border-collapse ${tableLayout === 'fixed' ? 'table-fixed' : ''}`}
                 style={minWidth ? { minWidth } : undefined}
@@ -112,7 +121,12 @@ export default function Table<T>({
                                             if (el) el.indeterminate = isSomeSelected;
                                         }}
                                         onChange={handleSelectAllChange}
-                                        className="w-4 h-4 rounded-md text-[#0060F4] border-[#DCEAF8] dark:border-[#1E3A5F] dark:bg-[#071322] focus:ring-[#0060F4] focus:ring-offset-0 transition"
+                                        className={
+                                            'w-4 h-4 rounded-md text-[#0060F4] ' +
+                                            'border-[#DCEAF8] dark:border-[#1E3A5F] ' +
+                                            'dark:bg-[#071322] focus:ring-[#0060F4] ' +
+                                            'focus:ring-offset-0 transition'
+                                        }
                                         aria-label="Pilih semua baris"
                                     />
                                 </label>
@@ -140,8 +154,8 @@ export default function Table<T>({
                                             col.align === 'right'
                                                 ? 'justify-end w-full'
                                                 : col.align === 'center'
-                                                ? 'justify-center w-full'
-                                                : ''
+                                                  ? 'justify-center w-full'
+                                                  : ''
                                         }`}
                                     >
                                         <span>{col.header}</span>
@@ -174,18 +188,26 @@ export default function Table<T>({
                     </tr>
                 </thead>
 
-                <tbody className="divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F] text-xs text-[#0B1F63] dark:text-[#E2E8F0]">
+                <tbody
+                    className={
+                        'divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F] text-xs text-[#0B1F63] ' +
+                        'dark:text-[#E2E8F0]'
+                    }
+                >
                     {isLoading ? (
                         Array.from({ length: 5 }).map((_, rIdx) => (
-                            <tr key={`loading-${rIdx}`} className="animate-pulse">
+                            <tr key={`loading-${rIdx}`}>
                                 {selectable && (
                                     <td className="px-4 py-3.5 text-center">
-                                        <div className="w-4 h-4 bg-[#DCEAF8]/60 dark:bg-[#1E3A5F]/60 rounded-md mx-auto" />
+                                        <Skeleton className="mx-auto size-4 rounded-md opacity-70" />
                                     </td>
                                 )}
                                 {columns.map((col) => (
-                                    <td key={col.key} className={compact ? 'py-2.5 px-3' : 'py-3.5 px-4'}>
-                                        <div className="h-4 bg-[#DCEAF8]/50 dark:bg-[#1E3A5F]/50 rounded-md w-3/4" />
+                                    <td
+                                        key={col.key}
+                                        className={compact ? 'py-2.5 px-3' : 'py-3.5 px-4'}
+                                    >
+                                        <Skeleton className="h-4 w-3/4 rounded-md opacity-60" />
                                     </td>
                                 ))}
                             </tr>
@@ -197,7 +219,9 @@ export default function Table<T>({
                                 className="py-12 px-4 text-center text-[#52658E] dark:text-[#94A3B8]"
                             >
                                 <div className="text-3xl mb-2">{emptyIcon}</div>
-                                <div className="font-semibold text-sm text-[#0B1F63] dark:text-[#F1F5F9]">{emptyMessage}</div>
+                                <div className="font-semibold text-sm text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {emptyMessage}
+                                </div>
                             </td>
                         </tr>
                     ) : (
@@ -228,7 +252,13 @@ export default function Table<T>({
                                                 type="checkbox"
                                                 checked={isSelected}
                                                 onChange={(e) => handleRowSelectChange(rowKey, e)}
-                                                className="w-4 h-4 rounded-md text-[#0060F4] border-[#DCEAF8] dark:border-[#1E3A5F] dark:bg-[#071322] focus:ring-[#0060F4] focus:ring-offset-0 transition cursor-pointer"
+                                                className={
+                                                    'w-4 h-4 rounded-md text-[#0060F4] ' +
+                                                    'border-[#DCEAF8] dark:border-[#1E3A5F] ' +
+                                                    'dark:bg-[#071322] focus:ring-[#0060F4] ' +
+                                                    'focus:ring-offset-0 transition ' +
+                                                    'cursor-pointer'
+                                                }
                                                 aria-label={`Pilih baris ${index + 1}`}
                                             />
                                         </td>
@@ -243,7 +273,7 @@ export default function Table<T>({
                                         >
                                             {col.render
                                                 ? col.render(row, index)
-                                                : (row as Record<string, any>)[col.key] ?? '-'}
+                                                : ((row as Record<string, any>)[col.key] ?? '-')}
                                         </td>
                                     ))}
                                 </tr>

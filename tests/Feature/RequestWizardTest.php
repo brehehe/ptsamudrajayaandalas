@@ -7,6 +7,7 @@ use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
+use Spatie\Permission\Models\Role;
 
 test('authenticated user can view request wizard creation page', function () {
     $user = User::factory()->create();
@@ -120,7 +121,10 @@ test('lapangan user can submit wizard request with multiple items', function () 
 });
 
 test('admin can forward selected items to director and split invoices', function () {
-    $user = User::factory()->create();
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+    $director = User::factory()->create();
+    $director->assignRole(Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']));
     $company = ShipCompany::create([
         'code' => 'MSA',
         'name' => 'PT Mitra Samudra Agency',
@@ -146,7 +150,7 @@ test('admin can forward selected items to director and split invoices', function
         'ship_id' => $ship->id,
         'company_id' => $company->id,
         'port_id' => $port->id,
-        'created_by' => $user->id,
+        'created_by' => $admin->id,
         'status' => 'Menunggu Approval',
         'request_date' => now()->toDateString(),
     ]);
@@ -176,14 +180,16 @@ test('admin can forward selected items to director and split invoices', function
     ]);
 
     // 1. Admin forwards to director
-    $response = $this->actingAs($user)->post("/requests/{$shipRequest->id}/forward-director", [
+    $response = $this->actingAs($admin)->post("/requests/{$shipRequest->id}/forward-director", [
         'selected_items' => [$itemJasa->id, $itemReimburse->id],
-        'items' => [
-            $itemJasa->id => [
+        'item_prices' => [
+            [
+                'id' => $itemJasa->id,
                 'selling_price' => 5500000,
                 'hpp_price' => 3000000,
             ],
-            $itemReimburse->id => [
+            [
+                'id' => $itemReimburse->id,
                 'selling_price' => 15500000,
                 'hpp_price' => 14000000,
             ],
@@ -195,11 +201,11 @@ test('admin can forward selected items to director and split invoices', function
     expect($shipRequest->status)->toBe('Menunggu Approval Direktur');
 
     // 2. Direktur approves items
-    $this->actingAs($user)->post("/approvals/items/{$itemJasa->id}", [
+    $this->actingAs($director)->post("/approvals/items/{$itemJasa->id}", [
         'decision' => 'approved',
         'notes' => 'Disetujui untuk diproses',
     ]);
-    $this->actingAs($user)->post("/approvals/items/{$itemReimburse->id}", [
+    $this->actingAs($director)->post("/approvals/items/{$itemReimburse->id}", [
         'decision' => 'approved',
         'notes' => 'Disetujui untuk dipesan ke vendor',
     ]);
@@ -210,7 +216,7 @@ test('admin can forward selected items to director and split invoices', function
     expect($itemReimburse->director_status)->toBe('approved');
 
     // 3. Admin splits invoices into Keagenan and Reimburse
-    $splitResponse = $this->actingAs($user)->post("/requests/{$shipRequest->id}/split-invoices", [
+    $splitResponse = $this->actingAs($admin)->post("/requests/{$shipRequest->id}/split-invoices", [
         'invoice_type' => 'both',
         'materai' => 10000,
     ]);
@@ -261,4 +267,102 @@ test('user can append additional need items to an existing active request', func
         'quantity' => 2,
         'is_urgent' => true,
     ]);
+});
+
+test('lapangan user can submit multi kapal request and view filtered tabs', function () {
+    Role::firstOrCreate(['name' => 'Lapangan']);
+    $user = User::factory()->create(['name' => 'Prima Lapangan', 'email' => 'prima.multi@sja.co.id']);
+    $user->assignRole('Lapangan');
+
+    $company = ShipCompany::create([
+        'code' => 'SJA',
+        'name' => 'PT Samudra Jaya Andalas',
+        'is_active' => true,
+    ]);
+
+    $ship1 = Ship::create([
+        'ship_company_id' => $company->id,
+        'name' => 'KM CLARITY 08',
+        'imo_number' => 'IMO9900111',
+        'status' => 'Sandar',
+        'is_active' => true,
+    ]);
+
+    $ship2 = Ship::create([
+        'ship_company_id' => $company->id,
+        'name' => 'KM SARANA LINTAS NUSANTARA',
+        'imo_number' => 'IMO9900222',
+        'status' => 'Sandar',
+        'is_active' => true,
+    ]);
+
+    Port::firstOrCreate(
+        ['code' => 'TJP'],
+        ['name' => 'Pelabuhan Tanjung Perak', 'city' => 'Surabaya', 'country' => 'Indonesia', 'is_active' => true]
+    );
+
+    $multiPayload = [
+        'ships' => [
+            [
+                'ship_id' => $ship1->id,
+                'request_type' => 'Kedatangan (Clearance In)',
+                'department' => 'Deck',
+                'requester_name' => 'Budi Santoso',
+                'requester_phone' => '0812 3456 7890',
+                'required_date' => '2026-09-18',
+                'required_time' => '10:00',
+                'items' => [
+                    [
+                        'item_name' => 'Air Tawar',
+                        'quantity' => 60,
+                        'unit' => 'Ton',
+                        'notes' => 'Untuk kebutuhan operasional kapal',
+                    ],
+                ],
+            ],
+            [
+                'ship_id' => $ship2->id,
+                'request_type' => 'Perpanjangan Surat / Endors Surat Laut',
+                'department' => 'Deck',
+                'requester_name' => 'Budi Santoso',
+                'requester_phone' => '0812 3456 7890',
+                'required_date' => '2026-09-18',
+                'required_time' => '10:00',
+                'items' => [],
+            ],
+        ],
+        'notes' => 'Mohon diproses sesuai prioritas kapal yang akan sandar.',
+    ];
+
+    $response = $this->actingAs($user)->post(route('requests.store-multi'), $multiPayload);
+    $response->assertRedirect(route('requests.index'));
+
+    $this->assertDatabaseHas('requests', [
+        'ship_id' => $ship1->id,
+        'service_type' => 'Kedatangan (Clearance In)',
+        'status' => 'Menunggu Approval',
+    ]);
+
+    $this->assertDatabaseHas('requests', [
+        'ship_id' => $ship2->id,
+        'service_type' => 'Perpanjangan Surat / Endors Surat Laut',
+        'status' => 'Menunggu Approval',
+    ]);
+
+    $this->assertDatabaseHas('request_items', [
+        'item_name' => 'Air Tawar',
+        'quantity' => 60,
+        'unit' => 'Ton',
+    ]);
+
+    // Test tabs on index
+    $indexResponse = $this->actingAs($user)->get(route('requests.index', ['tab' => 'menunggu']));
+    $indexResponse->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Requests/Index')
+            ->has('counts.semua')
+            ->has('counts.menunggu')
+            ->has('counts.diproses')
+            ->has('counts.selesai')
+        );
 });

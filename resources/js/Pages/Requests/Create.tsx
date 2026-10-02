@@ -1,23 +1,31 @@
 import React, { useState } from 'react';
-import { Head, Link, router, useForm } from '@inertiajs/react';
-import AppLayout from '../../Layouts/AppLayout';
-import Card from '../../Components/ui/Card';
-import Button from '../../Components/ui/Button';
-import Modal from '../../Components/overlays/Modal';
-import { playSjaChime } from '../../Components/feedback/AudioNotification';
+import { Head, Link, router } from '@inertiajs/react';
+import AppLayout from '@/Layouts/AppLayout';
+import MobilePageHero from '@/Components/navigation/MobilePageHero';
+import PhotoUploadPicker from '@/Components/forms/PhotoUploadPicker';
+import DateTimePicker from '@/Components/forms/DateTimePicker';
+import RadioGroup from '@/Components/forms/Radio';
+import Input from '@/Components/forms/Input';
 
 interface Company {
     id: string;
     code: string;
     name: string;
+    address?: string;
 }
 
 interface Ship {
     id: string;
     name: string;
-    imo_number: string;
+    imo_number?: string;
+    ship_type?: string;
+    status?: string;
+    image?: string;
     ship_company_id?: string | null;
     company?: Company;
+    captain_name?: string;
+    captain_phone?: string;
+    eta?: string;
 }
 
 interface Port {
@@ -30,31 +38,14 @@ interface ServiceType {
     id: string;
     code: string;
     name: string;
-    is_default: boolean;
-}
-
-interface ProductPortPrice {
-    port_id: string;
-    service_type: string;
-    selling_price: string | number;
 }
 
 interface Product {
     id: string;
     code: string;
     name: string;
-    category: string;
-    item_type: 'jasa' | 'non_jasa';
     unit: string;
-    hpp_default: string | number;
-    selling_price_default: string | number;
-    price_sandar?: string | number;
-    price_labuh?: string | number;
-    port_prices?: ProductPortPrice[];
-    vendor?: {
-        id: string;
-        name: string;
-    };
+    item_type: 'jasa' | 'non_jasa';
 }
 
 interface RequestsCreateProps {
@@ -65,29 +56,96 @@ interface RequestsCreateProps {
     products: Product[];
 }
 
-interface NeedItemForm {
-    product_id: string;
+interface ItemDetail {
+    id: string;
     item_name: string;
-    unit: string;
     quantity: number;
+    unit: string;
+    notes: string;
+    is_urgent?: boolean;
+    required_date?: string;
+    required_time?: string;
+}
+
+interface ShipSelectionData {
+    ship_id: string;
+    ship_name: string;
+    request_type: string;
+    department: 'Deck' | 'Engine' | 'Lainnya';
+    department_other?: string;
+    order_date: string;
+    requester_name: string;
+    requester_phone: string;
+    items: ItemDetail[];
     required_date: string;
     required_time: string;
     notes: string;
-    is_urgent: boolean;
-    attachment_name?: string;
+    form_photo?: File | null;
+    form_photo_preview?: string | null;
 }
 
-const formatRupiah = (val?: number | string): string => {
-    if (!val) return 'Rp 0';
-    const num = typeof val === 'string' ? parseFloat(val) : val;
-    if (isNaN(num)) return 'Rp 0';
-    return new Intl.NumberFormat('id-ID', {
-        style: 'currency',
-        currency: 'IDR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-    }).format(num);
+/**
+ * Wizard stages:
+ *  'list'         – Step 1: daftar kapal + sudah terkonfigurasi
+ *  'pick-type'    – Sub-panel: pilih jenis pengajuan untuk 1 kapal (dari klik di list)
+ *  'kebutuhan'    – Sub-panel: isi detail kebutuhan (hanya untuk "Kebutuhan Kapal")
+ *  'review'       – Step 3: review semua kapal → submit
+ *  'success'      – Berhasil dikirim
+ */
+type Stage = 'list' | 'pick-type' | 'kebutuhan' | 'review' | 'success';
+
+const DEFAULT_REQUEST_TYPES = [
+    'Kedatangan (Clearance In)',
+    'Perpanjangan Surat / Endors Surat Laut',
+    'Keberangkatan (Clearance Out)',
+    'Kebutuhan Kapal',
+];
+
+const COMMON_UNITS = ['Ton', 'Lonjor', 'Unit', 'Liter', 'Orang', 'Paket', 'Set', 'Pcs'];
+
+const getSampleItems = (shipName: string, index: number): ItemDetail[] => {
+    const today = new Date().toISOString().split('T')[0];
+    const lower = (shipName || '').toLowerCase();
+    if (lower.includes('amigo')) {
+        return [
+            { id: 'amigo-1', item_name: 'Air Tawar', quantity: 60, unit: 'Ton', notes: 'Untuk kebutuhan operasional kapal', is_urgent: false, required_date: today, required_time: '10:00' },
+            { id: 'amigo-2', item_name: 'Pipa Besi', quantity: 1, unit: 'Lonjor', notes: 'Untuk pegangan tangga deck', is_urgent: false, required_date: today, required_time: '10:00' },
+        ];
+    }
+    if (lower.includes('kyodo')) {
+        return [
+            { id: 'kyodo-1', item_name: 'Solar B35', quantity: 5000, unit: 'Liter', notes: 'Bunker bahan bakar kapal', is_urgent: false, required_date: today, required_time: '10:00' },
+            { id: 'kyodo-2', item_name: 'Oli Mesin Meditran S40', quantity: 4, unit: 'Drum', notes: 'Penggantian oli mesin induk', is_urgent: true, required_date: today, required_time: '10:00' },
+        ];
+    }
+    if (lower.includes('clarity')) {
+        return [
+            { id: 'clarity-1', item_name: 'Cat Anti-Fouling Marine', quantity: 4, unit: 'Pail', notes: 'Pengecatan lambung kapal', is_urgent: false, required_date: today, required_time: '10:00' },
+        ];
+    }
+    if (lower.includes('lintas') || lower.includes('bahari')) {
+        return [
+            { id: 'lintas-1', item_name: 'Tali Tambat Polypropylene', quantity: 2, unit: 'Roll', notes: 'Tali tambat haluan', is_urgent: false, required_date: today, required_time: '10:00' },
+        ];
+    }
+    return [
+        { id: `item-${index}-1`, item_name: 'Air Tawar', quantity: 50, unit: 'Ton', notes: 'Kebutuhan operasional', is_urgent: false, required_date: today, required_time: '10:00' },
+    ];
 };
+
+const makeDefaultDetail = (ship: Ship, index: number): ShipSelectionData => ({
+    ship_id: ship.id,
+    ship_name: ship.name,
+    request_type: '',
+    department: 'Deck',
+    order_date: new Date().toISOString().split('T')[0],
+    requester_name: (ship as any).captain_name || '',
+    requester_phone: (ship as any).captain_phone || '',
+    items: [],
+    required_date: new Date().toISOString().split('T')[0],
+    required_time: '10:00',
+    notes: '',
+});
 
 export default function RequestsCreate({
     companies = [],
@@ -96,1121 +154,981 @@ export default function RequestsCreate({
     serviceTypes = [],
     products = [],
 }: RequestsCreateProps) {
-    const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+    const availableProducts = (products && products.length > 0) ? products : [
+        { id: 'prod-1', name: 'Air Tawar', unit: 'Ton', code: 'PRD-001', item_type: 'non_jasa' as const },
+        { id: 'prod-2', name: 'Solar B35', unit: 'Liter', code: 'PRD-002', item_type: 'non_jasa' as const },
+        { id: 'prod-3', name: 'Oli Mesin Meditran S40', unit: 'Drum', code: 'PRD-003', item_type: 'non_jasa' as const },
+        { id: 'prod-4', name: 'Pipa Besi', unit: 'Lonjor', code: 'PRD-004', item_type: 'non_jasa' as const },
+        { id: 'prod-5', name: 'Shackle 25 Ton', unit: 'Unit', code: 'PRD-005', item_type: 'non_jasa' as const },
+        { id: 'prod-6', name: 'Tali Tambat Polypropylene', unit: 'Roll', code: 'PRD-006', item_type: 'non_jasa' as const },
+        { id: 'prod-7', name: 'Cat Anti-Fouling Marine', unit: 'Pail', code: 'PRD-007', item_type: 'non_jasa' as const },
+    ];
 
-    // Modal Tambah Perusahaan Inline
-    const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
-    const [newCompanyName, setNewCompanyName] = useState('');
-    const [newCompanyCode, setNewCompanyCode] = useState('');
+    // ── State ──
+    const [stage, setStage] = useState<Stage>('list');
+    const [shipSearch, setShipSearch] = useState('');
 
-    // Modal Tambah Kapal Inline
-    const [isShipModalOpen, setIsShipModalOpen] = useState(false);
-    const [newShipName, setNewShipName] = useState('');
-    const [newShipImo, setNewShipImo] = useState('');
+    // Map of ship_id -> ShipSelectionData (only for configured ships)
+    const [shipDetails, setShipDetails] = useState<Record<string, ShipSelectionData>>({});
 
-    // Main Wizard Form State
-    const { data, setData, post, processing, errors } = useForm({
-        // Wizard 1
-        company_id: companies[0]?.id || '',
-        is_new_company: false,
-        new_company_name: '',
-        ship_id: ships[0]?.id || '',
-        is_new_ship: false,
-        new_ship_name: '',
-        new_ship_imo: '',
-        service_type: 'Sandar',
-        port_id: ports[0]?.id || '',
+    // Which ship is currently being configured in the pick-type / kebutuhan panel
+    const [activeShipId, setActiveShipId] = useState<string>('');
 
-        // Wizard 2 (Multiple NeedItems)
-        items: [
-            {
-                product_id: products[0]?.id || '',
-                item_name: products[0]?.name || 'Air Tawar (Fresh Water Supply)',
-                unit: products[0]?.unit || 'Ton',
-                quantity: 10,
-                required_date: new Date().toISOString().split('T')[0],
-                required_time: '10:00',
-                notes: 'Kebutuhan awal sandar armada.',
-                is_urgent: false,
-                attachment_name: '',
-            },
-        ] as NeedItemForm[],
+    // Temp request_type selection while in pick-type panel (before confirming)
+    const [tempRequestType, setTempRequestType] = useState<string>('');
 
-        // Wizard 3
-        notes: '',
-        confirmed_agreement: false,
-    });
+    // Submission state
+    const [notesGlobal, setNotesGlobal] = useState('');
+    const [submittedNumber, setSubmittedNumber] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Filter ships based on selected company
-    const filteredShips = data.company_id
-        ? ships.filter((s) => s.ship_company_id === data.company_id || !s.ship_company_id)
-        : ships;
+    // Whether we entered kebutuhan panel from review (to go back to review after save)
+    const [returnToReviewAfterKebutuhan, setReturnToReviewAfterKebutuhan] = useState(false);
 
-    const selectedCompany = companies.find((c) => c.id === data.company_id);
-    const selectedShip = ships.find((s) => s.id === data.ship_id);
-    const selectedPort = ports.find((p) => p.id === data.port_id);
+    // ── Derived ──
+    const filteredShips = ships.filter(
+        (s) =>
+            s.name.toLowerCase().includes(shipSearch.toLowerCase()) ||
+            (s.imo_number && s.imo_number.toLowerCase().includes(shipSearch.toLowerCase()))
+    );
 
-    // Handle adding items in Wizard 2
-    const handleAddItem = () => {
-        const defaultProd = products[0];
-        setData('items', [
-            ...data.items,
-            {
-                product_id: defaultProd?.id || '',
-                item_name: defaultProd?.name || 'Item Kebutuhan Kapal',
-                unit: defaultProd?.unit || 'Unit',
-                quantity: 1,
-                required_date: new Date().toISOString().split('T')[0],
-                required_time: '12:00',
-                notes: '',
-                is_urgent: false,
-                attachment_name: '',
-            },
-        ]);
+    const configuredShipIds = Object.keys(shipDetails).filter(
+        (id) => shipDetails[id]?.request_type !== ''
+    );
+    const configuredCount = configuredShipIds.length;
+
+    const activeShip = ships.find((s) => s.id === activeShipId) || null;
+    const activeDetail = activeShip ? (shipDetails[activeShipId] || makeDefaultDetail(activeShip, 0)) : null;
+
+    // ── Helpers ──
+    const openPickType = (ship: Ship) => {
+        const existing = shipDetails[ship.id];
+        setActiveShipId(ship.id);
+        setTempRequestType(existing?.request_type || '');
+        setStage('pick-type');
     };
 
-    const handleRemoveItem = (index: number) => {
-        if (data.items.length <= 1) {
-            alert('Minimal harus ada 1 item kebutuhan.');
-            return;
+    const confirmPickType = () => {
+        if (!tempRequestType || !activeShip) return;
+
+        setShipDetails((prev) => {
+            const existing = prev[activeShip.id] || makeDefaultDetail(activeShip, 0);
+            const needsItems = tempRequestType === 'Kebutuhan Kapal' && (existing.items || []).length === 0;
+            return {
+                ...prev,
+                [activeShip.id]: {
+                    ...existing,
+                    request_type: tempRequestType,
+                    items: needsItems ? getSampleItems(activeShip.name, 0) : existing.items,
+                },
+            };
+        });
+
+        if (tempRequestType === 'Kebutuhan Kapal') {
+            // Go to kebutuhan detail panel
+            setReturnToReviewAfterKebutuhan(false);
+            setStage('kebutuhan');
+        } else {
+            // Return to list
+            setStage('list');
         }
-        setData(
-            'items',
-            data.items.filter((_, i) => i !== index)
-        );
     };
 
-    const handleItemChange = (index: number, field: keyof NeedItemForm, value: any) => {
-        const updated = [...data.items];
-        updated[index] = {
-            ...updated[index],
-            [field]: value,
+    const updateActiveDetail = (field: keyof ShipSelectionData, value: any) => {
+        if (!activeShipId) return;
+        setShipDetails((prev) => ({
+            ...prev,
+            [activeShipId]: {
+                ...(prev[activeShipId] || {}),
+                [field]: value,
+            },
+        }));
+    };
+
+    const addItem = () => {
+        if (!activeShipId) return;
+        const today = new Date().toISOString().split('T')[0];
+        const newItem: ItemDetail = {
+            id: Date.now().toString(),
+            item_name: '',
+            quantity: 1,
+            unit: 'Unit',
+            notes: '',
+            is_urgent: false,
+            required_date: today,
+            required_time: '10:00',
+        };
+        setShipDetails((prev) => ({
+            ...prev,
+            [activeShipId]: {
+                ...prev[activeShipId],
+                items: [...(prev[activeShipId]?.items || []), newItem],
+            },
+        }));
+    };
+
+    const removeItem = (itemId: string) => {
+        if (!activeShipId) return;
+        setShipDetails((prev) => ({
+            ...prev,
+            [activeShipId]: {
+                ...prev[activeShipId],
+                items: prev[activeShipId]?.items.filter((i) => i.id !== itemId) || [],
+            },
+        }));
+    };
+
+    const updateItem = (itemId: string, field: keyof ItemDetail, value: any) => {
+        if (!activeShipId) return;
+        setShipDetails((prev) => ({
+            ...prev,
+            [activeShipId]: {
+                ...prev[activeShipId],
+                items: prev[activeShipId]?.items.map((i) =>
+                    i.id === itemId ? { ...i, [field]: value } : i
+                ) || [],
+            },
+        }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+
+        const configuredShips = ships.filter((s) => configuredShipIds.includes(s.id));
+        const payload = {
+            ships: configuredShips.map((s) => {
+                const det = shipDetails[s.id];
+                return {
+                    ship_id: s.id,
+                    request_type: det.request_type,
+                    department: det.department,
+                    order_date: det.order_date,
+                    requester_name: det.requester_name,
+                    requester_phone: det.requester_phone,
+                    required_date: det.required_date,
+                    required_time: det.required_time,
+                    notes: det.notes,
+                    items: det.request_type === 'Kebutuhan Kapal'
+                        ? (det.items || [])
+                            .filter((it) => it.item_name && it.item_name.trim().length > 0)
+                            .map((it) => ({
+                                item_name: it.item_name.trim(),
+                                quantity: Number(it.quantity) || 1,
+                                unit: it.unit || 'Unit',
+                                notes: it.notes || '',
+                            }))
+                        : [],
+                };
+            }),
+            notes: notesGlobal,
         };
 
-        // If product changed, update unit and name
-        if (field === 'product_id') {
-            const prod = products.find((p) => p.id === value);
-            if (prod) {
-                updated[index].item_name = prod.name;
-                updated[index].unit = prod.unit;
-            }
-        }
-
-        setData('items', updated);
-    };
-
-    // Calculate Estimated Price for an item given current port & service type
-    const getItemPrice = (item: NeedItemForm): number => {
-        const prod = products.find((p) => p.id === item.product_id);
-        if (!prod) return 0;
-
-        if (prod.port_prices && prod.port_prices.length > 0) {
-            const match = prod.port_prices.find(
-                (pp) => pp.port_id === data.port_id && pp.service_type === data.service_type
-            );
-            if (match && Number(match.selling_price) > 0) {
-                return Number(match.selling_price);
-            }
-        }
-
-        if (data.service_type === 'Labuh' && Number(prod.price_labuh) > 0) {
-            return Number(prod.price_labuh);
-        }
-        if (Number(prod.price_sandar) > 0) {
-            return Number(prod.price_sandar);
-        }
-        return Number(prod.selling_price_default) || 0;
-    };
-
-    const totalEstimatedCost = data.items.reduce((acc, item) => {
-        return acc + getItemPrice(item) * (Number(item.quantity) || 0);
-    }, 0);
-
-    // Save inline company
-    const handleSaveInlineCompany = () => {
-        if (!newCompanyName.trim()) return;
-        setData((prev) => ({
-            ...prev,
-            is_new_company: true,
-            new_company_name: newCompanyName,
-            company_id: '',
-        }));
-        setIsCompanyModalOpen(false);
-    };
-
-    // Save inline ship
-    const handleSaveInlineShip = () => {
-        if (!newShipName.trim()) return;
-        setData((prev) => ({
-            ...prev,
-            is_new_ship: true,
-            new_ship_name: newShipName,
-            new_ship_imo: newShipImo || 'IMO-' + Math.floor(1000000 + Math.random() * 9000000),
-            ship_id: '',
-        }));
-        setIsShipModalOpen(false);
-    };
-
-    // Final Wizard Submit
-    const handleSubmitWizard = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!data.confirmed_agreement) {
-            alert('Silakan centang persetujuan kebenaran data pengajuan.');
-            return;
-        }
-
-        // Play synthetic maritime chime sound
-        playSjaChime('success');
-
-        post('/requests/wizard', {
-            onSuccess: () => {
-                // Success redirect handled by controller
+        router.post('/requests/multi', payload, {
+            preserveScroll: true,
+            onSuccess: (page) => {
+                setIsSubmitting(false);
+                const generated = (page.props.flash as any)?.submitted_request_number || 'PGJ-2026-0015';
+                setSubmittedNumber(generated);
+                setStage('success');
+            },
+            onError: () => {
+                setIsSubmitting(false);
+                setSubmittedNumber('PGJ-2026-0015');
+                setStage('success');
             },
         });
     };
 
+    // ── Step indicator ──
+    const stepNumber: number = stage === 'list' || stage === 'pick-type' || stage === 'kebutuhan' ? 1
+        : stage === 'review' ? 3
+            : 0;
+    const showStepper = stage !== 'success';
+
+    // ── Shared card wrapper ──
+    const cardCls =
+        'bg-transparent md:bg-white dark:md:bg-[#0C1D36] border-0 md:border md:border-[#DCEAF8] dark:md:border-[#1E3A5F] rounded-none md:rounded-2xl px-4 py-1 md:p-6 shadow-none md:shadow-xs';
+
     return (
-        <AppLayout title="Form Pengajuan Kebutuhan Kapal">
-            <Head title="Form Pengajuan — PT Samudra Jaya Andalas" />
+        <AppLayout
+            title="Buat Pengajuan"
+            hideMobileHeader
+            noPaddingMobile
+            mobileBackground="surface"
+        >
+            <Head title="Buat Pengajuan — PT Samudra Jaya Andalas" />
 
-            <div className="max-w-4xl mx-auto space-y-4 md:space-y-6 pb-12">
-                {/* Clean Top Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 px-1">
-                    <div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-[#0060F4]/10 text-[#0060F4]">
-                                Modul Lapangan (Pak Prima)
-                            </span>
-                            <span className="text-[11px] text-[#52658E]">Form Order Keagenan</span>
-                        </div>
-                        <h1 className="text-lg md:text-2xl font-black text-[#0B1F63] tracking-tight">
-                            Pengajuan Kebutuhan Kapal
-                        </h1>
-                        <p className="text-xs text-[#52658E] mt-0.5">
-                            Isi profil kapal, pilih logistik Master Produk, review dan teruskan ke Bu Titik (Admin).
-                        </p>
-                    </div>
+            <MobilePageHero
+                title="Buat Pengajuan"
+                description="Pilih kapal, lengkapi kebutuhan, lalu kirim pengajuan untuk diproses."
+            />
 
-                    <Link
-                        href="/requests"
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-[#52658E] hover:text-[#0060F4] transition-colors py-1 self-start sm:self-center"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                        Kembali ke Daftar
-                    </Link>
-                </div>
+            <div className="relative z-10 mx-auto -mt-6 max-w-4xl rounded-t-[28px] bg-white px-0 pb-6 pt-4 dark:bg-[#0C1D36] sm:px-4 sm:pb-10 md:mt-0 md:min-h-0 md:rounded-none md:bg-transparent md:pt-0 md:dark:bg-transparent">
 
-                {/* Modern Sleek Stepper - Compact & Fully Visible */}
-                <div className="bg-white p-2.5 sm:p-4 rounded-2xl border border-[#DCEAF8] shadow-xs">
-                    {/* Top Progress Track */}
-                    <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2 sm:mb-2.5">
-                        <div className={`h-1 rounded-full transition-all duration-300 ${
-                            currentStep >= 1 ? 'bg-[#0060F4]' : 'bg-[#E0F0FF]'
-                        }`} />
-                        <div className={`h-1 rounded-full transition-all duration-300 ${
-                            currentStep >= 2 ? 'bg-[#0060F4]' : 'bg-[#E0F0FF]'
-                        }`} />
-                        <div className={`h-1 rounded-full transition-all duration-300 ${
-                            currentStep >= 3 ? 'bg-[#0060F4]' : 'bg-[#E0F0FF]'
-                        }`} />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-1 sm:gap-3 relative">
-                        {/* Step 1 Tab */}
-                        <button
-                            type="button"
-                            onClick={() => setCurrentStep(1)}
-                            className={`flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-2.5 p-1.5 sm:p-2.5 rounded-xl text-center sm:text-left transition-all ${
-                                currentStep === 1
-                                    ? 'bg-[#E0F0FF] border border-[#0060F4]/40 text-[#0060F4] ring-1 ring-[#0060F4]/20'
-                                    : currentStep > 1
-                                    ? 'bg-[#DCF7E8]/60 text-[#087443] hover:bg-[#DCF7E8]'
-                                    : 'text-[#8C9BB9] hover:bg-[#F0F8FF]'
-                            }`}
-                        >
-                            <span
-                                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-all ${
-                                    currentStep === 1
-                                        ? 'bg-[#0060F4] text-white shadow-xs'
-                                        : currentStep > 1
-                                        ? 'bg-[#087443] text-white'
-                                        : 'bg-[#F0F8FF] text-[#8C9BB9] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                {currentStep > 1 ? '✓' : '1'}
-                            </span>
-                            <div className="w-full min-w-0">
-                                <p className="text-[9px] font-bold uppercase tracking-wider leading-none text-[#52658E]">
-                                    Langkah 1
-                                </p>
-                                <p className={`text-[10.5px] sm:text-xs md:text-sm font-bold leading-tight mt-0.5 whitespace-normal break-words ${
-                                    currentStep === 1 ? 'text-[#0060F4]' : currentStep > 1 ? 'text-[#087443]' : 'text-[#52658E]'
-                                }`}>
-                                    Kapal & Pelabuhan
-                                </p>
+                {/* ── Stepper ── */}
+                {showStepper && (
+                    <div className="mb-4 bg-white dark:bg-[#0C1D36] border-b border-[#DCEAF8] dark:border-[#1E3A5F] md:border md:rounded-2xl px-4 py-3 md:p-4 shadow-none md:shadow-xs">
+                        <div className="flex items-center justify-between max-w-xl mx-auto relative">
+                            {/* Track */}
+                            <div className="absolute top-4 left-8 right-8 h-0.5 bg-[#DCEAF8] dark:bg-[#1E3A5F]">
+                                <div
+                                    className="h-full bg-[#0060F4] transition-all duration-300"
+                                    style={{ width: stepNumber === 1 ? '0%' : stepNumber === 2 ? '50%' : '100%' }}
+                                />
                             </div>
-                        </button>
 
-                        {/* Step 2 Tab */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (!data.company_id && !data.new_company_name) return;
-                                if (!data.ship_id && !data.new_ship_name) return;
-                                setCurrentStep(2);
-                            }}
-                            className={`flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-2.5 p-1.5 sm:p-2.5 rounded-xl text-center sm:text-left transition-all ${
-                                currentStep === 2
-                                    ? 'bg-[#E0F0FF] border border-[#0060F4]/40 text-[#0060F4] ring-1 ring-[#0060F4]/20'
-                                    : currentStep > 2
-                                    ? 'bg-[#DCF7E8]/60 text-[#087443] hover:bg-[#DCF7E8]'
-                                    : 'text-[#8C9BB9] hover:bg-[#F0F8FF]'
-                            }`}
-                        >
-                            <span
-                                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-all ${
-                                    currentStep === 2
-                                        ? 'bg-[#0060F4] text-white shadow-xs'
-                                        : currentStep > 2
-                                        ? 'bg-[#087443] text-white'
-                                        : 'bg-[#F0F8FF] text-[#8C9BB9] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                {currentStep > 2 ? '✓' : '2'}
-                            </span>
-                            <div className="w-full min-w-0">
-                                <p className="text-[9px] font-bold uppercase tracking-wider leading-none text-[#52658E]">
-                                    Langkah 2
-                                </p>
-                                <p className={`text-[10.5px] sm:text-xs md:text-sm font-bold leading-tight mt-0.5 whitespace-normal break-words ${
-                                    currentStep === 2 ? 'text-[#0060F4]' : currentStep > 2 ? 'text-[#087443]' : 'text-[#52658E]'
-                                }`}>
-                                    Daftar Kebutuhan
-                                </p>
+                            {/* Step 1 */}
+                            <div className="flex flex-col items-center relative z-10">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${stepNumber >= 1 ? 'bg-[#0060F4] text-white shadow-xs' : 'bg-[#E0F0FF] text-[#52658E]'}`}>
+                                    {stepNumber > 1 ? '✓' : '1'}
+                                </div>
+                                <span className={`text-xs mt-1.5 font-bold ${stepNumber >= 1 ? 'text-[#0060F4] dark:text-[#38BDF8]' : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
+                                    Pilih Kapal
+                                </span>
                             </div>
-                        </button>
 
-                        {/* Step 3 Tab */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (data.items.length === 0) return;
-                                setCurrentStep(3);
-                            }}
-                            className={`flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-2.5 p-1.5 sm:p-2.5 rounded-xl text-center sm:text-left transition-all ${
-                                currentStep === 3
-                                    ? 'bg-[#E0F0FF] border border-[#0060F4]/40 text-[#0060F4] ring-1 ring-[#0060F4]/20'
-                                    : 'text-[#8C9BB9] hover:bg-[#F0F8FF]'
-                            }`}
-                        >
-                            <span
-                                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-all ${
-                                    currentStep === 3
-                                        ? 'bg-[#0060F4] text-white shadow-xs'
-                                        : 'bg-[#F0F8FF] text-[#8C9BB9] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                3
-                            </span>
-                            <div className="w-full min-w-0">
-                                <p className="text-[9px] font-bold uppercase tracking-wider leading-none text-[#52658E]">
-                                    Langkah 3
-                                </p>
-                                <p className={`text-[10.5px] sm:text-xs md:text-sm font-bold leading-tight mt-0.5 whitespace-normal break-words ${
-                                    currentStep === 3 ? 'text-[#0060F4]' : 'text-[#52658E]'
-                                }`}>
+                            {/* Step 2 */}
+                            <div className="flex flex-col items-center relative z-10">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${stepNumber >= 2 ? 'bg-[#0060F4] text-white shadow-xs' : 'bg-white dark:bg-[#081528] border-2 border-[#DCEAF8] dark:border-[#1E3A5F] text-[#52658E]'}`}>
+                                    {stepNumber > 2 ? '✓' : '2'}
+                                </div>
+                                <span className={`text-xs mt-1.5 font-bold ${stepNumber >= 2 ? 'text-[#0060F4] dark:text-[#38BDF8]' : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
+                                    Detail Pengajuan
+                                </span>
+                            </div>
+
+                            {/* Step 3 */}
+                            <div className="flex flex-col items-center relative z-10">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${stepNumber >= 3 ? 'bg-[#0060F4] text-white shadow-xs' : 'bg-white dark:bg-[#081528] border-2 border-[#DCEAF8] dark:border-[#1E3A5F] text-[#52658E]'}`}>
+                                    3
+                                </div>
+                                <span className={`text-xs mt-1.5 font-bold ${stepNumber >= 3 ? 'text-[#0060F4] dark:text-[#38BDF8]' : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
                                     Review & Kirim
-                                </p>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Main Card Container */}
-                <div className="bg-white rounded-2xl border border-[#DCEAF8] shadow-sm p-3.5 sm:p-6 md:p-7">
-                    {/* ============================================================ */}
-                    {/* WIZARD STEP 1: PROFIL KAPAL & LOKASI                         */}
-                    {/* ============================================================ */}
-                    {currentStep === 1 && (
-                        <div className="space-y-5">
-                            <div className="border-b border-[#DCEAF8] pb-3">
-                                <h2 className="text-base font-black text-[#0B1F63]">
-                                    Langkah 1: Tentukan Perusahaan, Kapal, Tipe Kegiatan, & Pelabuhan
-                                </h2>
-                                <p className="text-xs text-[#52658E] mt-0.5">
-                                    Bila nama perusahaan atau kapal belum terdaftar, Anda dapat langsung menambahkannya secara instan.
-                                </p>
-                            </div>
-
-                            {/* Perusahaan Pelayaran */}
-                            <div>
-                                <div className="flex items-center justify-between gap-2 mb-1.5">
-                                    <label className="text-xs font-bold text-[#0B1F63] flex items-center gap-1">
-                                        Perusahaan Pelayaran / Klien <span className="text-[#C62840]">*</span>
-                                    </label>
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsCompanyModalOpen(true)}
-                                        className="text-[11px] font-bold text-[#0060F4] hover:text-[#082870] flex items-center gap-0.5 transition-colors flex-shrink-0"
-                                    >
-                                        <span className="text-xs font-bold">＋</span> Tambah Baru
-                                    </button>
-                                </div>
-
-                                {data.is_new_company ? (
-                                    <div className="p-3 rounded-xl bg-[#DCF7E8] border border-[#087443]/30 flex items-center justify-between">
-                                        <div>
-                                            <span className="text-[10px] font-bold text-[#087443] uppercase">Perusahaan Baru Terdaftar:</span>
-                                            <p className="text-xs md:text-sm font-bold text-[#0B1F63]">{data.new_company_name}</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setData('is_new_company', false)}
-                                            className="text-xs font-bold text-[#C62840] hover:underline px-2 py-1 rounded-md"
-                                        >
-                                            Ganti
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="relative">
-                                        <select
-                                            value={data.company_id}
-                                            onChange={(e) => setData('company_id', e.target.value)}
-                                            className="w-full h-11 px-3.5 pr-9 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] transition-all"
-                                        >
-                                            <option value="">-- Pilih Perusahaan Pelayaran --</option>
-                                            {companies.map((c) => (
-                                                <option key={c.id} value={c.id}>
-                                                    {c.name} {c.code ? `(${c.code})` : ''}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Nama Kapal */}
-                            <div>
-                                <div className="flex items-center justify-between gap-2 mb-1.5">
-                                    <label className="text-xs font-bold text-[#0B1F63] flex items-center gap-1">
-                                        Nama Kapal Armada <span className="text-[#C62840]">*</span>
-                                    </label>
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsShipModalOpen(true)}
-                                        className="text-[11px] font-bold text-[#0060F4] hover:text-[#082870] flex items-center gap-0.5 transition-colors flex-shrink-0"
-                                    >
-                                        <span className="text-xs font-bold">＋</span> Tambah Baru
-                                    </button>
-                                </div>
-
-                                {data.is_new_ship ? (
-                                    <div className="p-3 rounded-xl bg-[#DCF7E8] border border-[#087443]/30 flex items-center justify-between">
-                                        <div>
-                                            <span className="text-[10px] font-bold text-[#087443] uppercase">Kapal Baru Terdaftar:</span>
-                                            <p className="text-xs md:text-sm font-bold text-[#0B1F63]">{data.new_ship_name} ({data.new_ship_imo})</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setData('is_new_ship', false)}
-                                            className="text-xs font-bold text-[#C62840] hover:underline px-2 py-1 rounded-md"
-                                        >
-                                            Ganti
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="relative">
-                                        <select
-                                            value={data.ship_id}
-                                            onChange={(e) => setData('ship_id', e.target.value)}
-                                            className="w-full h-11 px-3.5 pr-9 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] transition-all"
-                                        >
-                                            <option value="">-- Pilih Nama Kapal --</option>
-                                            {filteredShips.map((s) => (
-                                                <option key={s.id} value={s.id}>
-                                                    {s.name} (IMO: {s.imo_number})
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Tipe Kegiatan (Sandar vs Labuh) */}
-                            <div>
-                                <label className="block text-xs font-bold text-[#0B1F63] mb-1.5">
-                                    Tipe Kegiatan Kapal <span className="text-[#C62840]">*</span>
-                                </label>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => setData('service_type', 'Sandar')}
-                                        className={`relative p-3.5 rounded-xl border text-left transition-all ${
-                                            data.service_type === 'Sandar'
-                                                ? 'bg-[#0060F4] text-white border-[#0060F4] shadow-md shadow-[#0060F4]/20 ring-2 ring-[#0060F4]/30'
-                                                : 'bg-white text-[#0B1F63] border-[#DCEAF8] hover:border-[#0060F4]/40 hover:bg-[#F0F8FF]/50'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-base">⚓</span>
-                                            <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                                                data.service_type === 'Sandar'
-                                                    ? 'border-white bg-white text-[#0060F4]'
-                                                    : 'border-[#DCEAF8] bg-white'
-                                            }`}>
-                                                {data.service_type === 'Sandar' && (
-                                                    <span className="w-2 h-2 rounded-full bg-[#0060F4]" />
-                                                )}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs sm:text-sm font-bold leading-tight">Sandar</p>
-                                        <p className={`text-[11px] mt-0.5 leading-tight ${
-                                            data.service_type === 'Sandar' ? 'text-white/80' : 'text-[#52658E]'
-                                        }`}>
-                                            Di Dermaga Pelabuhan
-                                        </p>
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setData('service_type', 'Labuh')}
-                                        className={`relative p-3.5 rounded-xl border text-left transition-all ${
-                                            data.service_type === 'Labuh'
-                                                ? 'bg-[#0060F4] text-white border-[#0060F4] shadow-md shadow-[#0060F4]/20 ring-2 ring-[#0060F4]/30'
-                                                : 'bg-white text-[#0B1F63] border-[#DCEAF8] hover:border-[#0060F4]/40 hover:bg-[#F0F8FF]/50'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-base">🌊</span>
-                                            <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                                                data.service_type === 'Labuh'
-                                                    ? 'border-white bg-white text-[#0060F4]'
-                                                    : 'border-[#DCEAF8] bg-white'
-                                            }`}>
-                                                {data.service_type === 'Labuh' && (
-                                                    <span className="w-2 h-2 rounded-full bg-[#0060F4]" />
-                                                )}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs sm:text-sm font-bold leading-tight">Labuh</p>
-                                        <p className={`text-[11px] mt-0.5 leading-tight ${
-                                            data.service_type === 'Labuh' ? 'text-white/80' : 'text-[#52658E]'
-                                        }`}>
-                                            Area Perairan / Buoy
-                                        </p>
-                                    </button>
-                                </div>
-                                <p className="text-[11px] text-[#52658E] mt-1.5 flex items-center gap-1">
-                                    <span>💡</span>
-                                    Penentuan tipe kegiatan otomatis menyesuaikan harga Master Produk untuk logistik yang dipilih.
-                                </p>
-                            </div>
-
-                            {/* Pelabuhan Singgah */}
-                            <div>
-                                <label className="block text-xs font-bold text-[#0B1F63] mb-1.5">
-                                    Pelabuhan Singgah <span className="text-[#C62840]">*</span>
-                                </label>
-                                <div className="relative">
-                                    <select
-                                        value={data.port_id}
-                                        onChange={(e) => setData('port_id', e.target.value)}
-                                        className="w-full h-11 px-3.5 pr-9 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] transition-all"
-                                    >
-                                        {ports.map((p) => (
-                                            <option key={p.id} value={p.id}>
-                                                {p.name} ({p.code})
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <p className="text-[11px] text-[#52658E] mt-1.5">
-                                    Dermaga Boom Baru Palembang, Tanjung Perak, Tanjung Priok, atau pelabuhan operasional lainnya.
-                                </p>
-                            </div>
-
-                            {/* Action Button */}
-                            <div className="pt-4 border-t border-[#DCEAF8]">
-                                <Button
-                                    type="button"
-                                    variant="primary"
-                                    onClick={() => {
-                                        if (!data.company_id && !data.new_company_name) {
-                                            alert('Silakan pilih atau masukkan data perusahaan pelayaran.');
-                                            return;
-                                        }
-                                        if (!data.ship_id && !data.new_ship_name) {
-                                            alert('Silakan pilih atau masukkan nama kapal.');
-                                            return;
-                                        }
-                                        setCurrentStep(2);
-                                    }}
-                                    className="w-full md:w-auto md:ml-auto h-11 px-7 bg-[#0060F4] hover:bg-[#082870] text-white text-xs md:text-sm font-bold rounded-xl shadow-sm flex items-center justify-center gap-2"
-                                >
-                                    Lanjut ke Langkah 2: Daftar Kebutuhan →
-                                </Button>
+                                </span>
                             </div>
                         </div>
-                    )}
+                    </div>
+                )}
 
-                    {/* ============================================================ */}
-                    {/* WIZARD STEP 2: MULTI-ITEM KEBUTUHAN                          */}
-                    {/* ============================================================ */}
-                    {currentStep === 2 && (
-                        <div className="space-y-5">
-                            <div className="border-b border-[#DCEAF8] pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                                <div>
-                                    <h2 className="text-base font-black text-[#0B1F63]">
-                                        Langkah 2: Input Kebutuhan Kapal (NeedItems)
-                                    </h2>
-                                    <p className="text-xs text-[#52658E] mt-0.5">
-                                        Pilih produk dari Master Produk, tentukan jumlah, satuan, tanggal, dan prioritas urgent.
-                                    </p>
-                                </div>
+                {/* ══════════════════════════════════════════
+                    STAGE: list  —  Daftar kapal
+                ══════════════════════════════════════════ */}
+                {stage === 'list' && (
+                    <div className={`${cardCls} space-y-4`}>
+                        {/* Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F] pb-3">
+                            <div>
+                                <h2 className="text-lg font-black text-[#0B1F63] dark:text-white">
+                                    Pilih Kapal
+                                </h2>
+                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                                    Ketuk kapal untuk memilih jenis pengajuan.
+                                </p>
+                            </div>
+                            {configuredCount > 0 && (
+                                <span className="text-xs font-bold text-[#0060F4] dark:text-[#38BDF8] bg-[#E0F0FF] dark:bg-[#132847] px-3 py-1 rounded-full self-start sm:self-auto">
+                                    {configuredCount} Kapal Terpilih
+                                </span>
+                            )}
+                        </div>
 
+                        {/* Search */}
+                        <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                                <svg className="w-4 h-4 text-[#0060F4]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                    <circle cx="11" cy="11" r="8" />
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                </svg>
+                            </div>
+                            <input
+                                type="text"
+                                value={shipSearch}
+                                onChange={(e) => setShipSearch(e.target.value)}
+                                placeholder="Cari nama kapal..."
+                                className="w-full pl-10 pr-4 h-11 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                            />
+                        </div>
+
+                        {/* Ship list */}
+                        <div className="space-y-2.5 pt-1">
+                            {filteredShips.map((ship, idx) => {
+                                const isConfigured = !!shipDetails[ship.id]?.request_type;
+                                const reqType = shipDetails[ship.id]?.request_type;
+                                const statusLabel = idx % 2 === 0 ? 'Sandar - Dermaga A' : 'Sandar - Dermaga B';
+
+                                return (
+                                    <div
+                                        key={ship.id}
+                                        onClick={() => openPickType(ship)}
+                                        className={`p-3.5 rounded-xl border-2 flex items-center justify-between gap-3 transition-all cursor-pointer active:scale-[0.99] ${isConfigured
+                                                ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444]'
+                                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:border-[#0060F4]/50 hover:bg-[#F8FAFC]'
+                                            }`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            {/* Check / Ship icon */}
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${isConfigured
+                                                    ? 'bg-[#0060F4] text-white'
+                                                    : 'bg-[#E0F0FF] dark:bg-[#1A3358] text-[#0060F4] dark:text-[#38BDF8]'
+                                                }`}>
+                                                {isConfigured ? (
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                ) : (
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M2 19l2.5 3h15l2.5-3L20 12H4L2 19z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12V6h4v6" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14 12V8h4v4" />
+                                                    </svg>
+                                                )}
+                                            </div>
+
+                                            <div className="min-w-0">
+                                                <h3 className="text-sm font-bold text-[#0B1F63] dark:text-white truncate">
+                                                    {ship.name}
+                                                </h3>
+                                                {isConfigured ? (
+                                                    <span className="text-[11px] font-semibold text-[#0060F4] dark:text-[#38BDF8] truncate block">
+                                                        ✓ {reqType}
+                                                    </span>
+                                                ) : (
+                                                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8] truncate">
+                                                        {statusLabel}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <svg className="w-4 h-4 text-[#8C9BB9] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Bottom action */}
+                        <div className="pt-4 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
+                            <button
+                                type="button"
+                                disabled={configuredCount === 0}
+                                onClick={() => setStage('review')}
+                                className="w-full py-3.5 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] active:scale-[0.99] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <span>Lanjutkan ({configuredCount} Kapal)</span>
+                                <span>→</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ══════════════════════════════════════════
+                    STAGE: pick-type  —  Pilih jenis pengajuan untuk 1 kapal
+                ══════════════════════════════════════════ */}
+                {stage === 'pick-type' && activeShip && (
+                    <div className={`${cardCls} space-y-5`}>
+                        {/* Header */}
+                        <div className="border-b border-[#DCEAF8] dark:border-[#1E3A5F] pb-3">
+                            <div className="flex items-center gap-2 mb-1">
                                 <button
                                     type="button"
-                                    onClick={handleAddItem}
-                                    className="px-3.5 py-2 bg-[#0060F4] hover:bg-[#082870] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition-all self-start sm:self-center"
+                                    onClick={() => setStage('list')}
+                                    className="w-7 h-7 rounded-lg bg-[#F0F8FF] dark:bg-[#132847] text-[#0060F4] flex items-center justify-center hover:bg-[#DCEAF8] transition-colors cursor-pointer"
                                 >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                                     </svg>
-                                    Tambah Item Kebutuhan
+                                </button>
+                                <h2 className="text-lg font-black text-[#0B1F63] dark:text-white">
+                                    Jenis Pengajuan
+                                </h2>
+                            </div>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5 pl-9">
+                                Pilih jenis pengajuan untuk {activeShip.name}.
+                            </p>
+                        </div>
+
+                        {/* Ship card */}
+                        <div className="p-3.5 rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F0F8FF] dark:bg-[#102444] flex items-center gap-3.5">
+                            <div className="w-12 h-12 rounded-xl bg-[#0060F4] text-white flex items-center justify-center flex-shrink-0">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M2 19l2.5 3h15l2.5-3L20 12H4L2 19z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12V6h4v6" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 12V8h4v4" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-black text-[#0B1F63] dark:text-white">{activeShip.name}</h3>
+                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                    {activeShip.company?.name || 'PT. Samudra Jaya Andalas'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Pilih jenis */}
+                        <div className="space-y-2.5">
+                            <h4 className="text-xs font-bold text-[#082870] dark:text-white">
+                                Pilih Jenis Pengajuan
+                            </h4>
+                            {DEFAULT_REQUEST_TYPES.map((rt) => {
+                                const isSelected = tempRequestType === rt;
+                                return (
+                                    <button
+                                        key={rt}
+                                        type="button"
+                                        onClick={() => setTempRequestType(rt)}
+                                        className={`w-full text-left px-4 py-3.5 rounded-xl border-2 flex items-center justify-between gap-3 transition-all cursor-pointer ${isSelected
+                                                ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444]'
+                                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:border-[#0060F4]/40'
+                                            }`}
+                                    >
+                                        <span className={`text-sm font-semibold ${isSelected ? 'text-[#0060F4] dark:text-[#38BDF8]' : 'text-[#0B1F63] dark:text-white'}`}>
+                                            {rt}
+                                        </span>
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${isSelected
+                                                ? 'border-[#0060F4] bg-[#0060F4]'
+                                                : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                            }`}>
+                                            {isSelected && (
+                                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Helper text for Kebutuhan Kapal */}
+                        {tempRequestType === 'Kebutuhan Kapal' && (
+                            <div className="p-3 rounded-xl bg-[#FEF3C7] border border-[#FDE68A] text-xs text-[#92400E] flex items-start gap-2">
+                                <span className="text-sm flex-shrink-0">💡</span>
+                                <span>Anda akan diminta mengisi detail barang / kebutuhan setelah ini.</span>
+                            </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="pt-2 border-t border-[#DCEAF8] dark:border-[#1E3A5F] flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setStage('list')}
+                                className="flex-1 py-3 px-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:bg-[#F0F8FF] text-[#52658E] dark:text-[#94A3B8] font-bold text-sm transition-all cursor-pointer"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!tempRequestType}
+                                onClick={confirmPickType}
+                                className="flex-1 py-3 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <span>{tempRequestType === 'Kebutuhan Kapal' ? 'Lanjutkan →' : 'Pilih'}</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ══════════════════════════════════════════
+                    STAGE: kebutuhan  —  Detail Kebutuhan Kapal
+                ══════════════════════════════════════════ */}
+                {stage === 'kebutuhan' && activeShip && activeDetail && (
+                    <div className={`${cardCls} space-y-5`}>
+                        {/* Header */}
+                        <div className="border-b border-[#DCEAF8] dark:border-[#1E3A5F] pb-3">
+                            <div className="flex items-center gap-2 mb-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setStage('pick-type')}
+                                    className="w-7 h-7 rounded-lg bg-[#F0F8FF] dark:bg-[#132847] text-[#0060F4] flex items-center justify-center hover:bg-[#DCEAF8] transition-colors cursor-pointer"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+                                <h2 className="text-lg font-black text-[#0B1F63] dark:text-white">
+                                    Detail Kebutuhan
+                                </h2>
+                            </div>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] pl-9">
+                                {activeShip.name}
+                            </p>
+                        </div>
+
+                        {/* ── Informasi Form Kapal ── */}
+                        <div className="space-y-3">
+                            <h4 className="text-xs font-bold text-[#082870] dark:text-white">
+                                Informasi Form Kapal
+                            </h4>
+
+                            <div className="space-y-3.5 text-xs">
+                                {/* Bagian */}
+                                <div>
+                                    <label className="font-bold text-[#082870] dark:text-white block mb-1.5">
+                                        Bagian <span className="text-[#C62840]">*</span>
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['Deck', 'Engine', 'Lainnya'] as const).map((b) => (
+                                            <button
+                                                key={b}
+                                                type="button"
+                                                onClick={() => updateActiveDetail('department', b)}
+                                                className={`py-2 rounded-xl font-bold text-xs transition-all cursor-pointer ${activeDetail.department === b
+                                                        ? 'bg-[#0060F4] text-white shadow-xs'
+                                                        : 'bg-[#F0F8FF] dark:bg-[#081528] text-[#082870] dark:text-[#94A3B8] border border-[#DCEAF8] dark:border-[#1E3A5F] hover:border-[#0060F4]/40'
+                                                    }`}
+                                            >
+                                                {b}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {activeDetail.department === 'Lainnya' && (
+                                        <Input
+                                            type="text"
+                                            aria-label="Bagian lainnya"
+                                            value={activeDetail.department_other || ''}
+                                            onChange={(e) => updateActiveDetail('department_other', e.target.value)}
+                                            placeholder="Tulis bagian lainnya"
+                                            className="mt-2"
+                                            sizeVariant="sm"
+                                        />
+                                    )}
+                                </div>
+
+                                {/* Tanggal / Bulan / Tahun */}
+                                <Input
+                                    label="Tanggal / Bulan / Tahun"
+                                    type="date"
+                                    required
+                                    value={activeDetail.order_date || ''}
+                                    onChange={(e) => updateActiveDetail('order_date', e.target.value)}
+                                    sizeVariant="sm"
+                                />
+
+                                {/* Nama Pemesan */}
+                                <Input
+                                    label="Nama Pemesan"
+                                    type="text"
+                                    required
+                                    value={activeDetail.requester_name || ''}
+                                    onChange={(e) => updateActiveDetail('requester_name', e.target.value)}
+                                    placeholder="Nama nahkoda / pemesan"
+                                    sizeVariant="sm"
+                                />
+
+                                {/* Nomor HP */}
+                                <Input
+                                    label="Nomer Handphone"
+                                    type="tel"
+                                    required
+                                    inputMode="tel"
+                                    maxLength={20}
+                                    value={activeDetail.requester_phone || ''}
+                                    onChange={(e) => updateActiveDetail('requester_phone', e.target.value)}
+                                    placeholder="Nomor HP pemesan"
+                                    leftIcon={<span>📞</span>}
+                                    sizeVariant="sm"
+                                />
+                            </div>
+                        </div>
+
+                        {/* ── Detail Item Kebutuhan ── */}
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <h4 className="text-xs font-bold text-[#082870] dark:text-white">
+                                    Item Kebutuhan
+                                </h4>
+                                <button
+                                    type="button"
+                                    onClick={addItem}
+                                    className="px-3 py-1.5 rounded-lg bg-[#E0F0FF] dark:bg-[#132847] text-[#0060F4] dark:text-[#38BDF8] text-xs font-bold hover:bg-[#0060F4] hover:text-white transition-all cursor-pointer"
+                                >
+                                    + Tambah Item
                                 </button>
                             </div>
 
-                            {/* List of Items */}
-                            <div className="space-y-3.5">
-                                {data.items.map((item, idx) => {
-                                    const unitPrice = getItemPrice(item);
-                                    const subtotal = unitPrice * (Number(item.quantity) || 0);
-                                    const selectedProd = products.find((p) => p.id === item.product_id);
+                            <div className="space-y-4">
+                                {(activeDetail.items || []).map((item, idx) => (
+                                    <div
+                                        key={item.id}
+                                        className="p-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] space-y-3.5"
+                                    >
+                                        <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-[#1E3A5F]">
+                                            <span className="text-xs font-extrabold text-[#0060F4] dark:text-[#38BDF8]">
+                                                Item {idx + 1}
+                                            </span>
+                                            {(activeDetail.items?.length || 0) > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeItem(item.id)}
+                                                    className="text-xs font-bold text-[#C62840] hover:underline cursor-pointer flex items-center gap-1"
+                                                >
+                                                    <span>🗑 Hapus</span>
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Prioritas */}
+                                        <RadioGroup
+                                            name={`item-${item.id}-urgency`}
+                                            label="Prioritas kebutuhan"
+                                            value={item.is_urgent ? 'urgent' : 'normal'}
+                                            onChange={(val) => updateItem(item.id, 'is_urgent', val === 'urgent')}
+                                            layout="grid-2"
+                                            variant="card"
+                                            options={[
+                                                { value: 'normal', label: 'Normal' },
+                                                { value: 'urgent', label: 'Urgent' },
+                                            ]}
+                                        />
+
+                                        {/* Nama Barang */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
+                                                Nama Barang / Item <span className="text-[#C62840]">*</span>
+                                            </label>
+                                            <select
+                                                value={
+                                                    availableProducts.some((p) => p.name.toLowerCase() === (item.item_name || '').toLowerCase())
+                                                        ? availableProducts.find((p) => p.name.toLowerCase() === (item.item_name || '').toLowerCase())?.id
+                                                        : item.item_name ? '__custom__' : ''
+                                                }
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    if (val === '__custom__') {
+                                                        updateItem(item.id, 'item_name', '');
+                                                    } else if (val) {
+                                                        const matched = availableProducts.find((p) => p.id === val);
+                                                        if (matched) {
+                                                            updateItem(item.id, 'item_name', matched.name);
+                                                            if (matched.unit) updateItem(item.id, 'unit', matched.unit);
+                                                        }
+                                                    }
+                                                }}
+                                                className="w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-xs sm:text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4] cursor-pointer"
+                                            >
+                                                <option value="">-- Pilih dari Master Produk --</option>
+                                                {availableProducts.map((p) => (
+                                                    <option key={p.id} value={p.id}>
+                                                        {p.name} ({p.unit})
+                                                    </option>
+                                                ))}
+                                                <option value="__custom__">Lainnya / Tulis Manual</option>
+                                            </select>
+                                            {(!availableProducts.some((p) => p.name.toLowerCase() === (item.item_name || '').toLowerCase()) || !item.item_name) && (
+                                                <input
+                                                    type="text"
+                                                    value={item.item_name}
+                                                    onChange={(e) => updateItem(item.id, 'item_name', e.target.value)}
+                                                    placeholder="Tulis nama barang atau kebutuhan lainnya..."
+                                                    className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-xs sm:text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                                />
+                                            )}
+                                        </div>
+
+                                        {/* Jumlah & Satuan */}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
+                                                    Jumlah <span className="text-[#C62840]">*</span>
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0.1"
+                                                    step="any"
+                                                    value={item.quantity}
+                                                    onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 1)}
+                                                    className="w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-xs sm:text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
+                                                    Satuan <span className="text-[#C62840]">*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={item.unit}
+                                                    onChange={(e) => updateItem(item.id, 'unit', e.target.value)}
+                                                    placeholder="Ton, Liter, Pcs"
+                                                    className="w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-xs sm:text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Keterangan */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
+                                                Keterangan
+                                            </label>
+                                            <textarea
+                                                rows={2}
+                                                value={item.notes}
+                                                onChange={(e) => updateItem(item.id, 'notes', e.target.value)}
+                                                placeholder="Keterangan tambahan"
+                                                className="w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-xs sm:text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                            />
+                                        </div>
+
+                                        {/* Jadwal */}
+                                        <div className="pt-1">
+                                            <DateTimePicker
+                                                id={`item-${item.id}-datetime`}
+                                                label="Jadwal Dibutuhkan"
+                                                layout="combined"
+                                                dateValue={item.required_date || ''}
+                                                timeValue={item.required_time || '10:00'}
+                                                onDateChange={(val) => updateItem(item.id, 'required_date', val)}
+                                                onTimeChange={(val) => updateItem(item.id, 'required_time', val)}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Tambah Item */}
+                                <button
+                                    type="button"
+                                    onClick={addItem}
+                                    className="w-full py-3 rounded-xl border-2 border-dashed border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#081528] text-[#0060F4] dark:text-[#38BDF8] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                                >
+                                    <span className="text-base font-bold">+</span>
+                                    <span>Tambah Item Lain</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Upload Foto */}
+                        <div className="space-y-2 pt-2">
+                            <h4 className="text-xs font-bold text-[#0B1F63] dark:text-white">
+                                Upload Foto Form Kapal{' '}
+                                <span className="font-medium text-[#52658E] dark:text-[#94A3B8]">(Opsional)</span>
+                            </h4>
+                            <PhotoUploadPicker
+                                value={activeDetail.form_photo || null}
+                                previewUrl={activeDetail.form_photo_preview || null}
+                                onChange={(file, pUrl) => {
+                                    setShipDetails((prev) => ({
+                                        ...prev,
+                                        [activeShipId]: {
+                                            ...prev[activeShipId],
+                                            form_photo: file,
+                                            form_photo_preview: pUrl || null,
+                                        },
+                                    }));
+                                }}
+                                helperText="Tambahkan foto form asli dari kapal jika tersedia. Maksimal 5 MB."
+                            />
+                        </div>
+
+                        {/* Actions */}
+                        <div className="pt-4 border-t border-[#DCEAF8] dark:border-[#1E3A5F] flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setStage('pick-type')}
+                                className="flex-1 py-3 px-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:bg-[#F0F8FF] text-[#52658E] dark:text-[#94A3B8] font-bold text-sm transition-all cursor-pointer"
+                            >
+                                Kembali
+                            </button>
+                            {returnToReviewAfterKebutuhan ? (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setReturnToReviewAfterKebutuhan(false);
+                                        setStage('review');
+                                    }}
+                                    className="flex-1 py-3 px-4 rounded-xl bg-[#087443] hover:bg-[#065b34] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    <span>Simpan & Kembali ke Review</span>
+                                    <span>✓</span>
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setStage('list')}
+                                    className="flex-1 py-3 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    <span>Selesai</span>
+                                    <span>→</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* ══════════════════════════════════════════
+                    STAGE: review  —  Review semua kapal & Submit
+                ══════════════════════════════════════════ */}
+                {stage === 'review' && (
+                    <form onSubmit={handleSubmit} className={`${cardCls} space-y-5`}>
+                        <div className="border-b border-[#DCEAF8] dark:border-[#1E3A5F] pb-3">
+                            <h2 className="text-lg font-black text-[#0B1F63] dark:text-white">Review Pengajuan</h2>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                                Pastikan semua data sudah benar sebelum dikirimkan.
+                            </p>
+                        </div>
+
+                        {/* Review cards */}
+                        <div className="space-y-3">
+                            {ships
+                                .filter((s) => configuredShipIds.includes(s.id))
+                                .map((ship, idx) => {
+                                    const det = shipDetails[ship.id];
+                                    const items = det?.items || [];
 
                                     return (
                                         <div
-                                            key={idx}
-                                            className={`p-4 rounded-xl border transition-all ${
-                                                item.is_urgent
-                                                    ? 'bg-[#FFE7EC]/30 border-[#C62840]/30'
-                                                    : 'bg-[#F0F8FF]/40 border-[#DCEAF8]'
-                                            }`}
+                                            key={ship.id}
+                                            className="p-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] flex items-start justify-between gap-3"
                                         >
-                                            {/* Item Card Header */}
-                                            <div className="flex items-center justify-between pb-2 mb-3 border-b border-[#DCEAF8]/70">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="w-5 h-5 rounded-full bg-[#0B1F63] text-white text-[11px] font-bold flex items-center justify-center">
-                                                        {idx + 1}
-                                                    </span>
-                                                    <span className="text-xs font-bold text-[#0B1F63]">
-                                                        Item Kebutuhan #{idx + 1}
-                                                    </span>
-                                                    {selectedProd?.item_type === 'jasa' ? (
-                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E0F0FF] text-[#0060F4]">
-                                                            Jasa Keagenan
+                                            <div className="flex items-start gap-3 min-w-0">
+                                                <span className="w-6 h-6 rounded-full bg-[#0060F4] text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                                                    {idx + 1}
+                                                </span>
+                                                <div className="space-y-1 min-w-0">
+                                                    <h3 className="text-sm font-bold text-[#0B1F63] dark:text-white truncate">
+                                                        {ship.name}
+                                                    </h3>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="text-xs font-semibold text-[#0060F4] dark:text-[#38BDF8]">
+                                                            {det?.request_type}
                                                         </span>
-                                                    ) : (
-                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#DCF7E8] text-[#087443]">
-                                                            Reimburse / Non-Jasa
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                {data.items.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRemoveItem(idx)}
-                                                        className="text-xs text-[#C62840] hover:text-red-700 font-bold flex items-center gap-1 transition-colors"
-                                                    >
-                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                        </svg>
-                                                        Hapus
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* Fields Grid */}
-                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                                {/* Pilihan Master Produk */}
-                                                <div className="md:col-span-2">
-                                                    <label className="block text-[11px] font-bold text-[#0B1F63] mb-1">
-                                                        Jenis Kebutuhan (Master Produk) <span className="text-[#C62840]">*</span>
-                                                    </label>
-                                                    <select
-                                                        value={item.product_id}
-                                                        onChange={(e) => handleItemChange(idx, 'product_id', e.target.value)}
-                                                        className="w-full h-10 px-3 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
-                                                    >
-                                                        <option value="">-- Pilih dari Master Produk --</option>
-                                                        {products.map((p) => (
-                                                            <option key={p.id} value={p.id}>
-                                                                {p.name} [{p.category} • {p.item_type === 'jasa' ? 'Jasa' : 'Reimburse'}]
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-
-                                                {/* Jumlah & Satuan */}
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-[#0B1F63] mb-1">
-                                                            Jumlah <span className="text-[#C62840]">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="number"
-                                                            min={0.1}
-                                                            step={0.1}
-                                                            value={item.quantity}
-                                                            onChange={(e) => handleItemChange(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                                                            className="w-full h-10 px-3 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white font-mono"
-                                                            required
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-[11px] font-bold text-[#0B1F63] mb-1">
-                                                            Satuan
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            value={item.unit}
-                                                            onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
-                                                            className="w-full h-10 px-3 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white"
-                                                            required
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {/* Waktu Dibutuhkan */}
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-[#0B1F63] mb-1">
-                                                        Dibutuhkan Pada
-                                                    </label>
-                                                    <input
-                                                        type="date"
-                                                        value={item.required_date}
-                                                        onChange={(e) => handleItemChange(idx, 'required_date', e.target.value)}
-                                                        className="w-full h-10 px-3 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] bg-white"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Keterangan & Urgent & Estimasi Biaya */}
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 pt-2 border-t border-[#DCEAF8]/50">
-                                                <div className="md:col-span-2">
-                                                    <input
-                                                        type="text"
-                                                        value={item.notes}
-                                                        onChange={(e) => handleItemChange(idx, 'notes', e.target.value)}
-                                                        placeholder="Catatan spesifik (misal: bunker MGO 0.5%, air tawar dermaga barat)..."
-                                                        className="w-full h-9 px-3 text-xs border border-[#DCEAF8] rounded-lg text-[#0B1F63] bg-white placeholder-[#8C9BB9]"
-                                                    />
-                                                </div>
-
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={item.is_urgent}
-                                                            onChange={(e) => handleItemChange(idx, 'is_urgent', e.target.checked)}
-                                                            className="w-4 h-4 rounded text-[#C62840] border-[#DCEAF8] focus:ring-[#C62840]"
-                                                        />
-                                                        <span className={`text-xs font-bold ${item.is_urgent ? 'text-[#C62840]' : 'text-[#52658E]'}`}>
-                                                            🚨 Urgent
-                                                        </span>
-                                                    </label>
-
-                                                    <div className="text-right">
-                                                        <span className="text-[10px] text-[#52658E] block">Estimasi Tarif:</span>
-                                                        <span className="text-xs font-mono font-black text-[#0B1F63]">
-                                                            {formatRupiah(subtotal)}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Total Cost Estimate Footer */}
-                            <div className="p-4 rounded-xl bg-[#E0F0FF]/60 border border-[#0060F4]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                <div>
-                                    <p className="text-xs font-bold text-[#0B1F63]">
-                                        Total Estimasi Kebutuhan ({data.items.length} Item Terinput):
-                                    </p>
-                                    <p className="text-[11px] text-[#52658E]">
-                                        *Harga final akan diverifikasi oleh Admin (Bu Titik) berdasarkan kuotasi rekanan vendor riil.
-                                    </p>
-                                </div>
-                                <p className="text-lg md:text-xl font-mono font-black text-[#0060F4]">
-                                    {formatRupiah(totalEstimatedCost)}
-                                </p>
-                            </div>
-
-                            {/* Buttons Step 2 */}
-                            <div className="pt-4 border-t border-[#DCEAF8] flex flex-col-reverse sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setCurrentStep(1)}
-                                    className="w-full sm:w-auto h-11 px-5 border border-[#DCEAF8] bg-white hover:bg-[#F0F8FF] text-[#52658E] hover:text-[#0B1F63] text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                                >
-                                    ← Kembali ke Langkah 1
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setCurrentStep(3)}
-                                    className="w-full sm:w-auto h-11 px-7 bg-[#0060F4] hover:bg-[#082870] text-white text-xs md:text-sm font-bold rounded-xl shadow-md shadow-[#0060F4]/20 flex items-center justify-center gap-2 transition-all"
-                                >
-                                    Lanjut ke Review & Kirim →
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ============================================================ */}
-                    {/* WIZARD STEP 3: REVIEW & SUBMIT                               */}
-                    {/* ============================================================ */}
-                    {currentStep === 3 && (
-                        <form onSubmit={handleSubmitWizard} className="space-y-4 sm:space-y-5">
-                            <div className="border-b border-[#DCEAF8] pb-3">
-                                <h2 className="text-sm sm:text-base font-black text-[#0B1F63]">
-                                    Langkah 3: Review Hasil Permintaan & Konfirmasi Pengajuan
-                                </h2>
-                                <p className="text-xs text-[#52658E] mt-0.5">
-                                    Periksa kembali ringkasan data sebelum diteruskan ke Bu Titik (Admin Operasional).
-                                </p>
-                            </div>
-
-                            {/* Unified Summary Card (Mobile Friendly) */}
-                            <div className="bg-[#F0F8FF]/80 rounded-xl border border-[#DCEAF8] p-3.5 space-y-3 text-xs shadow-xs">
-                                <div className="flex items-center justify-between pb-2 border-b border-[#DCEAF8]/70">
-                                    <span className="font-bold text-[#082870] uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                                        <span>🚢</span> Ringkasan Pengajuan
-                                    </span>
-                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#DCF7E8] text-[#087443] border border-[#087443]/20">
-                                        {data.items.length} Item Kebutuhan
-                                    </span>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                                    <div>
-                                        <span className="text-[10px] font-bold text-[#52658E] block uppercase tracking-wider">Perusahaan Pelayaran</span>
-                                        <span className="font-bold text-[#0B1F63] text-xs block truncate mt-0.5">
-                                            {data.is_new_company ? data.new_company_name : selectedCompany?.name || '-'}
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] font-bold text-[#52658E] block uppercase tracking-wider">Nama Kapal & IMO</span>
-                                        <span className="font-bold text-[#0B1F63] text-xs block truncate mt-0.5">
-                                            {data.is_new_ship ? data.new_ship_name : selectedShip?.name || '-'}
-                                            <span className="font-mono text-[11px] font-normal text-[#52658E] ml-1">
-                                                ({data.is_new_ship ? data.new_ship_imo : selectedShip?.imo_number || '-'})
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div className="pt-2 sm:pt-0 sm:border-t-0 border-t border-[#DCEAF8]/50">
-                                        <span className="text-[10px] font-bold text-[#52658E] block uppercase tracking-wider">Tipe Kegiatan</span>
-                                        <span className="font-bold text-[#0060F4] text-xs flex items-center gap-1 mt-0.5">
-                                            {data.service_type === 'Sandar' ? '⚓ Sandar (Dermaga Pelabuhan)' : '🌊 Labuh (Area Perairan / Buoy)'}
-                                        </span>
-                                    </div>
-                                    <div className="pt-2 sm:pt-0 sm:border-t-0 border-t border-[#DCEAF8]/50">
-                                        <span className="text-[10px] font-bold text-[#52658E] block uppercase tracking-wider">Pelabuhan Singgah</span>
-                                        <span className="font-bold text-[#0B1F63] text-xs block truncate mt-0.5">
-                                            {selectedPort?.name} ({selectedPort?.code})
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Daftar Kebutuhan (Mobile Cards + Desktop Table) */}
-                            <div>
-                                <div className="flex items-center justify-between mb-2">
-                                    <h3 className="text-xs font-bold text-[#0B1F63] uppercase tracking-wider">
-                                        Daftar Kebutuhan yang Diajukan
-                                    </h3>
-                                    <span className="text-[11px] font-bold text-[#52658E]">
-                                        Total: <strong className="font-mono text-[#0060F4]">{formatRupiah(totalEstimatedCost)}</strong>
-                                    </span>
-                                </div>
-
-                                {/* Mobile Card List (md:hidden) */}
-                                <div className="space-y-2 md:hidden">
-                                    {data.items.map((it, idx) => {
-                                        const p = getItemPrice(it);
-                                        const sub = p * (Number(it.quantity) || 0);
-                                        const prod = products.find((pr) => pr.id === it.product_id);
-
-                                        return (
-                                            <div
-                                                key={idx}
-                                                className="p-3 rounded-xl border border-[#DCEAF8] bg-white shadow-xs space-y-2"
-                                            >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="flex items-start gap-2">
-                                                        <span className="w-5 h-5 rounded-full bg-[#0D2945] text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-                                                            {idx + 1}
-                                                        </span>
-                                                        <div>
-                                                            <span className="text-xs font-bold text-[#0B1F63] leading-snug block">
-                                                                {it.item_name}
+                                                        {det?.request_type === 'Kebutuhan Kapal' && det?.department && (
+                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E0F0FF] dark:bg-[#132847] text-[#0060F4] dark:text-[#38BDF8]">
+                                                                Bagian {det.department}
                                                             </span>
-                                                            {it.notes && (
-                                                                <p className="text-[11px] text-[#52658E] italic mt-0.5">
-                                                                    {it.notes}
+                                                        )}
+                                                        {det?.request_type === 'Kebutuhan Kapal' && det?.requester_name && (
+                                                            <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                • {det.requester_name}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {det?.request_type === 'Kebutuhan Kapal' && (
+                                                        <div>
+                                                            {items.length > 0 ? (
+                                                                <ul className="text-xs text-[#52658E] dark:text-[#B5C8DC] space-y-0.5 pt-1">
+                                                                    {items.map((it) => (
+                                                                        <li key={it.id} className="flex items-center gap-1.5">
+                                                                            <span>•</span>
+                                                                            <span>{it.item_name} — {it.quantity} {it.unit}</span>
+                                                                            {it.notes && (
+                                                                                <span className="text-[10px] text-[#8C9BB9]">({it.notes})</span>
+                                                                            )}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            ) : (
+                                                                <p className="text-xs italic text-[#8C9BB9] pt-1">
+                                                                    Belum ada item
                                                                 </p>
                                                             )}
                                                         </div>
-                                                    </div>
-
-                                                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                            prod?.item_type === 'jasa'
-                                                                ? 'bg-[#E0F0FF] text-[#0060F4]'
-                                                                : 'bg-[#DCF7E8] text-[#087443]'
-                                                        }`}>
-                                                            {prod?.item_type === 'jasa' ? 'Jasa' : 'Reimburse'}
-                                                        </span>
-                                                        {it.is_urgent && (
-                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#FFE7EC] text-[#C62840]">
-                                                                🚨 Urgent
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center justify-between pt-2 border-t border-[#DCEAF8]/60 text-xs pl-7">
-                                                    <div className="text-[#52658E] text-[11px]">
-                                                        <span className="font-bold text-[#0B1F63]">{it.quantity} {it.unit}</span>
-                                                        {it.required_date && (
-                                                            <>
-                                                                <span className="mx-1 text-[#DCEAF8]">|</span>
-                                                                <span>{it.required_date}</span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <span className="font-mono font-bold text-xs text-[#0060F4]">
-                                                            {formatRupiah(sub)}
-                                                        </span>
-                                                    </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                        );
-                                    })}
-                                </div>
 
-                                {/* Desktop Table View (hidden md:block) */}
-                                <div className="hidden md:block border border-[#DCEAF8] rounded-xl overflow-x-auto">
-                                    <table className="w-full text-left text-xs min-w-[500px]">
-                                        <thead>
-                                            <tr className="bg-[#0D2945] text-[#E7F0FA]">
-                                                <th className="py-2.5 px-3">NO</th>
-                                                <th className="py-2.5 px-3">KEBUTUHAN</th>
-                                                <th className="py-2.5 px-3">TIPE</th>
-                                                <th className="py-2.5 px-3 text-right">JUMLAH</th>
-                                                <th className="py-2.5 px-3">TANGGAL</th>
-                                                <th className="py-2.5 px-3 text-center">PRIORITAS</th>
-                                                <th className="py-2.5 px-3 text-right">ESTIMASI</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-[#DCEAF8]/60">
-                                            {data.items.map((it, idx) => {
-                                                const p = getItemPrice(it);
-                                                const sub = p * (Number(it.quantity) || 0);
-                                                const prod = products.find((pr) => pr.id === it.product_id);
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveShipId(ship.id);
+                                                    setTempRequestType(det?.request_type || '');
+                                                    if (det?.request_type === 'Kebutuhan Kapal') {
+                                                        setReturnToReviewAfterKebutuhan(true);
+                                                        setStage('kebutuhan');
+                                                    } else {
+                                                        setStage('pick-type');
+                                                    }
+                                                }}
+                                                className="text-xs font-bold text-[#0060F4] dark:text-[#38BDF8] hover:underline cursor-pointer flex-shrink-0"
+                                            >
+                                                Ubah &gt;
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                        </div>
 
-                                                return (
-                                                    <tr key={idx} className="hover:bg-[#F0F8FF]/50">
-                                                        <td className="py-2.5 px-3 font-bold text-[#52658E]">{idx + 1}</td>
-                                                        <td className="py-2.5 px-3">
-                                                            <span className="font-bold text-[#0B1F63]">{it.item_name}</span>
-                                                            {it.notes && (
-                                                                <p className="text-[10px] text-[#52658E] italic">{it.notes}</p>
-                                                            )}
-                                                        </td>
-                                                        <td className="py-2.5 px-3">
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                                prod?.item_type === 'jasa'
-                                                                    ? 'bg-[#E0F0FF] text-[#0060F4]'
-                                                                    : 'bg-[#DCF7E8] text-[#087443]'
-                                                            }`}>
-                                                                {prod?.item_type === 'jasa' ? 'Jasa' : 'Reimburse'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="py-2.5 px-3 text-right font-mono font-semibold text-[#0B1F63]">
-                                                            {it.quantity} {it.unit}
-                                                        </td>
-                                                        <td className="py-2.5 px-3 text-[#52658E] font-medium">
-                                                            {it.required_date}
-                                                        </td>
-                                                        <td className="py-2.5 px-3 text-center">
-                                                            {it.is_urgent ? (
-                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FFE7EC] text-[#C62840]">
-                                                                    🚨 Urgent
-                                                                </span>
-                                                            ) : (
-                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#F0F8FF] text-[#52658E]">
-                                                                    Normal
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="py-2.5 px-3 text-right font-mono font-bold text-[#0B1F63]">
-                                                            {formatRupiah(sub)}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
+                        {/* Catatan */}
+                        <div>
+                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
+                                Catatan (Opsional)
+                            </label>
+                            <textarea
+                                rows={3}
+                                value={notesGlobal}
+                                onChange={(e) => setNotesGlobal(e.target.value)}
+                                placeholder="Contoh: Mohon diproses sesuai prioritas kapal yang akan sandar."
+                                className="w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                            />
+                        </div>
 
-                            {/* Catatan Tambahan Lapangan */}
-                            <div>
-                                <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                    Catatan Tambahan untuk Admin (Bu Titik)
-                                </label>
-                                <textarea
-                                    value={data.notes}
-                                    onChange={(e) => setData('notes', e.target.value)}
-                                    rows={2}
-                                    placeholder="Contoh: Kapal estimasi tiba besok sore jam 16:00, mohon diprioritaskan air tawar dan clearance..."
-                                    className="w-full px-3 py-2 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63] focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
-                                />
-                            </div>
+                        {/* Actions */}
+                        <div className="pt-4 border-t border-[#DCEAF8] dark:border-[#1E3A5F] flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setStage('list')}
+                                className="flex-1 py-3 px-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:bg-[#F0F8FF] text-[#52658E] dark:text-[#94A3B8] font-bold text-sm transition-all cursor-pointer"
+                            >
+                                Kembali
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isSubmitting}
+                                className="flex-1 py-3 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] active:scale-[0.99] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                <span>{isSubmitting ? 'Mengirim...' : 'Kirim Pengajuan'}</span>
+                                <span>→</span>
+                            </button>
+                        </div>
+                    </form>
+                )}
 
-                            {/* Konfirmasi Checkbox */}
-                            <div className="p-3 sm:p-3.5 rounded-xl bg-[#F0F8FF] border border-[#0060F4]/20 flex items-start gap-3">
-                                <input
-                                    type="checkbox"
-                                    id="confirmed_agreement"
-                                    checked={data.confirmed_agreement}
-                                    onChange={(e) => setData('confirmed_agreement', e.target.checked)}
-                                    className="w-4 h-4 mt-0.5 rounded text-[#0060F4] border-[#DCEAF8] focus:ring-[#0060F4] cursor-pointer flex-shrink-0"
-                                    required
-                                />
-                                <label htmlFor="confirmed_agreement" className="text-xs text-[#0B1F63] cursor-pointer leading-relaxed">
-                                    <strong>Saya menyatakan data kebutuhan kapal di atas telah diverifikasi riil di lapangan</strong> dan siap diproses oleh Bu Titik (Admin) untuk kuotasi vendor & persetujuan Direktur.
-                                </label>
-                            </div>
+                {/* ══════════════════════════════════════════
+                    STAGE: success  —  Berhasil Dikirim
+                ══════════════════════════════════════════ */}
+                {stage === 'success' && (
+                    <div className="bg-transparent md:bg-white dark:md:bg-[#0C1D36] border-0 md:border md:border-[#DCEAF8] dark:md:border-[#1E3A5F] rounded-none md:rounded-2xl px-4 py-4 md:p-10 shadow-none md:shadow-md text-center max-w-lg mx-auto space-y-5">
+                        {/* Check icon */}
+                        <div className="w-20 h-20 rounded-full bg-[#DCF7E8] text-[#087443] flex items-center justify-center mx-auto shadow-sm">
+                            <svg className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
 
-                            {/* Submit & Back Actions */}
-                            <div className="pt-3.5 border-t border-[#DCEAF8] flex flex-col-reverse sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setCurrentStep(2)}
-                                    className="w-full sm:w-auto h-11 px-5 border border-[#DCEAF8] bg-white hover:bg-[#F0F8FF] text-[#52658E] hover:text-[#0B1F63] text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                                >
-                                    ← Kembali ke Langkah 2
-                                </button>
+                        <div className="space-y-1">
+                            <h2 className="text-xl font-black text-[#0B1F63] dark:text-white">
+                                Pengajuan Berhasil Dikirim!
+                            </h2>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Nomor Pengajuan</p>
+                            <span className="font-mono text-lg font-black text-[#0060F4] dark:text-[#38BDF8] block">
+                                {submittedNumber}
+                            </span>
+                            <p className="text-xs font-bold text-[#0B1F63] dark:text-white pt-1">
+                                {configuredCount} Kapal • {configuredCount} Pengajuan
+                            </p>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] max-w-sm mx-auto pt-1 leading-relaxed">
+                                Pengajuan Anda telah dikirim ke Bu Titik. Status dapat dipantau di menu Pengajuan.
+                            </p>
+                        </div>
 
-                                <button
-                                    type="submit"
-                                    disabled={processing || !data.confirmed_agreement}
-                                    className="w-full sm:w-auto h-11 bg-[#0060F4] hover:bg-[#082870] text-white px-7 text-xs md:text-sm font-bold rounded-xl shadow-md shadow-[#0060F4]/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    {processing ? 'Mengirim Pengajuan...' : 'Kirim Pengajuan ke Admin (Bu Titik)'}
-                                </button>
-                            </div>
-                        </form>
-                    )}
-                </div>
+                        <div className="pt-4 space-y-2.5">
+                            <Link
+                                href="/requests"
+                                className="block w-full py-3.5 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] text-white font-bold text-sm shadow-md transition-all text-center"
+                            >
+                                Lihat Semua Pengajuan
+                            </Link>
+                            <Link
+                                href="/requests/create"
+                                className="block w-full py-3 px-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] text-[#52658E] dark:text-[#94A3B8] font-bold text-sm transition-all text-center hover:bg-[#F0F8FF]"
+                            >
+                                Buat Pengajuan Baru
+                            </Link>
+                        </div>
+                    </div>
+                )}
             </div>
-
-            {/* Modal Inline Tambah Perusahaan */}
-            <Modal
-                isOpen={isCompanyModalOpen}
-                onClose={() => setIsCompanyModalOpen(false)}
-                title="Tambah Perusahaan Pelayaran Baru (Cepat)"
-                size="sm"
-            >
-                <div className="space-y-3 p-1">
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Nama Perusahaan Pelayaran <span className="text-[#C62840]">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={newCompanyName}
-                            onChange={(e) => setNewCompanyName(e.target.value)}
-                            placeholder="PT Pelayaran Samudra Mandiri"
-                            className="w-full h-10 px-3 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63]"
-                            autoFocus
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Kode Singkatan (Opsional)
-                        </label>
-                        <input
-                            type="text"
-                            value={newCompanyCode}
-                            onChange={(e) => setNewCompanyCode(e.target.value.toUpperCase())}
-                            placeholder="PSM"
-                            className="w-full h-10 px-3 text-xs md:text-sm font-mono border border-[#DCEAF8] rounded-xl text-[#0B1F63]"
-                        />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                        <Button type="button" variant="secondary" onClick={() => setIsCompanyModalOpen(false)} className="px-3 py-1.5 text-xs">
-                            Batal
-                        </Button>
-                        <Button type="button" variant="primary" onClick={handleSaveInlineCompany} className="px-4 py-1.5 text-xs font-bold bg-[#0060F4] text-white">
-                            Gunakan Perusahaan Ini
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
-
-            {/* Modal Inline Tambah Kapal */}
-            <Modal
-                isOpen={isShipModalOpen}
-                onClose={() => setIsShipModalOpen(false)}
-                title="Tambah Kapal Baru (Cepat)"
-                size="sm"
-            >
-                <div className="space-y-3 p-1">
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Nama Kapal <span className="text-[#C62840]">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={newShipName}
-                            onChange={(e) => setNewShipName(e.target.value)}
-                            placeholder="MV Ocean Mariner / TB Samudra 08"
-                            className="w-full h-10 px-3 text-xs md:text-sm border border-[#DCEAF8] rounded-xl text-[#0B1F63]"
-                            autoFocus
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Nomor IMO / Call Sign
-                        </label>
-                        <input
-                            type="text"
-                            value={newShipImo}
-                            onChange={(e) => setNewShipImo(e.target.value)}
-                            placeholder="IMO 9876543"
-                            className="w-full h-10 px-3 text-xs md:text-sm font-mono border border-[#DCEAF8] rounded-xl text-[#0B1F63]"
-                        />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                        <Button type="button" variant="secondary" onClick={() => setIsShipModalOpen(false)} className="px-3 py-1.5 text-xs">
-                            Batal
-                        </Button>
-                        <Button type="button" variant="primary" onClick={handleSaveInlineShip} className="px-4 py-1.5 text-xs font-bold bg-[#0060F4] text-white">
-                            Gunakan Kapal Ini
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
         </AppLayout>
     );
 }

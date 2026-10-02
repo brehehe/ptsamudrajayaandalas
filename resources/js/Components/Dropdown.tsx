@@ -40,12 +40,7 @@ const Trigger = ({ children }: PropsWithChildren) => {
         <>
             <div onClick={toggleOpen}>{children}</div>
 
-            {open && (
-                <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setOpen(false)}
-                ></div>
-            )}
+            {open && <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}></div>}
         </>
     );
 };
@@ -105,16 +100,15 @@ const Content = ({
     );
 };
 
-const DropdownLink = ({
-    className = '',
-    children,
-    ...props
-}: InertiaLinkProps) => {
+const DropdownLink = ({ className = '', children, ...props }: InertiaLinkProps) => {
     return (
         <Link
             {...props}
             className={
-                'block w-full px-4 py-2 text-start text-sm leading-5 text-gray-700 dark:text-[#F1F5F9] transition duration-150 ease-in-out hover:bg-gray-100 dark:hover:bg-[#132847] focus:bg-gray-100 dark:focus:bg-[#132847] focus:outline-none ' +
+                'block w-full px-4 py-2 text-start text-sm leading-5 text-gray-700 ' +
+                'dark:text-[#F1F5F9] transition duration-150 ease-in-out hover:bg-gray-100 ' +
+                'dark:hover:bg-[#132847] focus:bg-gray-100 dark:focus:bg-[#132847] ' +
+                'focus:outline-none ' +
                 className
             }
         >

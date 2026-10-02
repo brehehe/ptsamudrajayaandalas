@@ -24,7 +24,8 @@ export default function Toggle({
     id,
     className = '',
 }: ToggleProps) {
-    const toggleId = id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+    const toggleId =
+        id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
     const sizeConfig = {
         sm: {
@@ -89,7 +90,12 @@ export default function Toggle({
                     onClick={() => !disabled && onChange(!checked)}
                 >
                     {label && (
-                        <span className="text-xs sm:text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9] block leading-tight">
+                        <span
+                            className={
+                                'text-xs sm:text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                                'block leading-tight'
+                            }
+                        >
                             {label}
                         </span>
                     )}

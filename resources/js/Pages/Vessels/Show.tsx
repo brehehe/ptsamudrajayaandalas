@@ -1,390 +1,825 @@
-import React from 'react';
-import { Head, Link } from '@inertiajs/react';
-import { motion, Variants } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
+import { motion, type Variants } from 'framer-motion';
+import { Camera, FileText, MapPin, RefreshCw, Ship as ShipIcon } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
+import Modal from '../../Components/overlays/Modal';
+import Input from '../../Components/forms/Input';
+import Textarea from '../../Components/forms/Textarea';
+import DateTimePicker from '../../Components/forms/DateTimePicker';
+import MultiplePhotoUploadPicker from '../../Components/forms/MultiplePhotoUploadPicker';
+import { useGeolocation } from '../../hooks/useGeolocation';
+import OverviewTab from '../../Components/vessels/OverviewTab';
+import ActivityTab from '../../Components/vessels/ActivityTab';
+import NeedsTab, { type NeedsFilterTab } from '../../Components/vessels/NeedsTab';
+import RequestsTab from '../../Components/vessels/RequestsTab';
+import VesselNeedFlow, { type NeedFlowStep } from '../../Components/vessels/VesselNeedFlow';
+import VesselClearanceDialog from '../../Components/vessels/VesselClearanceDialog';
+import AlertToast, { type AlertToastMessage } from '../../Components/feedback/AlertToast';
+import type { VesselShowProps } from '../../Components/vessels/types';
+import { formatEtaDateTime } from '../../Components/vessels/format';
+export { formatEtaDateTime } from '../../Components/vessels/format';
 
 const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,
         transition: {
-            staggerChildren: 0.06,
+            staggerChildren: 0.05,
             delayChildren: 0.02,
         },
     },
 };
 
 const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 12 },
+    hidden: { opacity: 0, y: 10 },
     visible: {
         opacity: 1,
         y: 0,
-        transition: { duration: 0.28, ease: 'easeOut' },
+        transition: { duration: 0.22, ease: 'easeOut' },
     },
 };
 
-interface ShipCompany {
-    id: string;
-    code?: string;
-    name: string;
-    address?: string;
-    phone?: string;
-    email?: string;
-}
+const mobileTabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'aktivitas', label: 'Aktivitas' },
+    { key: 'kebutuhan', label: 'Kebutuhan' },
+    { key: 'pengajuan', label: 'Pengajuan' },
+] as const;
 
-interface ShipRequest {
-    id: string;
-    request_number: string;
-    status: string;
-    request_date: string;
-    notes?: string;
-    created_at: string;
-}
-
-interface Ship {
-    id: string;
-    name: string;
-    imo_number: string;
-    ship_type?: string;
-    status: string;
-    agent_name?: string;
-    is_active: boolean;
-    image?: string;
-    created_at?: string;
-    eta?: string;
-    ship_company_id?: string;
-    company?: ShipCompany;
-    requests?: ShipRequest[];
-}
-
-import { formatEtaDateTime } from './Index';
-
-interface VesselShowProps {
-    vessel: Ship;
-}
-
-const formatDate = (dateStr?: string | null): string => {
-    if (!dateStr) return '12 Jan 2026';
-    try {
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return dateStr;
-        return d.toLocaleDateString('id-ID', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-        });
-    } catch {
-        return dateStr;
-    }
-};
-
-export default function VesselShow({ vessel }: VesselShowProps) {
+export default function VesselShow({
+    vessel,
+    products = [],
+    clearancePortCalls = [],
+    selectedPortCallId = null,
+    selectedVisit = null,
+    canManageClearance = false,
+}: VesselShowProps) {
     const requests = vessel.requests || [];
 
-    return (
-        <AppLayout title={`Detail Kapal — ${vessel.name}`}>
-            <Head title={`${vessel.name} — PT Samudra Jaya Andalas`} />
+    // Mobile View Tab: 'overview' | 'aktivitas' | 'kebutuhan' | 'pengajuan'
+    const [mobileTab, setMobileTab] = useState<(typeof mobileTabs)[number]['key']>('overview');
+    const [kebutuhanFilterTab, setKebutuhanFilterTab] = useState<NeedsFilterTab>('draft');
 
-            <motion.div
-                variants={containerVariants}
-                initial="hidden"
-                animate="visible"
-                className="space-y-6 max-w-7xl mx-auto pb-12"
+    // Multi-step Flow for "Tambah Kebutuhan" (Screens 3, 4, 5, 7, 8)
+    // step: 'none' | 'header' | 'items' | 'review' | 'success'
+    const [needFlowStep, setNeedFlowStep] = useState<NeedFlowStep>('none');
+    const [selectedSection, setSelectedSection] = useState<string>('Deck');
+    const [clearanceDirection, setClearanceDirection] = useState<'in' | 'out' | null>(null);
+    const [clearanceToast, setClearanceToast] = useState<AlertToastMessage | null>(null);
+
+    // Quick Action Modals: Catat Aktivitas Lapangan
+    const [showActivityModal, setShowActivityModal] = useState(false);
+    const geo = useGeolocation('Dermaga Pelabuhan Gresik');
+    const [activityDate, setActivityDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [activityTime, setActivityTime] = useState(() => {
+        const d = new Date();
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    });
+    const [activityLocation, setActivityLocation] = useState('');
+    const [activityCategory, setActivityCategory] = useState<string>('Kegiatan Kapal');
+    const [activityCategoryOther, setActivityCategoryOther] = useState('');
+    const [activityTitle, setActivityTitle] = useState('');
+    const [activityDetail, setActivityDetail] = useState('');
+    const [activityPhotos, setActivityPhotos] = useState<File[]>([]);
+    const [activityError, setActivityError] = useState<string | null>(null);
+    const [isSavingActivity, setIsSavingActivity] = useState(false);
+
+    useEffect(() => {
+        if (geo.locationName && !activityLocation) {
+            setActivityLocation(geo.locationName);
+        }
+    }, [geo.locationName]);
+
+    const handleSaveActivity = (e: React.FormEvent) => {
+        e.preventDefault();
+        setActivityError(null);
+
+        if (!activityTitle.trim()) {
+            setActivityError('Judul aktivitas wajib diisi.');
+            return;
+        }
+        if (!activityDetail.trim()) {
+            setActivityError('Detail aktivitas wajib diisi.');
+            return;
+        }
+        if (!activityLocation.trim()) {
+            setActivityError('Lokasi / area aktivitas wajib diisi.');
+            return;
+        }
+        if (activityCategory === 'Lainnya' && !activityCategoryOther.trim()) {
+            setActivityError('Jenis aktivitas lainnya wajib diisi.');
+            return;
+        }
+        if (!selectedVisit) {
+            setActivityError('Kunjungan / job kapal tidak ditemukan. Buka kapal dari daftar kunjungan.');
+            return;
+        }
+
+        setIsSavingActivity(true);
+        const formData = new FormData();
+        formData.append('activity_date', activityDate);
+        formData.append('activity_time', activityTime);
+        formData.append('location_name', activityLocation);
+        if (geo.latitude !== null) formData.append('latitude', String(geo.latitude));
+        if (geo.longitude !== null) formData.append('longitude', String(geo.longitude));
+        formData.append('is_vessel_related', '1');
+        formData.append('ship_id', vessel.id);
+        formData.append('port_call_id', selectedVisit.id);
+        formData.append('category', activityCategory);
+        if (activityCategory === 'Lainnya') {
+            formData.append('category_other', activityCategoryOther.trim());
+        }
+        formData.append('title', activityTitle);
+        formData.append('detail', activityDetail);
+        activityPhotos.forEach((file) => {
+            formData.append('photos[]', file);
+        });
+
+        router.post('/operations/activities', formData, {
+            forceFormData: true,
+            onSuccess: () => {
+                setShowActivityModal(false);
+                setActivityTitle('');
+                setActivityDetail('');
+                setActivityCategory('Kegiatan Kapal');
+                setActivityCategoryOther('');
+                setActivityPhotos([]);
+                setClearanceToast({
+                    variant: 'success',
+                    message: 'Aktivitas lapangan berhasil disimpan ke sistem.',
+                });
+            },
+            onError: (errs) => {
+                setActivityError(Object.values(errs).join(' '));
+            },
+            onFinish: () => setIsSavingActivity(false),
+        });
+    };
+
+    const renderStatusBadge = (status: string) => {
+        switch (status) {
+            case 'Labuh':
+                return (
+                    <span
+                        className={
+                            'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
+                            'text-xs font-bold bg-[#FEF3C7] text-[#D97706] shadow-2xs'
+                        }
+                    >
+                        Labuh
+                    </span>
+                );
+            case 'Akan Datang':
+                return (
+                    <span
+                        className={
+                            'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
+                            'text-xs font-bold bg-[#E0F0FF] text-[#0060F4] shadow-2xs'
+                        }
+                    >
+                        Akan Datang
+                    </span>
+                );
+            case 'Sandar':
+                return (
+                    <span
+                        className={
+                            'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
+                            'text-xs font-bold bg-[#DCF7E8] text-[#087443] shadow-2xs'
+                        }
+                    >
+                        Sandar
+                    </span>
+                );
+            case 'Selesai':
+                return (
+                    <span
+                        className={
+                            'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
+                            'text-xs font-bold bg-[#F1F5F9] text-[#64748B] shadow-2xs'
+                        }
+                    >
+                        Selesai
+                    </span>
+                );
+            default:
+                return (
+                    <span
+                        className={
+                            'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
+                            'text-xs font-bold bg-[#E0F0FF] text-[#0060F4] shadow-2xs'
+                        }
+                    >
+                        {status}
+                    </span>
+                );
+        }
+    };
+
+    return (
+        <AppLayout
+            title={`Detail Kapal — ${vessel.name}`}
+            transparentMobileHeader
+            noPaddingMobile
+            mobileBackground="surface"
+        >
+            <Head title={`${vessel.name} — Detail Kapal PT Samudra Jaya Andalas`} />
+            {clearanceToast && (
+                <AlertToast {...clearanceToast} onClose={() => setClearanceToast(null)} />
+            )}
+            {clearanceDirection && (
+                <VesselClearanceDialog
+                    key={clearanceDirection}
+                    direction={clearanceDirection}
+                    vesselName={vessel.name}
+                    portCalls={clearancePortCalls}
+                    selectedPortCallId={selectedPortCallId}
+                    onClose={() => setClearanceDirection(null)}
+                    onFeedback={setClearanceToast}
+                />
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════
+                MOBILE VIEW (< md): EXACT MATCH TO "2. Detail Kapal (Overview)"
+                AND FLOW "3-8. Tambah Kebutuhan"
+               ═══════════════════════════════════════════════════════════════ */}
+            <div
+                className={`${needFlowStep === 'none' ? 'md:hidden' : 'md:mx-auto md:max-w-6xl md:px-6 lg:px-8'} min-h-[calc(100dvh-3.5rem)] bg-sja-surface pb-0 md:bg-transparent`}
             >
-                {/* Back Link & Header */}
-                <motion.div
-                    variants={itemVariants}
-                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
-                >
-                    <div className="space-y-1">
-                        <Link
-                            href="/vessels"
-                            className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0060F4] dark:text-[#38BDF8] hover:underline mb-1"
+                {/* ─────────────────────────────────────────────────────────────
+                    SUB-FLOW A: NORMAL DETAIL KAPAL (OVERVIEW / AKTIVITAS / KEBUTUHAN / PENGAJUAN)
+                   ───────────────────────────────────────────────────────────── */}
+                {needFlowStep === 'none' && (
+                    <div>
+                        {/* Ship Hero Photo sits behind the shared transparent mobile navbar. */}
+                        <div className="relative h-52 w-full overflow-hidden bg-slate-800">
+                            <img
+                                src={vessel.image || '/images/vessel-sarana.jpg'}
+                                alt={vessel.name}
+                                width={1280}
+                                height={720}
+                                fetchPriority="high"
+                                className="size-full object-cover"
+                            />
+                            <div className="pointer-events-none absolute inset-0 bg-[#001433]/35" />
+                            <div className="absolute bottom-3 right-3 z-10">
+                                {renderStatusBadge(vessel.status)}
+                            </div>
+                        </div>
+
+                        {/* Top Header Bar */}
+                        <div
+                            className={
+                                'sticky top-16 z-20 bg-white dark:bg-[#0C1D36] ' +
+                                'px-4 py-2 grid grid-cols-[44px_1fr_44px] ' +
+                                'items-center border-b border-[#DCEAF8] dark:border-[#1E3A5F]'
+                            }
                         >
-                            &larr; Kembali ke Menu Kapal
-                        </Link>
-                        <div className="flex items-center gap-3 flex-wrap">
-                            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            <Link
+                                href="/vessels"
+                                className="-ml-2 flex size-11 items-center justify-center rounded-full text-[#082870] transition-colors hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-white dark:hover:bg-[#152E52]"
+                                aria-label="Kembali ke Menu Kapal"
+                            >
+                                <svg
+                                    aria-hidden="true"
+                                    className="size-5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15 19l-7-7 7-7"
+                                    />
+                                </svg>
+                            </Link>
+
+                            <h1 className="text-center text-sm font-bold text-[#082870] dark:text-white truncate px-1">
                                 {vessel.name}
                             </h1>
-                            <StatusBadge status={vessel.status} label={vessel.status} showDot size="md" />
-                            {vessel.is_active && (
-                                <span className="text-xs font-semibold text-[#087443] dark:text-[#34D399] bg-[#DCF7E8] dark:bg-[#10B981]/20 px-2.5 py-1 rounded-full border border-transparent dark:border-[#10B981]/30">
-                                    Aktif Terdaftar
-                                </span>
+
+                            <div className="size-11" />
+                        </div>
+
+                        {/* Continuous Seamless Content Surface */}
+                        <div className="bg-white dark:bg-[#0C1D36] pb-3 min-h-[calc(100vh-20rem)]">
+                            {/* Ship Name & Subtitle Card */}
+                            <div className="px-4 pt-4 pb-0 border-b border-[#E2EEF9] dark:border-[#1E3A5F]">
+                                <h2 className="text-xl font-extrabold text-[#082870] dark:text-white leading-tight">
+                                    {vessel.name}
+                                </h2>
+                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                                    {vessel.ship_type || 'Cargo Ship'}
+                                </p>
+
+                                {/* 4 Tabs: Overview | Aktivitas | Kebutuhan | Pengajuan */}
+                                <div className="flex items-center gap-6 mt-4 text-xs font-semibold">
+                                    {mobileTabs.map((t) => {
+                                        const isActive = mobileTab === t.key;
+                                        return (
+                                            <button
+                                                key={t.key}
+                                                type="button"
+                                                onClick={() => setMobileTab(t.key)}
+                                                className={`pb-2.5 relative transition-colors cursor-pointer ${
+                                                    isActive
+                                                        ? 'text-[#0060F4] font-bold dark:text-[#38BDF8]'
+                                                        : 'text-[#52658E] dark:text-[#94A3B8] hover:text-[#0060F4]'
+                                                }`}
+                                            >
+                                                <span>{t.label}</span>
+                                                {isActive && (
+                                                    <motion.div
+                                                        layoutId="vessel-tab-indicator"
+                                                        className={
+                                                            'absolute bottom-0 left-0 right-0 ' +
+                                                            'h-0.5 bg-[#0060F4] rounded-full'
+                                                        }
+                                                    />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* ── TAB 1: OVERVIEW (SEAMLESS DIRECT VIEW) ── */}
+                            {mobileTab === 'overview' && (
+                                <OverviewTab
+                                    vessel={vessel}
+                                    selectedSection={selectedSection}
+                                    onStartNeed={() => setNeedFlowStep('header')}
+                                    onRecordActivity={() => setShowActivityModal(true)}
+                                    canManageClearance={canManageClearance}
+                                    onClearance={(direction) => {
+                                        setClearanceToast(null);
+                                        setClearanceDirection(direction);
+                                    }}
+                                />
                             )}
-                        </div>
-                        <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
-                            IMO: <span className="font-mono font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{vessel.imo_number || '-'}</span> • Tipe: {vessel.ship_type || 'General Cargo'} • Agen: {vessel.agent_name || 'PT Samudra Jaya Andalas'}
-                        </p>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                        <Link href="/requests">
-                            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                                <Button variant="primary" size="md" leftIcon={<span>+</span>}>
-                                    Buat Pengajuan
-                                </Button>
-                            </motion.div>
-                        </Link>
-                    </div>
-                </motion.div>
+                            {/* ── TAB 2: AKTIVITAS (SEAMLESS VIEW) ── */}
+                            {mobileTab === 'aktivitas' && (
+                                <ActivityTab
+                                    activities={vessel.operational_activities || []}
+                                    onRecordActivity={() => setShowActivityModal(true)}
+                                />
+                            )}
 
-                {/* Vessel Hero Image Banner */}
-                <motion.div
-                    variants={itemVariants}
-                    className="relative h-48 sm:h-64 rounded-2xl overflow-hidden border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-sm group"
-                >
-                    <img
-                        src={vessel.image || '/images/vessel-sarana.jpg'}
-                        alt={vessel.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#082870]/90 via-[#082870]/30 to-transparent flex items-end p-5">
-                        <div className="text-white space-y-1">
-                            <span className="inline-block text-xs font-bold px-2.5 py-0.5 rounded-full bg-white/20 backdrop-blur-xs">
-                                {vessel.ship_type || 'Armada Niaga'}
-                            </span>
-                            <h2 className="text-xl sm:text-2xl font-black">{vessel.name}</h2>
-                            <p className="text-xs text-white/80">IMO: {vessel.imo_number} • Agen: {vessel.agent_name || 'PT Samudra Jaya Andalas'}</p>
+                            {/* ── TAB 3: KEBUTUHAN (SEAMLESS VIEW) ── */}
+                            {mobileTab === 'kebutuhan' && (
+                                <NeedsTab
+                                    onStartNeed={() => setNeedFlowStep('header')}
+                                    onReview={() => setNeedFlowStep('review')}
+                                    filterTab={kebutuhanFilterTab}
+                                    onFilterChange={setKebutuhanFilterTab}
+                                />
+                            )}
+
+                            {/* ── TAB 4: PENGAJUAN (SEAMLESS VIEW) ── */}
+                            {mobileTab === 'pengajuan' && <RequestsTab requests={requests} />}
                         </div>
                     </div>
-                </motion.div>
+                )}
 
-                {/* KPI Summary Cards */}
+                {/* ─────────────────────────────────────────────────────────────
+                    SUB-FLOW B: STEP 1 - TAMBAH KEBUTUHAN (HEADER FORM - SCREEN 3)
+                   ───────────────────────────────────────────────────────────── */}
+                <VesselNeedFlow
+                    vessel={vessel}
+                    products={products}
+                    portCallId={selectedVisit?.id}
+                    step={needFlowStep}
+                    section={selectedSection}
+                    onSectionChange={setSelectedSection}
+                    onStepChange={setNeedFlowStep}
+                    onReturnToOverview={() => setMobileTab('overview')}
+                />
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════
+                DESKTOP VIEW (>= md): COMPLETE CORPORATE MARITIME MASTER VIEW
+               ═══════════════════════════════════════════════════════════════ */}
+            <div className={needFlowStep === 'none' ? 'hidden md:block' : 'hidden'}>
                 <motion.div
-                    variants={itemVariants}
-                    className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                    className="space-y-6 max-w-7xl mx-auto pb-12"
                 >
-                    <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
-                        <Card className="p-3.5 sm:p-4 border border-[#DCEAF8] dark:border-[#1E3A5F] h-full">
-                            <div className="text-[10px] sm:text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8] uppercase tracking-wider">
-                                Status Operasional
+                    {/* Header */}
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-1">
+                            <Link
+                                href="/vessels"
+                                className={
+                                    'inline-flex items-center gap-1.5 text-xs font-bold ' +
+                                    'text-[#0060F4] dark:text-[#38BDF8] hover:underline mb-1'
+                                }
+                            >
+                                &larr; Kembali ke Menu Kapal
+                            </Link>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {vessel.name}
+                                </h1>
+                                <StatusBadge
+                                    status={vessel.status}
+                                    label={vessel.status}
+                                    showDot
+                                    size="md"
+                                />
                             </div>
-                            <div className="text-base sm:text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] mt-1 flex items-center gap-1.5">
-                                <span>{vessel.status}</span>
-                            </div>
-                            <div className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-0.5 truncate">
-                                Pelabuhan Tg. Perak / Gresik
-                            </div>
-                        </Card>
-                    </motion.div>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                IMO:{' '}
+                                <span className="font-mono font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {vessel.imo_number || '-'}
+                                </span>{' '}
+                                • Tipe: {vessel.ship_type || 'Cargo Ship'} • Agen:{' '}
+                                {vessel.agent_name || 'PT Samudra Jaya Andalas'}
+                            </p>
+                        </div>
 
-                    <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
-                        <Card className="p-3.5 sm:p-4 border border-[#DCEAF8] dark:border-[#1E3A5F] h-full">
-                            <div className="text-[10px] sm:text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8] uppercase tracking-wider">
-                                Nomor IMO Resmi
-                            </div>
-                            <div className="text-base sm:text-lg font-mono font-extrabold text-[#0060F4] dark:text-[#38BDF8] mt-1">
-                                {vessel.imo_number || 'N/A'}
-                            </div>
-                            <div className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-0.5 truncate">
-                                Terverifikasi Lloyds Register
-                            </div>
-                        </Card>
-                    </motion.div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setNeedFlowStep('header')}
+                                className={
+                                    'px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] ' +
+                                    'text-white text-xs font-bold shadow-sm'
+                                }
+                            >
+                                + Buat Kebutuhan
+                            </button>
+                        </div>
+                    </div>
 
-                    <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
-                        <Card className="p-3.5 sm:p-4 border border-[#DCEAF8] dark:border-[#1E3A5F] h-full">
-                            <div className="text-[10px] sm:text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8] uppercase tracking-wider">
-                                Tipe Kapal & Muatan
+                    {/* Vessel Hero Image Banner */}
+                    <div
+                        className={
+                            'relative h-56 rounded-2xl overflow-hidden border border-[#DCEAF8] ' +
+                            'dark:border-[#1E3A5F] shadow-sm'
+                        }
+                    >
+                        <img
+                            src={vessel.image || '/images/vessel-sarana.jpg'}
+                            alt={vessel.name}
+                            className="w-full h-full object-cover"
+                        />
+                        <div
+                            className={
+                                'absolute inset-0 bg-gradient-to-t from-[#082870]/90 ' +
+                                'via-[#082870]/30 to-transparent flex items-end p-5'
+                            }
+                        >
+                            <div className="text-white space-y-1">
+                                <span
+                                    className={
+                                        'inline-block text-xs font-bold px-2.5 py-0.5 rounded-full ' +
+                                        'bg-white/20 backdrop-blur-xs'
+                                    }
+                                >
+                                    {vessel.ship_type || 'Cargo Ship'}
+                                </span>
+                                <h2 className="text-2xl font-black">{vessel.name}</h2>
+                                <p className="text-xs text-white/80">
+                                    Perusahaan: {vessel.company?.name || 'PT. Intan Borneo Wisesa'}{' '}
+                                    • Pelabuhan: {vessel.port?.name || 'Pelabuhan Gresik'}
+                                </p>
                             </div>
-                            <div className="text-base sm:text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] mt-1 truncate">
-                                {vessel.ship_type || 'General Cargo'}
-                            </div>
-                            <div className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-0.5 truncate">
-                                Kapasitas DWT Standar
-                            </div>
-                        </Card>
-                    </motion.div>
+                        </div>
+                    </div>
 
-                    <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
-                        <Card className="p-3.5 sm:p-4 border border-[#DCEAF8] dark:border-[#1E3A5F] h-full">
-                            <div className="text-[10px] sm:text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8] uppercase tracking-wider">
-                                Pengajuan Kebutuhan
-                            </div>
-                            <div className="text-base sm:text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] mt-1">
-                                {requests.length} Permintaan
-                            </div>
-                            <div className="text-[11px] text-[#087443] dark:text-[#34D399] mt-0.5 truncate font-medium">
-                                Tercatat dalam sistem
-                            </div>
-                        </Card>
-                    </motion.div>
-                </motion.div>
-
-                {/* Vessel Technical Specs & Port Details */}
-                <motion.div
-                    variants={itemVariants}
-                    className="grid grid-cols-1 lg:grid-cols-3 gap-6"
-                >
-                    <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] lg:col-span-2 space-y-4">
-                        <div className="flex items-center justify-between pb-3 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
-                            <h3 className="text-base font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                    {/* Details Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] lg:col-span-2 space-y-4">
+                            <h3
+                                className={
+                                    'text-base font-bold text-[#0B1F63] dark:text-[#F1F5F9] pb-2 ' +
+                                    'border-b border-[#DCEAF8]'
+                                }
+                            >
                                 Spesifikasi Teknis Kapal
                             </h3>
-                            <span className="text-xs text-[#52658E] dark:text-[#94A3B8]">Data Terverifikasi</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Nama Resmi</span>
-                                <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] text-sm block mt-0.5 leading-snug">{vessel.name}</span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Nomor IMO</span>
-                                <span className="font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9] text-sm block mt-0.5 leading-snug">{vessel.imo_number || '-'}</span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Tipe Armada</span>
-                                <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] text-sm block mt-0.5 leading-snug">{vessel.ship_type || 'General Cargo'}</span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Bendera Negara</span>
-                                <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] text-sm block mt-0.5 leading-snug">🇮🇩 Indonesia</span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Agen Pengurus</span>
-                                <span className="font-bold text-[#0060F4] dark:text-[#38BDF8] text-sm block mt-0.5 leading-snug truncate">{vessel.agent_name || 'PT Samudra Jaya Andalas'}</span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Status Kelaiklautan</span>
-                                <span className="font-bold text-[#087443] dark:text-[#34D399] text-sm block mt-0.5 leading-snug">Laik Laut (Valid)</span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">Perusahaan Pemilik (Company)</span>
-                                <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] text-sm block mt-0.5 leading-snug truncate">
-                                    {vessel.company?.name ? `${vessel.company.name} (${vessel.company.code || 'PR'})` : 'Perusahaan Belum Terdaftar'}
-                                </span>
-                            </div>
-
-                            <div className="p-3.5 rounded-xl bg-[#F0F8FF]/60 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center min-h-[64px]">
-                                <span className="text-[#52658E] dark:text-[#94A3B8] text-[11px] font-medium block">
-                                    {vessel.status === 'Selesai' ? 'Waktu Departure' : 'Estimasi Kedatangan (ETA)'}
-                                </span>
-                                <span className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] text-sm block mt-0.5 leading-snug">
-                                    {formatEtaDateTime(vessel.eta)}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Recent Requests Table for this vessel */}
-                        <div className="pt-4 border-t border-[#DCEAF8] dark:border-[#1E3A5F] space-y-3">
-                            <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                    Riwayat Pengajuan Kebutuhan Kapal Ini
-                                </h4>
-                                <Link
-                                    href="/requests"
-                                    className="text-xs font-bold text-[#0060F4] dark:text-[#38BDF8] hover:underline"
-                                >
-                                    Semua Pengajuan &rarr;
-                                </Link>
-                            </div>
-
-                            {requests.length > 0 ? (
-                                <div className="space-y-2.5">
-                                    {requests.map((r) => (
-                                        <motion.div
-                                            key={r.id}
-                                            whileHover={{ y: -1 }}
-                                            transition={{ duration: 0.15 }}
-                                            className="p-3.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] hover:border-[#0060F4]/30 dark:hover:border-[#38BDF8]/40 transition-all flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-xs shadow-xs"
-                                        >
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="font-mono font-bold text-[#082870] dark:text-[#F1F5F9] text-xs">
-                                                        {r.request_number}
-                                                    </span>
-                                                    <span className="text-[11px] text-[#8C9BB9] dark:text-[#94A3B8] font-medium">
-                                                        {formatDate(r.request_date || r.created_at)}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] truncate mt-0.5">
-                                                    {r.notes || 'Permintaan logistik kapal'}
-                                                </p>
-                                            </div>
-                                            <div className="flex items-center justify-start sm:justify-end flex-shrink-0">
-                                                <StatusBadge status={r.status} label={r.status} size="sm" showDot />
-                                            </div>
-                                        </motion.div>
-                                    ))}
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Perusahaan Pemilik
+                                    </span>
+                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                        {vessel.company?.name || 'PT. Intan Borneo Wisesa'}
+                                    </span>
                                 </div>
-                            ) : (
-                                <div className="p-6 text-center bg-[#F0F8FF]/40 dark:bg-[#071322]/50 rounded-xl border border-dashed border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                        Belum ada pengajuan kebutuhan yang tercatat untuk kapal ini.
-                                    </p>
-                                    <Link href="/requests" className="mt-2 inline-block">
-                                        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                                            <Button variant="outline" size="sm">
-                                                + Buat Pengajuan Pertama
-                                            </Button>
-                                        </motion.div>
-                                    </Link>
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Alamat Kantor
+                                    </span>
+                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                        {vessel.company?.address || 'Jl. KH Kholil 18, Gresik'}
+                                    </span>
                                 </div>
-                            )}
-                        </div>
-                    </Card>
-
-                    {/* Operational Contacts & Quick Information */}
-                    <div className="space-y-4">
-                        <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-4">
-                            <h3 className="text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9] pb-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                Kontak Lapangan & Keagenan
-                            </h3>
-
-                            <div className="space-y-3 text-xs">
-                                <div>
-                                    <span className="text-[#52658E] dark:text-[#94A3B8] block text-[11px]">Staff Operasional Bertugas</span>
-                                    <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] mt-0.5">Pak Prima (Field Agent)</p>
-                                    <p className="text-[11px] text-[#0060F4] dark:text-[#38BDF8] font-mono">+62 812-3456-7890</p>
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Bendera Negara
+                                    </span>
+                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                        🇮🇩 {vessel.flag || 'Indonesia'}
+                                    </span>
                                 </div>
-
-                                <div className="pt-2 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                    <span className="text-[#52658E] dark:text-[#94A3B8] block text-[11px]">Admin Operasional Pusat (OCC)</span>
-                                    <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] mt-0.5">Bu Titik (Head of Operations)</p>
-                                    <p className="text-[11px] text-[#0060F4] dark:text-[#38BDF8] font-mono">titik@samudrajaya.co.id</p>
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        GT / Panjang
+                                    </span>
+                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                        GT {vessel.gross_tonnage || 1330} / {vessel.length || 74.22}{' '}
+                                        M
+                                    </span>
                                 </div>
-
-                                <div className="pt-2 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                    <span className="text-[#52658E] dark:text-[#94A3B8] block text-[11px]">Kantor Keagenan Surabaya</span>
-                                    <p className="text-[#52658E] dark:text-[#94A3B8] mt-0.5">
-                                        Jl. Tanjung Perak Barat No. 88, Surabaya, Jawa Timur
-                                    </p>
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Call Sign
+                                    </span>
+                                    <span className="font-mono font-bold text-[#0B1F63] block mt-0.5">
+                                        {vessel.call_sign || 'PMSM'}
+                                    </span>
                                 </div>
-
-                                {vessel.company && (
-                                    <div className="pt-2 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                        <span className="text-[#52658E] dark:text-[#94A3B8] block text-[11px]">Perusahaan Pemilik / Shipping Co.</span>
-                                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] mt-0.5">{vessel.company.name} {vessel.company.code ? `(${vessel.company.code})` : ''}</p>
-                                        {vessel.company.phone && <p className="text-[11px] text-[#0060F4] dark:text-[#38BDF8] font-mono">{vessel.company.phone}</p>}
-                                        {vessel.company.email && <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] font-mono">{vessel.company.email}</p>}
-                                    </div>
-                                )}
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Nakhoda / Captain
+                                    </span>
+                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                        {vessel.captain_name || 'Sony Robinson'}
+                                    </span>
+                                </div>
                             </div>
                         </Card>
 
-                        <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#0D2945] text-[#E7F0FA] space-y-3">
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#19B5F7]">
-                                Prosedur Keagenan SJA
+                        {/* Jadwal & Quick Action */}
+                        <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-4">
+                            <h3
+                                className={
+                                    'text-base font-bold text-[#0B1F63] dark:text-[#F1F5F9] pb-2 ' +
+                                    'border-b border-[#DCEAF8]'
+                                }
+                            >
+                                Jadwal Kedatangan (ETA)
                             </h3>
-                            <p className="text-xs text-[#B5C8DC] leading-relaxed">
-                                Seluruh kebutuhan logistik (Fresh Water, Bunkering, Clearance Karantina) harus diajukan melalui sistem ini untuk pencatatan otomatis ke Activity Log dan verifikasi OCC.
-                            </p>
+                            {canManageClearance && (
+                                <div className="flex flex-wrap gap-2">
+                                    <Button
+                                        type="button"
+                                        onClick={() => {
+                                            setClearanceToast(null);
+                                            setClearanceDirection('in');
+                                        }}
+                                    >
+                                        Clearance In
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => {
+                                            setClearanceToast(null);
+                                            setClearanceDirection('out');
+                                        }}
+                                        className="focus-visible:ring-2"
+                                    >
+                                        Clearance Out
+                                    </Button>
+                                </div>
+                            )}
+                            <div className="space-y-2 text-xs">
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Waktu ETA
+                                    </span>
+                                    <span className="font-bold text-sm text-[#0060F4] block mt-0.5">
+                                        {formatEtaDateTime(vessel.eta)}
+                                    </span>
+                                </div>
+                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
+                                    <span className="text-[#52658E] block text-[11px]">
+                                        Pelabuhan Labuh / Sandar
+                                    </span>
+                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                        {vessel.port?.name || 'Pelabuhan Gresik'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setNeedFlowStep('header')}
+                                className={
+                                    'w-full py-2.5 rounded-xl bg-[#0060F4] text-white text-xs ' +
+                                    'font-bold shadow-xs hover:bg-[#0052D4]'
+                                }
+                            >
+                                Buat Kebutuhan Kapal &rarr;
+                            </button>
                         </Card>
                     </div>
                 </motion.div>
-            </motion.div>
+            </div>
+
+            {/* Modal Catat Aktivitas Lapangan */}
+            <Modal
+                isOpen={showActivityModal}
+                onClose={() => setShowActivityModal(false)}
+                title="Catat Aktivitas Lapangan"
+                size="md"
+                asBottomSheetOnMobile={true}
+                footer={
+                    <>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isSavingActivity}
+                            onClick={() => setShowActivityModal(false)}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            isLoading={isSavingActivity}
+                            onClick={handleSaveActivity}
+                        >
+                            Simpan Aktivitas
+                        </Button>
+                    </>
+                }
+            >
+                <form onSubmit={handleSaveActivity} className="space-y-3.5 text-xs text-left">
+                    {activityError && (
+                        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-1.5">
+                            <span>⚠</span>
+                            <span>{activityError}</span>
+                        </div>
+                    )}
+
+                    {/* 1. Tanggal & Waktu */}
+                    <DateTimePicker
+                        id="vessel-activity-date-time"
+                        label="Tanggal & waktu"
+                        dateName="activity_date"
+                        timeName="activity_time"
+                        dateValue={activityDate}
+                        timeValue={activityTime}
+                        onDateChange={setActivityDate}
+                        onTimeChange={setActivityTime}
+                        layout="combined"
+                        className="[&_legend]:!text-[#0B1F63] dark:[&_legend]:!text-[#F1F5F9]"
+                        required
+                    />
+
+                    {/* 2. Lokasi / Area (Auto-detected via GPS, editable) */}
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Lokasi / Area <span className="text-[#C62840]">*</span>
+                            </label>
+                            <button
+                                type="button"
+                                onClick={geo.refresh}
+                                className="text-[11px] font-semibold text-[#0060F4] dark:text-[#38BDF8] flex items-center gap-1 hover:underline cursor-pointer"
+                                title="Deteksi lokasi saat ini"
+                            >
+                                <RefreshCw className={`w-3 h-3 ${geo.loading ? 'animate-spin' : ''}`} />
+                                <span>{geo.loading ? 'Mendeteksi...' : 'GPS Auto'}</span>
+                            </button>
+                        </div>
+                        <div className="relative">
+                            <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-[#52658E] dark:text-[#94A3B8]" />
+                            <input
+                                type="text"
+                                required
+                                value={activityLocation}
+                                onChange={(e) => setActivityLocation(e.target.value)}
+                                placeholder="Contoh: Dermaga A, Area Bongkar Muat, Gate, dll"
+                                className="w-full pl-9 pr-3 py-2 rounded-xl text-xs border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#082870] dark:text-white focus:ring-1 focus:ring-[#0060F4] focus:outline-none transition-all"
+                            />
+                        </div>
+                    </div>
+
+                    {/* 3. Terkait Kapal (Job) */}
+                    <div className="p-3 rounded-2xl bg-[#F0F8FF]/80 dark:bg-[#071322] border border-[#BCE0FD] dark:border-[#1E3A5F] space-y-2">
+                        <div className="flex items-center gap-2">
+                            <ShipIcon className="w-4 h-4 text-[#0060F4] dark:text-[#38BDF8]" />
+                            <span className="font-bold text-xs text-[#082870] dark:text-white">
+                                {vessel.name}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.2 rounded-full font-bold bg-[#FEF3C7] text-[#D97706] ml-auto">
+                                {vessel.status}
+                            </span>
+                        </div>
+
+                        {selectedVisit && (
+                            <p className="text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                Job kunjungan: <span className="font-bold text-[#082870] dark:text-white">{selectedVisit.job_number || selectedVisit.id}</span>
+                            </p>
+                        )}
+                    </div>
+
+                    {/* 4. Kategori / Jenis Aktivitas */}
+                    <div className="space-y-2">
+                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            Kategori Aktivitas
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {[
+                                'Bongkar Muat',
+                                'Kegiatan Kapal',
+                                'Kendala Operasional',
+                                'Inspeksi & Dokumen',
+                                'Lainnya',
+                            ].map((cat) => (
+                                <button
+                                    key={cat}
+                                    type="button"
+                                    onClick={() => {
+                                        setActivityCategory(cat);
+                                        if (cat !== 'Lainnya') {
+                                            setActivityCategoryOther('');
+                                        }
+                                    }}
+                                    className={`px-3 py-1 rounded-xl font-bold text-[11px] transition-all cursor-pointer ${
+                                        activityCategory === cat
+                                            ? 'bg-[#0060F4] text-white shadow-xs'
+                                            : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#082870] dark:text-[#94A3B8] border border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                    }`}
+                                >
+                                    {cat}
+                                </button>
+                            ))}
+                        </div>
+                        {activityCategory === 'Lainnya' && (
+                            <Input
+                                id="vessel-activity-category-other"
+                                label="Jenis aktivitas lainnya"
+                                name="category_other"
+                                type="text"
+                                autoComplete="off"
+                                autoFocus
+                                value={activityCategoryOther}
+                                onChange={(event) => setActivityCategoryOther(event.target.value)}
+                                placeholder="Contoh: Koordinasi pandu atau pengisian air tawar"
+                                maxLength={100}
+                                sizeVariant="sm"
+                                required
+                            />
+                        )}
+                    </div>
+
+                    {/* 5. Judul / Jenis Aktivitas */}
+                    <Input
+                        label="Judul / Jenis Aktivitas"
+                        required
+                        value={activityTitle}
+                        onChange={(e) => setActivityTitle(e.target.value)}
+                        placeholder="Contoh: Bongkar muat sedang berlangsung"
+                        sizeVariant="sm"
+                    />
+
+                    {/* 6. Detail Aktivitas */}
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Detail Aktivitas <span className="text-[#C62840]">*</span>
+                            </label>
+                            <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                {activityDetail.length}/500
+                            </span>
+                        </div>
+                        <textarea
+                            rows={3}
+                            maxLength={500}
+                            required
+                            value={activityDetail}
+                            onChange={(e) => setActivityDetail(e.target.value)}
+                            placeholder="Jelaskan kondisi atau kegiatan yang terjadi di lapangan..."
+                            className="w-full p-2.5 rounded-xl text-xs border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#082870] dark:text-white focus:ring-1 focus:ring-[#0060F4] focus:outline-none transition-all resize-none"
+                        />
+                    </div>
+
+                    {/* 7. Foto / Dokumentasi (Multiple, Kamera + Galeri, Opsional) */}
+                    <MultiplePhotoUploadPicker
+                        files={activityPhotos}
+                        onFilesChange={setActivityPhotos}
+                        label="Foto / Dokumentasi"
+                        required={false}
+                        helperText="Format: JPG, PNG (Maks. 5 MB)"
+                    />
+                </form>
+            </Modal>
         </AppLayout>
     );
 }

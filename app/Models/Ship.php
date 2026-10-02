@@ -17,16 +17,22 @@ class Ship extends Model
 
     protected $fillable = [
         'ship_company_id',
+        'port_id',
         'imo_number',
         'name',
         'call_sign',
         'flag',
         'ship_type',
         'gross_tonnage',
+        'length',
+        'captain_name',
+        'captain_phone',
         'status',
         'eta',
         'agent_name',
         'image',
+        'arrival_notes',
+        'created_by',
         'is_active',
     ];
 
@@ -35,6 +41,7 @@ class Ship extends Model
         return [
             'is_active' => 'boolean',
             'gross_tonnage' => 'decimal:2',
+            'length' => 'decimal:2',
             'eta' => 'datetime',
         ];
     }
@@ -42,6 +49,16 @@ class Ship extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(ShipCompany::class, 'ship_company_id');
+    }
+
+    public function port(): BelongsTo
+    {
+        return $this->belongsTo(Port::class, 'port_id');
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function requests(): HasMany
@@ -52,5 +69,10 @@ class Ship extends Model
     public function portCalls(): HasMany
     {
         return $this->hasMany(PortCall::class, 'ship_id');
+    }
+
+    public function operationalActivities(): HasMany
+    {
+        return $this->hasMany(OperationalActivity::class, 'ship_id')->orderByDesc('activity_date')->orderByDesc('created_at');
     }
 }

@@ -1,0 +1,792 @@
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import {
+    ArrowLeft,
+    ArrowRight,
+    Building2,
+    CalendarClock,
+    Check,
+    ClipboardCheck,
+    FileText,
+    Info,
+    MapPin,
+    Ship,
+    Upload,
+    UserRound,
+    X,
+} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import Input from '../../Components/forms/Input';
+import Textarea from '../../Components/forms/Textarea';
+import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
+import SelectSearch from '../../Components/selects/SelectSearch';
+import Button from '../../Components/ui/Button';
+import Card from '../../Components/ui/Card';
+import AppLayout from '../../Layouts/AppLayout';
+import type { PageProps } from '../../types';
+
+interface OptionItem {
+    id: string | number;
+    name: string;
+    ship_company_id?: string;
+    imo_number?: string | null;
+    ship_type?: string | null;
+    gross_tonnage?: string | null;
+    city?: string | null;
+}
+
+interface Props {
+    companies: OptionItem[];
+    ships: OptionItem[];
+    ports: OptionItem[];
+    assignees: OptionItem[];
+    defaultAssigneeId?: number | null;
+    canManageMasterVessels: boolean;
+}
+
+interface WorkOrderForm {
+    client_number: string;
+    company_id: string;
+    ship_id: string;
+    port_id: string;
+    document_date: string;
+    received_at: string;
+    eta_at: string;
+    etd_at: string;
+    activity_name: string;
+    activity_description: string;
+    assigned_to: string;
+    client_pic_name: string;
+    client_pic_contact: string;
+    status: 'draft' | 'active';
+    document: File | null;
+}
+
+type FormField = keyof WorkOrderForm;
+
+const steps = [
+    { title: 'Data SPK', description: 'Dokumen dari klien', icon: FileText },
+    { title: 'Kunjungan', description: 'Kapal, lokasi, jadwal', icon: Ship },
+    { title: 'Eksekusi', description: 'Kegiatan & petugas', icon: UserRound },
+    { title: 'Review', description: 'Periksa sebelum simpan', icon: ClipboardCheck },
+];
+
+const fieldSteps: Partial<Record<FormField, number>> = {
+    client_number: 0,
+    document_date: 0,
+    received_at: 0,
+    client_pic_name: 0,
+    client_pic_contact: 0,
+    document: 0,
+    company_id: 1,
+    ship_id: 1,
+    port_id: 1,
+    eta_at: 1,
+    etd_at: 1,
+    activity_name: 2,
+    activity_description: 2,
+    assigned_to: 2,
+};
+
+const toLocalInputValue = (date: Date) => {
+    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+
+    return localDate.toISOString().slice(0, 16);
+};
+
+const formatDate = (value: string) => {
+    if (!value) {
+        return 'Belum diisi';
+    }
+
+    return new Intl.DateTimeFormat('id-ID', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone: 'Asia/Jakarta',
+    }).format(new Date(value));
+};
+
+const fileSize = (bytes: number) => {
+    if (bytes < 1024 * 1024) {
+        return `${Math.ceil(bytes / 1024)} KB`;
+    }
+
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+export default function WorkOrdersCreate({
+    companies,
+    ships,
+    ports,
+    assignees,
+    defaultAssigneeId,
+    canManageMasterVessels,
+}: Props) {
+    const { auth } = usePage<PageProps>().props;
+    const now = useMemo(() => new Date(), []);
+    const [currentStep, setCurrentStep] = useState(0);
+    const [clientErrors, setClientErrors] = useState<Partial<Record<FormField, string>>>({});
+    const [confirmed, setConfirmed] = useState(false);
+    const [reviewError, setReviewError] = useState<string | null>(null);
+    const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+    const role = auth.user?.primary_role || 'Pengguna';
+    const isFieldStaff = role === 'Lapangan';
+
+    const form = useForm<WorkOrderForm>({
+        client_number: '',
+        company_id: '',
+        ship_id: '',
+        port_id: '',
+        document_date: toLocalInputValue(now).slice(0, 10),
+        received_at: toLocalInputValue(now),
+        eta_at: '',
+        etd_at: '',
+        activity_name: '',
+        activity_description: '',
+        assigned_to: defaultAssigneeId ? String(defaultAssigneeId) : '',
+        client_pic_name: '',
+        client_pic_contact: '',
+        status: 'draft',
+        document: null,
+    });
+
+    const filteredShips = useMemo(
+        () => ships.filter((ship) => String(ship.ship_company_id) === form.data.company_id),
+        [ships, form.data.company_id],
+    );
+    const selectedCompany = companies.find((item) => String(item.id) === form.data.company_id);
+    const selectedShip = ships.find((item) => String(item.id) === form.data.ship_id);
+    const selectedPort = ports.find((item) => String(item.id) === form.data.port_id);
+    const selectedAssignee = assignees.find((item) => String(item.id) === form.data.assigned_to);
+    const serverErrorCount = Object.keys(form.errors).length;
+
+    useEffect(() => {
+        const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
+            if (!form.isDirty || form.processing) {
+                return;
+            }
+
+            event.preventDefault();
+        };
+
+        window.addEventListener('beforeunload', warnAboutUnsavedChanges);
+
+        return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
+    }, [form.isDirty, form.processing]);
+
+    const errorFor = (field: FormField) => clientErrors[field] || form.errors[field];
+
+    const updateField = (field: FormField, value: WorkOrderForm[FormField]) => {
+        form.setData({ ...form.data, [field]: value });
+        form.clearErrors(field);
+        setClientErrors((current) => {
+            if (!current[field]) {
+                return current;
+            }
+
+            const next = { ...current };
+            delete next[field];
+
+            return next;
+        });
+    };
+
+    const updateCompany = (value: string | number) => {
+        form.setData({
+            ...form.data,
+            company_id: String(value),
+            ship_id: '',
+        });
+        form.clearErrors('company_id', 'ship_id');
+        setClientErrors((current) => {
+            const next = { ...current };
+            delete next.company_id;
+            delete next.ship_id;
+
+            return next;
+        });
+    };
+
+    const focusField = (field: FormField) => {
+        requestAnimationFrame(() => {
+            document.querySelector<HTMLElement>(`[name="${field}"]`)?.focus();
+        });
+    };
+
+    const validateStep = (step: number, activating = false) => {
+        const errors: Partial<Record<FormField, string>> = {};
+
+        if (step === 0) {
+            if (!form.data.client_number.trim()) errors.client_number = 'Nomor SPK klien wajib diisi.';
+            if (!form.data.document_date) errors.document_date = 'Tanggal SPK wajib diisi.';
+            if (!form.data.received_at) errors.received_at = 'Waktu dokumen diterima wajib diisi.';
+            if (form.data.document && form.data.document.size > 10 * 1024 * 1024) errors.document = 'Ukuran dokumen maksimal 10 MB.';
+            if (activating && !form.data.document) errors.document = 'Unggah dokumen SPK sebelum langsung mengaktifkan SPK.';
+        }
+
+        if (step === 1) {
+            if (!form.data.company_id) errors.company_id = 'Pilih perusahaan pemilik kapal.';
+            if (!form.data.ship_id) errors.ship_id = 'Pilih kapal dari perusahaan tersebut.';
+            if (!form.data.port_id) errors.port_id = 'Pilih pelabuhan kunjungan.';
+            if (!form.data.eta_at) errors.eta_at = 'ETA wajib diisi.';
+            if (form.data.eta_at && form.data.etd_at && new Date(form.data.etd_at) <= new Date(form.data.eta_at)) {
+                errors.etd_at = 'ETD harus setelah ETA.';
+            }
+        }
+
+        if (step === 2) {
+            if (!form.data.activity_name.trim()) errors.activity_name = 'Jenis kegiatan wajib diisi.';
+            if (!form.data.assigned_to) errors.assigned_to = 'Pilih penanggung jawab SPK.';
+        }
+
+        setClientErrors((current) => ({ ...current, ...errors }));
+
+        const firstInvalidField = Object.keys(errors)[0] as FormField | undefined;
+        if (firstInvalidField) {
+            focusField(firstInvalidField);
+        }
+
+        return Object.keys(errors).length === 0;
+    };
+
+    const goToNextStep = () => {
+        if (!validateStep(currentStep)) {
+            return;
+        }
+
+        setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
+        window.scrollTo({ top: 0 });
+    };
+
+    const goToPreviousStep = () => {
+        setCurrentStep((step) => Math.max(step - 1, 0));
+        window.scrollTo({ top: 0 });
+    };
+
+    const handleServerErrors = (errors: Record<string, string>) => {
+        const firstField = Object.keys(errors).find((field) => field in fieldSteps) as FormField | undefined;
+        if (!firstField) {
+            return;
+        }
+
+        setCurrentStep(fieldSteps[firstField] ?? 0);
+        focusField(firstField);
+    };
+
+    const submit = (status: 'draft' | 'active') => {
+        for (let step = 0; step <= 2; step += 1) {
+            if (!validateStep(step, status === 'active')) {
+                setCurrentStep(step);
+
+                return;
+            }
+        }
+
+        if (!confirmed) {
+            setReviewError('Konfirmasi bahwa data SPK dan kunjungan sudah benar.');
+
+            return;
+        }
+
+        setReviewError(null);
+        form.transform((data) => ({ ...data, status }));
+        form.post('/work-orders', {
+            forceFormData: true,
+            preserveScroll: true,
+            onError: handleServerErrors,
+        });
+    };
+
+    const handleSubmit = (event: React.FormEvent) => {
+        event.preventDefault();
+
+        if (currentStep < steps.length - 1) {
+            goToNextStep();
+
+            return;
+        }
+
+        submit('active');
+    };
+
+    return (
+        <AppLayout title="Tambah SPK">
+            <Head title="Tambah SPK — PT Samudra Jaya Andalas" />
+
+            <div className="mx-auto max-w-7xl pb-2 md:pb-8">
+                <header className="mb-5 flex items-start gap-3 border-b border-[#DCEAF8] pb-5 dark:border-[#1E3A5F]">
+                    {form.isDirty ? (
+                        <button
+                            type="button"
+                            onClick={() => setShowCancelConfirmation(true)}
+                            className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-[#DCEAF8] bg-white text-[#0B1F63] hover:border-[#0060F4] hover:text-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
+                            aria-label="Kembali ke daftar SPK"
+                        >
+                            <ArrowLeft aria-hidden="true" className="size-5" />
+                        </button>
+                    ) : (
+                        <Link
+                            href="/work-orders"
+                            className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-[#DCEAF8] bg-white text-[#0B1F63] hover:border-[#0060F4] hover:text-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
+                            aria-label="Kembali ke daftar SPK"
+                        >
+                            <ArrowLeft aria-hidden="true" className="size-5" />
+                        </Link>
+                    )}
+                    <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#0060F4]">SPK baru · Langkah {currentStep + 1} dari {steps.length}</p>
+                        <h1 className="mt-1 text-balance text-2xl font-extrabold text-[#0B1F63] sm:text-3xl dark:text-[#F1F5F9]">Buat SPK & Kunjungan</h1>
+                        <p className="mt-1 max-w-3xl text-pretty text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">
+                            Satu SPK membuat satu nomor job. Seluruh aktivitas, kebutuhan, biaya, dan invoice berikutnya akan mengikuti kunjungan ini.
+                        </p>
+                    </div>
+                </header>
+
+                <div className="mb-5 md:hidden" aria-label={`Langkah ${currentStep + 1} dari ${steps.length}: ${steps[currentStep].title}`}>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{steps[currentStep].title}</p>
+                        <p className="text-xs tabular-nums text-[#52658E] dark:text-[#94A3B8]">{Math.round(((currentStep + 1) / steps.length) * 100)}%</p>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-[#DCEAF8] dark:bg-[#1E3A5F]">
+                        <div className="h-full rounded-full bg-[#0060F4]" style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }} />
+                    </div>
+                </div>
+
+                <ol className="mb-6 hidden grid-cols-4 overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white md:grid dark:border-[#1E3A5F] dark:bg-[#0C1D36]" aria-label="Tahapan pembuatan SPK">
+                    {steps.map((step, index) => {
+                        const StepIcon = step.icon;
+                        const isComplete = index < currentStep;
+                        const isCurrent = index === currentStep;
+
+                        return (
+                            <li key={step.title} className={`border-r border-[#DCEAF8] p-4 last:border-r-0 dark:border-[#1E3A5F] ${isCurrent ? 'bg-[#F0F8FF] dark:bg-[#102642]' : ''}`}>
+                                <button
+                                    type="button"
+                                    disabled={index > currentStep}
+                                    onClick={() => setCurrentStep(index)}
+                                    className="flex w-full items-center gap-3 text-left disabled:cursor-not-allowed"
+                                    aria-current={isCurrent ? 'step' : undefined}
+                                >
+                                    <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${isComplete || isCurrent ? 'bg-[#0060F4] text-white' : 'bg-[#EDF2F7] text-[#52658E] dark:bg-[#1E3A5F] dark:text-[#94A3B8]'}`}>
+                                        {isComplete ? <Check aria-hidden="true" className="size-4" /> : <StepIcon aria-hidden="true" className="size-4" />}
+                                    </span>
+                                    <span className="min-w-0">
+                                        <span className="block truncate text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{step.title}</span>
+                                        <span className="block truncate text-xs text-[#52658E] dark:text-[#94A3B8]">{step.description}</span>
+                                    </span>
+                                </button>
+                            </li>
+                        );
+                    })}
+                </ol>
+
+                {serverErrorCount > 0 && (
+                    <div role="alert" aria-live="polite" className="mb-5 rounded-2xl border border-[#C62840]/20 bg-[#FFE7EC] p-4 text-sm text-[#9F1239] dark:bg-[#C62840]/15 dark:text-[#FCA5A5]">
+                        <p className="font-bold">Ada {serverErrorCount} data yang perlu diperbaiki.</p>
+                        <p className="mt-1">Periksa pesan pada field yang ditandai, lalu kirim kembali.</p>
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit} noValidate>
+                    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+                        <Card className="overflow-hidden">
+                            <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] px-5 py-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
+                                <h2 className="text-balance text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">{steps[currentStep].title}</h2>
+                                <p className="mt-1 text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">{steps[currentStep].description}</p>
+                            </div>
+
+                            <div className="p-4 sm:p-6">
+                                {currentStep === 0 && (
+                                    <fieldset className="grid gap-5 sm:grid-cols-2">
+                                        <legend className="sr-only">Data dokumen SPK</legend>
+                                        <Input
+                                            id="client-number"
+                                            name="client_number"
+                                            required
+                                            autoComplete="off"
+                                            label="Nomor SPK Klien"
+                                            placeholder="Contoh: SPK/SJA/010/2026"
+                                            value={form.data.client_number}
+                                            onChange={(event) => updateField('client_number', event.target.value)}
+                                            error={errorFor('client_number')}
+                                        />
+                                        <Input
+                                            id="document-date"
+                                            name="document_date"
+                                            required
+                                            autoComplete="off"
+                                            label="Tanggal SPK"
+                                            type="date"
+                                            value={form.data.document_date}
+                                            onChange={(event) => updateField('document_date', event.target.value)}
+                                            error={errorFor('document_date')}
+                                        />
+                                        <Input
+                                            id="received-at"
+                                            name="received_at"
+                                            required
+                                            autoComplete="off"
+                                            label="Tanggal & Waktu Diterima"
+                                            type="datetime-local"
+                                            value={form.data.received_at}
+                                            onChange={(event) => updateField('received_at', event.target.value)}
+                                            error={errorFor('received_at')}
+                                        />
+                                        <Input
+                                            id="client-pic-name"
+                                            name="client_pic_name"
+                                            autoComplete="off"
+                                            label="PIC Klien"
+                                            placeholder="Nama PIC (opsional)"
+                                            value={form.data.client_pic_name}
+                                            onChange={(event) => updateField('client_pic_name', event.target.value)}
+                                            error={errorFor('client_pic_name')}
+                                        />
+                                        <Input
+                                            id="client-pic-contact"
+                                            name="client_pic_contact"
+                                            autoComplete="off"
+                                            inputMode="tel"
+                                            label="Kontak PIC"
+                                            placeholder="Nomor telepon atau email (opsional)"
+                                            value={form.data.client_pic_contact}
+                                            onChange={(event) => updateField('client_pic_contact', event.target.value)}
+                                            error={errorFor('client_pic_contact')}
+                                        />
+
+                                        <div className="sm:col-span-2">
+                                            <p className="mb-1.5 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Dokumen SPK</p>
+                                            <label
+                                                htmlFor="spk-document"
+                                                className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center focus-within:ring-2 focus-within:ring-[#0060F4] ${errorFor('document') ? 'border-[#C62840] bg-[#FFE7EC]/40' : 'border-[#9FC7EF] bg-[#F8FBFF] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#285585] dark:bg-[#071322] dark:hover:bg-[#102642]'}`}
+                                            >
+                                                <input
+                                                    id="spk-document"
+                                                    name="document"
+                                                    type="file"
+                                                    accept=".pdf,.jpg,.jpeg,.png"
+                                                    className="sr-only"
+                                                    onChange={(event) => updateField('document', event.target.files?.[0] || null)}
+                                                />
+                                                <span className="flex size-11 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#152E52]">
+                                                    <Upload aria-hidden="true" className="size-5" />
+                                                </span>
+                                                <span className="mt-3 text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Pilih dokumen SPK</span>
+                                                <span className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">PDF, JPG, JPEG, atau PNG · maksimal 10 MB</span>
+                                            </label>
+                                            {errorFor('document') && <p id="document-error" role="alert" className="mt-1.5 text-xs font-semibold text-[#C62840] dark:text-[#F87171]">{errorFor('document')}</p>}
+
+                                            {form.data.document && (
+                                                <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                                    <FileText aria-hidden="true" className="size-5 shrink-0 text-[#0060F4]" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="truncate text-sm font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{form.data.document.name}</p>
+                                                        <p className="text-xs tabular-nums text-[#52658E] dark:text-[#94A3B8]">{fileSize(form.data.document.size)}</p>
+                                                    </div>
+                                                    <button type="button" onClick={() => updateField('document', null)} className="flex size-11 shrink-0 items-center justify-center rounded-xl text-[#52658E] hover:bg-[#FFE7EC] hover:text-[#C62840] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]" aria-label="Hapus dokumen terpilih">
+                                                        <X aria-hidden="true" className="size-4" />
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {form.progress && (
+                                                <div className="mt-3" aria-live="polite">
+                                                    <div className="mb-1 flex justify-between text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                                        <span>Mengunggah dokumen…</span>
+                                                        <span className="tabular-nums">{form.progress.percentage}%</span>
+                                                    </div>
+                                                    <progress className="h-2 w-full overflow-hidden rounded-full accent-[#0060F4]" max="100" value={form.progress.percentage} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </fieldset>
+                                )}
+
+                                {currentStep === 1 && (
+                                    <fieldset className="grid gap-5 sm:grid-cols-2">
+                                        <legend className="sr-only">Data kunjungan kapal</legend>
+                                        <div className="sm:col-span-2 rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
+                                            <div className="flex gap-3">
+                                                <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[#0060F4]" />
+                                                <div>
+                                                    <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Pilih dari Master Kapal</p>
+                                                    <p className="mt-1 text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">Kapal dapat dipakai kembali, tetapi setiap kedatangan selalu membuat Kunjungan/Job baru.</p>
+                                                    {canManageMasterVessels && (
+                                                        <Link href="/master/vessels" className="mt-2 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#0060F4] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]">
+                                                            Kelola Master Kapal
+                                                            <ArrowRight aria-hidden="true" className="size-4" />
+                                                        </Link>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <SelectSearch
+                                            id="company-id"
+                                            name="company_id"
+                                            required
+                                            label="Perusahaan / Klien"
+                                            value={form.data.company_id}
+                                            onChange={updateCompany}
+                                            placeholder="Pilih perusahaan…"
+                                            searchPlaceholder="Cari nama perusahaan…"
+                                            clearable={false}
+                                            options={companies.map((item) => ({
+                                                value: item.id,
+                                                label: item.name,
+                                                icon: <Building2 aria-hidden="true" className="size-4" />,
+                                            }))}
+                                            error={errorFor('company_id')}
+                                        />
+                                        <SelectSearch
+                                            id="ship-id"
+                                            name="ship_id"
+                                            required
+                                            label="Kapal"
+                                            value={form.data.ship_id}
+                                            onChange={(value) => updateField('ship_id', String(value))}
+                                            placeholder={form.data.company_id ? 'Pilih kapal…' : 'Pilih perusahaan lebih dahulu'}
+                                            searchPlaceholder="Cari nama, jenis, atau IMO…"
+                                            disabled={!form.data.company_id}
+                                            clearable={false}
+                                            options={filteredShips.map((item) => ({
+                                                value: item.id,
+                                                label: item.name,
+                                                description: [item.ship_type, item.imo_number ? `IMO ${item.imo_number}` : null].filter(Boolean).join(' · '),
+                                                icon: <Ship aria-hidden="true" className="size-4" />,
+                                            }))}
+                                            error={errorFor('ship_id')}
+                                            helperText={form.data.company_id && filteredShips.length === 0 ? 'Belum ada kapal aktif untuk perusahaan ini.' : undefined}
+                                        />
+                                        <SelectSearch
+                                            id="port-id"
+                                            name="port_id"
+                                            required
+                                            label="Pelabuhan"
+                                            value={form.data.port_id}
+                                            onChange={(value) => updateField('port_id', String(value))}
+                                            placeholder="Pilih pelabuhan…"
+                                            searchPlaceholder="Cari pelabuhan atau kota…"
+                                            clearable={false}
+                                            options={ports.map((item) => ({
+                                                value: item.id,
+                                                label: item.name,
+                                                description: item.city || undefined,
+                                                icon: <MapPin aria-hidden="true" className="size-4" />,
+                                            }))}
+                                            error={errorFor('port_id')}
+                                        />
+                                        <Input
+                                            id="eta-at"
+                                            name="eta_at"
+                                            required
+                                            autoComplete="off"
+                                            label="ETA"
+                                            type="datetime-local"
+                                            value={form.data.eta_at}
+                                            onChange={(event) => updateField('eta_at', event.target.value)}
+                                            error={errorFor('eta_at')}
+                                            helperText="Estimasi kedatangan wajib untuk membuat job."
+                                        />
+                                        <Input
+                                            id="etd-at"
+                                            name="etd_at"
+                                            autoComplete="off"
+                                            label="ETD"
+                                            type="datetime-local"
+                                            value={form.data.etd_at}
+                                            onChange={(event) => updateField('etd_at', event.target.value)}
+                                            error={errorFor('etd_at')}
+                                            helperText="Opsional bila jadwal keberangkatan belum diketahui."
+                                        />
+
+                                        {selectedShip && (
+                                            <div className="sm:col-span-2 grid gap-3 rounded-2xl border border-[#DCEAF8] bg-[#F8FBFF] p-4 sm:grid-cols-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                <div><p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Kapal</p><p className="mt-1 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedShip.name}</p></div>
+                                                <div><p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Jenis</p><p className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedShip.ship_type || '-'}</p></div>
+                                                <div><p className="text-xs text-[#52658E] dark:text-[#94A3B8]">IMO / GT</p><p className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{selectedShip.imo_number || '-'}{selectedShip.gross_tonnage ? ` · ${selectedShip.gross_tonnage} GT` : ''}</p></div>
+                                            </div>
+                                        )}
+                                    </fieldset>
+                                )}
+
+                                {currentStep === 2 && (
+                                    <fieldset className="grid gap-5 sm:grid-cols-2">
+                                        <legend className="sr-only">Data eksekusi SPK</legend>
+                                        <Input
+                                            id="activity-name"
+                                            name="activity_name"
+                                            required
+                                            autoComplete="off"
+                                            label="Jenis Kegiatan"
+                                            placeholder="Contoh: Keagenan bongkar muat"
+                                            value={form.data.activity_name}
+                                            onChange={(event) => updateField('activity_name', event.target.value)}
+                                            error={errorFor('activity_name')}
+                                        />
+                                        <SelectSearch
+                                            id="assigned-to"
+                                            name="assigned_to"
+                                            required
+                                            disabled={isFieldStaff}
+                                            label="Penanggung Jawab"
+                                            value={form.data.assigned_to}
+                                            onChange={(value) => updateField('assigned_to', String(value))}
+                                            placeholder="Pilih petugas…"
+                                            searchPlaceholder="Cari nama petugas…"
+                                            clearable={false}
+                                            options={assignees.map((item) => ({
+                                                value: item.id,
+                                                label: item.name,
+                                                icon: <UserRound aria-hidden="true" className="size-4" />,
+                                            }))}
+                                            error={errorFor('assigned_to')}
+                                            helperText={isFieldStaff ? 'SPK yang Anda buat otomatis ditugaskan kepada Anda.' : 'Admin dapat menugaskan SPK kepada tim Operasional atau dirinya sendiri.'}
+                                        />
+                                        <div className="sm:col-span-2">
+                                            <Textarea
+                                                id="activity-description"
+                                                name="activity_description"
+                                                label="Rincian Kegiatan / Catatan"
+                                                placeholder="Jelaskan ruang lingkup pekerjaan, instruksi klien, atau catatan awal…"
+                                                rows={5}
+                                                maxLength={2000}
+                                                showCharCount
+                                                value={form.data.activity_description}
+                                                onChange={(event) => updateField('activity_description', event.target.value)}
+                                                error={errorFor('activity_description')}
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-2 rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
+                                            <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Batas pekerjaan operasional</p>
+                                            <p className="mt-1 text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">Menandai operasional selesai tidak menutup SPK. Nota Rampung, rekonsiliasi, invoice, dan pembayaran tetap diproses terpisah.</p>
+                                        </div>
+                                    </fieldset>
+                                )}
+
+                                {currentStep === 3 && (
+                                    <div className="divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
+                                        <section aria-labelledby="review-spk" className="pb-5">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <h3 id="review-spk" className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">Dokumen SPK</h3>
+                                                <button type="button" onClick={() => setCurrentStep(0)} className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-bold text-[#0060F4] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:hover:text-[#7DD3FC]">Ubah data</button>
+                                            </div>
+                                            <dl className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                                                <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Nomor klien</dt><dd className="mt-1 break-words font-semibold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">{form.data.client_number || '-'}</dd></div>
+                                                <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Diterima</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(form.data.received_at)}</dd></div>
+                                                <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">PIC klien</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{form.data.client_pic_name || '-'}</dd></div>
+                                                <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Dokumen</dt><dd className="mt-1 truncate font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{form.data.document?.name || 'Belum diunggah'}</dd></div>
+                                            </dl>
+                                        </section>
+
+                                        <section aria-labelledby="review-visit" className="py-5">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <h3 id="review-visit" className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">Kunjungan / Job</h3>
+                                                <button type="button" onClick={() => setCurrentStep(1)} className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-bold text-[#0060F4] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:hover:text-[#7DD3FC]">Ubah data</button>
+                                            </div>
+                                            <dl className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                                                <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><Building2 aria-hidden="true" className="size-3.5" />Perusahaan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedCompany?.name || '-'}</dd></div>
+                                                <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><Ship aria-hidden="true" className="size-3.5" />Kapal</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedShip?.name || '-'}</dd></div>
+                                                <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><MapPin aria-hidden="true" className="size-3.5" />Pelabuhan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedPort?.name || '-'}</dd></div>
+                                                <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><CalendarClock aria-hidden="true" className="size-3.5" />ETA / ETD</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(form.data.eta_at)}<span className="block text-xs font-normal text-[#52658E] dark:text-[#94A3B8]">ETD: {form.data.etd_at ? formatDate(form.data.etd_at) : 'Belum ditentukan'}</span></dd></div>
+                                            </dl>
+                                        </section>
+
+                                        <section aria-labelledby="review-execution" className="py-5">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <h3 id="review-execution" className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">Eksekusi</h3>
+                                                <button type="button" onClick={() => setCurrentStep(2)} className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-bold text-[#0060F4] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:hover:text-[#7DD3FC]">Ubah data</button>
+                                            </div>
+                                            <dl className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                                                <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Jenis kegiatan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{form.data.activity_name || '-'}</dd></div>
+                                                <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Penanggung jawab</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedAssignee?.name || '-'}</dd></div>
+                                                {form.data.activity_description && <div className="sm:col-span-2"><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Catatan</dt><dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-[#0B1F63] dark:text-[#F1F5F9]">{form.data.activity_description}</dd></div>}
+                                            </dl>
+                                        </section>
+
+                                        <section aria-labelledby="review-confirmation" className="pt-5">
+                                            <h3 id="review-confirmation" className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">Konfirmasi data</h3>
+                                            <label htmlFor="review-confirmed" className="mt-3 flex cursor-pointer items-start gap-3">
+                                                <input
+                                                    id="review-confirmed"
+                                                    type="checkbox"
+                                                    checked={confirmed}
+                                                    aria-invalid={reviewError ? true : undefined}
+                                                    aria-describedby={reviewError ? 'review-confirmation-error' : undefined}
+                                                    onChange={(event) => { setConfirmed(event.target.checked); setReviewError(null); }}
+                                                    className={`mt-0.5 size-5 shrink-0 rounded text-[#0060F4] focus:ring-[#0060F4] ${reviewError ? 'border-[#C62840]' : 'border-[#9FC7EF]'}`}
+                                                />
+                                                <span className="text-sm leading-6 text-[#0B1F63] dark:text-[#F1F5F9]">Saya sudah memeriksa bahwa perusahaan, kapal, pelabuhan, jadwal, dan penanggung jawab merujuk pada kunjungan yang benar.</span>
+                                            </label>
+                                            {reviewError && <p id="review-confirmation-error" role="alert" className="mt-2 pl-8 text-sm font-semibold text-[#C62840] dark:text-[#F87171]">{reviewError}</p>}
+                                        </section>
+                                    </div>
+                                )}
+                            </div>
+                        </Card>
+
+                        <aside className="space-y-4 lg:sticky lg:top-20" aria-label="Ringkasan kunjungan">
+                            <Card className="overflow-hidden">
+                                <div className="bg-[#0D2945] p-5 text-white">
+                                    <div className="flex items-center gap-3">
+                                        <span className="flex size-11 items-center justify-center rounded-xl bg-white/10"><Ship aria-hidden="true" className="size-5 text-[#7DD3FC]" /></span>
+                                        <div className="min-w-0">
+                                            <p className="text-xs text-[#B5C8DC]">Kunjungan baru</p>
+                                            <p className="truncate font-extrabold">{selectedShip?.name || 'Kapal belum dipilih'}</p>
+                                        </div>
+                                    </div>
+                                    <p className="mt-4 break-words text-sm font-semibold text-[#E7F0FA]" translate="no">{form.data.client_number || 'Nomor SPK belum diisi'}</p>
+                                </div>
+                                <dl className="grid gap-4 p-5 text-sm">
+                                    <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Perusahaan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedCompany?.name || '-'}</dd></div>
+                                    <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Pelabuhan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedPort?.name || '-'}</dd></div>
+                                    <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">ETA</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(form.data.eta_at)}</dd></div>
+                                    <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Penanggung jawab</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedAssignee?.name || '-'}</dd></div>
+                                </dl>
+                            </Card>
+
+                            <div className="rounded-2xl border border-[#9FC7EF] bg-[#F0F8FF] p-4 text-sm leading-6 text-[#285585] dark:border-[#285585] dark:bg-[#102642] dark:text-[#B5C8DC]">
+                                <p className="font-bold text-[#082870] dark:text-[#F1F5F9]">Nomor job dibuat otomatis</p>
+                                <p className="mt-1">Sistem membuat nomor SPK internal dan job kunjungan setelah data berhasil disimpan.</p>
+                            </div>
+                        </aside>
+                    </div>
+
+                    <div className="mt-4 border-t border-[#DCEAF8] bg-white px-1 py-3 md:sticky md:bottom-0 md:z-20 md:mt-5 md:bg-white/95 md:backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#071322] md:dark:bg-[#071322]/95">
+                        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex gap-2">
+                                <Button type="button" variant="ghost" onClick={() => form.isDirty ? setShowCancelConfirmation(true) : router.visit('/work-orders')} className="flex-1 sm:flex-none">
+                                    Batal
+                                </Button>
+                                {currentStep > 0 && <Button type="button" variant="outline" onClick={goToPreviousStep} className="flex-1 sm:flex-none">Kembali</Button>}
+                            </div>
+
+                            {currentStep < steps.length - 1 ? (
+                                <Button type="submit" rightIcon={<ArrowRight aria-hidden="true" className="size-4" />} className="w-full sm:w-auto">
+                                    Lanjut ke {steps[currentStep + 1].title}
+                                </Button>
+                            ) : (
+                                <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                                    <Button type="button" variant="secondary" disabled={form.processing} onClick={() => submit('draft')} className="w-full sm:w-auto">
+                                        Simpan sebagai Draft
+                                    </Button>
+                                    <Button type="button" isLoading={form.processing} onClick={() => submit('active')} className="w-full sm:w-auto">
+                                        {form.processing ? 'Menyimpan…' : 'Buat & Aktifkan SPK'}
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <ConfirmDialog
+                isOpen={showCancelConfirmation}
+                title="Batalkan pembuatan SPK?"
+                description="Data yang sudah Anda isi pada halaman ini belum tersimpan."
+                confirmLabel="Buang perubahan"
+                confirmVariant="danger"
+                onClose={() => setShowCancelConfirmation(false)}
+                onConfirm={() => router.visit('/work-orders')}
+            />
+        </AppLayout>
+    );
+}

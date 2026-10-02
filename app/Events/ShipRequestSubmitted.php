@@ -36,7 +36,7 @@ class ShipRequestSubmitted implements ShouldBroadcast
         $this->shipName = $shipRequest->ship?->name ?? 'Kapal';
         $this->companyName = $shipRequest->company?->name ?? '-';
         $this->itemsCount = $shipRequest->items()->count();
-        $this->creatorName = $shipRequest->creator?->name ?? 'Pak Prima (Lapangan)';
+        $this->creatorName = $shipRequest->creator?->name ?? 'Operasional';
         $this->serviceType = $shipRequest->service_type ?? 'Sandar';
         $this->submittedAt = now()->toIso8601String();
     }

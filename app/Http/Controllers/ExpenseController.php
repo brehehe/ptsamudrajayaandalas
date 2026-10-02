@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreOutgoingPaymentRequest;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
 use App\Models\Vendor;
@@ -14,6 +15,7 @@ class ExpenseController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $type = $request->query('type', 'all');
         $status = $request->query('status', 'all');
         $search = $request->query('search');
@@ -66,17 +68,9 @@ class ExpenseController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(StoreOutgoingPaymentRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'port_call_id' => ['required', 'exists:port_calls,id'],
-            'payment_type' => ['required', 'string'],
-            'recipient' => ['required', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:1'],
-            'payment_date' => ['required', 'date'],
-            'reference_number' => ['required', 'string', 'unique:outgoing_payments,reference_number'],
-            'notes' => ['nullable', 'string'],
-        ]);
+        $validated = $request->validated();
 
         OutgoingPayment::create([
             'port_call_id' => $validated['port_call_id'],
@@ -86,13 +80,12 @@ class ExpenseController extends Controller
             'currency' => 'IDR',
             'payment_date' => $validated['payment_date'],
             'reference_number' => $validated['reference_number'],
-            'proof_path' => 'proofs/trf-manual.pdf',
-            'verification_status' => 'verified',
+            'proof_path' => $request->file('proof')->store('sja/outgoing-payments', 'local'),
+            'verification_status' => 'pending',
             'recorded_by' => $request->user()->id,
-            'verified_by' => $request->user()->id,
-            'verified_at' => now(),
+            'notes' => $validated['notes'] ?? null,
         ]);
 
-        return redirect()->back()->with('success', "Disbursement {$validated['reference_number']} berhasil dicatat.");
+        return redirect()->back()->with('success', "Disbursement {$validated['reference_number']} berhasil dicatat dan menunggu verifikasi bukti.");
     }
 }

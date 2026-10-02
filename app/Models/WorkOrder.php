@@ -6,12 +6,27 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class WorkOrder extends Model
 {
     use HasFactory, HasUuids, SoftDeletes;
+
+    /**
+     * @var array<string, string>
+     */
+    public const STATUS_TRANSITIONS = [
+        'draft' => 'active',
+        'active' => 'in_progress',
+        'accepted' => 'in_progress',
+        'in_progress' => 'operational_completed',
+        'operational_completed' => 'awaiting_completion_note',
+        'completed' => 'awaiting_completion_note',
+        'awaiting_completion_note' => 'billing',
+        'billing' => 'closed',
+    ];
 
     protected $table = 'work_orders';
 
@@ -36,6 +51,8 @@ class WorkOrder extends Model
         'planned_port_id',
         'planned_eta_at',
         'planned_etd_at',
+        'operational_completed_at',
+        'closed_at',
     ];
 
     protected function casts(): array
@@ -47,7 +64,14 @@ class WorkOrder extends Model
             'reviewed_at' => 'datetime',
             'planned_eta_at' => 'datetime',
             'planned_etd_at' => 'datetime',
+            'operational_completed_at' => 'datetime',
+            'closed_at' => 'datetime',
         ];
+    }
+
+    public function nextStatus(): ?string
+    {
+        return self::STATUS_TRANSITIONS[$this->status] ?? null;
     }
 
     public function company(): BelongsTo
@@ -68,5 +92,20 @@ class WorkOrder extends Model
     public function portCall(): HasOne
     {
         return $this->hasOne(PortCall::class, 'work_order_id');
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(WorkOrderItem::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to');
     }
 }

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['name', 'email', 'password', 'employee_id', 'phone', 'job_title', 'is_active', 'account_status', 'invitation_sent_at', 'activated_at', 'last_login_at'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -28,6 +28,10 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_active' => 'boolean',
+            'invitation_sent_at' => 'datetime',
+            'activated_at' => 'datetime',
+            'last_login_at' => 'datetime',
         ];
     }
 
@@ -46,7 +50,7 @@ class User extends Authenticatable
      */
     public function isStaff(): bool
     {
-        return $this->hasRole(['Tim Lapangan', 'Staf Operasional']);
+        return $this->hasRole(['Tim Lapangan', 'Staf Operasional', 'Lapangan']);
     }
 
     /**
@@ -71,5 +75,26 @@ class User extends Authenticatable
     public function isOwner(): bool
     {
         return $this->hasRole('Owner');
+    }
+
+    /**
+     * Get primary Spatie role name.
+     */
+    public function getPrimaryRoleName(): string
+    {
+        if ($this->hasRole('Owner')) {
+            return 'Owner';
+        }
+        if ($this->hasRole('Direktur')) {
+            return 'Direktur';
+        }
+        if ($this->hasRole(['Lapangan', 'Tim Lapangan', 'Staf Operasional'])) {
+            return 'Lapangan';
+        }
+        if ($this->hasRole(['Admin', 'Admin Sistem'])) {
+            return 'Admin';
+        }
+
+        return $this->roles->first()?->name ?? 'Tanpa Role';
     }
 }

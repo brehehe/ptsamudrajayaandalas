@@ -12,7 +12,10 @@ class MaritimeAudioService {
     private getContext(): AudioContext | null {
         if (typeof window === 'undefined') return null;
         if (!this.audioCtx) {
-            const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+            const AudioContextClass =
+                window.AudioContext ||
+                (window as unknown as { webkitAudioContext: typeof AudioContext })
+                    .webkitAudioContext;
             if (AudioContextClass) {
                 this.audioCtx = new AudioContextClass();
             }
@@ -51,7 +54,7 @@ class MaritimeAudioService {
             if (type === 'success') {
                 f1 = 587.33; // D5
                 f2 = 739.99; // F#5
-                f3 = 880.00; // A5
+                f3 = 880.0; // A5
             } else if (type === 'alert') {
                 f1 = 698.46; // F5
                 f2 = 554.37; // C#5

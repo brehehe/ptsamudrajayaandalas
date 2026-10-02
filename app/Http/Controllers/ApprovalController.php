@@ -24,8 +24,9 @@ class ApprovalController extends Controller
             'company',
             'port',
             'creator',
-            'items.product.vendor',
-            'items.vendor',
+            'items' => fn ($query) => $query
+                ->whereIn('status', ['diajukan_ke_direktur', 'disetujui', 'ditolak'])
+                ->with(['product.vendor', 'vendor']),
         ]);
 
         $paymentsQuery = OutgoingPayment::query()->with([
@@ -36,10 +37,10 @@ class ApprovalController extends Controller
         ]);
 
         if ($tab === 'menunggu') {
-            $requestsQuery->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur']);
+            $requestsQuery->where('status', 'Menunggu Approval Direktur');
             $paymentsQuery->where('verification_status', 'pending');
         } elseif ($tab === 'disetujui') {
-            $requestsQuery->whereIn('status', ['Disetujui', 'Dalam Proses', 'Selesai']);
+            $requestsQuery->whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai']);
             $paymentsQuery->where('verification_status', 'verified');
         } elseif ($tab === 'ditolak') {
             $requestsQuery->where('status', 'Ditolak');
@@ -64,8 +65,8 @@ class ApprovalController extends Controller
         $pendingPayments = $paymentsQuery->orderByDesc('created_at')->get();
 
         $counts = [
-            'menunggu' => ShipRequest::whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count() + OutgoingPayment::where('verification_status', 'pending')->count(),
-            'disetujui' => ShipRequest::whereIn('status', ['Disetujui', 'Dalam Proses', 'Selesai'])->count() + OutgoingPayment::where('verification_status', 'verified')->count(),
+            'menunggu' => ShipRequest::where('status', 'Menunggu Approval Direktur')->count() + OutgoingPayment::where('verification_status', 'pending')->count(),
+            'disetujui' => ShipRequest::whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai'])->count() + OutgoingPayment::where('verification_status', 'verified')->count(),
             'ditolak' => ShipRequest::where('status', 'Ditolak')->count() + OutgoingPayment::where('verification_status', 'rejected')->count(),
         ];
 
@@ -88,45 +89,61 @@ class ApprovalController extends Controller
         ]);
 
         return DB::transaction(function () use ($id, $validated, $request) {
-            $shipRequest = ShipRequest::with('items')->findOrFail($id);
+            $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
+            $this->authorizeDirectorDecision($request);
+
+            if ($shipRequest->status !== 'Menunggu Approval Direktur') {
+                return redirect()->back()->with('error', 'Pengajuan ini belum dikirim Admin atau sudah selesai ditinjau.');
+            }
 
             foreach ($validated['decisions'] as $dec) {
-                $item = RequestItem::where('request_id', $shipRequest->id)->where('id', $dec['item_id'])->first();
-                if ($item) {
-                    $item->update([
-                        'director_status' => $dec['status'],
-                        'director_notes' => $dec['director_notes'] ?? $item->director_notes,
-                        'status' => $dec['status'] === 'approved' ? 'disetujui' : ($dec['status'] === 'rejected' ? 'ditolak' : 'pending'),
-                    ]);
+                $item = RequestItem::lockForUpdate()
+                    ->where('request_id', $shipRequest->id)
+                    ->where('id', $dec['item_id'])
+                    ->firstOrFail();
+
+                if ($item->status !== 'diajukan_ke_direktur') {
+                    continue;
                 }
+
+                $status = $dec['status'];
+                $item->update([
+                    'director_status' => $status,
+                    'director_notes' => $dec['director_notes'] ?? $item->director_notes,
+                    'status' => match ($status) {
+                        'approved' => 'disetujui',
+                        'rejected' => 'ditolak',
+                        default => 'diajukan_ke_direktur',
+                    },
+                ]);
+
+                activity('request-item-approval')
+                    ->performedOn($item)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'request_id' => $shipRequest->id,
+                        'decision' => $status,
+                        'hpp_price' => (float) $item->hpp_price,
+                        'selling_price' => (float) $item->selling_price,
+                        'notes' => $dec['director_notes'] ?? null,
+                    ])
+                    ->log('Direktur memberikan keputusan pada item pengajuan');
             }
 
-            // Check how many are approved
-            $approvedCount = $shipRequest->items()->where('director_status', 'approved')->count();
-            $rejectedCount = $shipRequest->items()->where('director_status', 'rejected')->count();
-
-            if ($approvedCount > 0) {
-                $shipRequest->update([
-                    'status' => 'Disetujui',
-                    'director_reviewed_at' => now(),
-                ]);
-            } elseif ($rejectedCount === $shipRequest->items()->count()) {
-                $shipRequest->update([
-                    'status' => 'Ditolak',
-                    'director_reviewed_at' => now(),
-                ]);
-            }
+            $requestStatus = $this->syncRequestApprovalStatus($shipRequest);
 
             if (function_exists('activity')) {
                 activity('approval')
                     ->performedOn($shipRequest)
                     ->causedBy($request->user())
-                    ->log("Direktur Pak Ryan memutuskan persetujuan item pada pengajuan {$shipRequest->request_number}");
+                    ->log("Direktur memutuskan persetujuan item pada pengajuan {$shipRequest->request_number}");
             }
 
-            try {
-                event(new DirectorApprovalCompleted($shipRequest));
-            } catch (\Throwable) {
+            if ($requestStatus !== 'Menunggu Approval Direktur') {
+                try {
+                    event(new DirectorApprovalCompleted($shipRequest));
+                } catch (\Throwable) {
+                }
             }
 
             return redirect()->back()->with('success', "Keputusan item pengajuan {$shipRequest->request_number} berhasil disimpan dan dikembalikan ke Admin.");
@@ -137,21 +154,41 @@ class ApprovalController extends Controller
     {
         return DB::transaction(function () use ($id, $request) {
             $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
+            $this->authorizeDirectorDecision($request);
 
-            if (! in_array($shipRequest->status, ['Menunggu Approval', 'Menunggu Approval Direktur'])) {
+            if ($shipRequest->status !== 'Menunggu Approval Direktur') {
                 return redirect()->back()->with('error', "Pengajuan {$shipRequest->request_number} sudah diproses sebelumnya (Status: {$shipRequest->status}).");
             }
 
-            // Approve all items currently forwarded/pending
-            $shipRequest->items()->whereIn('director_status', ['pending', 'diajukan_ke_direktur'])->update([
-                'director_status' => 'approved',
-                'status' => 'disetujui',
-            ]);
+            $forwardedItems = $shipRequest->items()
+                ->where('status', 'diajukan_ke_direktur')
+                ->where('director_status', 'pending')
+                ->lockForUpdate()
+                ->get();
 
-            $shipRequest->update([
-                'status' => 'Disetujui',
-                'director_reviewed_at' => now(),
-            ]);
+            if ($forwardedItems->isEmpty()) {
+                return redirect()->back()->with('error', 'Tidak ada item kiriman Admin yang menunggu keputusan Direktur.');
+            }
+
+            foreach ($forwardedItems as $item) {
+                $item->update([
+                    'director_status' => 'approved',
+                    'status' => 'disetujui',
+                ]);
+
+                activity('request-item-approval')
+                    ->performedOn($item)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'request_id' => $shipRequest->id,
+                        'decision' => 'approved',
+                        'hpp_price' => (float) $item->hpp_price,
+                        'selling_price' => (float) $item->selling_price,
+                    ])
+                    ->log('Direktur menyetujui item dan mengunci harga');
+            }
+
+            $this->syncRequestApprovalStatus($shipRequest);
 
             if (function_exists('activity')) {
                 activity('approval')
@@ -175,30 +212,51 @@ class ApprovalController extends Controller
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        return DB::transaction(function () use ($validated, $id) {
+        return DB::transaction(function () use ($validated, $id, $request) {
             $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
+            $this->authorizeDirectorDecision($request);
 
-            if (! in_array($shipRequest->status, ['Menunggu Approval', 'Menunggu Approval Direktur'])) {
+            if ($shipRequest->status !== 'Menunggu Approval Direktur') {
                 return redirect()->back()->with('error', "Pengajuan {$shipRequest->request_number} tidak dapat ditolak karena berstatus {$shipRequest->status}.");
             }
 
-            $shipRequest->items()->where('director_status', 'pending')->update([
-                'director_status' => 'rejected',
-                'status' => 'ditolak',
-                'director_notes' => $validated['reason'] ?? 'Ditolak oleh Direktur',
-            ]);
+            $forwardedItems = $shipRequest->items()
+                ->where('status', 'diajukan_ke_direktur')
+                ->where('director_status', 'pending')
+                ->lockForUpdate()
+                ->get();
+
+            if ($forwardedItems->isEmpty()) {
+                return redirect()->back()->with('error', 'Tidak ada item kiriman Admin yang dapat ditolak.');
+            }
+
+            foreach ($forwardedItems as $item) {
+                $item->update([
+                    'director_status' => 'rejected',
+                    'status' => 'ditolak',
+                    'director_notes' => $validated['reason'] ?? 'Ditolak oleh Direktur',
+                ]);
+
+                activity('request-item-approval')
+                    ->performedOn($item)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'request_id' => $shipRequest->id,
+                        'decision' => 'rejected',
+                        'hpp_price' => (float) $item->hpp_price,
+                        'selling_price' => (float) $item->selling_price,
+                        'notes' => $validated['reason'] ?? null,
+                    ])
+                    ->log('Direktur menolak item pengajuan');
+            }
 
             $note = $shipRequest->notes;
             if (! empty($validated['reason'])) {
                 $note .= " [Alasan Penolakan Direktur: {$validated['reason']}]";
             }
 
-            $shipRequest->update([
-                'status' => 'Ditolak',
-                'notes' => $note,
-                'cancelled_at' => now(),
-                'director_reviewed_at' => now(),
-            ]);
+            $shipRequest->update(['notes' => $note]);
+            $this->syncRequestApprovalStatus($shipRequest);
 
             return redirect()->back()->with('success', "Pengajuan {$shipRequest->request_number} telah ditolak.");
         });
@@ -206,6 +264,8 @@ class ApprovalController extends Controller
 
     public function verifyPayment(Request $request, string $id): RedirectResponse
     {
+        $this->authorizeDirectorDecision($request);
+
         return DB::transaction(function () use ($request, $id) {
             $payment = OutgoingPayment::lockForUpdate()->findOrFail($id);
 
@@ -230,27 +290,78 @@ class ApprovalController extends Controller
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        return DB::transaction(function () use ($id, $validated) {
-            $item = RequestItem::with('request')->findOrFail($id);
+        return DB::transaction(function () use ($id, $validated, $request) {
+            $item = RequestItem::query()->lockForUpdate()->with('request')->findOrFail($id);
+            $this->authorizeDirectorDecision($request);
+
+            if (! $item->request || $item->status !== 'diajukan_ke_direktur') {
+                return redirect()->back()->with('error', 'Item ini belum dikirim Admin atau sudah diputuskan sebelumnya.');
+            }
+
+            if ($item->request->status !== 'Menunggu Approval Direktur') {
+                return redirect()->back()->with('error', 'Pengajuan ini belum dikirim Admin atau sudah selesai ditinjau.');
+            }
+
             $status = $validated['decision'];
             $item->update([
                 'director_status' => $status,
                 'director_notes' => $validated['notes'] ?? $item->director_notes,
-                'status' => $status === 'approved' ? 'disetujui' : ($status === 'rejected' ? 'ditolak' : 'pending'),
+                'status' => match ($status) {
+                    'approved' => 'disetujui',
+                    'rejected' => 'ditolak',
+                    default => 'diajukan_ke_direktur',
+                },
             ]);
 
-            if ($item->request) {
-                $shipRequest = $item->request;
-                $approvedCount = $shipRequest->items()->where('director_status', 'approved')->count();
-                if ($approvedCount > 0) {
-                    $shipRequest->update([
-                        'status' => 'Disetujui',
-                        'director_reviewed_at' => now(),
-                    ]);
-                }
-            }
+            activity('request-item-approval')
+                ->performedOn($item)
+                ->causedBy($request->user())
+                ->withProperties([
+                    'request_id' => $item->request->id,
+                    'decision' => $status,
+                    'hpp_price' => (float) $item->hpp_price,
+                    'selling_price' => (float) $item->selling_price,
+                    'notes' => $validated['notes'] ?? null,
+                ])
+                ->log('Direktur memberikan keputusan pada item pengajuan');
+
+            $this->syncRequestApprovalStatus($item->request);
 
             return redirect()->back()->with('success', "Status item {$item->item_name} berhasil diubah menjadi {$status}.");
         });
+    }
+
+    private function authorizeDirectorDecision(Request $request): void
+    {
+        if (! $request->user()?->isDirector() && ! $request->user()?->isOwner()) {
+            abort(403, 'Hanya Direktur yang dapat memberikan keputusan pengajuan.');
+        }
+    }
+
+    private function syncRequestApprovalStatus(ShipRequest $shipRequest): string
+    {
+        $items = $shipRequest->items()->get(['status', 'director_status']);
+        $totalItems = $items->count();
+        $approvedItems = $items->where('director_status', 'approved')->count();
+        $rejectedItems = $items->where('director_status', 'rejected')->count();
+        $awaitingDirector = $items->where('status', 'diajukan_ke_direktur')
+            ->where('director_status', 'pending')
+            ->count();
+
+        $status = match (true) {
+            $awaitingDirector > 0 => 'Menunggu Approval Direktur',
+            $totalItems > 0 && $approvedItems === $totalItems => 'Disetujui',
+            $approvedItems > 0 => 'Disetujui Sebagian',
+            $totalItems > 0 && $rejectedItems === $totalItems => 'Ditolak',
+            default => 'Menunggu Approval',
+        };
+
+        $shipRequest->update([
+            'status' => $status,
+            'director_reviewed_at' => $awaitingDirector === 0 ? now() : null,
+            'cancelled_at' => $status === 'Ditolak' ? now() : null,
+        ]);
+
+        return $status;
     }
 }

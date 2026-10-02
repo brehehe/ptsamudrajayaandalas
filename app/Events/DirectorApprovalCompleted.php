@@ -59,7 +59,7 @@ class DirectorApprovalCompleted implements ShouldBroadcast
         return [
             'type' => 'director_approval',
             'title' => "Approval Direktur: {$this->requestNumber}",
-            'message' => "Pak Ryan (Direktur) telah meninjau pengajuan {$this->requestNumber} untuk {$this->shipName} ({$this->approvedItemsCount} disetujui, {$this->rejectedItemsCount} ditolak).",
+            'message' => "Direktur telah meninjau pengajuan {$this->requestNumber} untuk {$this->shipName} ({$this->approvedItemsCount} disetujui, {$this->rejectedItemsCount} ditolak).",
             'status' => $this->status,
             'request_id' => $this->requestId,
             'request_number' => $this->requestNumber,

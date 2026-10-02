@@ -11,6 +11,8 @@ import Select from '../../Components/selects/Select';
 import Textarea from '../../Components/forms/Textarea';
 import Checkbox from '../../Components/forms/Checkbox';
 import { playSjaChime } from '../../Components/feedback/AudioNotification';
+import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import FilterBar from '../../Components/filters/FilterBar';
 
 const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -120,20 +122,54 @@ interface RequestsIndexProps {
         hpp_default: number | string;
     }>;
     counts: {
-        aktif: number;
-        riwayat: number;
+        semua?: number;
+        menunggu?: number;
+        diproses?: number;
+        selesai?: number;
+        aktif?: number;
+        riwayat?: number;
     };
     activeTab: string;
     search: string;
 }
 
 const NEED_TYPES = [
-    { id: 'Air (Fresh Water)', label: 'Air (Fresh Water)', icon: '💧', desc: 'Suplai air tawar untuk awak dan kapal' },
-    { id: 'Perahu', label: 'Perahu', icon: '⛵', desc: 'Kapal motor / boat penyeberangan antar dermaga' },
-    { id: 'Crew Transport', label: 'Crew Transport', icon: '👥', desc: 'Antar jemput kru kapal dari darat ke laut' },
-    { id: 'Clearance', label: 'Clearance', icon: '📋', desc: 'Dokumen izin sandar, bea cukai, karantina' },
-    { id: 'Bahan Bakar (Fuel Surcharge)', label: 'Bahan Bakar (Fuel Surcharge)', icon: '⛽', desc: 'Bunkering BBM MGO/HFO kapal' },
-    { id: 'Lainnya', label: 'Lainnya', icon: '•••', desc: 'Perbekalan, suku cadang, logistik darurat' },
+    {
+        id: 'Air (Fresh Water)',
+        label: 'Air (Fresh Water)',
+        icon: '💧',
+        desc: 'Suplai air tawar untuk awak dan kapal',
+    },
+    {
+        id: 'Perahu',
+        label: 'Perahu',
+        icon: '⛵',
+        desc: 'Kapal motor / boat penyeberangan antar dermaga',
+    },
+    {
+        id: 'Crew Transport',
+        label: 'Crew Transport',
+        icon: '👥',
+        desc: 'Antar jemput kru kapal dari darat ke laut',
+    },
+    {
+        id: 'Clearance',
+        label: 'Clearance',
+        icon: '📋',
+        desc: 'Dokumen izin sandar, bea cukai, karantina',
+    },
+    {
+        id: 'Bahan Bakar (Fuel Surcharge)',
+        label: 'Bahan Bakar (Fuel Surcharge)',
+        icon: '⛽',
+        desc: 'Bunkering BBM MGO/HFO kapal',
+    },
+    {
+        id: 'Lainnya',
+        label: 'Lainnya',
+        icon: '•••',
+        desc: 'Perbekalan, suku cadang, logistik darurat',
+    },
 ];
 
 const UNITS = ['Ton', 'Unit', 'Orang', 'Paket', 'Liter', 'Set'];
@@ -186,8 +222,8 @@ export default function RequestsIndex({
     requests,
     ships = [],
     products = [],
-    counts = { aktif: 0, riwayat: 0 },
-    activeTab = 'aktif',
+    counts = { semua: 0, menunggu: 0, diproses: 0, selesai: 0, aktif: 0, riwayat: 0 },
+    activeTab = 'semua',
     search = '',
 }: RequestsIndexProps) {
     const [searchTerm, setSearchTerm] = useState(search);
@@ -205,7 +241,10 @@ export default function RequestsIndex({
 
     // Detail & Action States
     const [detailRequest, setDetailRequest] = useState<ShipRequest | null>(null);
-    const [successModalData, setSuccessModalData] = useState<{ reqNumber: string; date: string } | null>(null);
+    const [successModalData, setSuccessModalData] = useState<{
+        reqNumber: string;
+        date: string;
+    } | null>(null);
     const [actionSheetRequest, setActionSheetRequest] = useState<ShipRequest | null>(null);
 
     // Add Susulan Item State
@@ -220,7 +259,7 @@ export default function RequestsIndex({
 
     const handleProductSelect = (pId: string) => {
         setNewItemProductId(pId);
-        const prod = products.find(p => p.id === pId);
+        const prod = products.find((p) => p.id === pId);
         if (prod) {
             setNewItemName(prod.name);
             setNewItemUnit(prod.unit || 'Unit');
@@ -231,29 +270,33 @@ export default function RequestsIndex({
         e.preventDefault();
         if (!detailRequest || !newItemName) return;
         setSubmittingItem(true);
-        router.post(`/requests/${detailRequest.id}/items`, {
-            item_name: newItemName,
-            product_id: newItemProductId || undefined,
-            quantity: parseFloat(newItemQty) || 1,
-            unit: newItemUnit,
-            notes: newItemNotes,
-            is_urgent: newItemUrgent,
-        }, {
-            preserveScroll: true,
-            onSuccess: () => {
-                setShowAddItemForm(false);
-                setNewItemName('');
-                setNewItemProductId('');
-                setNewItemQty('1');
-                setNewItemNotes('');
-                setNewItemUrgent(false);
-                setSubmittingItem(false);
-                playSjaChime('success');
+        router.post(
+            `/requests/${detailRequest.id}/items`,
+            {
+                item_name: newItemName,
+                product_id: newItemProductId || undefined,
+                quantity: parseFloat(newItemQty) || 1,
+                unit: newItemUnit,
+                notes: newItemNotes,
+                is_urgent: newItemUrgent,
             },
-            onError: () => {
-                setSubmittingItem(false);
-            },
-        });
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setShowAddItemForm(false);
+                    setNewItemName('');
+                    setNewItemProductId('');
+                    setNewItemQty('1');
+                    setNewItemNotes('');
+                    setNewItemUrgent(false);
+                    setSubmittingItem(false);
+                    playSjaChime('success');
+                },
+                onError: () => {
+                    setSubmittingItem(false);
+                },
+            }
+        );
     };
 
     // Wizard Form Data
@@ -268,12 +311,11 @@ export default function RequestsIndex({
 
     const selectedShip = ships.find((s) => s.id === data.ship_id);
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSearch = () => {
         router.get('/requests', { tab: activeTab, search: searchTerm }, { preserveState: true });
     };
 
-    const handleTabChange = (tab: 'aktif' | 'riwayat') => {
+    const handleTabChange = (tab: string) => {
         router.get('/requests', { tab, search: searchTerm }, { preserveState: true });
     };
 
@@ -335,198 +377,187 @@ export default function RequestsIndex({
     );
 
     return (
-        <AppLayout title="Pengajuan Kebutuhan Kapal">
-            <Head title="Pengajuan Kebutuhan Kapal — PT Samudra Jaya Andalas" />
+        <AppLayout
+            title="Pengajuan"
+            transparentMobileHeader
+            noPaddingMobile
+            mobileBackground="surface"
+        >
+            <Head title="Pengajuan — PT Samudra Jaya Andalas" />
 
-            <div className="space-y-4 max-w-7xl mx-auto pb-10">
-                {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-[#DCEAF8]">
-                    <div className="flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border border-[#DCEAF8] self-start">
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('aktif')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'aktif'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/50'
-                                }`}
-                        >
-                            <span>📝</span>
-                            <span>Pengajuan Aktif</span>
-                            <span
-                                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${activeTab === 'aktif'
-                                        ? 'bg-white/20 text-white'
-                                        : 'bg-white text-[#0B1F63] border border-[#DCEAF8]'
-                                    }`}
-                            >
-                                {counts.aktif}
-                            </span>
-                        </button>
+            <MobilePageHero
+                title="Pengajuan"
+                description="Kelola seluruh pengajuan kapal dan pantau progresnya dalam satu tempat."
+            />
 
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('riwayat')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeTab === 'riwayat'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/50'
-                                }`}
-                        >
-                            <span>📂</span>
-                            <span>Riwayat Selesai</span>
-                            <span
-                                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${activeTab === 'riwayat'
-                                        ? 'bg-white/20 text-white'
-                                        : 'bg-white text-[#0B1F63] border border-[#DCEAF8]'
-                                    }`}
-                            >
-                                {counts.riwayat}
-                            </span>
-                        </button>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                        <Link
-                            href="/requests/create"
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#082870] text-white text-xs sm:text-sm font-bold shadow-sm transition-all"
-                        >
-                            <span className="text-base leading-none font-bold">+</span>
-                            <span>Form Pengajuan</span>
-                        </Link>
-                        <Link
-                            href="/operations"
-                            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white hover:bg-[#F0F8FF] text-[#082870] border border-[#DCEAF8] text-xs sm:text-sm font-bold shadow-xs transition-all"
-                        >
-                            <span>📝 Laporan Harian Lapangan</span>
-                        </Link>
-                    </div>
-                </div>
-
-                {/* ── Title Header ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-2.5 rounded-t-[28px] bg-white pb-3 pt-4 dark:bg-[#0C1D36] sm:space-y-3.5 md:mt-0 md:min-h-0 md:rounded-none md:bg-transparent md:pt-0 md:dark:bg-transparent">
+                {/* ── Title Header & CTA Button matching Image 2 Screen 1 ── */}
+                <div className="hidden flex-col gap-3 px-4 pt-3 md:flex md:flex-row md:items-center md:justify-between md:px-0 md:pt-0">
                     <div>
-                        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
-                            Pengajuan Kebutuhan Kapal
+                        <h1 className="text-2xl font-black text-[#0B1F63] dark:text-white tracking-tight">
+                            Pengajuan
                         </h1>
-                        <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                            Pantau semua pengajuan logistik dan kebutuhan operasional kapal yang diajukan
+                        <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                            Kelola seluruh pengajuan Anda di sini
                         </p>
                     </div>
-                </div>
 
-                {/* ── Search Input & Filter Bar ── */}
-                <div className="flex items-center gap-2">
-                    <form onSubmit={handleSearch} className="flex-1 relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8C9BB9]">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                <circle cx="11" cy="11" r="8" />
-                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                            </svg>
-                        </div>
-                        <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Cari nomor pengajuan, nama kapal, atau catatan..."
-                            className="w-full pl-10 pr-4 h-11 bg-white border border-[#DCEAF8] rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
-                        />
-                    </form>
-
-                    <button
-                        type="button"
-                        onClick={() => setFilterModalOpen(true)}
-                        className="w-11 h-11 flex-shrink-0 flex items-center justify-center rounded-xl border border-[#DCEAF8] bg-white hover:bg-[#F0F8FF] active:bg-[#DCEAF8] text-[#0B1F63] shadow-xs transition-colors cursor-pointer"
-                        title="Filter & Sort"
-                        aria-label="Filter & Sort"
-                    >
-                        <svg className="w-5 h-5 text-[#52658E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                        </svg>
-                    </button>
-                </div>
-
-                {/* Section Group Label (e.g. Januari 2026 for history) */}
-                {activeTab === 'riwayat' && (
-                    <div className="text-xs font-bold text-[#52658E] px-1 uppercase tracking-wider">
-                        Januari 2026
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <Link
+                            href="/requests/create"
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#082870] active:scale-[0.99] text-white text-xs sm:text-sm font-bold shadow-xs transition-all cursor-pointer"
+                        >
+                            <span className="text-base leading-none font-bold">+</span>
+                            <span>Buat Pengajuan Multi Kapal</span>
+                        </Link>
                     </div>
-                )}
+                </div>
 
-                {/* Request List */}
+                <div className="px-4 md:hidden">
+                    <Link
+                        href="/requests/create"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 py-2.5 text-sm font-bold text-white shadow-xs transition-colors hover:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                    >
+                        <span aria-hidden="true" className="text-base font-bold leading-none">
+                            +
+                        </span>
+                        <span>Buat Pengajuan Multi Kapal</span>
+                    </Link>
+                </div>
+
+                <div className="px-4 md:px-0">
+                    <FilterBar
+                        searchValue={searchTerm}
+                        onSearchChange={setSearchTerm}
+                        onSearchSubmit={handleSearch}
+                        searchPlaceholder="Cari nomor pengajuan atau kapal…"
+                        searchAriaLabel="Cari pengajuan"
+                        chips={[
+                            { id: 'semua', label: 'Semua', count: counts.semua ?? requests.length },
+                            { id: 'menunggu', label: 'Menunggu', count: counts.menunggu ?? 0 },
+                            { id: 'diproses', label: 'Diproses', count: counts.diproses ?? 0 },
+                            { id: 'selesai', label: 'Selesai', count: counts.selesai ?? 0 },
+                        ]}
+                        activeChipId={activeTab === 'aktif' ? 'semua' : activeTab}
+                        onChipChange={handleTabChange}
+                        onOpenFilterModal={() => setFilterModalOpen(true)}
+                        filterCountBadge={selectedStatuses.length + Number(Boolean(startDate || endDate))}
+                        filterButtonLabel="Filter"
+                        className="!border-0 !bg-transparent !p-0 !shadow-none dark:!bg-transparent"
+                    />
+                </div>
+
+                {/* ── Request Cards List matching Image 2 Screen 1 ── */}
                 <motion.div
                     variants={containerVariants}
                     initial="hidden"
                     animate="visible"
-                    className="space-y-3"
+                    className="space-y-1.5 px-4 md:px-0"
                 >
-                    {requests.map((req) => (
-                        <motion.div
-                            key={req.id}
-                            variants={itemVariants}
-                            whileHover={{ y: -2 }}
-                            whileTap={{ scale: 0.995 }}
-                            transition={{ duration: 0.16 }}
-                        >
-                            <Card
-                                className="p-3.5 sm:p-4 hoverable cursor-pointer border border-[#DCEAF8] transition-all"
-                                onClick={() => setDetailRequest(req)}
+                    {requests.map((req) => {
+                        const statusLower = (req.status || '').toLowerCase();
+                        const isWaiting = statusLower.includes('menunggu') || statusLower.includes('pending');
+                        const isProcessing = statusLower.includes('proses') || statusLower.includes('setuju') || statusLower.includes('disetujui');
+                        const isDone = statusLower.includes('selesai');
+
+                        let badgeBg = 'bg-[#EDF2F7] text-[#526580] border-[#EDF2F7]';
+                        let badgeLabel = req.status || 'Draft';
+
+                        if (isWaiting) {
+                            badgeBg = 'bg-[#FFF0CC] text-[#A65300] border-[#A65300]/20';
+                            badgeLabel = 'Menunggu';
+                        } else if (isProcessing) {
+                            badgeBg = 'bg-[#EFE7FF] text-[#6840BB] border-[#6840BB]/20';
+                            badgeLabel = 'Diproses';
+                        } else if (isDone) {
+                            badgeBg = 'bg-[#DCF7E8] text-[#087443] border-[#087443]/20';
+                            badgeLabel = 'Selesai';
+                        }
+
+                        // Determine ships / items summary
+                        const shipName = req.ship?.name || 'KM BINTANG INDONESIA';
+                        const itemsCount = req.items?.length || 1;
+                        const summaryText = req.notes && req.notes.includes('Kapal')
+                            ? req.notes.split('—')[0].trim()
+                            : `${shipName} • ${itemsCount} Pengajuan Layanan`;
+
+                        return (
+                            <motion.div
+                                key={req.id}
+                                variants={itemVariants}
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.995 }}
+                                transition={{ duration: 0.16 }}
                             >
-                                <div className="flex items-center gap-3 sm:gap-3.5">
-                                    {/* Thumbnail vessel */}
-                                    <img
-                                        src={req.ship?.image || '/images/vessel-sarana.jpg'}
-                                        alt={req.ship?.name || 'Kapal'}
-                                        className="w-14 h-14 rounded-[12px] object-cover flex-shrink-0 border border-[#DCEAF8] shadow-xs"
-                                    />
+                                <Link
+                                    href={route('requests.detail', req.id)}
+                                    className="block rounded-xl sm:rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]"
+                                >
+                                    <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-xs hover:shadow-md transition-all flex items-center justify-between gap-3 sm:gap-4">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            {/* Document icon in soft blue circle */}
+                                            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-[#E0F0FF] dark:bg-[#132847] text-[#0060F4] dark:text-[#38BDF8] flex items-center justify-center shrink-0 shadow-xs">
+                                                <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                            </div>
 
-                                    <div className="flex-1 min-w-0 space-y-0.5">
-                                        <span className="font-mono text-[11px] font-bold text-[#082870] block">
-                                            {req.request_number}
-                                        </span>
+                                            {/* Text Content */}
+                                            <div className="space-y-0.5 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-mono text-[13px] sm:text-sm font-extrabold text-[#0B1F63] dark:text-white tracking-tight">
+                                                        {req.request_number}
+                                                    </span>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold border ${badgeBg}`}>
+                                                        {badgeLabel}
+                                                    </span>
+                                                </div>
 
-                                        <h3 className="text-sm font-bold text-[#0B1F63] truncate">
-                                            {req.ship?.name || 'Kapal Tidak Diketahui'}
-                                        </h3>
+                                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium truncate">
+                                                    {summaryText}
+                                                </p>
 
-                                        <p className="text-xs text-[#52658E] truncate">
-                                            {req.notes || 'Permintaan layanan kebutuhan kapal'}
-                                        </p>
+                                                <p className="text-[10.5px] text-[#8C9BB9] dark:text-[#64748B]">
+                                                    Diajukan: {formatDateTime(req.created_at)}
+                                                </p>
+                                            </div>
+                                        </div>
 
-                                        <div className="flex items-center justify-between pt-1">
-                                            <StatusBadge status={req.status} label={req.status} showDot size="sm" />
-                                            <span className="text-[11px] text-[#8C9BB9] font-medium">
-                                                {formatDate(req.request_date || req.created_at)}
-                                            </span>
+                                        {/* Right Chevron */}
+                                        <div className="text-[#52658E] dark:text-[#94A3B8] shrink-0 pl-1">
+                                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                            </svg>
                                         </div>
                                     </div>
-
-                                    <div className="text-[#8C9BB9] pl-1 flex-shrink-0">
-                                        <svg className="w-4 h-4 text-[#8C9BB9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </div>
-                                </div>
-                            </Card>
-                        </motion.div>
-                    ))}
+                                </Link>
+                            </motion.div>
+                        );
+                    })}
                 </motion.div>
 
                 {requests.length === 0 && (
-                    <Card className="p-12 text-center">
-                        <div className="text-4xl mb-3">📋</div>
-                        <h4 className="text-base font-bold text-[#0B1F63]">Tidak ada pengajuan ditemukan</h4>
-                        <p className="text-xs text-[#52658E] mt-1">
-                            {activeTab === 'aktif'
-                                ? 'Belum ada pengajuan kebutuhan kapal yang sedang aktif saat ini.'
-                                : 'Belum ada arsip riwayat pengajuan kebutuhan kapal.'}
-                        </p>
-                        <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleOpenWizard()}
-                            className="mt-4"
-                        >
-                            Buat Pengajuan Baru
-                        </Button>
-                    </Card>
+                    <div className="px-4 sm:px-0">
+                        <Card className="p-12 text-center rounded-2xl">
+                            <div className="text-4xl mb-3">📋</div>
+                            <h4 className="text-base font-bold text-[#0B1F63]">
+                                Tidak ada pengajuan ditemukan
+                            </h4>
+                            <p className="text-xs text-[#52658E] mt-1">
+                                {activeTab === 'aktif'
+                                    ? 'Belum ada pengajuan kebutuhan kapal yang sedang aktif saat ini.'
+                                    : 'Belum ada arsip riwayat pengajuan kebutuhan kapal.'}
+                            </p>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => handleOpenWizard()}
+                                className="mt-4"
+                            >
+                                Buat Pengajuan Baru
+                            </Button>
+                        </Card>
+                    </div>
                 )}
             </div>
 
@@ -572,10 +603,25 @@ export default function RequestsIndex({
                 <div className="space-y-4">
                     {/* Status Checkboxes */}
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-[#0B1F63] block">Status Pengajuan</label>
+                        <label className="text-xs font-bold text-[#0B1F63] block">
+                            Status Pengajuan
+                        </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {['Menunggu Approval', 'Disetujui', 'Dalam Proses', 'Pending', 'Selesai'].map((st) => (
-                                <label key={st} className="flex items-center gap-2.5 text-xs text-[#0B1F63] cursor-pointer p-2 rounded-lg hover:bg-[#F0F8FF] border border-transparent hover:border-[#DCEAF8]">
+                            {[
+                                'Menunggu Approval',
+                                'Disetujui',
+                                'Dalam Proses',
+                                'Pending',
+                                'Selesai',
+                            ].map((st) => (
+                                <label
+                                    key={st}
+                                    className={
+                                        'flex items-center gap-2.5 text-xs text-[#0B1F63] ' +
+                                        'cursor-pointer p-2 rounded-lg hover:bg-[#F0F8FF] ' +
+                                        'border border-transparent hover:border-[#DCEAF8]'
+                                    }
+                                >
                                     <input
                                         type="checkbox"
                                         checked={selectedStatuses.includes(st)}
@@ -583,7 +629,9 @@ export default function RequestsIndex({
                                             if (e.target.checked) {
                                                 setSelectedStatuses([...selectedStatuses, st]);
                                             } else {
-                                                setSelectedStatuses(selectedStatuses.filter((s) => s !== st));
+                                                setSelectedStatuses(
+                                                    selectedStatuses.filter((s) => s !== st)
+                                                );
                                             }
                                         }}
                                         className="w-4 h-4 rounded border-[#DCEAF8] text-[#0060F4] focus:ring-[#0060F4]"
@@ -596,7 +644,9 @@ export default function RequestsIndex({
 
                     {/* Date Range */}
                     <div className="space-y-2 pt-2 border-t border-[#DCEAF8]">
-                        <label className="text-xs font-bold text-[#0B1F63] block">Periode Tanggal</label>
+                        <label className="text-xs font-bold text-[#0B1F63] block">
+                            Periode Tanggal
+                        </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <Input
                                 label="Dari Tanggal"
@@ -672,7 +722,7 @@ export default function RequestsIndex({
                                 onClick={handleSubmitWizard}
                                 className="flex-1"
                             >
-                                Ajukan Pengajuan
+                                Ajukan
                             </Button>
                         )}
                     </div>
@@ -693,26 +743,29 @@ export default function RequestsIndex({
                                 <React.Fragment key={item.s}>
                                     <div className="flex flex-col items-center">
                                         <div
-                                            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${isDone
+                                            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                                                isDone
                                                     ? 'bg-[#087443] text-white'
                                                     : isCurrent
-                                                        ? 'bg-[#0060F4] text-white ring-4 ring-[#0060F4]/20'
-                                                        : 'bg-[#EDF2F7] text-[#8C9BB9]'
-                                                }`}
+                                                      ? 'bg-[#0060F4] text-white ring-4 ring-[#0060F4]/20'
+                                                      : 'bg-[#EDF2F7] text-[#8C9BB9]'
+                                            }`}
                                         >
                                             {isDone ? '✓' : item.s}
                                         </div>
                                         <span
-                                            className={`text-[10px] mt-1 font-semibold ${isCurrent ? 'text-[#0060F4]' : 'text-[#8C9BB9]'
-                                                }`}
+                                            className={`text-[10px] mt-1 font-semibold ${
+                                                isCurrent ? 'text-[#0060F4]' : 'text-[#8C9BB9]'
+                                            }`}
                                         >
                                             {item.label}
                                         </span>
                                     </div>
                                     {idx < 3 && (
                                         <div
-                                            className={`flex-1 h-0.5 mx-1.5 transition-all ${step > item.s ? 'bg-[#087443]' : 'bg-[#DCEAF8]'
-                                                }`}
+                                            className={`flex-1 h-0.5 mx-1.5 transition-all ${
+                                                step > item.s ? 'bg-[#087443]' : 'bg-[#DCEAF8]'
+                                            }`}
                                         />
                                     )}
                                 </React.Fragment>
@@ -726,7 +779,8 @@ export default function RequestsIndex({
                             <div>
                                 <h4 className="text-sm font-bold text-[#0B1F63]">Pilih Kapal</h4>
                                 <p className="text-xs text-[#52658E]">
-                                    Tentukan kapal yang membutuhkan perbekalan atau layanan keagenan.
+                                    Tentukan kapal yang membutuhkan perbekalan atau layanan
+                                    keagenan.
                                 </p>
                             </div>
 
@@ -749,28 +803,41 @@ export default function RequestsIndex({
                                                 setData('ship_id', ship.id);
                                                 setStep(2);
                                             }}
-                                            className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${isSelected
+                                            className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                                                isSelected
                                                     ? 'border-[#0060F4] bg-[#E0F0FF]/30 shadow-xs'
                                                     : 'border-[#DCEAF8] hover:border-[#0060F4]/40 hover:bg-[#F0F8FF]/50'
-                                                }`}
+                                            }`}
                                         >
                                             <div className="flex items-center gap-3">
                                                 <img
                                                     src={ship.image || '/images/vessel-sarana.jpg'}
                                                     alt={ship.name}
-                                                    className="w-12 h-10 rounded-lg object-cover flex-shrink-0 border border-[#DCEAF8]"
+                                                    className={
+                                                        'w-12 h-10 rounded-lg object-cover ' +
+                                                        'flex-shrink-0 border border-[#DCEAF8]'
+                                                    }
                                                 />
                                                 <div>
-                                                    <h5 className="text-xs font-bold text-[#0B1F63]">{ship.name}</h5>
+                                                    <h5 className="text-xs font-bold text-[#0B1F63]">
+                                                        {ship.name}
+                                                    </h5>
                                                     <p className="text-[11px] text-[#52658E]">
                                                         IMO {ship.imo_number || '-'}
                                                     </p>
                                                     <div className="mt-0.5">
-                                                        <StatusBadge status={ship.status} label={ship.status} showDot size="sm" />
+                                                        <StatusBadge
+                                                            status={ship.status}
+                                                            label={ship.status}
+                                                            showDot
+                                                            size="sm"
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
-                                            <span className="text-[#8C9BB9] text-base font-bold">&rsaquo;</span>
+                                            <span className="text-[#8C9BB9] text-base font-bold">
+                                                &rsaquo;
+                                            </span>
                                         </motion.div>
                                     );
                                 })}
@@ -782,7 +849,9 @@ export default function RequestsIndex({
                     {step === 2 && (
                         <div className="space-y-3 py-1">
                             <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">Pilih Jenis Kebutuhan</h4>
+                                <h4 className="text-sm font-bold text-[#0B1F63]">
+                                    Pilih Jenis Kebutuhan
+                                </h4>
                                 <p className="text-xs text-[#52658E]">
                                     Pilih salah satu kategori kebutuhan yang diminta.
                                 </p>
@@ -804,15 +873,24 @@ export default function RequestsIndex({
                                             whileHover={{ y: -2 }}
                                             whileTap={{ scale: 0.98 }}
                                             onClick={() => setData('need_type', item.id)}
-                                            className={`p-3.5 rounded-xl border flex flex-col items-center text-center cursor-pointer transition-all ${isSelected
+                                            className={`p-3.5 rounded-xl border flex flex-col items-center text-center cursor-pointer transition-all ${
+                                                isSelected
                                                     ? 'border-[#0060F4] bg-[#E0F0FF]/40 ring-2 ring-[#0060F4]/30'
                                                     : 'border-[#DCEAF8] hover:border-[#0060F4]/30 hover:bg-[#F0F8FF]'
-                                                }`}
+                                            }`}
                                         >
-                                            <div className="w-10 h-10 rounded-full bg-[#E0F0FF] text-[#0060F4] flex items-center justify-center text-xl mb-2">
+                                            <div
+                                                className={
+                                                    'w-10 h-10 rounded-full bg-[#E0F0FF] ' +
+                                                    'text-[#0060F4] flex items-center ' +
+                                                    'justify-center text-xl mb-2'
+                                                }
+                                            >
                                                 {item.icon}
                                             </div>
-                                            <h5 className="text-xs font-bold text-[#0B1F63]">{item.label}</h5>
+                                            <h5 className="text-xs font-bold text-[#0B1F63]">
+                                                {item.label}
+                                            </h5>
                                             <p className="text-[10px] text-[#52658E] mt-1 leading-snug line-clamp-2">
                                                 {item.desc}
                                             </p>
@@ -827,7 +905,9 @@ export default function RequestsIndex({
                     {step === 3 && (
                         <div className="space-y-3 py-1">
                             <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">Detail Kebutuhan</h4>
+                                <h4 className="text-sm font-bold text-[#0B1F63]">
+                                    Detail Kebutuhan
+                                </h4>
                                 <p className="text-xs text-[#52658E]">
                                     Lengkapi informasi kuantitas, jadwal, dan catatan kebutuhan.
                                 </p>
@@ -839,7 +919,10 @@ export default function RequestsIndex({
                                     value={data.need_type}
                                     onChange={(e) => setData('need_type', e.target.value)}
                                     sizeVariant="sm"
-                                    options={NEED_TYPES.map((nt) => ({ value: nt.id, label: nt.label }))}
+                                    options={NEED_TYPES.map((nt) => ({
+                                        value: nt.id,
+                                        label: nt.label,
+                                    }))}
                                 />
 
                                 <div className="grid grid-cols-2 gap-3">
@@ -848,7 +931,9 @@ export default function RequestsIndex({
                                         type="number"
                                         min="1"
                                         value={data.quantity}
-                                        onChange={(e) => setData('quantity', Number(e.target.value))}
+                                        onChange={(e) =>
+                                            setData('quantity', Number(e.target.value))
+                                        }
                                         sizeVariant="sm"
                                         required
                                     />
@@ -885,9 +970,11 @@ export default function RequestsIndex({
                     {step === 4 && (
                         <div className="space-y-3 py-1">
                             <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">Ringkasan Pengajuan</h4>
+                                <h4 className="text-sm font-bold text-[#0B1F63]">
+                                    Ringkasan Pengajuan
+                                </h4>
                                 <p className="text-xs text-[#52658E]">
-                                    Cek kembali data sebelum diajukan ke admin operasional (Bu Titik).
+                                    Cek kembali data sebelum diajukan.
                                 </p>
                             </div>
 
@@ -896,16 +983,26 @@ export default function RequestsIndex({
                                     <img
                                         src={selectedShip?.image || '/images/vessel-sarana.jpg'}
                                         alt={selectedShip?.name || 'Kapal'}
-                                        className="w-14 h-12 rounded-xl object-cover flex-shrink-0 border border-[#DCEAF8]"
+                                        className={
+                                            'w-14 h-12 rounded-xl object-cover flex-shrink-0 ' +
+                                            'border border-[#DCEAF8]'
+                                        }
                                     />
                                     <div>
-                                        <h5 className="text-xs font-bold text-[#0B1F63]">{selectedShip?.name}</h5>
+                                        <h5 className="text-xs font-bold text-[#0B1F63]">
+                                            {selectedShip?.name}
+                                        </h5>
                                         <p className="text-[11px] text-[#52658E]">
                                             IMO {selectedShip?.imo_number || '-'}
                                         </p>
                                         {selectedShip?.status && (
                                             <div className="mt-0.5">
-                                                <StatusBadge status={selectedShip.status} label={selectedShip.status} showDot size="sm" />
+                                                <StatusBadge
+                                                    status={selectedShip.status}
+                                                    label={selectedShip.status}
+                                                    showDot
+                                                    size="sm"
+                                                />
                                             </div>
                                         )}
                                     </div>
@@ -914,19 +1011,32 @@ export default function RequestsIndex({
                                 <div className="space-y-2 text-xs">
                                     <div className="flex justify-between">
                                         <span className="text-[#52658E]">Jenis Kebutuhan:</span>
-                                        <span className="font-bold text-[#0B1F63]">{data.need_type}</span>
+                                        <span className="font-bold text-[#0B1F63]">
+                                            {data.need_type}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-[#52658E]">Jumlah:</span>
-                                        <span className="font-bold text-[#0B1F63]">{data.quantity} {data.unit}</span>
+                                        <span className="font-bold text-[#0B1F63]">
+                                            {data.quantity} {data.unit}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-[#52658E]">Dibutuhkan Pada:</span>
-                                        <span className="font-bold text-[#0B1F63]">{data.required_at}</span>
+                                        <span className="font-bold text-[#0B1F63]">
+                                            {data.required_at}
+                                        </span>
                                     </div>
                                     <div className="pt-2 border-t border-[#DCEAF8]">
-                                        <span className="text-[#52658E] block mb-0.5">Keterangan:</span>
-                                        <p className="text-xs font-medium text-[#0B1F63] bg-white p-2 rounded-lg border border-[#DCEAF8]">
+                                        <span className="text-[#52658E] block mb-0.5">
+                                            Keterangan:
+                                        </span>
+                                        <p
+                                            className={
+                                                'text-xs font-medium text-[#0B1F63] bg-white p-2 ' +
+                                                'rounded-lg border border-[#DCEAF8]'
+                                            }
+                                        >
                                             {data.notes || '-'}
                                         </p>
                                     </div>
@@ -959,7 +1069,10 @@ export default function RequestsIndex({
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                            className="w-16 h-16 rounded-full bg-[#DCF7E8] text-[#087443] flex items-center justify-center text-3xl mx-auto shadow-sm"
+                            className={
+                                'w-16 h-16 rounded-full bg-[#DCF7E8] text-[#087443] flex ' +
+                                'items-center justify-center text-3xl mx-auto shadow-sm'
+                            }
                         >
                             ✈️
                         </motion.div>
@@ -969,13 +1082,23 @@ export default function RequestsIndex({
                                 Pengajuan Berhasil Diajukan!
                             </h3>
                             <p className="text-xs text-[#52658E] mt-1.5 leading-relaxed">
-                                Pengajuan kebutuhan kapal telah berhasil disimpan dan akan segera diproses oleh Bu Titik.
+                                Pengajuan kebutuhan kapal berhasil disimpan dan siap diproses.
                             </p>
                         </div>
 
                         {/* Ticket Card */}
-                        <div className="bg-[#F0F8FF] border border-[#DCEAF8] rounded-xl p-3.5 text-left flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-[#E0F0FF] text-[#0060F4] flex items-center justify-center text-lg">
+                        <div
+                            className={
+                                'bg-[#F0F8FF] border border-[#DCEAF8] rounded-xl p-3.5 text-left ' +
+                                'flex items-center gap-3'
+                            }
+                        >
+                            <div
+                                className={
+                                    'w-10 h-10 rounded-lg bg-[#E0F0FF] text-[#0060F4] flex ' +
+                                    'items-center justify-center text-lg'
+                                }
+                            >
                                 📋
                             </div>
                             <div>
@@ -1026,11 +1149,18 @@ export default function RequestsIndex({
                     detailRequest ? (
                         <div className="flex items-center gap-2">
                             <span>Detail Pengajuan</span>
-                            <span className="font-mono text-xs font-bold text-[#0060F4] bg-[#E0F0FF] px-2 py-0.5 rounded-lg">
+                            <span
+                                className={
+                                    'font-mono text-xs font-bold text-[#0060F4] bg-[#E0F0FF] px-2 ' +
+                                    'py-0.5 rounded-lg'
+                                }
+                            >
                                 {detailRequest.request_number}
                             </span>
                         </div>
-                    ) : 'Detail Pengajuan'
+                    ) : (
+                        'Detail Pengajuan'
+                    )
                 }
                 subtitle="Rincian kebutuhan kapal, logistik, dan riwayat status keagenan"
                 size="lg"
@@ -1046,7 +1176,12 @@ export default function RequestsIndex({
                         {/* Status Badge Row */}
                         <div className="flex items-center justify-between pb-3 border-b border-[#DCEAF8]">
                             <span className="text-xs text-[#52658E]">Status Saat Ini</span>
-                            <StatusBadge status={detailRequest.status} label={detailRequest.status} showDot size="sm" />
+                            <StatusBadge
+                                status={detailRequest.status}
+                                label={detailRequest.status}
+                                showDot
+                                size="sm"
+                            />
                         </div>
 
                         {/* Informasi Kapal */}
@@ -1061,7 +1196,9 @@ export default function RequestsIndex({
                                     className="w-12 h-10 rounded-lg object-cover flex-shrink-0 border border-[#DCEAF8]"
                                 />
                                 <div>
-                                    <h4 className="text-xs font-bold text-[#0B1F63]">{detailRequest.ship?.name}</h4>
+                                    <h4 className="text-xs font-bold text-[#0B1F63]">
+                                        {detailRequest.ship?.name}
+                                    </h4>
                                     <p className="text-[11px] text-[#52658E]">
                                         IMO {detailRequest.ship?.imo_number || '-'}
                                     </p>
@@ -1072,7 +1209,8 @@ export default function RequestsIndex({
                         {/* Detail Kebutuhan & Items List */}
                         <div className="p-3.5 rounded-xl border border-[#DCEAF8] space-y-3">
                             <span className="text-[11px] font-bold text-[#52658E] uppercase tracking-wider block">
-                                Rincian Logistik & Kebutuhan ({detailRequest.items?.length || 0} Item)
+                                Rincian Logistik & Kebutuhan ({detailRequest.items?.length || 0}{' '}
+                                Item)
                             </span>
 
                             {detailRequest.items && detailRequest.items.length > 0 ? (
@@ -1082,24 +1220,42 @@ export default function RequestsIndex({
                                             <tr className="bg-[#0D2945] text-[#E7F0FA]">
                                                 <th className="py-2 px-2.5">ITEM</th>
                                                 <th className="py-2 px-2 text-right">QTY</th>
-                                                <th className="py-2 px-2 text-right">HARGA SATUAN</th>
+                                                <th className="py-2 px-2 text-right">
+                                                    HARGA SATUAN
+                                                </th>
                                                 <th className="py-2 px-2">VENDOR</th>
-                                                <th className="py-2 px-2 text-center">STATUS DIREKTUR</th>
+                                                <th className="py-2 px-2 text-center">
+                                                    STATUS DIREKTUR
+                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-[#DCEAF8]/60">
                                             {detailRequest.items.map((it) => (
                                                 <tr key={it.id} className="hover:bg-[#F0F8FF]/50">
                                                     <td className="py-2 px-2.5">
-                                                        <span className="font-bold text-[#0B1F63]">{it.item_name}</span>
+                                                        <span className="font-bold text-[#0B1F63]">
+                                                            {it.item_name}
+                                                        </span>
                                                         {it.is_urgent && (
-                                                            <span className="ml-1 text-[10px] text-red-600 font-bold">🚨 Urgent</span>
+                                                            <span className="ml-1 text-[10px] text-red-600 font-bold">
+                                                                🚨 Urgent
+                                                            </span>
                                                         )}
                                                     </td>
-                                                    <td className="py-2 px-2 text-right font-mono font-bold text-[#0B1F63]">
+                                                    <td
+                                                        className={
+                                                            'py-2 px-2 text-right font-mono ' +
+                                                            'font-bold text-[#0B1F63]'
+                                                        }
+                                                    >
                                                         {it.quantity} {it.unit}
                                                     </td>
-                                                    <td className="py-2 px-2 text-right font-mono text-[#0060F4] font-semibold">
+                                                    <td
+                                                        className={
+                                                            'py-2 px-2 text-right font-mono ' +
+                                                            'text-[#0060F4] font-semibold'
+                                                        }
+                                                    >
                                                         {formatRupiah(it.selling_price || 0)}
                                                     </td>
                                                     <td className="py-2 px-2 text-[11px] text-[#52658E]">
@@ -1107,15 +1263,33 @@ export default function RequestsIndex({
                                                     </td>
                                                     <td className="py-2 px-2 text-center">
                                                         {it.director_status === 'approved' ? (
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#DCF7E8] text-[#087443]">
+                                                            <span
+                                                                className={
+                                                                    'px-2 py-0.5 rounded-full ' +
+                                                                    'text-[10px] font-bold ' +
+                                                                    'bg-[#DCF7E8] text-[#087443]'
+                                                                }
+                                                            >
                                                                 Disetujui
                                                             </span>
                                                         ) : it.director_status === 'rejected' ? (
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FFE7EC] text-[#C62840]">
+                                                            <span
+                                                                className={
+                                                                    'px-2 py-0.5 rounded-full ' +
+                                                                    'text-[10px] font-bold ' +
+                                                                    'bg-[#FFE7EC] text-[#C62840]'
+                                                                }
+                                                            >
                                                                 Ditolak
                                                             </span>
                                                         ) : (
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FFF0CC] text-[#A65300]">
+                                                            <span
+                                                                className={
+                                                                    'px-2 py-0.5 rounded-full ' +
+                                                                    'text-[10px] font-semibold ' +
+                                                                    'bg-[#FFF0CC] text-[#A65300]'
+                                                                }
+                                                            >
                                                                 Menunggu
                                                             </span>
                                                         )}
@@ -1129,14 +1303,24 @@ export default function RequestsIndex({
                                 <div className="text-xs space-y-1.5">
                                     <div className="flex justify-between">
                                         <span className="text-[#52658E]">Tanggal Pengajuan:</span>
-                                        <span className="font-medium text-[#0B1F63]">{formatDate(detailRequest.request_date || detailRequest.created_at)}</span>
+                                        <span className="font-medium text-[#0B1F63]">
+                                            {formatDate(
+                                                detailRequest.request_date ||
+                                                    detailRequest.created_at
+                                            )}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-[#52658E]">Diajukan Oleh:</span>
-                                        <span className="font-medium text-[#0B1F63]">{detailRequest.creator?.name || 'Pak Prima (Staff Lapangan)'}</span>
+                                        <span className="font-medium text-[#0B1F63]">
+                                            {detailRequest.creator?.name ||
+                                                'Pak Prima (Staff Lapangan)'}
+                                        </span>
                                     </div>
                                     <div className="pt-2 border-t border-[#DCEAF8]">
-                                        <span className="text-[#52658E] block mb-1">Catatan Kebutuhan:</span>
+                                        <span className="text-[#52658E] block mb-1">
+                                            Catatan Kebutuhan:
+                                        </span>
                                         <p className="font-medium text-[#0B1F63] bg-[#F0F8FF]/50 p-2 rounded-lg">
                                             {detailRequest.notes || '-'}
                                         </p>
@@ -1146,136 +1330,215 @@ export default function RequestsIndex({
                         </div>
 
                         {/* Tambah Kebutuhan Susulan Section */}
-                        {detailRequest.status !== 'Selesai' && detailRequest.status !== 'Dibatalkan' && (
-                            <div className="p-3.5 rounded-xl border border-dashed border-[#0060F4]/40 bg-[#F0F8FF]/60 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-sm">➕</span>
-                                        <span className="text-xs font-bold text-[#0B1F63]">
-                                            Tambah Permintaan / Kebutuhan Susulan
-                                        </span>
+                        {detailRequest.status !== 'Selesai' &&
+                            detailRequest.status !== 'Dibatalkan' && (
+                                <div
+                                    className={
+                                        'p-3.5 rounded-xl border border-dashed border-[#0060F4]/40 ' +
+                                        'bg-[#F0F8FF]/60 space-y-3'
+                                    }
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-sm">➕</span>
+                                            <span className="text-xs font-bold text-[#0B1F63]">
+                                                Tambah Permintaan / Kebutuhan Susulan
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAddItemForm(!showAddItemForm)}
+                                            className="text-xs font-bold text-[#0060F4] hover:underline"
+                                        >
+                                            {showAddItemForm ? 'Tutup Form' : '+ Tambah Item'}
+                                        </button>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowAddItemForm(!showAddItemForm)}
-                                        className="text-xs font-bold text-[#0060F4] hover:underline"
-                                    >
-                                        {showAddItemForm ? 'Tutup Form' : '+ Tambah Item'}
-                                    </button>
-                                </div>
 
-                                {showAddItemForm && (
-                                    <form onSubmit={handleAddNewItem} className="space-y-3 pt-2 border-t border-[#DCEAF8]">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            {/* Pilih dari Master Produk atau Ketik */}
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                    Pilih dari Master Produk
-                                                </label>
-                                                <select
-                                                    value={newItemProductId}
-                                                    onChange={(e) => handleProductSelect(e.target.value)}
-                                                    className="w-full text-xs py-1.5 px-2.5 bg-white border border-[#DCEAF8] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0060F4]"
-                                                >
-                                                    <option value="">-- Ketik manual atau pilih produk --</option>
-                                                    {products.map((p) => (
-                                                        <option key={p.id} value={p.id}>
-                                                            {p.name} ({p.item_type === 'jasa' ? 'Jasa' : 'Non-Jasa'} - {formatRupiah(p.selling_price_default)})
+                                    {showAddItemForm && (
+                                        <form
+                                            onSubmit={handleAddNewItem}
+                                            className="space-y-3 pt-2 border-t border-[#DCEAF8]"
+                                        >
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                {/* Pilih dari Master Produk atau Ketik */}
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
+                                                        Pilih dari Master Produk
+                                                    </label>
+                                                    <select
+                                                        value={newItemProductId}
+                                                        onChange={(e) =>
+                                                            handleProductSelect(e.target.value)
+                                                        }
+                                                        className={
+                                                            'w-full text-xs py-1.5 px-2.5 ' +
+                                                            'bg-white border border-[#DCEAF8] ' +
+                                                            'rounded-lg focus:outline-none ' +
+                                                            'focus:ring-1 focus:ring-[#0060F4]'
+                                                        }
+                                                    >
+                                                        <option value="">
+                                                            -- Ketik manual atau pilih produk --
                                                         </option>
-                                                    ))}
-                                                </select>
-                                            </div>
+                                                        {products.map((p) => (
+                                                            <option key={p.id} value={p.id}>
+                                                                {p.name} (
+                                                                {p.item_type === 'jasa'
+                                                                    ? 'Jasa'
+                                                                    : 'Non-Jasa'}{' '}
+                                                                -{' '}
+                                                                {formatRupiah(
+                                                                    p.selling_price_default
+                                                                )}
+                                                                )
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
 
-                                            {/* Nama Item Kebutuhan */}
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                    Nama Item Kebutuhan *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={newItemName}
-                                                    onChange={(e) => setNewItemName(e.target.value)}
-                                                    placeholder="Contoh: Air Tawar, Mooring Boat, Perbekalan..."
-                                                    className="w-full text-xs py-1.5 px-2.5 bg-white border border-[#DCEAF8] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0060F4]"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                    Jumlah *
-                                                </label>
-                                                <input
-                                                    type="number"
-                                                    step="any"
-                                                    min="0.01"
-                                                    required
-                                                    value={newItemQty}
-                                                    onChange={(e) => setNewItemQty(e.target.value)}
-                                                    className="w-full text-xs py-1.5 px-2.5 bg-white border border-[#DCEAF8] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0060F4]"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                    Satuan
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={newItemUnit}
-                                                    onChange={(e) => setNewItemUnit(e.target.value)}
-                                                    className="w-full text-xs py-1.5 px-2.5 bg-white border border-[#DCEAF8] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0060F4]"
-                                                />
-                                            </div>
-                                            <div className="sm:col-span-2 flex items-center pt-5">
-                                                <label className="flex items-center gap-2 text-xs font-semibold text-[#0B1F63] cursor-pointer">
+                                                {/* Nama Item Kebutuhan */}
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
+                                                        Nama Item Kebutuhan *
+                                                    </label>
                                                     <input
-                                                        type="checkbox"
-                                                        checked={newItemUrgent}
-                                                        onChange={(e) => setNewItemUrgent(e.target.checked)}
-                                                        className="rounded text-[#C62840] focus:ring-[#C62840]"
+                                                        type="text"
+                                                        required
+                                                        value={newItemName}
+                                                        onChange={(e) =>
+                                                            setNewItemName(e.target.value)
+                                                        }
+                                                        placeholder="Contoh: Air Tawar, Mooring Boat, Perbekalan..."
+                                                        className={
+                                                            'w-full text-xs py-1.5 px-2.5 ' +
+                                                            'bg-white border border-[#DCEAF8] ' +
+                                                            'rounded-lg focus:outline-none ' +
+                                                            'focus:ring-1 focus:ring-[#0060F4]'
+                                                        }
                                                     />
-                                                    <span className={newItemUrgent ? 'text-[#C62840] font-bold' : ''}>
-                                                        🚨 Tandai Kebutuhan Urgent
-                                                    </span>
-                                                </label>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                Catatan / Spesifikasi
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={newItemNotes}
-                                                onChange={(e) => setNewItemNotes(e.target.value)}
-                                                placeholder="Contoh: Pengantaran jam 16:00 dermaga utara"
-                                                className="w-full text-xs py-1.5 px-2.5 bg-white border border-[#DCEAF8] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0060F4]"
-                                            />
-                                        </div>
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
+                                                        Jumlah *
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        min="0.01"
+                                                        required
+                                                        value={newItemQty}
+                                                        onChange={(e) =>
+                                                            setNewItemQty(e.target.value)
+                                                        }
+                                                        className={
+                                                            'w-full text-xs py-1.5 px-2.5 ' +
+                                                            'bg-white border border-[#DCEAF8] ' +
+                                                            'rounded-lg focus:outline-none ' +
+                                                            'focus:ring-1 focus:ring-[#0060F4]'
+                                                        }
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
+                                                        Satuan
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={newItemUnit}
+                                                        onChange={(e) =>
+                                                            setNewItemUnit(e.target.value)
+                                                        }
+                                                        className={
+                                                            'w-full text-xs py-1.5 px-2.5 ' +
+                                                            'bg-white border border-[#DCEAF8] ' +
+                                                            'rounded-lg focus:outline-none ' +
+                                                            'focus:ring-1 focus:ring-[#0060F4]'
+                                                        }
+                                                    />
+                                                </div>
+                                                <div className="sm:col-span-2 flex items-center pt-5">
+                                                    <label
+                                                        className={
+                                                            'flex items-center gap-2 text-xs ' +
+                                                            'font-semibold text-[#0B1F63] ' +
+                                                            'cursor-pointer'
+                                                        }
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={newItemUrgent}
+                                                            onChange={(e) =>
+                                                                setNewItemUrgent(e.target.checked)
+                                                            }
+                                                            className="rounded text-[#C62840] focus:ring-[#C62840]"
+                                                        />
+                                                        <span
+                                                            className={
+                                                                newItemUrgent
+                                                                    ? 'text-[#C62840] font-bold'
+                                                                    : ''
+                                                            }
+                                                        >
+                                                            🚨 Tandai Kebutuhan Urgent
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                            </div>
 
-                                        <div className="flex justify-end gap-2 pt-1">
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowAddItemForm(false)}
-                                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#52658E] hover:bg-gray-100"
-                                            >
-                                                Batal
-                                            </button>
-                                            <button
-                                                type="submit"
-                                                disabled={submittingItem}
-                                                className="px-4 py-1.5 bg-[#0060F4] hover:bg-[#082870] text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
-                                            >
-                                                {submittingItem ? 'Menyimpan...' : 'Simpan Kebutuhan Susulan'}
-                                            </button>
-                                        </div>
-                                    </form>
-                                )}
-                            </div>
-                        )}
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-[#52658E] mb-1">
+                                                    Catatan / Spesifikasi
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={newItemNotes}
+                                                    onChange={(e) =>
+                                                        setNewItemNotes(e.target.value)
+                                                    }
+                                                    placeholder="Contoh: Pengantaran jam 16:00 dermaga utara"
+                                                    className={
+                                                        'w-full text-xs py-1.5 px-2.5 bg-white ' +
+                                                        'border border-[#DCEAF8] rounded-lg ' +
+                                                        'focus:outline-none focus:ring-1 ' +
+                                                        'focus:ring-[#0060F4]'
+                                                    }
+                                                />
+                                            </div>
+
+                                            <div className="flex justify-end gap-2 pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAddItemForm(false)}
+                                                    className={
+                                                        'px-3 py-1.5 rounded-lg text-xs ' +
+                                                        'font-semibold text-[#52658E] ' +
+                                                        'hover:bg-gray-100'
+                                                    }
+                                                >
+                                                    Batal
+                                                </button>
+                                                <button
+                                                    type="submit"
+                                                    disabled={submittingItem}
+                                                    className={
+                                                        'px-4 py-1.5 bg-[#0060F4] ' +
+                                                        'hover:bg-[#082870] text-white ' +
+                                                        'rounded-lg text-xs font-bold ' +
+                                                        'transition-colors disabled:opacity-50'
+                                                    }
+                                                >
+                                                    {submittingItem
+                                                        ? 'Menyimpan...'
+                                                        : 'Simpan Kebutuhan Susulan'}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    )}
+                                </div>
+                            )}
 
                         {/* Invoices Generated (if any) */}
                         {detailRequest.invoices && detailRequest.invoices.length > 0 && (
@@ -1285,11 +1548,26 @@ export default function RequestsIndex({
                                 </span>
                                 <div className="space-y-1.5">
                                     {detailRequest.invoices.map((inv) => (
-                                        <div key={inv.id} className="flex items-center justify-between text-xs p-2 bg-white rounded-lg border border-[#DCEAF8]">
+                                        <div
+                                            key={inv.id}
+                                            className={
+                                                'flex items-center justify-between text-xs p-2 ' +
+                                                'bg-white rounded-lg border border-[#DCEAF8]'
+                                            }
+                                        >
                                             <div>
-                                                <span className="font-mono font-bold text-[#0060F4]">{inv.invoice_number}</span>
-                                                <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#F0F8FF] text-[#52658E]">
-                                                    {inv.invoice_type === 'agency' ? 'Keagenan / Jasa' : 'Reimburse'}
+                                                <span className="font-mono font-bold text-[#0060F4]">
+                                                    {inv.invoice_number}
+                                                </span>
+                                                <span
+                                                    className={
+                                                        'ml-2 px-2 py-0.5 rounded text-[10px] ' +
+                                                        'font-semibold bg-[#F0F8FF] text-[#52658E]'
+                                                    }
+                                                >
+                                                    {inv.invoice_type === 'agency'
+                                                        ? 'Keagenan / Jasa'
+                                                        : 'Reimburse'}
                                                 </span>
                                             </div>
                                             <span className="font-mono font-bold text-[#0B1F63]">
@@ -1301,53 +1579,75 @@ export default function RequestsIndex({
                             </div>
                         )}
 
-                        {/* Admin Action Buttons (Bu Titik Workflow) */}
+                        {/* Admin action buttons */}
                         <div className="p-3.5 rounded-xl border border-[#DCEAF8] bg-[#F0F8FF]/60 space-y-2">
                             <span className="text-[11px] font-bold text-[#0B1F63] uppercase tracking-wider block">
-                                Aksi Operasional & Keuangan (Bu Titik - Admin)
+                                Aksi Operasional & Keuangan
                             </span>
                             <div className="flex flex-wrap items-center gap-2 pt-1">
-                                {detailRequest.items && detailRequest.items.length > 0 && detailRequest.status !== 'Disetujui' && detailRequest.status !== 'Selesai' && (
-                                    <Button
-                                        size="sm"
-                                        variant="primary"
-                                        className="bg-[#0060F4] hover:bg-[#082870] text-white text-xs font-bold"
-                                        onClick={() => {
-                                            const itemIds = detailRequest.items?.map((it) => it.id) || [];
-                                            router.post(`/requests/${detailRequest.id}/forward-director`, {
-                                                selected_items: itemIds,
-                                                admin_notes: 'Diteruskan oleh Bu Titik setelah penyesuaian harga Master Produk',
-                                            }, {
-                                                onSuccess: () => setDetailRequest(null),
-                                            });
-                                        }}
-                                    >
-                                        📤 Kirim ke Direktur untuk Approval
-                                    </Button>
-                                )}
+                                {detailRequest.items &&
+                                    detailRequest.items.length > 0 &&
+                                    detailRequest.status !== 'Disetujui' &&
+                                    detailRequest.status !== 'Selesai' && (
+                                        <Button
+                                            size="sm"
+                                            variant="primary"
+                                            className="bg-[#0060F4] hover:bg-[#082870] text-white text-xs font-bold"
+                                            onClick={() => {
+                                                const itemIds =
+                                                    detailRequest.items?.map((it) => it.id) || [];
+                                                router.post(
+                                                    `/requests/${detailRequest.id}/forward-director`,
+                                                    {
+                                                        selected_items: itemIds,
+                                                        admin_notes:
+                                                            'Harga Master Produk telah disesuaikan dan pengajuan dilanjutkan.',
+                                                    },
+                                                    {
+                                                        onSuccess: () => setDetailRequest(null),
+                                                    }
+                                                );
+                                            }}
+                                        >
+                                            Ajukan
+                                        </Button>
+                                    )}
 
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="bg-white text-[#0B1F63] border-[#DCEAF8] hover:bg-[#F0F8FF] text-xs font-bold"
+                                    className={
+                                        'bg-white text-[#0B1F63] border-[#DCEAF8] ' +
+                                        'hover:bg-[#F0F8FF] text-xs font-bold'
+                                    }
                                     onClick={() => {
-                                        router.post(`/requests/${detailRequest.id}/create-clearance-in-invoice`, {}, {
-                                            onSuccess: () => setDetailRequest(null),
-                                        });
+                                        router.post(
+                                            `/requests/${detailRequest.id}/create-clearance-in-invoice`,
+                                            {},
+                                            {
+                                                onSuccess: () => setDetailRequest(null),
+                                            }
+                                        );
                                     }}
                                 >
                                     ⚡ Shortcut Invoice Clearance In (Awal)
                                 </Button>
 
-                                {detailRequest.items?.some((it) => it.director_status === 'approved' && !it.is_invoiced) && (
+                                {detailRequest.items?.some(
+                                    (it) => it.director_status === 'approved' && !it.is_invoiced
+                                ) && (
                                     <Button
                                         size="sm"
                                         variant="primary"
                                         className="bg-[#087443] hover:bg-[#065A34] text-white text-xs font-bold"
                                         onClick={() => {
-                                            router.post(`/requests/${detailRequest.id}/split-invoices`, {}, {
-                                                onSuccess: () => setDetailRequest(null),
-                                            });
+                                            router.post(
+                                                `/requests/${detailRequest.id}/split-invoices`,
+                                                {},
+                                                {
+                                                    onSuccess: () => setDetailRequest(null),
+                                                }
+                                            );
                                         }}
                                     >
                                         📄 Pecah Invoice (Jasa & Reimburse)
@@ -1363,15 +1663,36 @@ export default function RequestsIndex({
                             </span>
                             <div className="relative pl-6 space-y-4 border-l-2 border-[#DCEAF8] ml-2">
                                 <div className="relative">
-                                    <span className="absolute -left-[31px] top-0.5 w-3 h-3 rounded-full bg-[#0060F4] ring-4 ring-white" />
-                                    <p className="text-xs font-bold text-[#0B1F63]">Pengajuan dibuat</p>
-                                    <p className="text-[10px] text-[#8C9BB9]">{formatDateTime(detailRequest.created_at || detailRequest.request_date)} • Oleh {detailRequest.creator?.name || 'Pak Prima'}</p>
+                                    <span
+                                        className={
+                                            'absolute -left-[31px] top-0.5 w-3 h-3 rounded-full ' +
+                                            'bg-[#0060F4] ring-4 ring-white'
+                                        }
+                                    />
+                                    <p className="text-xs font-bold text-[#0B1F63]">
+                                        Pengajuan dibuat
+                                    </p>
+                                    <p className="text-[10px] text-[#8C9BB9]">
+                                        {formatDateTime(
+                                            detailRequest.created_at || detailRequest.request_date
+                                        )}{' '}
+                                        • Oleh {detailRequest.creator?.name || 'Pak Prima'}
+                                    </p>
                                 </div>
 
                                 <div className="relative">
-                                    <span className="absolute -left-[31px] top-0.5 w-3 h-3 rounded-full bg-[#A65300] ring-4 ring-white" />
-                                    <p className="text-xs font-bold text-[#0B1F63]">Status Saat Ini: {detailRequest.status}</p>
-                                    <p className="text-[10px] text-[#8C9BB9]">Terhubung ke sistem keagenan PT Samudra Jaya Andalas</p>
+                                    <span
+                                        className={
+                                            'absolute -left-[31px] top-0.5 w-3 h-3 rounded-full ' +
+                                            'bg-[#A65300] ring-4 ring-white'
+                                        }
+                                    />
+                                    <p className="text-xs font-bold text-[#0B1F63]">
+                                        Status Saat Ini: {detailRequest.status}
+                                    </p>
+                                    <p className="text-[10px] text-[#8C9BB9]">
+                                        Terhubung ke sistem keagenan PT Samudra Jaya Andalas
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -1397,7 +1718,11 @@ export default function RequestsIndex({
                                 alert(`Edit pengajuan ${actionSheetRequest.request_number}`);
                                 setActionSheetRequest(null);
                             }}
-                            className="w-full p-2.5 rounded-xl hover:bg-[#F0F8FF] text-left text-xs font-medium text-[#0B1F63] flex items-center gap-2.5 cursor-pointer"
+                            className={
+                                'w-full p-2.5 rounded-xl hover:bg-[#F0F8FF] text-left text-xs ' +
+                                'font-medium text-[#0B1F63] flex items-center gap-2.5 ' +
+                                'cursor-pointer'
+                            }
                         >
                             <span>✏️</span>
                             <span>Edit Pengajuan</span>
@@ -1409,7 +1734,11 @@ export default function RequestsIndex({
                                 alert(`Membatalkan pengajuan ${actionSheetRequest.request_number}`);
                                 setActionSheetRequest(null);
                             }}
-                            className="w-full p-2.5 rounded-xl hover:bg-[#FFE7EC] text-left text-xs font-medium text-[#C62840] flex items-center gap-2.5 cursor-pointer"
+                            className={
+                                'w-full p-2.5 rounded-xl hover:bg-[#FFE7EC] text-left text-xs ' +
+                                'font-medium text-[#C62840] flex items-center gap-2.5 ' +
+                                'cursor-pointer'
+                            }
                         >
                             <span>❌</span>
                             <span>Batalkan Pengajuan</span>
@@ -1421,7 +1750,11 @@ export default function RequestsIndex({
                                 handleOpenWizard(actionSheetRequest.ship_id);
                                 setActionSheetRequest(null);
                             }}
-                            className="w-full p-2.5 rounded-xl hover:bg-[#F0F8FF] text-left text-xs font-medium text-[#0060F4] flex items-center gap-2.5 cursor-pointer"
+                            className={
+                                'w-full p-2.5 rounded-xl hover:bg-[#F0F8FF] text-left text-xs ' +
+                                'font-medium text-[#0060F4] flex items-center gap-2.5 ' +
+                                'cursor-pointer'
+                            }
                         >
                             <span>📑</span>
                             <span>Duplikasi Pengajuan</span>
