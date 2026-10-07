@@ -12,7 +12,7 @@ class StoreFundingWorkflowRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->hasAnyRole(['Owner', 'Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']) ?? false;
+        return $this->user()?->hasAnyRole(['Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']) ?? false;
     }
 
     /**
@@ -26,8 +26,8 @@ class StoreFundingWorkflowRequest extends FormRequest
             'port_call_id' => ['required', 'uuid', 'exists:port_calls,id'],
             'source_type' => ['required', 'in:operational'],
             'document_date' => ['required', 'date'],
-            'description' => ['required', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:1', 'max:9999999999999.99'],
+            'request_item_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'request_item_ids.*' => ['required', 'distinct:strict', 'uuid', 'exists:request_items,id'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'document' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ];

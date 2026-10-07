@@ -11,7 +11,7 @@ class StoreCompletionNoteRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isOperationalAdmin() || $this->user()?->isOwner();
+        return $this->user()?->isOperationalAdmin() ?? false;
     }
 
     /**
@@ -27,7 +27,7 @@ class StoreCompletionNoteRequest extends FormRequest
             'issued_at' => ['required', 'date'],
             'downloaded_at' => ['nullable', 'date', 'after_or_equal:issued_at'],
             'actual_amount' => ['required', 'numeric', 'min:0', 'max:9999999999999.99'],
-            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'document' => ['required', 'file', 'mimes:doc,docx,pdf,jpg,jpeg,png', 'extensions:doc,docx,pdf,jpg,jpeg,png', 'max:10240'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

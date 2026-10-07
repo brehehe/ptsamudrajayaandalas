@@ -1,4 +1,4 @@
-import React, { forwardRef, InputHTMLAttributes, ReactNode } from 'react';
+import React, { forwardRef, InputHTMLAttributes, ReactNode, useId } from 'react';
 import { CircleAlert } from 'lucide-react';
 
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
@@ -32,14 +32,15 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         },
         ref
     ) => {
-        const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+        const generatedId = useId();
+        const inputId = id || `input-${generatedId}`;
         const helperId = inputId ? `${inputId}-helper` : undefined;
         const errorId = inputId ? `${inputId}-error` : undefined;
 
         const sizeStyles = {
             sm: 'h-9 text-xs px-3 rounded-lg',
-            md: 'h-11 sm:h-12 text-xs sm:text-sm px-3.5 rounded-xl',
-            lg: 'h-13 text-sm sm:text-base px-4 rounded-xl',
+            md: 'h-11 text-sm px-3 rounded-xl',
+            lg: 'h-12 text-sm sm:text-base px-4 rounded-xl',
         };
 
         const hasValue = value !== undefined && value !== null && String(value).length > 0;
@@ -62,7 +63,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                     {leftIcon && (
                         <div
                             className={
-                                'absolute left-3.5 flex items-center pointer-events-none ' +
+                                'absolute left-3 flex items-center pointer-events-none ' +
                                 'text-[#52658E] dark:text-[#94A3B8]'
                             }
                         >
@@ -133,7 +134,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                     {rightIcon && (!clearable || !hasValue) && (
                         <div
                             className={
-                                'absolute right-3.5 flex items-center pointer-events-none ' +
+                                'absolute right-3 flex items-center pointer-events-none ' +
                                 'text-[#52658E] dark:text-[#94A3B8]'
                             }
                         >

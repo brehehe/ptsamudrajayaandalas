@@ -13,7 +13,7 @@ class ReviewExpenseRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->hasAnyRole(['Owner', 'Admin', 'Admin Sistem', 'Direktur']) ?? false;
+        return $this->user()?->hasAnyRole(['Admin', 'Admin Sistem', 'Direktur']) ?? false;
     }
 
     /**

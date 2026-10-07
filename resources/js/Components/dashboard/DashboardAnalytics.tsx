@@ -1,5 +1,6 @@
 import { Link } from '@inertiajs/react';
 import { ArrowRight, BarChart3, CircleGauge, Workflow } from 'lucide-react';
+import Table, { type Column } from '../tables/Table';
 
 export type ChartFormat = 'number' | 'currency' | 'percentage';
 
@@ -130,6 +131,14 @@ function DonutChart({ chart }: { chart: DonutChartData }) {
 function BarChart({ chart }: { chart: BarChartData }) {
     const allValues = chart.points.flatMap((point) => chart.series.map((series) => Number(point.values[series.key] ?? 0)));
     const maximum = Math.max(...allValues, 1);
+    const detailColumns: Column<BarChartData['points'][number]>[] = [
+        { key: 'label', header: 'Periode', render: (point) => <span className="font-bold">{point.label}</span> },
+        ...chart.series.map((series): Column<BarChartData['points'][number]> => ({
+            key: series.key,
+            header: series.label,
+            render: (point) => <span className="font-semibold tabular-nums">{formatValue(Number(point.values[series.key] ?? 0), chart.format)}</span>,
+        })),
+    ];
 
     return (
         <div className="pt-4">
@@ -187,28 +196,14 @@ function BarChart({ chart }: { chart: BarChartData }) {
                 <summary className="cursor-pointer rounded-xl px-3 py-2 font-bold text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#60A5FA]">
                     Lihat angka lengkap
                 </summary>
-                <div className="overflow-x-auto border-t border-[#E5EEF7] dark:border-[#1E3A5F]">
-                    <table className="w-full min-w-[430px] text-left">
-                        <thead className="bg-[#F4F8FC] text-[#52658E] dark:bg-[#10243E] dark:text-[#9FB0C6]">
-                            <tr>
-                                <th className="px-2.5 py-2 font-bold">Periode</th>
-                                {chart.series.map((series) => <th key={series.key} className="px-2.5 py-2 font-bold">{series.label}</th>)}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#EAF1F8] text-[#0B1F63] dark:divide-[#1E3A5F] dark:text-white">
-                            {chart.points.map((point) => (
-                                <tr key={point.label}>
-                                    <th className="whitespace-nowrap px-2.5 py-2 font-bold">{point.label}</th>
-                                    {chart.series.map((series) => (
-                                        <td key={series.key} className="whitespace-nowrap px-2.5 py-2 font-semibold tabular-nums">
-                                            {formatValue(Number(point.values[series.key] ?? 0), chart.format)}
-                                        </td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                <Table
+                    className="mt-1 rounded-none border-x-0 border-b-0 shadow-none"
+                    columns={detailColumns}
+                    data={chart.points}
+                    keyExtractor={(point) => point.label}
+                    compact
+                    minWidth="430px"
+                />
             </details>
         </div>
     );

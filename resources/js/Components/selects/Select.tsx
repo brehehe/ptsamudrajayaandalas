@@ -1,4 +1,4 @@
-import React, { forwardRef, SelectHTMLAttributes } from 'react';
+import React, { forwardRef, SelectHTMLAttributes, useId } from 'react';
 import { CircleAlert } from 'lucide-react';
 
 export interface SelectOption {
@@ -34,14 +34,15 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
         },
         ref
     ) => {
-        const selectId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+        const generatedId = useId();
+        const selectId = id || `select-${generatedId}`;
         const helperId = selectId ? `${selectId}-helper` : undefined;
         const errorId = selectId ? `${selectId}-error` : undefined;
 
         const sizeStyles = {
             sm: 'h-9 text-xs pl-3 pr-8 rounded-lg',
-            md: 'h-11 sm:h-12 text-xs sm:text-sm pl-3.5 pr-10 rounded-xl',
-            lg: 'h-13 text-sm sm:text-base pl-4 pr-11 rounded-xl',
+            md: 'h-11 text-sm pl-3 pr-9 rounded-xl',
+            lg: 'h-12 text-sm sm:text-base pl-4 pr-10 rounded-xl',
         };
 
         return (
@@ -109,7 +110,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
                         ))}
                     </select>
 
-                    <div className="absolute right-3.5 pointer-events-none text-[#52658E] dark:text-[#94A3B8]">
+                    <div className="absolute right-3 pointer-events-none text-[#52658E] dark:text-[#94A3B8]">
                         <svg
                             className="w-4 h-4"
                             fill="none"

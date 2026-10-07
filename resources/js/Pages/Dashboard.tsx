@@ -53,6 +53,8 @@ export default function Dashboard({
             title="Dashboard"
             pendingRequestsCount={pendingRequestsCount}
             pendingApprovalsCount={pendingApprovalsCount}
+            transparentMobileHeader
+            noPaddingMobile
         >
             <Head title={`${role_dashboard.eyebrow} Dashboard — PT Samudra Jaya Andalas`} />
 

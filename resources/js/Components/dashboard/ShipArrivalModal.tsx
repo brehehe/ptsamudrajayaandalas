@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useForm } from '@inertiajs/react';
 import Modal from '../overlays/Modal';
 import Button from '../ui/Button';
+import FormErrorSummary from '../forms/FormErrorSummary';
 
 interface Port {
     id: string;
@@ -56,7 +57,7 @@ export default function ShipArrivalModal({
     tomorrow.setHours(8, 0, 0, 0);
     const defaultEtaStr = tomorrow.toISOString().slice(0, 16);
 
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
         ship_selection_type: 'existing' as 'existing' | 'new',
         ship_id: '',
         name: '',
@@ -152,7 +153,7 @@ export default function ShipArrivalModal({
     return (
         <Modal
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={() => { clearErrors(); onClose(); }}
             title={
                 <div className="flex items-center gap-2.5">
                     <div
@@ -188,7 +189,8 @@ export default function ShipArrivalModal({
             }
             size="2xl"
         >
-            <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+            <form noValidate onSubmit={handleSubmit} className="space-y-4 pt-2">
+                <FormErrorSummary errors={errors} />
                 {/* 1. MASTER PERUSAHAAN */}
                 <div
                     className={
@@ -223,6 +225,8 @@ export default function ShipArrivalModal({
                     {!isNewCompany ? (
                         <div>
                             <select
+                                required
+                                name="ship_company_id"
                                 value={data.ship_company_id}
                                 onChange={(e) => setData('ship_company_id', e.target.value)}
                                 className={
@@ -252,6 +256,8 @@ export default function ShipArrivalModal({
                                     Nama Perusahaan *
                                 </label>
                                 <input
+                                    required
+                                    name="new_company_name"
                                     type="text"
                                     value={data.new_company_name}
                                     onChange={(e) => setData('new_company_name', e.target.value)}
@@ -322,6 +328,8 @@ export default function ShipArrivalModal({
                     {!isNewShip ? (
                         <div>
                             <select
+                                required
+                                name="ship_id"
                                 value={data.ship_id}
                                 onChange={(e) => handleShipSelect(e.target.value)}
                                 className={
@@ -350,6 +358,8 @@ export default function ShipArrivalModal({
                                     Nama Kapal *
                                 </label>
                                 <input
+                                    required
+                                    name="name"
                                     type="text"
                                     value={data.name}
                                     onChange={(e) => setData('name', e.target.value)}
@@ -517,9 +527,10 @@ export default function ShipArrivalModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label className="text-xs font-semibold text-[#0B1F63] dark:text-[#E7F0FA] block mb-1">
-                            Pelabuhan Tujuan (Master Pelabuhan) *
+                            Pelabuhan Tujuan (Master Pelabuhan)
                         </label>
                         <select
+                            name="port_id"
                             value={data.port_id}
                             onChange={(e) => setData('port_id', e.target.value)}
                             className={
@@ -544,6 +555,8 @@ export default function ShipArrivalModal({
                             Tanggal & Waktu Kedatangan (ETA) *
                         </label>
                         <input
+                            required
+                            name="eta"
                             type="datetime-local"
                             value={data.eta}
                             onChange={(e) => setData('eta', e.target.value)}
@@ -588,7 +601,7 @@ export default function ShipArrivalModal({
                 >
                     <button
                         type="button"
-                        onClick={onClose}
+                        onClick={() => { clearErrors(); onClose(); }}
                         className={
                             'px-4 py-2 text-xs font-medium text-[#52658E] dark:text-[#94A3B8] ' +
                             'hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ' +

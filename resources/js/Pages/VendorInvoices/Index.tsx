@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Head, Link, router, useForm } from '@inertiajs/react';
-import { FileCheck2, FileText, Plus, Search } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Head, router, useForm } from '@inertiajs/react';
+import { CircleCheckBig, FileCheck2, Plus, Search } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
@@ -8,8 +8,32 @@ import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import Input from '../../Components/forms/Input';
 import MoneyInput from '../../Components/forms/MoneyInput';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Select from '../../Components/selects/Select';
 import Pagination from '../../Components/pagination/Pagination';
+import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import { ResponsiveTable, type Column } from '../../Components/tables/Table';
+import DocumentActions from '../../Components/ui/DocumentActions';
+import Checkbox from '../../Components/forms/Checkbox';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import Textarea from '../../Components/forms/Textarea';
+import { formatDate } from '../../lib/formatDate';
+
+interface VendorPayment {
+    id: string;
+    payment_date: string;
+    amount: number;
+    recipient: string;
+    reference_number: string;
+    proof_path?: string | null;
+    verification_status: string;
+}
+
+interface PaymentAllocation {
+    id: string;
+    amount: number;
+    payment?: VendorPayment | null;
+}
 
 interface Invoice {
     id: string;
@@ -24,7 +48,7 @@ interface Invoice {
     document_path?: string | null;
     vendor?: { name: string };
     port_call?: { job_number?: string; ship?: { name: string }; port?: { name: string } };
-    items: Array<{ expense_request_item?: { expense_request?: { request_number: string; status: string } } }>;
+    payment_allocations?: PaymentAllocation[];
 }
 
 interface Paginated<T> {
@@ -37,9 +61,25 @@ interface Paginated<T> {
     total: number;
 }
 
+interface AvailableRequestItem {
+    id: string;
+    item_name: string;
+    quantity: number | string;
+    unit?: string | null;
+    hpp_price: number | string;
+    vendor_id?: string | null;
+    vendor?: { id: string; name: string } | null;
+    request?: {
+        request_number: string;
+        port_call_id: string;
+        port_call?: { job_number?: string; ship?: { name: string }; port?: { name: string } };
+    };
+}
+
 interface Props {
     invoices: Paginated<Invoice>;
     portCalls: Array<{ id: string; job_number?: string; ship?: { name: string }; port?: { name: string } }>;
+    availableRequestItems: AvailableRequestItem[];
     vendors: Array<{ id: string; name: string }>;
     filters: { search: string; status: string };
     abilities: { create: boolean; verify: boolean };
@@ -54,17 +94,34 @@ const labels: Record<string, string> = {
     unpaid: 'Belum Dibayar', partially_paid: 'Dibayar Sebagian', paid: 'Dibayar',
 };
 
-export default function VendorInvoiceIndex({ invoices, portCalls, vendors, filters, abilities }: Props) {
+export default function VendorInvoiceIndex({ invoices, portCalls, availableRequestItems, vendors, filters, abilities }: Props) {
     const [search, setSearch] = useState(filters.search);
     const [createOpen, setCreateOpen] = useState(false);
     const [reviewInvoice, setReviewInvoice] = useState<Invoice | null>(null);
+    const [paymentToVerify, setPaymentToVerify] = useState<{ invoice: Invoice; payment: VendorPayment } | null>(null);
     const createForm = useForm({
         port_call_id: '', vendor_id: '', document_number: '',
         document_date: new Date().toISOString().slice(0, 10),
         received_date: new Date().toISOString().slice(0, 10), due_date: '',
-        description: '', amount: '', tax_amount: '0', notes: '', document: null as File | null,
+        request_item_ids: [] as string[], tax_amount: '0', notes: '', document: null as File | null,
     });
     const reviewForm = useForm({ decision: 'verify', verified_total: '', notes: '' });
+    const paymentVerificationForm = useForm({ action: 'verify_usage' });
+    const createErrorRef = useRef<HTMLDivElement>(null);
+    const reviewErrorRef = useRef<HTMLDivElement>(null);
+    const paymentErrorRef = useRef<HTMLDivElement>(null);
+    const selectableItems = useMemo(
+        () => availableRequestItems.filter((item) => item.request?.port_call_id === createForm.data.port_call_id),
+        [availableRequestItems, createForm.data.port_call_id],
+    );
+    const selectedItems = useMemo(
+        () => availableRequestItems.filter((item) => createForm.data.request_item_ids.includes(item.id)),
+        [availableRequestItems, createForm.data.request_item_ids],
+    );
+    const selectedSubtotal = selectedItems.reduce(
+        (total, item) => total + Number(item.hpp_price) * Number(item.quantity),
+        0,
+    );
 
     const applyFilters = (status = filters.status) => router.get('/vendor-invoices', { search, status }, {
         preserveState: true, preserveScroll: true,
@@ -75,7 +132,29 @@ export default function VendorInvoiceIndex({ invoices, portCalls, vendors, filte
         createForm.post('/vendor-invoices', {
             forceFormData: true,
             onSuccess: () => { setCreateOpen(false); createForm.reset(); },
+            onError: () => {
+                window.requestAnimationFrame(() => createErrorRef.current?.focus());
+            },
         });
+    };
+
+    const selectPortCall = (portCallId: string) => {
+        createForm.setData((data) => ({ ...data, port_call_id: portCallId, request_item_ids: [] }));
+    };
+
+    const toggleRequestItem = (item: AvailableRequestItem, checked: boolean) => {
+        const itemIds = checked
+            ? [...createForm.data.request_item_ids, item.id]
+            : createForm.data.request_item_ids.filter((id) => id !== item.id);
+        const vendorIds = availableRequestItems
+            .filter((candidate) => itemIds.includes(candidate.id) && candidate.vendor_id)
+            .map((candidate) => candidate.vendor_id as string);
+
+        createForm.setData((data) => ({
+            ...data,
+            request_item_ids: itemIds,
+            vendor_id: new Set(vendorIds).size === 1 ? vendorIds[0] : data.vendor_id,
+        }));
     };
 
     const openReview = (invoice: Invoice) => {
@@ -89,28 +168,83 @@ export default function VendorInvoiceIndex({ invoices, portCalls, vendors, filte
         reviewForm.post(`/vendor-invoices/${reviewInvoice.id}/verify`, {
             preserveScroll: true,
             onSuccess: () => setReviewInvoice(null),
+            onError: () => {
+                window.requestAnimationFrame(() => reviewErrorRef.current?.focus());
+            },
         });
     };
 
+    const submitPaymentVerification = (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!paymentToVerify) return;
+
+        paymentVerificationForm.post(`/funding/payments/${paymentToVerify.payment.id}/transition`, {
+            preserveScroll: true,
+            onSuccess: () => setPaymentToVerify(null),
+            onError: () => {
+                window.requestAnimationFrame(() => paymentErrorRef.current?.focus());
+            },
+        });
+    };
+
+    const openPaymentVerification = (invoice: Invoice, payment: VendorPayment) => {
+        paymentVerificationForm.clearErrors();
+        setPaymentToVerify({ invoice, payment });
+    };
+
+    const pendingPayments = (invoice: Invoice) => (invoice.payment_allocations || [])
+        .map((allocation) => allocation.payment)
+        .filter((payment): payment is VendorPayment => payment?.verification_status === 'pending');
+    const invoiceActions = (invoice: Invoice) => (
+        <div className="flex flex-wrap justify-end gap-1.5">
+            {invoice.document_path && (
+                <DocumentActions
+                    viewHref={`/vendor-invoices/${invoice.id}/document?view=1`}
+                    downloadHref={`/vendor-invoices/${invoice.id}/document`}
+                />
+            )}
+            {abilities.verify && pendingPayments(invoice).length > 0 && (
+                <Button
+                    size="sm"
+                    onClick={() => openPaymentVerification(invoice, pendingPayments(invoice)[0])}
+                    leftIcon={<CircleCheckBig aria-hidden="true" className="size-4" />}
+                >
+                    Verifikasi Bayar{pendingPayments(invoice).length > 1 ? ` (${pendingPayments(invoice).length})` : ''}
+                </Button>
+            )}
+            {abilities.verify && invoice.status === 'received' && <Button size="sm" onClick={() => openReview(invoice)} leftIcon={<FileCheck2 aria-hidden="true" className="size-4" />}>Periksa</Button>}
+        </div>
+    );
+    const columns: Column<Invoice>[] = [
+        { key: 'document_number', header: 'Invoice', wrap: 'normal', render: (invoice) => <div><p className="font-mono font-bold text-[#0060F4]" translate="no">{invoice.document_number}</p><p className="text-[10px] text-[#52658E]">{formatDate(invoice.received_date)}</p></div> },
+        { key: 'vendor', header: 'Vendor', wrap: 'normal', render: (invoice) => invoice.vendor?.name || 'Vendor' },
+        { key: 'port_call', header: 'Job / Kapal', wrap: 'normal', render: (invoice) => <div><p className="break-all" translate="no">{invoice.port_call?.job_number || '—'}</p><p className="text-[10px] text-[#52658E]">{invoice.port_call?.ship?.name || '—'}</p></div> },
+        { key: 'verified_total', header: 'Terverifikasi', align: 'right', render: (invoice) => money(invoice.verified_total) },
+        { key: 'paid_amount', header: 'Dibayar', align: 'right', render: (invoice) => money(invoice.paid_amount) },
+        { key: 'status', header: 'Status', wrap: 'normal', render: (invoice) => <div className="flex flex-col items-start gap-1"><StatusBadge status={invoice.status} label={labels[invoice.status] || invoice.status} showDot /><StatusBadge status={invoice.payment_status === 'paid' ? 'success' : 'waiting'} label={labels[invoice.payment_status] || invoice.payment_status} />{pendingPayments(invoice).length > 0 && <StatusBadge status="processing" label="Menunggu Verifikasi Pembayaran" />}</div> },
+        { key: 'actions', header: 'Aksi', align: 'right', render: invoiceActions },
+    ];
+
     return (
-        <AppLayout title="Invoice Vendor">
+        <AppLayout title="Invoice Vendor" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Invoice Vendor — PT Samudra Jaya Andalas" />
-            <div className="mx-auto max-w-7xl space-y-5 pb-12">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <MobilePageHero title="Invoice Vendor" description="Buat invoice dari item pengajuan, verifikasi, dan pantau pembayarannya." />
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-12 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+                <div className="hidden flex-col gap-3 sm:flex-row sm:items-end sm:justify-between md:flex">
                     <div>
                         <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0060F4]">Keuangan Operasional</p>
                         <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9] sm:text-3xl">Invoice Vendor</h1>
-                        <p className="mt-1 max-w-2xl text-sm text-[#52658E] dark:text-[#94A3B8]">Catat tagihan yang benar-benar diterima, verifikasi, lalu masukkan ke batch pendanaan tanpa mencampur Kunjungan/Job.</p>
+                        <p className="mt-1 max-w-2xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">Buat invoice langsung dari item pengajuan yang disetujui, verifikasi dokumen, lalu proses pembayarannya melalui menu Pengeluaran.</p>
                     </div>
-                    {abilities.create && <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>Catat Invoice</Button>}
+                    {abilities.create && <Button onClick={() => { createForm.clearErrors(); setCreateOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>Buat Invoice dari Pengajuan</Button>}
                 </div>
 
                 <Card padding="md">
                     <form onSubmit={(event) => { event.preventDefault(); applyFilters(); }} className="flex flex-col gap-3 sm:flex-row">
-                        <Input aria-label="Cari invoice vendor" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari nomor invoice, vendor, atau kapal" leftIcon={<Search className="size-4" />} />
-                        <Select aria-label="Filter status invoice" value={filters.status} onChange={(e) => applyFilters(e.target.value)} className="sm:w-56" options={[
+                        <Input aria-label="Cari invoice vendor" name="search" autoComplete="off" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari nomor invoice, vendor, atau kapal…" leftIcon={<Search aria-hidden="true" className="size-4" />} />
+                        <Select aria-label="Filter status invoice" name="status" autoComplete="off" value={filters.status} onChange={(e) => applyFilters(e.target.value)} className="sm:w-56" options={[
                             { value: 'all', label: 'Semua status' }, { value: 'received', label: 'Menunggu verifikasi' },
-                            { value: 'verified', label: 'Terverifikasi' }, { value: 'batched', label: 'Sudah masuk batch' },
+                            { value: 'verified', label: 'Terverifikasi' },
                             { value: 'unpaid', label: 'Belum dibayar' }, { value: 'partially_paid', label: 'Dibayar sebagian' },
                             { value: 'paid', label: 'Dibayar' }, { value: 'rejected', label: 'Ditolak' },
                         ]} />
@@ -118,70 +252,180 @@ export default function VendorInvoiceIndex({ invoices, portCalls, vendors, filte
                     </form>
                 </Card>
 
-                {invoices.data.length === 0 ? (
-                    <Card padding="lg" className="text-center">
-                        <FileText className="mx-auto size-9 text-[#8C9BB9]" />
-                        <h2 className="mt-3 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Belum ada invoice vendor</h2>
-                        <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">Invoice yang diterima dari vendor akan tampil di sini.</p>
-                    </Card>
-                ) : (
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        {invoices.data.map((invoice) => {
-                            const batch = invoice.items.find((item) => item.expense_request_item)?.expense_request_item?.expense_request;
-                            return <Card key={invoice.id} padding="md" className="min-w-0">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <p className="truncate font-mono text-sm font-bold text-[#0060F4]">{invoice.document_number}</p>
-                                        <h2 className="mt-1 text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">{invoice.vendor?.name || 'Vendor'}</h2>
-                                        <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">{invoice.port_call?.job_number || 'Tanpa nomor job'} · {invoice.port_call?.ship?.name || 'Kapal'}</p>
-                                    </div>
-                                    <div className="flex flex-wrap justify-end gap-1.5">
-                                        <StatusBadge status={invoice.status} label={labels[invoice.status] || invoice.status} showDot />
-                                        <StatusBadge status={invoice.payment_status === 'paid' ? 'success' : 'waiting'} label={labels[invoice.payment_status] || invoice.payment_status} />
-                                    </div>
-                                </div>
-                                <dl className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-[#F0F8FF]/70 p-3 dark:bg-[#071322]/60">
-                                    <div><dt className="text-[11px] text-[#52658E]">Nilai terverifikasi</dt><dd className="mt-0.5 font-mono text-sm font-bold">{money(invoice.verified_total)}</dd></div>
-                                    <div><dt className="text-[11px] text-[#52658E]">Sudah dibayar</dt><dd className="mt-0.5 font-mono text-sm font-bold">{money(invoice.paid_amount)}</dd></div>
-                                    <div><dt className="text-[11px] text-[#52658E]">Tanggal diterima</dt><dd className="mt-0.5 text-sm font-semibold">{new Date(invoice.received_date).toLocaleDateString('id-ID')}</dd></div>
-                                    <div><dt className="text-[11px] text-[#52658E]">Batch</dt><dd className="mt-0.5 truncate text-sm font-semibold">{batch?.request_number || 'Belum masuk batch'}</dd></div>
-                                </dl>
-                                <div className="mt-4 flex flex-wrap justify-end gap-2">
-                                    {invoice.document_path && <Link href={`/vendor-invoices/${invoice.id}/document`} className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] px-3 text-xs font-semibold text-[#0B1F63] hover:border-[#0060F4] dark:border-[#1E3A5F] dark:text-[#F1F5F9]"><FileText className="size-4" /> Dokumen</Link>}
-                                    {abilities.verify && invoice.status === 'received' && <Button size="sm" onClick={() => openReview(invoice)} leftIcon={<FileCheck2 className="size-4" />}>Periksa</Button>}
-                                </div>
-                            </Card>;
-                        })}
-                    </div>
-                )}
+                {abilities.create && <Button className="w-full md:hidden" onClick={() => { createForm.clearErrors(); setCreateOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>Buat Invoice dari Pengajuan</Button>}
+
+                <ResponsiveTable<Invoice>
+                    data={invoices.data}
+                    keyExtractor={(invoice) => invoice.id}
+                    desktop={{ columns, compact: true, minWidth: '1040px' }}
+                    mobile={{
+                        titleRender: (invoice) => invoice.document_number,
+                        subtitleRender: (invoice) => `${invoice.vendor?.name || 'Vendor'} · ${invoice.port_call?.ship?.name || 'Kapal'}`,
+                        statusRender: (invoice) => <div className="flex flex-col items-end gap-1"><StatusBadge status={invoice.status} label={labels[invoice.status] || invoice.status} showDot /><StatusBadge status={invoice.payment_status === 'paid' ? 'success' : 'waiting'} label={labels[invoice.payment_status] || invoice.payment_status} />{pendingPayments(invoice).length > 0 && <StatusBadge status="processing" label="Menunggu Verifikasi Bayar" />}</div>,
+                        fields: [
+                            { label: 'Job', render: (invoice) => invoice.port_call?.job_number || '—' },
+                            { label: 'Tanggal diterima', render: (invoice) => formatDate(invoice.received_date) },
+                            { label: 'Terverifikasi', render: (invoice) => money(invoice.verified_total) },
+                            { label: 'Dibayar', render: (invoice) => money(invoice.paid_amount) },
+                        ],
+                        actionsRender: invoiceActions,
+                    }}
+                />
                 <Pagination links={invoices.links} currentPage={invoices.current_page} lastPage={invoices.last_page} total={invoices.total} from={invoices.from ?? undefined} to={invoices.to ?? undefined} />
             </div>
 
-            <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Catat Invoice Vendor" subtitle="Vendor wajib dipilih setelah invoice benar-benar diterima." size="xl">
-                <form onSubmit={submitCreate} className="space-y-4 p-5">
+            <Modal
+                isOpen={createOpen}
+                onClose={() => {
+                    if (!createForm.processing) {
+                        createForm.clearErrors();
+                        setCreateOpen(false);
+                    }
+                }}
+                title="Buat Invoice Vendor dari Pengajuan"
+                subtitle="Pilih Job dan item pengajuan yang sudah disetujui, lalu lengkapi dokumen invoice vendor."
+                size="xl"
+                footer={(
+                    <>
+                        <Button type="button" variant="secondary" disabled={createForm.processing} onClick={() => { createForm.clearErrors(); setCreateOpen(false); }}>Batal</Button>
+                        <Button type="submit" form="vendor-invoice-create-form" disabled={createForm.data.request_item_ids.length === 0} isLoading={createForm.processing}>Simpan Invoice</Button>
+                    </>
+                )}
+            >
+                <form id="vendor-invoice-create-form" noValidate onSubmit={submitCreate} className="space-y-4">
+                    <FormErrorSummary ref={createErrorRef} errors={createForm.errors} />
                     <div className="grid gap-4 sm:grid-cols-2">
-                        <Select required label="Kunjungan / Job" value={createForm.data.port_call_id} onChange={(e) => createForm.setData('port_call_id', e.target.value)} placeholder="Pilih job" options={portCalls.map((call) => ({ value: call.id, label: `${call.job_number || '-'} · ${call.ship?.name || '-'}` }))} error={createForm.errors.port_call_id} />
-                        <Select required label="Vendor" value={createForm.data.vendor_id} onChange={(e) => createForm.setData('vendor_id', e.target.value)} placeholder="Pilih vendor" options={vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }))} error={createForm.errors.vendor_id} />
-                        <Input required label="Nomor invoice" value={createForm.data.document_number} onChange={(e) => createForm.setData('document_number', e.target.value)} error={createForm.errors.document_number} />
-                        <Input required label="Tanggal invoice" type="date" value={createForm.data.document_date} onChange={(e) => createForm.setData('document_date', e.target.value)} error={createForm.errors.document_date} />
-                        <Input required label="Tanggal diterima" type="date" value={createForm.data.received_date} onChange={(e) => createForm.setData('received_date', e.target.value)} error={createForm.errors.received_date} />
-                        <Input label="Jatuh tempo" type="date" value={createForm.data.due_date} onChange={(e) => createForm.setData('due_date', e.target.value)} error={createForm.errors.due_date} />
-                        <MoneyInput required label="Nilai barang/jasa" value={createForm.data.amount} onChange={(value) => createForm.setData('amount', value)} error={createForm.errors.amount} />
-                        <MoneyInput label="Pajak" value={createForm.data.tax_amount} onChange={(value) => createForm.setData('tax_amount', value)} error={createForm.errors.tax_amount} />
-                        <Input required label="Uraian" value={createForm.data.description} onChange={(e) => createForm.setData('description', e.target.value)} error={createForm.errors.description} />
-                        <Input required label="Dokumen invoice" type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => createForm.setData('document', e.target.files?.[0] || null)} error={createForm.errors.document} />
+                        <Select required name="port_call_id" autoComplete="off" label="Kunjungan / Job" value={createForm.data.port_call_id} onChange={(e) => selectPortCall(e.target.value)} placeholder="Pilih job" options={portCalls.map((call) => ({ value: call.id, label: `${call.job_number || '-'} · ${call.ship?.name || '-'}` }))} error={createForm.errors.port_call_id} />
+                        <Select required name="vendor_id" autoComplete="off" label="Vendor" value={createForm.data.vendor_id} onChange={(e) => createForm.setData('vendor_id', e.target.value)} placeholder="Pilih vendor" options={vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }))} error={createForm.errors.vendor_id} />
+                        <Input required name="document_number" autoComplete="off" label="Nomor invoice" value={createForm.data.document_number} onChange={(e) => createForm.setData('document_number', e.target.value)} error={createForm.errors.document_number} />
+                        <Input required name="document_date" autoComplete="off" label="Tanggal invoice" type="date" value={createForm.data.document_date} onChange={(e) => createForm.setData('document_date', e.target.value)} error={createForm.errors.document_date} />
+                        <Input required name="received_date" autoComplete="off" label="Tanggal diterima" type="date" value={createForm.data.received_date} onChange={(e) => createForm.setData('received_date', e.target.value)} error={createForm.errors.received_date} />
+                        <Input name="due_date" autoComplete="off" label="Jatuh tempo" type="date" value={createForm.data.due_date} onChange={(e) => createForm.setData('due_date', e.target.value)} error={createForm.errors.due_date} />
+                        <MoneyInput name="tax_amount" autoComplete="off" label="Pajak" value={createForm.data.tax_amount} onChange={(value) => createForm.setData('tax_amount', value)} error={createForm.errors.tax_amount} />
+                        <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                            <p className="text-[11px] text-[#52658E]">Subtotal dari pengajuan</p>
+                            <p className="mt-0.5 text-sm font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{money(selectedSubtotal)}</p>
+                        </div>
+                        <fieldset className="sm:col-span-2">
+                            <legend className="mb-2 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Item pengajuan yang ditagihkan</legend>
+                            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-[#DCEAF8] p-2 dark:border-[#1E3A5F]">
+                                {!createForm.data.port_call_id ? (
+                                    <p className="p-3 text-sm text-[#52658E]">Pilih Kunjungan/Job untuk melihat item yang sudah disetujui.</p>
+                                ) : selectableItems.length === 0 ? (
+                                    <p className="p-3 text-sm text-[#52658E]">Tidak ada item tersedia. Item mungkin belum disetujui atau sudah dipakai.</p>
+                                ) : selectableItems.map((item) => (
+                                    <div key={item.id} className="rounded-lg border border-[#E0F0FF] p-3 dark:border-[#1E3A5F]">
+                                        <Checkbox
+                                            checked={createForm.data.request_item_ids.includes(item.id)}
+                                            onChange={(event) => toggleRequestItem(item, event.target.checked)}
+                                            label={`${item.item_name} · ${item.quantity} ${item.unit || 'Paket'}`}
+                                            description={`${item.request?.request_number || 'Pengajuan'} · ${money(Number(item.hpp_price) * Number(item.quantity))}`}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                            {createForm.errors.request_item_ids && <p role="alert" className="mt-1.5 text-xs font-semibold text-[#C62840]">{createForm.errors.request_item_ids}</p>}
+                        </fieldset>
+                        <div className="sm:col-span-2">
+                            <PhotoUploadPicker
+                                label="Dokumen invoice"
+                                required
+                                value={createForm.data.document}
+                                onChange={(file) => createForm.setData('document', file)}
+                                mode="gallery"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                maxSizeMb={10}
+                                variant="compact"
+                                error={createForm.errors.document}
+                                helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB. File dapat dilihat sebelum disimpan."
+                            />
+                        </div>
                     </div>
-                    <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Catatan<textarea value={createForm.data.notes} onChange={(e) => createForm.setData('notes', e.target.value)} className="mt-1.5 min-h-24 w-full rounded-xl border border-[#DCEAF8] bg-white p-3 text-sm font-normal dark:border-[#1E3A5F] dark:bg-[#0C1D36]" /></label>
-                    <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>Batal</Button><Button type="submit" isLoading={createForm.processing}>Simpan Invoice</Button></div>
+                    <Textarea name="notes" autoComplete="off" label="Catatan" value={createForm.data.notes} onChange={(e) => createForm.setData('notes', e.target.value)} error={createForm.errors.notes} maxLength={2000} showCharCount />
                 </form>
             </Modal>
 
-            <Modal isOpen={Boolean(reviewInvoice)} onClose={() => setReviewInvoice(null)} title="Verifikasi Invoice Vendor" subtitle={reviewInvoice ? `${reviewInvoice.document_number} · ${reviewInvoice.vendor?.name || 'Vendor'}` : undefined}>
-                <form onSubmit={submitReview} className="space-y-4 p-5">
-                    <Select label="Keputusan" value={reviewForm.data.decision} onChange={(e) => reviewForm.setData('decision', e.target.value)} options={[{ value: 'verify', label: 'Valid — siap masuk batch' }, { value: 'reject', label: 'Tolak invoice' }]} />
-                    {reviewForm.data.decision === 'verify' && <MoneyInput required label="Nilai terverifikasi" value={reviewForm.data.verified_total} onChange={(value) => reviewForm.setData('verified_total', value)} error={reviewForm.errors.verified_total} />}
-                    <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Catatan / alasan<textarea required={reviewForm.data.decision === 'reject'} value={reviewForm.data.notes} onChange={(e) => reviewForm.setData('notes', e.target.value)} className="mt-1.5 min-h-24 w-full rounded-xl border border-[#DCEAF8] bg-white p-3 text-sm font-normal dark:border-[#1E3A5F] dark:bg-[#0C1D36]" /></label>
-                    <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setReviewInvoice(null)}>Batal</Button><Button type="submit" variant={reviewForm.data.decision === 'reject' ? 'danger' : 'primary'} isLoading={reviewForm.processing}>Simpan Keputusan</Button></div>
+            <Modal
+                isOpen={Boolean(reviewInvoice)}
+                onClose={() => {
+                    if (!reviewForm.processing) {
+                        reviewForm.clearErrors();
+                        setReviewInvoice(null);
+                    }
+                }}
+                title="Verifikasi Invoice Vendor"
+                subtitle={reviewInvoice ? `${reviewInvoice.document_number} · ${reviewInvoice.vendor?.name || 'Vendor'}` : undefined}
+                footer={(
+                    <>
+                        <Button type="button" variant="secondary" disabled={reviewForm.processing} onClick={() => { reviewForm.clearErrors(); setReviewInvoice(null); }}>Batal</Button>
+                        <Button
+                            type="submit"
+                            form="vendor-invoice-review-form"
+                            variant={reviewForm.data.decision === 'reject' ? 'danger' : 'primary'}
+                            isLoading={reviewForm.processing}
+                        >
+                            Simpan Keputusan
+                        </Button>
+                    </>
+                )}
+            >
+                <form id="vendor-invoice-review-form" noValidate onSubmit={submitReview} className="space-y-4">
+                    <FormErrorSummary ref={reviewErrorRef} errors={reviewForm.errors} />
+                    <Select name="decision" autoComplete="off" label="Keputusan" value={reviewForm.data.decision} onChange={(e) => reviewForm.setData('decision', e.target.value)} error={reviewForm.errors.decision} options={[{ value: 'verify', label: 'Valid — siap dibayar' }, { value: 'reject', label: 'Tolak invoice' }]} />
+                    {reviewForm.data.decision === 'verify' && <MoneyInput required name="verified_total" autoComplete="off" label="Nilai terverifikasi" value={reviewForm.data.verified_total} onChange={(value) => reviewForm.setData('verified_total', value)} error={reviewForm.errors.verified_total} />}
+                    <Textarea name="notes" autoComplete="off" label="Catatan / alasan" required={reviewForm.data.decision === 'reject'} value={reviewForm.data.notes} onChange={(e) => reviewForm.setData('notes', e.target.value)} error={reviewForm.errors.notes} maxLength={2000} showCharCount />
+                </form>
+            </Modal>
+
+            <Modal
+                isOpen={Boolean(paymentToVerify)}
+                onClose={() => {
+                    if (!paymentVerificationForm.processing) {
+                        paymentVerificationForm.clearErrors();
+                        setPaymentToVerify(null);
+                    }
+                }}
+                title="Verifikasi Pembayaran Vendor"
+                subtitle={paymentToVerify ? `${paymentToVerify.invoice.document_number} · ${paymentToVerify.invoice.vendor?.name || 'Vendor'}` : undefined}
+                size="md"
+                footer={(
+                    <>
+                        <Button type="button" variant="secondary" disabled={paymentVerificationForm.processing} onClick={() => { paymentVerificationForm.clearErrors(); setPaymentToVerify(null); }}>Batal</Button>
+                        <Button type="submit" form="vendor-payment-verification-form" isLoading={paymentVerificationForm.processing}>Verifikasi & Perbarui Status</Button>
+                    </>
+                )}
+            >
+                <form id="vendor-payment-verification-form" noValidate onSubmit={submitPaymentVerification} className="space-y-4">
+                    <FormErrorSummary ref={paymentErrorRef} errors={paymentVerificationForm.errors} />
+                    {paymentToVerify && (
+                        <div className="rounded-2xl border border-[#B9E8D0] bg-[#F0FCF6] p-4 dark:border-emerald-900 dark:bg-emerald-950/25">
+                            <div className="flex items-start gap-3">
+                                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#DCF7E8] text-[#087443] dark:bg-emerald-900/60 dark:text-emerald-300">
+                                    <CircleCheckBig aria-hidden="true" className="size-5" />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-xs text-[#52658E]">Nominal pembayaran</p>
+                                    <p className="mt-1 text-lg font-extrabold tabular-nums text-[#087443] dark:text-emerald-300">{money(paymentToVerify.payment.amount)}</p>
+                                    <dl className="mt-3 space-y-2 text-xs">
+                                        <div className="flex items-start justify-between gap-3"><dt className="text-[#52658E]">Penerima</dt><dd className="text-right font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{paymentToVerify.payment.recipient}</dd></div>
+                                        <div className="flex items-start justify-between gap-3"><dt className="text-[#52658E]">Referensi</dt><dd className="break-all text-right font-semibold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">{paymentToVerify.payment.reference_number}</dd></div>
+                                        <div className="flex items-start justify-between gap-3"><dt className="text-[#52658E]">Tanggal</dt><dd className="text-right font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(paymentToVerify.payment.payment_date)}</dd></div>
+                                    </dl>
+                                    {paymentToVerify.payment.proof_path && (
+                                        <DocumentActions
+                                            className="mt-3"
+                                            viewHref={`/funding/documents/payment/${paymentToVerify.payment.id}?view=1`}
+                                            downloadHref={`/funding/documents/payment/${paymentToVerify.payment.id}`}
+                                            viewLabel="Lihat bukti pembayaran"
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <p className="text-xs leading-relaxed text-[#52658E] dark:text-[#94A3B8]">
+                        Setelah diverifikasi, nominal ini otomatis dihitung ke invoice. Status menjadi Dibayar bila lunas, atau Dibayar Sebagian bila masih ada sisa.
+                    </p>
                 </form>
             </Modal>
         </AppLayout>

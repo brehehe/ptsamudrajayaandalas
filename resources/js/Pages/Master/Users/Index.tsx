@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
+import { Clock3, Mail, Pencil, Search, Trash2, UserRoundPlus, UsersRound } from 'lucide-react';
 import AppLayout from '../../../Layouts/AppLayout';
-import Card from '../../../Components/ui/Card';
+import ConfirmDialog from '../../../Components/overlays/ConfirmDialog';
+import Input from '../../../Components/forms/Input';
+import Modal from '../../../Components/overlays/Modal';
+import Select from '../../../Components/selects/Select';
+import Table, { type Column } from '../../../Components/tables/Table';
+import TableMobile from '../../../Components/tables/TableMobile';
 import Button from '../../../Components/ui/Button';
 import StatusBadge from '../../../Components/ui/StatusBadge';
-import Modal from '../../../Components/overlays/Modal';
+import { formatDateTime } from '../../../lib/formatDate';
+import MobilePageHero from '../../../Components/navigation/MobilePageHero';
+import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
 
 interface UserItem {
     id: number;
@@ -14,474 +22,351 @@ interface UserItem {
     job_title?: string | null;
     is_active?: boolean;
     account_status?: string;
-    activated_at?: string | null;
     last_login_at?: string | null;
-    roles?: Array<{
-        id: number;
-        name: string;
-    }>;
+    roles?: Array<{ id: number; name: string }>;
 }
 
 interface MasterUsersIndexProps {
     users: UserItem[];
     roles: string[];
     search: string;
+    can_manage: boolean;
+}
+
+const roleName = (user: UserItem): string => user.roles?.[0]?.name ?? 'Tanpa Peran';
+
+function AccountStatus({ user }: { user: UserItem }) {
+    if (user.is_active === false) {
+        return <StatusBadge status="inactive" label="Dinonaktifkan" size="sm" />;
+    }
+
+    if (user.account_status === 'pending_activation') {
+        return <StatusBadge status="waiting" label="Belum Aktif" size="sm" />;
+    }
+
+    return <StatusBadge status="success" label="Aktif" size="sm" />;
 }
 
 export default function MasterUsersIndex({
     users,
     roles,
     search: initialSearch,
+    can_manage: canManage,
 }: MasterUsersIndexProps) {
     const [search, setSearch] = useState(initialSearch);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+    const [userToDelete, setUserToDelete] = useState<UserItem | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const defaultRole = roles.includes('Lapangan') ? 'Lapangan' : (roles[0] ?? '');
 
-    const { data, setData, post, put, processing, reset, errors } = useForm({
+    const { data, setData, post, put, processing, reset, errors, clearErrors } = useForm({
         name: '',
         email: '',
         password: '',
-        role: roles[0] || 'Tim Lapangan',
+        role: defaultRole,
         phone: '',
         job_title: '',
         is_active: true,
     });
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        router.get('/master/users', { search }, { preserveState: true });
+    const resetUserForm = () => {
+        clearErrors();
+        reset();
+        setData('role', defaultRole);
     };
 
-    const handleCreateSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+    const openCreateModal = () => {
+        resetUserForm();
+        setIsCreateModalOpen(true);
+    };
+
+    const openEditModal = (user: UserItem) => {
+        clearErrors();
+        setEditingUser(user);
+        setData({
+            name: user.name,
+            email: user.email,
+            password: '',
+            role: roleName(user) === 'Tanpa Peran' ? defaultRole : roleName(user),
+            phone: user.phone ?? '',
+            job_title: user.job_title ?? '',
+            is_active: user.is_active !== false,
+        });
+    };
+
+    const submitSearch = (event: React.FormEvent) => {
+        event.preventDefault();
+        router.get('/master/users', { search }, { preserveState: true, replace: true });
+    };
+
+    const submitCreate = (event: React.FormEvent) => {
+        event.preventDefault();
         post('/master/users', {
+            preserveScroll: true,
             onSuccess: () => {
                 setIsCreateModalOpen(false);
-                reset();
+                resetUserForm();
             },
         });
     };
 
-    const handleEditSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!editingUser) return;
+    const submitEdit = (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!editingUser) {
+            return;
+        }
+
         put(`/master/users/${editingUser.id}`, {
+            preserveScroll: true,
             onSuccess: () => {
                 setEditingUser(null);
-                reset();
+                resetUserForm();
             },
         });
     };
 
-    const handleDelete = (user: UserItem) => {
-        if (confirm(`Apakah Anda yakin ingin menghapus pengguna ${user.name}?`)) {
-            router.delete(`/master/users/${user.id}`);
+    const deleteUser = () => {
+        if (!userToDelete) {
+            return;
         }
+
+        setIsDeleting(true);
+        router.delete(`/master/users/${userToDelete.id}`, {
+            preserveScroll: true,
+            onSuccess: () => setUserToDelete(null),
+            onFinish: () => setIsDeleting(false),
+        });
     };
 
-    return (
-        <AppLayout title="Manajemen Pengguna & Peran Akses">
-            <Head title="Manajemen User - PT Samudra Jaya Andalas" />
+    const actionButtons = (user: UserItem) => (
+        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+            <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => openEditModal(user)}
+                leftIcon={<Pencil aria-hidden="true" className="size-3.5" />}
+                aria-label={`Edit ${user.name}`}
+            >
+                Edit
+            </Button>
+            <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setUserToDelete(user)}
+                className="text-[#C62840] hover:bg-[#FFE7EC] hover:text-[#C62840]"
+                leftIcon={<Trash2 aria-hidden="true" className="size-3.5" />}
+                aria-label={`Hapus ${user.name}`}
+            >
+                Hapus
+            </Button>
+        </div>
+    );
 
-            <div className="space-y-4 max-w-7xl mx-auto pb-10">
-                {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
-                <div
-                    className={
-                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
-                        'border-b border-[#DCEAF8]'
-                    }
-                >
-                    <div
-                        className={
-                            'flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border ' +
-                            'border-[#DCEAF8] self-start'
-                        }
-                    >
-                        <div
-                            className={
-                                'px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex ' +
-                                'items-center gap-2 bg-[#0060F4] text-white shadow-sm'
-                            }
-                        >
-                            <span>👥</span>
-                            <span>Manajemen Pengguna</span>
-                            <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-white/20 text-white">
-                                {users.length}
+    const columns = useMemo<Column<UserItem>[]>(
+        () => [
+            {
+                key: 'name',
+                header: 'Pengguna',
+                width: '28%',
+                render: (user) => (
+                    <div className="flex min-w-[190px] items-center gap-2.5">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#E0F0FF] text-xs font-bold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                            {user.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block break-words font-bold text-[#082870] dark:text-white">
+                                {user.name}
                             </span>
-                        </div>
+                            <span className="block text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                {user.job_title || 'Belum ada jabatan'}
+                            </span>
+                        </span>
                     </div>
+                ),
+            },
+            {
+                key: 'email',
+                header: 'Email',
+                width: '25%',
+                wrap: 'nowrap',
+                render: (user) => user.email,
+            },
+            {
+                key: 'role',
+                header: 'Peran',
+                align: 'center',
+                render: (user) => <StatusBadge status="success" label={roleName(user)} size="sm" />,
+            },
+            {
+                key: 'status',
+                header: 'Status',
+                align: 'center',
+                render: (user) => <AccountStatus user={user} />,
+            },
+            {
+                key: 'last_login_at',
+                header: 'Login Terakhir',
+                wrap: 'nowrap',
+                render: (user) => (
+                    <span className="tabular-nums text-[#52658E] dark:text-[#94A3B8]">
+                        {formatDateTime(user.last_login_at, 'Belum pernah')}
+                    </span>
+                ),
+            },
+            ...(canManage
+                ? [{
+                    key: 'actions',
+                    header: 'Aksi',
+                    align: 'right' as const,
+                    render: actionButtons,
+                }]
+                : []),
+        ],
+        [canManage],
+    );
 
-                    <button
-                        type="button"
-                        onClick={() => {
-                            reset();
-                            setIsCreateModalOpen(true);
-                        }}
-                        className={
-                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
-                            'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
-                            'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
-                            'flex-shrink-0 cursor-pointer self-start sm:self-auto'
-                        }
-                    >
-                        <span className="text-base leading-none font-bold">+</span>
-                        <span>Tambah Pengguna Baru</span>
-                    </button>
-                </div>
+    const userForm = (onSubmit: (event: React.FormEvent) => void, isEditing = false) => (
+        <form noValidate onSubmit={onSubmit} className="space-y-3.5">
+            <FormErrorSummary errors={errors} />
+            <Input
+                required
+                name="name"
+                label="Nama lengkap"
+                autoComplete="name"
+                value={data.name}
+                onChange={(event) => setData('name', event.target.value)}
+                error={errors.name}
+                placeholder="Contoh: Prima Saputra…"
+            />
+            <Input
+                required
+                type="email"
+                name="email"
+                label="Email"
+                autoComplete="email"
+                spellCheck={false}
+                value={data.email}
+                onChange={(event) => setData('email', event.target.value)}
+                error={errors.email}
+                placeholder="nama@samudrajaya.co.id…"
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+                <Input type="tel" name="phone" label="Nomor telepon" autoComplete="tel" value={data.phone} onChange={(event) => setData('phone', event.target.value)} error={errors.phone} />
+                <Input name="job_title" label="Jabatan" autoComplete="organization-title" value={data.job_title} onChange={(event) => setData('job_title', event.target.value)} error={errors.job_title} />
+            </div>
+            {isEditing && (
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-[#DCEAF8] px-3 dark:border-[#1E3A5F]">
+                    <input type="checkbox" checked={data.is_active} onChange={(event) => setData('is_active', event.target.checked)} className="size-4 rounded border-[#DCEAF8] text-[#0060F4] focus-visible:ring-[#0060F4]" />
+                    <span className="font-semibold text-[#082870] dark:text-white">Akun aktif</span>
+                </label>
+            )}
+            <Input
+                required={!isEditing}
+                type="password"
+                name="password"
+                label={isEditing ? 'Kata sandi baru' : 'Kata sandi'}
+                helperText={isEditing ? 'Kosongkan jika tidak diubah.' : 'Minimal 8 karakter.'}
+                autoComplete="new-password"
+                value={data.password}
+                onChange={(event) => setData('password', event.target.value)}
+                error={errors.password}
+                placeholder="Minimal 8 karakter…"
+            />
+            <Select
+                required
+                name="role"
+                label="Peran akses"
+                value={data.role}
+                options={roles.map((role) => ({ value: role, label: role }))}
+                helperText="Pilih peran sesuai tanggung jawab pengguna."
+                error={errors.role}
+            />
+            <div className="flex justify-end gap-2 border-t border-[#DCEAF8] pt-3 dark:border-[#1E3A5F]">
+                <Button type="button" variant="secondary" onClick={() => {
+                    clearErrors();
+                    if (isEditing) {
+                        setEditingUser(null);
+                    } else {
+                        setIsCreateModalOpen(false);
+                    }
+                }}>
+                    Batal
+                </Button>
+                <Button type="submit" variant="primary" isLoading={processing}>
+                    {isEditing ? 'Perbarui' : 'Simpan'}
+                </Button>
+            </div>
+        </form>
+    );
 
-                {/* ── Title Header ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    return (
+        <AppLayout title="Manajemen Pengguna" transparentMobileHeader noPaddingMobile mobileBackground="surface">
+            <Head title="Manajemen Pengguna - PT Samudra Jaya Andalas" />
+
+            <MobilePageHero title="Manajemen Pengguna" description="Kelola akun dan peran akses pengguna SJA." />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+                <header className="hidden flex-col gap-3 border-b border-[#DCEAF8] pb-4 sm:flex-row sm:items-end sm:justify-between md:flex dark:border-[#1E3A5F]">
                     <div>
-                        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
-                            Manajemen Pengguna & Hak Akses
-                        </h1>
-                        <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                            Pengaturan akun staf PT Samudra Jaya Andalas berdasarkan peran
-                            (Role-Based Access Control)
-                        </p>
+                        <h1 className="text-balance text-2xl font-extrabold text-[#0B1F63] sm:text-3xl dark:text-white">Manajemen Pengguna</h1>
+                        <p className="mt-1 text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">Kelola seluruh akun dan peran akses pengguna SJA.</p>
                     </div>
-                </div>
+                    {canManage && (
+                        <Button type="button" onClick={openCreateModal} leftIcon={<UserRoundPlus aria-hidden="true" className="size-4" />} className="self-start sm:self-auto">
+                            Tambah Pengguna
+                        </Button>
+                    )}
+                </header>
 
-                {/* ── Search Bar ── */}
-                <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                    <div
-                        className={
-                            'absolute inset-y-0 left-0 pl-3.5 flex items-center ' +
-                            'pointer-events-none text-[#8C9BB9]'
-                        }
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            viewBox="0 0 24 24"
-                        >
-                            <circle cx="11" cy="11" r="8" />
-                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                        </svg>
-                    </div>
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari nama atau email staf pengguna..."
-                        className={
-                            'w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] ' +
-                            'rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs ' +
-                            'focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 ' +
-                            'focus:border-[#0060F4]'
-                        }
-                    />
-                    <button
-                        type="submit"
-                        className={
-                            'absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] ' +
-                            'hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg ' +
-                            'transition-colors cursor-pointer'
-                        }
-                    >
-                        Cari
-                    </button>
+                {canManage && <Button className="w-full md:hidden" type="button" onClick={openCreateModal} leftIcon={<UserRoundPlus aria-hidden="true" className="size-4" />}>Tambah Pengguna</Button>}
+
+                <form onSubmit={submitSearch} className="flex items-end gap-2 rounded-2xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                    <Input name="search" label="Cari pengguna" autoComplete="off" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama atau email…" leftIcon={<Search aria-hidden="true" className="size-4" />} />
+                    <Button type="submit" variant="secondary">Cari</Button>
                 </form>
 
-                {/* Users Table */}
-                <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
-                            <thead>
-                                <tr
-                                    className={
-                                        'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
-                                        'font-semibold uppercase tracking-wider'
-                                    }
-                                >
-                                    <th className="py-3 px-4">Nama Pengguna</th>
-                                    <th className="py-3 px-4">Alamat Email</th>
-                                    <th className="py-3 px-4">Peran (Spatie Role)</th>
-                                    <th className="py-3 px-4">Status Akun</th>
-                                    <th className="py-3 px-4">Terakhir Login</th>
-                                    <th className="py-3 px-4 text-right">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                {users.map((u) => {
-                                    const roleName =
-                                        u.roles && u.roles.length > 0
-                                            ? u.roles[0].name
-                                            : 'Tanpa Peran';
-                                    return (
-                                        <tr
-                                            key={u.id}
-                                            className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                        >
-                                            <td
-                                                className={
-                                                    'py-3.5 px-4 font-semibold text-[#082870] flex ' +
-                                                    'items-center gap-2.5'
-                                                }
-                                            >
-                                                <div
-                                                    className={
-                                                        'w-8 h-8 rounded-full bg-[#E0F0FF] ' +
-                                                        'text-[#0060F4] font-bold flex ' +
-                                                        'items-center justify-center text-xs'
-                                                    }
-                                                >
-                                                    {u.name[0]}
-                                                </div>
-                                                <div>
-                                                    <div>{u.name}</div>
-                                                    <div className="text-[10px] text-[#52658E] font-normal">
-                                                        ID #{u.id}
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="py-3.5 px-4 text-neutral-800">
-                                                {u.email}
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <span
-                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${
-                                                        roleName === 'Owner'
-                                                            ? 'bg-[#A65300]/10 text-[#A65300] border border-[#A65300]/25'
-                                                            : roleName === 'Direktur'
-                                                              ? 'bg-[#6840BB]/10 text-[#6840BB] border border-[#6840BB]/25'
-                                                              : roleName === 'Lapangan'
-                                                                ? 'bg-[#087443]/10 text-[#087443] border border-[#087443]/25'
-                                                                : 'bg-[#0060F4]/10 text-[#0060F4] border border-[#0060F4]/25'
-                                                    }`}
-                                                >
-                                                    {roleName}
-                                                </span>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <StatusBadge status={u.is_active === false ? 'Nonaktif' : u.account_status === 'pending_activation' ? 'waiting' : 'Aktif'} label={u.is_active === false ? 'Dinonaktifkan' : u.account_status === 'pending_activation' ? 'Belum Aktif' : 'Aktif'} />
-                                            </td>
-                                            <td className="py-3.5 px-4 text-[#52658E]">{u.last_login_at ? new Date(u.last_login_at).toLocaleString('id-ID') : 'Belum pernah'}</td>
-                                            <td className="py-3.5 px-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        onClick={() => {
-                                                            setEditingUser(u);
-                                                            setData({
-                                                                name: u.name,
-                                                                email: u.email,
-                                                                password: '',
-                                                                role: roleName,
-                                                                phone: u.phone || '',
-                                                                job_title: u.job_title || '',
-                                                                is_active: u.is_active !== false,
-                                                            });
-                                                        }}
-                                                        className={
-                                                            'text-[#0060F4] hover:underline ' +
-                                                            'font-semibold text-[11px]'
-                                                        }
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDelete(u)}
-                                                        className="text-rose-600 hover:underline text-[11px]"
-                                                    >
-                                                        Hapus
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
+                <div className="hidden md:block">
+                    <Table columns={columns} data={users} keyExtractor={(user) => user.id} compact minWidth="800px" emptyMessage="Data Tidak Ditemukan" />
+                </div>
+
+                <TableMobile
+                    className="md:hidden"
+                    data={users}
+                    keyExtractor={(user) => user.id}
+                    titleRender={(user) => user.name}
+                    subtitleRender={(user) => user.job_title || 'Belum ada jabatan'}
+                    statusRender={(user) => <AccountStatus user={user} />}
+                    imageRender={(user) => <span className="flex size-11 items-center justify-center rounded-xl bg-[#E0F0FF] font-bold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">{user.name.slice(0, 1).toUpperCase()}</span>}
+                    fields={[
+                        { label: 'Email', icon: <Mail aria-hidden="true" className="size-3" />, fullWidth: true, render: (user) => user.email },
+                        { label: 'Peran', render: (user) => roleName(user) },
+                        { label: 'Login terakhir', icon: <Clock3 aria-hidden="true" className="size-3" />, render: (user) => formatDateTime(user.last_login_at, 'Belum pernah') },
+                    ]}
+                    actionsRender={canManage ? (user) => actionButtons(user) : undefined}
+                    emptyMessage="Data Tidak Ditemukan"
+                    emptyIcon={<UsersRound aria-hidden="true" className="mx-auto size-7" />}
+                />
             </div>
 
-            {/* Modal Tambah User */}
-            <Modal
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
-                title="Tambah Pengguna Baru"
-            >
-                <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Nama Lengkap
-                        </label>
-                        <input
-                            type="text"
-                            value={data.name}
-                            onChange={(e) => setData('name', e.target.value)}
-                            placeholder="Contoh: Ryan Pratama"
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Email Akun
-                        </label>
-                        <input
-                            type="email"
-                            value={data.email}
-                            onChange={(e) => setData('email', e.target.value)}
-                            placeholder="ryan@samudrajaya.co.id"
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div><label className="font-semibold text-[#082870] block mb-1">Nomor Telepon</label><input type="tel" value={data.phone} onChange={(e) => setData('phone', e.target.value)} className="min-h-11 w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white" /></div>
-                        <div><label className="font-semibold text-[#082870] block mb-1">Jabatan</label><input type="text" value={data.job_title} onChange={(e) => setData('job_title', e.target.value)} className="min-h-11 w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white" /></div>
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Kata Sandi (Password)
-                        </label>
-                        <input
-                            type="password"
-                            value={data.password}
-                            onChange={(e) => setData('password', e.target.value)}
-                            placeholder="Minimal 8 karakter..."
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Peran Akses (Spatie Role)
-                        </label>
-                        <select
-                            value={data.role}
-                            onChange={(e) => setData('role', e.target.value)}
-                            className={
-                                'w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 ' +
-                                'bg-white font-medium text-[#0B1F63]'
-                            }
-                        >
-                            {roles.map((r) => (
-                                <option key={r} value={r}>
-                                    {r}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                        <Button type="button" variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
-                            Batal
-                        </Button>
-                        <Button
-                            type="submit"
-                            variant="primary"
-                            disabled={processing}
-                            className="bg-[#0060F4] text-white"
-                        >
-                            {processing ? 'Menyimpan...' : 'Simpan Pengguna'}
-                        </Button>
-                    </div>
-                </form>
+            <Modal isOpen={isCreateModalOpen} onClose={() => { clearErrors(); setIsCreateModalOpen(false); }} title="Tambah Pengguna">
+                {userForm(submitCreate)}
             </Modal>
-
-            {/* Modal Edit User */}
-            {editingUser && (
-                <Modal
-                    isOpen={!!editingUser}
-                    onClose={() => setEditingUser(null)}
-                    title={`Edit Pengguna ${editingUser.name}`}
-                >
-                    <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Nama Lengkap
-                            </label>
-                            <input
-                                type="text"
-                                value={data.name}
-                                onChange={(e) => setData('name', e.target.value)}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Email</label>
-                            <input
-                                type="email"
-                                value={data.email}
-                                onChange={(e) => setData('email', e.target.value)}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                                required
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div><label className="font-semibold text-[#082870] block mb-1">Nomor Telepon</label><input type="tel" value={data.phone} onChange={(e) => setData('phone', e.target.value)} className="min-h-11 w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white" /></div>
-                            <div><label className="font-semibold text-[#082870] block mb-1">Jabatan</label><input type="text" value={data.job_title} onChange={(e) => setData('job_title', e.target.value)} className="min-h-11 w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white" /></div>
-                        </div>
-
-                        <label className="flex min-h-11 items-center gap-3 rounded-xl border border-[#DCEAF8] px-3">
-                            <input type="checkbox" checked={data.is_active} onChange={(e) => setData('is_active', e.target.checked)} className="size-4 rounded border-[#DCEAF8] text-[#0060F4]" />
-                            <span className="font-semibold text-[#082870]">Akun aktif</span>
-                        </label>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Kata Sandi Baru{' '}
-                                <span className="text-[#8C9BB9] font-normal">
-                                    (Kosongkan jika tidak ingin diubah)
-                                </span>
-                            </label>
-                            <input
-                                type="password"
-                                value={data.password}
-                                onChange={(e) => setData('password', e.target.value)}
-                                placeholder="Minimal 8 karakter..."
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Peran Akses (Spatie Role)
-                            </label>
-                            <select
-                                value={data.role}
-                                onChange={(e) => setData('role', e.target.value)}
-                                className={
-                                    'w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 ' +
-                                    'bg-white font-medium text-[#0B1F63]'
-                                }
-                            >
-                                {roles.map((r) => (
-                                    <option key={r} value={r}>
-                                        {r}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                            <Button type="button" variant="secondary" onClick={() => setEditingUser(null)}>
-                                Batal
-                            </Button>
-                            <Button
-                                type="submit"
-                                variant="primary"
-                                disabled={processing}
-                                className="bg-[#0060F4] text-white"
-                            >
-                                {processing ? 'Memperbarui...' : 'Perbarui Pengguna'}
-                            </Button>
-                        </div>
-                    </form>
-                </Modal>
-            )}
+            <Modal isOpen={Boolean(editingUser)} onClose={() => { clearErrors(); setEditingUser(null); }} title={editingUser ? `Edit ${editingUser.name}` : 'Edit Pengguna'}>
+                {userForm(submitEdit, true)}
+            </Modal>
+            <ConfirmDialog
+                isOpen={Boolean(userToDelete)}
+                title="Hapus pengguna?"
+                description={userToDelete ? `Akun ${userToDelete.name} tidak dapat digunakan setelah dihapus.` : ''}
+                confirmLabel="Hapus Pengguna"
+                confirmVariant="danger"
+                processing={isDeleting}
+                onClose={() => setUserToDelete(null)}
+                onConfirm={deleteUser}
+            />
         </AppLayout>
     );
 }

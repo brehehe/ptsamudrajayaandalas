@@ -28,7 +28,7 @@ class CostDocumentPolicy
      */
     public function create(User $user): bool
     {
-        return $user->isOperationalAdmin() || $user->isOwner();
+        return $user->isOperationalAdmin();
     }
 
     /**
@@ -36,7 +36,7 @@ class CostDocumentPolicy
      */
     public function update(User $user, CostDocument $costDocument): bool
     {
-        return ($user->isOperationalAdmin() || $user->isOwner())
+        return $user->isOperationalAdmin()
             && in_array($costDocument->status, ['received', 'verified', 'rejected'], true)
             && $costDocument->payment_status === 'unpaid';
     }

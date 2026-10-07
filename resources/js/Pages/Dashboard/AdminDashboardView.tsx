@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from '@inertiajs/react';
 import { motion } from 'framer-motion';
+import Table, { type Column } from '../../Components/tables/Table';
+import Tabs from '../../Components/ui/Tabs';
 
 interface AdminDashboardViewProps {
     kpi: any;
@@ -121,6 +123,26 @@ export default function AdminDashboardView({
         );
     };
 
+    const requestColumns: Column<any>[] = [
+        { key: 'request_number', header: 'No. Pengajuan', wrap: 'normal', render: (row) => <Link href="/requests" className="font-bold text-[#0060F4] hover:underline">{row.request_number}</Link> },
+        { key: 'date', header: 'Tanggal', render: (row) => row.date },
+        { key: 'ship_name', header: 'Kapal', wrap: 'normal' },
+        { key: 'items_count', header: 'Jumlah Item', align: 'center', render: (row) => row.items_count ?? 0 },
+        { key: 'estimated_cost', header: 'Nilai Estimasi', align: 'right', render: (row) => typeof row.estimated_cost === 'number' ? formatRupiah(row.estimated_cost) : row.estimated_cost },
+        { key: 'status', header: 'Status', render: (row) => getStatusBadge(row.status) },
+        { key: 'actions', header: 'Aksi', align: 'right', render: () => <Link href="/requests" className="inline-flex min-h-9 items-center rounded-lg border border-[#DCEAF8] px-3 text-[11px] font-semibold text-[#0060F4] hover:border-[#0060F4]">Buka</Link> },
+    ];
+
+    const needColumns: Column<any>[] = [
+        { key: 'kapal', header: 'Kapal', wrap: 'normal' },
+        { key: 'kebutuhan', header: 'Kebutuhan', wrap: 'normal' },
+        { key: 'jumlah', header: 'Jumlah' },
+        { key: 'jadwal', header: 'Jadwal' },
+        { key: 'status', header: 'Status', render: (row) => getStatusBadge(row.status) },
+        { key: 'pengajuan', header: 'Pengajuan', wrap: 'normal', render: (row) => <Link href="/requests" className="font-semibold text-[#0060F4] hover:underline">{row.pengajuan}</Link> },
+        { key: 'actions', header: 'Aksi', align: 'right', render: () => <Link href="/needs" className="inline-flex min-h-9 items-center rounded-lg border border-[#DCEAF8] px-3 text-[11px] font-semibold text-[#0060F4] hover:border-[#0060F4]">Buka</Link> },
+    ];
+
     return (
         <div className="space-y-5">
             {/* 1. HERO BANNER BU TITIK (Exact Match Gambar 2) */}
@@ -175,7 +197,7 @@ export default function AdminDashboardView({
                                 'text-white leading-none'
                             }
                         >
-                            {liveTime || '10:24'}
+                            {liveTime || '-'}
                         </p>
                         <div className="flex items-center gap-2 pt-1 text-xs text-[#E7F0FA]">
                             <span className="flex items-center gap-1">
@@ -196,8 +218,8 @@ export default function AdminDashboardView({
                             </span>
                             <span className="text-white/40">•</span>
                             <span className="flex items-center gap-1">
-                                <span>{weatherData.icon || '⛅'}</span>
-                                <span className="font-semibold">{weatherData.temp || '28°C'}</span>
+                                <span>{weatherData.icon || '—'}</span>
+                                <span className="font-semibold">{weatherData.temp || 'Tidak tersedia'}</span>
                                 <span className="text-[#B5C8DC]">
                                     {weatherData.weather || 'Tidak tersedia'}
                                 </span>
@@ -401,137 +423,27 @@ export default function AdminDashboardView({
                         </Link>
                     </div>
 
-                    {/* Filter Tabs */}
-                    <div
-                        className={
-                            'px-4 py-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F] flex ' +
-                            'items-center gap-1.5 overflow-x-auto'
-                        }
-                    >
-                        <button
-                            type="button"
-                            onClick={() => setRequestTab('semua')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                                requestTab === 'semua'
-                                    ? 'bg-[#0060F4] text-white'
-                                    : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#52658E] dark:text-[#94A3B8] hover:bg-[#E0F0FF]'
-                            }`}
-                        >
-                            Semua ({kpi?.total_pengajuan ?? 0})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setRequestTab('menunggu')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                                requestTab === 'menunggu'
-                                    ? 'bg-[#0060F4] text-white'
-                                    : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#52658E] dark:text-[#94A3B8] hover:bg-[#E0F0FF]'
-                            }`}
-                        >
-                            Menunggu Approval ({kpi?.requests_by_status?.menunggu ?? 0})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setRequestTab('proses')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                                requestTab === 'proses'
-                                    ? 'bg-[#0060F4] text-white'
-                                    : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#52658E] dark:text-[#94A3B8] hover:bg-[#E0F0FF]'
-                            }`}
-                        >
-                            Dalam Proses ({kpi?.requests_by_status?.proses ?? 0})
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setRequestTab('selesai')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                                requestTab === 'selesai'
-                                    ? 'bg-[#0060F4] text-white'
-                                    : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#52658E] dark:text-[#94A3B8] hover:bg-[#E0F0FF]'
-                            }`}
-                        >
-                            Selesai ({kpi?.requests_by_status?.selesai ?? 0})
-                        </button>
-                    </div>
+                    <Tabs
+                        className="px-4"
+                        ariaLabel="Filter status pengajuan"
+                        activeId={requestTab}
+                        onChange={(id) => setRequestTab(id as 'semua' | 'menunggu' | 'proses' | 'selesai')}
+                        items={[
+                            { id: 'semua', label: 'Semua', count: kpi?.total_pengajuan ?? 0 },
+                            { id: 'menunggu', label: 'Menunggu', count: kpi?.requests_by_status?.menunggu ?? 0 },
+                            { id: 'proses', label: 'Dalam Proses', count: kpi?.requests_by_status?.proses ?? 0 },
+                            { id: 'selesai', label: 'Selesai', count: kpi?.requests_by_status?.selesai ?? 0 },
+                        ]}
+                    />
 
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                            <thead
-                                className={
-                                    'bg-[#F8FAFC] dark:bg-[#071322] text-[#52658E] ' +
-                                    'dark:text-[#94A3B8] font-bold border-b border-[#DCEAF8] ' +
-                                    'dark:border-[#1E3A5F]'
-                                }
-                            >
-                                <tr>
-                                    <th className="py-2.5 px-3">No. Pengajuan</th>
-                                    <th className="py-2.5 px-3">Tanggal</th>
-                                    <th className="py-2.5 px-3">Kapal</th>
-                                    <th className="py-2.5 px-3 text-center">Jumlah Item</th>
-                                    <th className="py-2.5 px-3">Nilai Estimasi</th>
-                                    <th className="py-2.5 px-3">Status</th>
-                                    <th className="py-2.5 px-2 text-center">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#DCEAF8]/70 dark:divide-[#1E3A5F]/70">
-                                {displayRequests.slice(0, 5).map((row, idx) => (
-                                    <tr
-                                        key={idx}
-                                        className="hover:bg-[#F0F8FF]/50 dark:hover:bg-[#071322]/50 transition-colors"
-                                    >
-                                        <td className="py-3 px-3 font-bold text-[#0060F4] whitespace-nowrap">
-                                            <Link href="/requests" className="hover:underline">
-                                                {row.request_number}
-                                            </Link>
-                                        </td>
-                                        <td className="py-3 px-3 text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
-                                            <div>{row.date}</div>
-                                            <div className="text-[10px] text-[#8C9BB9]">
-                                                {row.time || '-'}
-                                            </div>
-                                        </td>
-                                        <td
-                                            className={
-                                                'py-3 px-3 font-semibold text-[#0B1F63] ' +
-                                                'dark:text-[#F1F5F9] whitespace-nowrap'
-                                            }
-                                        >
-                                            {row.ship_name}
-                                        </td>
-                                        <td className="py-3 px-3 text-center text-[#52658E] dark:text-[#94A3B8]">
-                                            {row.items_count ?? 0}
-                                        </td>
-                                        <td
-                                            className={
-                                                'py-3 px-3 font-bold text-[#0B1F63] ' +
-                                                'dark:text-[#F1F5F9] whitespace-nowrap'
-                                            }
-                                        >
-                                            {typeof row.estimated_cost === 'number'
-                                                ? `Rp ${row.estimated_cost.toLocaleString('id-ID')}`
-                                                : row.estimated_cost}
-                                        </td>
-                                        <td className="py-3 px-3 whitespace-nowrap">
-                                            {getStatusBadge(row.status)}
-                                        </td>
-                                        <td className="py-3 px-2 text-center text-[#52658E]">
-                                            <button
-                                                type="button"
-                                                className={
-                                                    'p-1 hover:bg-slate-200 ' +
-                                                    'dark:hover:bg-slate-700 rounded text-xs ' +
-                                                    'font-bold'
-                                                }
-                                            >
-                                                •••
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Table
+                        className="rounded-none border-x-0 border-b-0 shadow-none"
+                        columns={requestColumns}
+                        data={displayRequests.slice(0, 5)}
+                        keyExtractor={(row, index) => row.id ?? row.request_number ?? index}
+                        compact
+                        minWidth="820px"
+                    />
                 </div>
 
                 {/* TABEL KANAN: Kebutuhan Hari Ini */}
@@ -568,97 +480,25 @@ export default function AdminDashboardView({
                         </Link>
                     </div>
 
-                    {/* Filter Tabs by Ship */}
-                    <div
-                        className={
-                            'px-4 py-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F] flex ' +
-                            'items-center gap-1.5 overflow-x-auto'
-                        }
-                    >
-                        {needTabs.map((tab) => (
-                            <button
-                                key={tab}
-                                type="button"
-                                onClick={() => setNeedsTab(tab)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                                    needsTab === tab
-                                        ? 'bg-[#0060F4] text-white'
-                                        : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#52658E] dark:text-[#94A3B8] hover:bg-[#E0F0FF]'
-                                }`}
-                            >
-                                {tab} ({tab === 'Semua' ? needsToday.length : needsToday.filter((item) => item.kapal === tab).length})
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Table */}
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                            <thead
-                                className={
-                                    'bg-[#F8FAFC] dark:bg-[#071322] text-[#52658E] ' +
-                                    'dark:text-[#94A3B8] font-bold border-b border-[#DCEAF8] ' +
-                                    'dark:border-[#1E3A5F]'
-                                }
-                            >
-                                <tr>
-                                    <th className="py-2.5 px-3">Kapal</th>
-                                    <th className="py-2.5 px-3">Kebutuhan</th>
-                                    <th className="py-2.5 px-3">Jumlah</th>
-                                    <th className="py-2.5 px-3">Jadwal</th>
-                                    <th className="py-2.5 px-3">Status</th>
-                                    <th className="py-2.5 px-3">Pengajuan</th>
-                                    <th className="py-2.5 px-2 text-center">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#DCEAF8]/70 dark:divide-[#1E3A5F]/70">
-                                {displayNeeds.map((row, idx) => (
-                                    <tr
-                                        key={idx}
-                                        className="hover:bg-[#F0F8FF]/50 dark:hover:bg-[#071322]/50 transition-colors"
-                                    >
-                                        <td
-                                            className={
-                                                'py-3 px-3 font-semibold text-[#0B1F63] ' +
-                                                'dark:text-[#F1F5F9] whitespace-nowrap'
-                                            }
-                                        >
-                                            {row.kapal}
-                                        </td>
-                                        <td className="py-3 px-3 font-medium text-[#0B1F63] dark:text-[#F1F5F9]">
-                                            {row.kebutuhan}
-                                        </td>
-                                        <td className="py-3 px-3 text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
-                                            {row.jumlah}
-                                        </td>
-                                        <td className="py-3 px-3 text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
-                                            {row.jadwal}
-                                        </td>
-                                        <td className="py-3 px-3 whitespace-nowrap">
-                                            {getStatusBadge(row.status)}
-                                        </td>
-                                        <td className="py-3 px-3 font-semibold text-[#0060F4] whitespace-nowrap">
-                                            <Link href="/requests" className="hover:underline">
-                                                {row.pengajuan}
-                                            </Link>
-                                        </td>
-                                        <td className="py-3 px-2 text-center text-[#52658E]">
-                                            <button
-                                                type="button"
-                                                className={
-                                                    'p-1 hover:bg-slate-200 ' +
-                                                    'dark:hover:bg-slate-700 rounded text-xs ' +
-                                                    'font-bold'
-                                                }
-                                            >
-                                                •••
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Tabs
+                        className="px-4"
+                        ariaLabel="Filter kebutuhan berdasarkan kapal"
+                        activeId={needsTab}
+                        onChange={setNeedsTab}
+                        items={needTabs.map((tab) => ({
+                            id: tab,
+                            label: tab,
+                            count: tab === 'Semua' ? needsToday.length : needsToday.filter((item) => item.kapal === tab).length,
+                        }))}
+                    />
+                    <Table
+                        className="rounded-none border-x-0 border-b-0 shadow-none"
+                        columns={needColumns}
+                        data={displayNeeds}
+                        keyExtractor={(row, index) => row.id ?? `${row.pengajuan}-${row.kebutuhan}-${index}`}
+                        compact
+                        minWidth="820px"
+                    />
                 </div>
             </div>
 

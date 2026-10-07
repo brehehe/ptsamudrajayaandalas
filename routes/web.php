@@ -43,6 +43,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/work-orders', [WorkOrderController::class, 'index'])->name('work-orders.index');
     Route::get('/work-orders/create', [WorkOrderController::class, 'create'])->name('work-orders.create');
     Route::post('/work-orders', [WorkOrderController::class, 'store'])->name('work-orders.store');
+    Route::get('/work-orders/{workOrder}/detail', [WorkOrderController::class, 'show'])->name('work-orders.detail');
     Route::patch('/work-orders/{workOrder}/status', [WorkOrderController::class, 'updateStatus'])->name('work-orders.status');
     Route::get('/work-orders/{workOrder}/document', [WorkOrderController::class, 'download'])->name('work-orders.document');
 
@@ -62,19 +63,24 @@ Route::middleware(['auth'])->group(function () {
     // Requests / Pengajuan Kebutuhan (Form Wizard 3-Langkah Lapangan & Admin Actions)
     Route::get('/requests', [RequestController::class, 'index'])->name('requests.index');
     Route::get('/requests/create', [RequestController::class, 'create'])->name('requests.create');
-    Route::get('/requests/{shipRequest}/detail', [RequestController::class, 'show'])->name('requests.detail');
-    Route::get('/requests/{shipRequest}', [RequestController::class, 'show'])->name('requests.show');
+    Route::get('/requests/{id}/detail', [RequestController::class, 'show'])->name('requests.detail');
+    Route::get('/requests/{id}', [RequestController::class, 'show'])->name('requests.show');
     Route::post('/requests', [RequestController::class, 'store'])->name('requests.store');
     Route::post('/requests/wizard', [RequestController::class, 'storeWizard'])->name('requests.store-wizard');
     Route::post('/requests/multi', [RequestController::class, 'storeMulti'])->name('requests.store-multi');
+    Route::post('/requests/batch-forward-director', [RequestController::class, 'batchForwardDirector'])->name('requests.batch-forward-director');
     Route::post('/requests/{id}/forward-director', [RequestController::class, 'forwardToDirector'])->name('requests.forward-director');
     Route::post('/requests/{requestId}/items/{itemId}/revision', [RequestController::class, 'requestItemRevision'])->name('requests.items.revision');
+    Route::post('/requests/{requestId}/items/{itemId}/update-price', [RequestController::class, 'updateItemPrice'])->name('requests.items.update-price');
+    Route::post('/requests/items/batch-update-prices', [RequestController::class, 'batchUpdateItemPrices'])->name('requests.items.batch-update-prices');
     Route::post('/requests/{id}/create-clearance-in-invoice', [RequestController::class, 'createClearanceInInvoice'])->name('requests.clearance-in-invoice');
     Route::post('/requests/{id}/split-invoices', [RequestController::class, 'splitInvoices'])->name('requests.split-invoices');
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
 
     // Approval Direktur & Otorisasi Dana Kopra
     Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
+    Route::get('/approvals/{id}/detail', [ApprovalController::class, 'show'])->name('approvals.detail');
+    Route::post('/approvals/requests/batch-item-decision', [ApprovalController::class, 'batchItemDecision'])->name('approvals.requests.batch-item-decision');
     Route::post('/approvals/requests/{id}/approve', [ApprovalController::class, 'approveRequest'])->name('approvals.requests.approve');
     Route::post('/approvals/requests/{id}/reject', [ApprovalController::class, 'rejectRequest'])->name('approvals.requests.reject');
     Route::post('/approvals/requests/{id}/item-decision', [ApprovalController::class, 'itemDecision'])->name('approvals.requests.item-decision');
@@ -91,7 +97,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
 
-    // Pengajuan biaya, approval Direktur, pencatatan Kopra, pencairan, dan realisasi
+    // Pengajuan dana operasional, approval Direktur, pencatatan proses eksternal Kopra, pencairan, dan realisasi.
     Route::get('/funding', [FundingWorkflowController::class, 'index'])->name('funding.index');
     Route::post('/funding/requests', [FundingWorkflowController::class, 'store'])->name('funding.requests.store');
     Route::post('/funding/batches', [FundingWorkflowController::class, 'storeBatch'])->name('funding.batches.store');
@@ -101,7 +107,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/funding/payments/{payment}/transition', [FundingWorkflowController::class, 'updatePayment'])->name('funding.payments.transition');
     Route::get('/funding/documents/{type}/{id}', [FundingWorkflowController::class, 'download'])->name('funding.documents.download');
 
-    // Invoice vendor diterima, diverifikasi, lalu dipilih ke batch pendanaan.
+    // Invoice vendor dibuat dari item pengajuan, diverifikasi, lalu dibayar melalui menu Pengeluaran.
     Route::get('/vendor-invoices', [VendorInvoiceController::class, 'index'])->name('vendor-invoices.index');
     Route::post('/vendor-invoices', [VendorInvoiceController::class, 'store'])->name('vendor-invoices.store');
     Route::post('/vendor-invoices/{costDocument}/verify', [VendorInvoiceController::class, 'verify'])->name('vendor-invoices.verify');
@@ -118,6 +124,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/invoices', [InvoiceController::class, 'store'])->name('invoices.store');
     Route::post('/invoices/{id}/release', [InvoiceController::class, 'release'])->name('invoices.release');
     Route::post('/invoices/{id}/mark-sent', [InvoiceController::class, 'markSent'])->name('invoices.mark-sent');
+    Route::get('/invoices/{invoice}/generated-document', [InvoiceController::class, 'generatedDocument'])->name('invoices.documents.generated');
     Route::get('/invoices/{invoice}/documents/{type}', [InvoiceController::class, 'download'])->name('invoices.documents.download');
 
     // Piutang Klien & Aging
@@ -131,6 +138,9 @@ Route::middleware(['auth'])->group(function () {
     // Master Data 1-8:
     // 1. Kapal (/master/vessels)
     Route::get('/master/vessels', [MasterVesselController::class, 'index'])->name('master.vessels.index');
+    Route::post('/master/vessels', [MasterVesselController::class, 'store'])->name('master.vessels.store');
+    Route::patch('/master/vessels/{ship}', [MasterVesselController::class, 'update'])->name('master.vessels.update');
+    Route::delete('/master/vessels/{ship}', [MasterVesselController::class, 'destroy'])->name('master.vessels.destroy');
 
     // 2. Perusahaan (/master/companies)
     Route::get('/master/companies', [MasterCompanyController::class, 'index'])->name('master.companies.index');

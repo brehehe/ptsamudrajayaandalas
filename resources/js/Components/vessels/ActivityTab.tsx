@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import type { OperationalActivityData } from './types';
 import Modal from '../overlays/Modal';
 import { Camera, MapPin } from 'lucide-react';
+import { formatDate } from '../../lib/formatDate';
 
 interface ActivityTabProps {
     activities?: OperationalActivityData[];
     onRecordActivity: () => void;
+    canRecord?: boolean;
 }
 
 export default function ActivityTab({
     activities = [],
     onRecordActivity,
+    canRecord = true,
 }: ActivityTabProps) {
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
@@ -33,13 +36,15 @@ export default function ActivityTab({
                 <h3 className="font-extrabold text-sm text-[#082870] dark:text-white">
                     Laporan Aktivitas Harian ({activities.length})
                 </h3>
-                <button
-                    type="button"
-                    onClick={onRecordActivity}
-                    className="text-[#0060F4] dark:text-[#38BDF8] font-bold text-xs hover:underline cursor-pointer"
-                >
-                    + Catat Aktivitas
-                </button>
+                {canRecord && (
+                    <button
+                        type="button"
+                        onClick={onRecordActivity}
+                        className="text-[#0060F4] dark:text-[#38BDF8] font-bold text-xs hover:underline cursor-pointer"
+                    >
+                        + Catat Aktivitas
+                    </button>
+                )}
             </div>
 
             {activities.length === 0 ? (
@@ -53,13 +58,15 @@ export default function ActivityTab({
                     <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                         Catat aktivitas bongkar muat, inspeksi, atau kegiatan operasional kapal.
                     </p>
-                    <button
-                        type="button"
-                        onClick={onRecordActivity}
-                        className="mt-2 px-3 py-1.5 rounded-xl bg-[#0060F4] text-white text-xs font-bold shadow-xs hover:bg-[#0052D0] cursor-pointer"
-                    >
-                        + Catat Aktivitas Pertama
-                    </button>
+                    {canRecord && (
+                        <button
+                            type="button"
+                            onClick={onRecordActivity}
+                            className="mt-2 px-3 py-1.5 rounded-xl bg-[#0060F4] text-white text-xs font-bold shadow-xs hover:bg-[#0052D0] cursor-pointer"
+                        >
+                            + Catat Aktivitas Pertama
+                        </button>
+                    )}
                 </div>
             ) : (
                 <div className="space-y-3">
@@ -75,7 +82,7 @@ export default function ActivityTab({
                             >
                                 <div className="flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                     <span>
-                                        {act.activity_date}
+                                        {formatDate(act.activity_date)}
                                         {act.activity_time ? ` • ${act.activity_time}` : ''}
                                     </span>
                                     <span

@@ -16,7 +16,7 @@ export default function Authenticated({
     return (
         <div
             className={
-                'min-h-screen bg-gray-100 dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                'min-h-dvh min-w-0 wrap-anywhere bg-gray-100 dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] ' +
                 'transition-colors duration-200'
             }
         >
@@ -185,7 +185,7 @@ export default function Authenticated({
                 </header>
             )}
 
-            <main>{children}</main>
+            <main className="min-w-0 wrap-anywhere">{children}</main>
         </div>
     );
 }

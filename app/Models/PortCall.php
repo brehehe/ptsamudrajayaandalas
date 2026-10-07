@@ -68,6 +68,11 @@ class PortCall extends Model
         return $this->hasMany(DailyReport::class, 'port_call_id');
     }
 
+    public function operationalActivities(): HasMany
+    {
+        return $this->hasMany(OperationalActivity::class, 'port_call_id');
+    }
+
     public function outgoingPayments(): HasMany
     {
         return $this->hasMany(OutgoingPayment::class, 'port_call_id');
@@ -89,6 +94,14 @@ class PortCall extends Model
             return 'Clearance In sudah dicatat untuk kunjungan ini.';
         }
 
+        $hasActiveClearanceIn = $this->relationLoaded('clearanceInRequests')
+            ? $this->clearanceInRequests->isNotEmpty()
+            : $this->clearanceInRequests()->exists();
+
+        if ($hasActiveClearanceIn) {
+            return 'Pengajuan Clearance In untuk kunjungan ini sudah ada dan masih diproses.';
+        }
+
         return null;
     }
 
@@ -100,6 +113,13 @@ class PortCall extends Model
     public function requests(): HasMany
     {
         return $this->hasMany(ShipRequest::class, 'port_call_id');
+    }
+
+    public function clearanceInRequests(): HasMany
+    {
+        return $this->requests()
+            ->whereIn('service_type', ['clearance_in', 'Kedatangan (Clearance In)'])
+            ->whereNotIn('status', ['Ditolak', 'Dibatalkan']);
     }
 
     public function expenseRequests(): HasMany

@@ -28,7 +28,7 @@ class CompletionNotePolicy
      */
     public function create(User $user): bool
     {
-        return $user->isOperationalAdmin() || $user->isOwner();
+        return $user->isOperationalAdmin();
     }
 
     /**
@@ -36,7 +36,7 @@ class CompletionNotePolicy
      */
     public function update(User $user, CompletionNote $completionNote): bool
     {
-        return ($user->isOperationalAdmin() || $user->isOwner())
+        return $user->isOperationalAdmin()
             && $completionNote->status !== 'reconciled';
     }
 

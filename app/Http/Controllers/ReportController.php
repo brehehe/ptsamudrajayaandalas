@@ -23,7 +23,7 @@ class ReportController extends Controller
         $agencyRevenue = (float) Invoice::where('invoice_type', 'agency')->sum('grand_total');
         $reimburseRevenue = (float) Invoice::where('invoice_type', 'reimburse')->sum('grand_total');
         $totalExpenses = (float) OutgoingPayment::sum('amount');
-        $netMargin = $agencyRevenue - ($totalExpenses - $reimburseRevenue);
+        $netMargin = $totalInvoiced - $totalExpenses;
 
         $summary = [
             'total_port_calls' => $portCalls->count(),
@@ -34,7 +34,7 @@ class ReportController extends Controller
             'total_expenses' => $totalExpenses,
             'net_agency_margin' => $netMargin,
             'completed_requests' => ShipRequest::where('status', 'Selesai')->count(),
-            'pending_requests' => ShipRequest::where('status', 'Menunggu Approval')->count(),
+            'pending_requests' => ShipRequest::whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count(),
         ];
 
         // Format port call rows for report table

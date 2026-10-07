@@ -26,10 +26,10 @@ export default forwardRef(function TextInput(
             {...props}
             type={type}
             className={
-                'rounded-md border-gray-300 dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] ' +
-                'text-gray-900 dark:text-[#F1F5F9] placeholder-gray-400 ' +
-                'dark:placeholder-gray-500 shadow-sm focus:border-indigo-500 ' +
-                'focus:ring-indigo-500 ' +
+                'h-11 w-full rounded-xl border-[#DCEAF8] bg-white px-3 text-sm ' +
+                'text-[#0B1F63] placeholder-[#8C9BB9] shadow-sm dark:border-[#1E3A5F] ' +
+                'dark:bg-[#0C1D36] dark:text-[#F1F5F9] dark:placeholder-[#64748B] ' +
+                'focus:border-[#0060F4] focus:ring-[#0060F4]/25 ' +
                 className
             }
             ref={localRef}

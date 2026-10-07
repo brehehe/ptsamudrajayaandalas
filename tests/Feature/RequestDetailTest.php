@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
@@ -62,6 +63,37 @@ test('authenticated users can view a request on its dedicated detail page', func
         ->has('request.items', 1)
         ->where('request.items.0.item_name', 'Clearance In')
         ->has('products'));
+});
+
+test('authenticated users can view request detail by port call job number or id', function () {
+    $user = User::factory()->create();
+    $ship = Ship::create([
+        'name' => 'KM Job Test',
+        'imo_number' => 'IMO7654321',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-TEST-9999',
+        'ship_id' => $ship->id,
+        'status' => 'Akan Datang',
+    ]);
+    $shipRequest = ShipRequest::create([
+        'request_number' => 'REQ-JOB-9999',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $user->id,
+        'status' => 'Menunggu Approval',
+        'request_date' => now()->toDateString(),
+    ]);
+
+    $response = $this->actingAs($user)->get('/requests/JOB-TEST-9999/detail');
+
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('Requests/Show')
+        ->where('job.job_number', 'JOB-TEST-9999')
+        ->has('requests', 1)
+        ->where('request.request_number', 'REQ-JOB-9999'));
 });
 
 test('missing request detail returns not found', function () {

@@ -30,14 +30,15 @@ export default function Welcome({ auth }: WelcomeProps) {
             <section
                 id="beranda"
                 className={
-                    'relative pt-28 pb-20 md:pt-36 md:pb-28 overflow-hidden bg-gradient-to-b ' +
-                    'from-white via-[#F0F8FF] to-[#E0F0FF]/40 border-b border-[#DCEAF8]'
+                    'relative overflow-hidden border-b border-[#DCEAF8] bg-white pb-20 pt-28 ' +
+                    'md:bg-gradient-to-b md:from-white md:via-[#F0F8FF] md:to-[#E0F0FF]/40 ' +
+                    'md:pb-28 md:pt-36'
                 }
             >
                 {/* Subtle maritime grid background */}
                 <div
                     className={
-                        'absolute inset-0 opacity-[0.03] pointer-events-none ' +
+                        'pointer-events-none absolute inset-0 hidden opacity-[0.03] md:block ' +
                         'bg-[radial-gradient(#0060F4_1px,transparent_1px)] ' +
                         '[background-size:24px_24px]'
                     }
@@ -67,8 +68,8 @@ export default function Welcome({ auth }: WelcomeProps) {
                                 Operasional Kapal dalam{' '}
                                 <span
                                     className={
-                                        'text-transparent bg-clip-text bg-gradient-to-r ' +
-                                        'from-[#0060F4] to-[#19B5F7]'
+                                        'text-[#0060F4] md:bg-gradient-to-r md:from-[#0060F4] ' +
+                                        'md:to-[#19B5F7] md:bg-clip-text md:text-transparent'
                                     }
                                 >
                                     Satu Alur yang Terhubung
@@ -131,8 +132,8 @@ export default function Welcome({ auth }: WelcomeProps) {
                         <div className="lg:col-span-5 relative">
                             <div
                                 className={
-                                    'relative mx-auto rounded-[20px] p-2.5 bg-gradient-to-br ' +
-                                    'from-[#19B5F7]/30 to-[#0060F4]/40 ' +
+                                    'relative mx-auto rounded-[20px] bg-[#E0F0FF] p-2.5 ' +
+                                    'md:bg-gradient-to-br md:from-[#19B5F7]/30 md:to-[#0060F4]/40 ' +
                                     'shadow-[0_16px_40px_rgba(8,40,112,0.12)] border ' +
                                     'border-[#BCE0FD]'
                                 }
@@ -163,17 +164,17 @@ export default function Welcome({ auth }: WelcomeProps) {
                                     {/* Maritime Photo Banner */}
                                     <div
                                         className={
-                                            'relative h-44 bg-gradient-to-r from-[#082870] ' +
-                                            'to-[#0D2945] p-4 text-white flex flex-col justify-end ' +
-                                            'overflow-hidden'
+                                            'mobile-photo-copy relative flex h-44 flex-col ' +
+                                            'justify-end overflow-hidden bg-[#8FCDF4] p-4 text-white ' +
+                                            'md:bg-gradient-to-r md:from-[#082870] md:to-[#0D2945]'
                                         }
                                     >
                                         <img
                                             src="/images/port-bg.jpg"
                                             alt="Pelabuhan dan Kapal PT Samudra Jaya Andalas"
                                             className={
-                                                'absolute inset-0 w-full h-full object-cover ' +
-                                                'mix-blend-overlay opacity-60'
+                                                'absolute inset-0 size-full object-cover ' +
+                                                'md:mix-blend-overlay md:opacity-60'
                                             }
                                             onError={(e) => {
                                                 // Fallback graceful gradient if image missing

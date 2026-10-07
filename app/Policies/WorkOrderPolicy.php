@@ -32,7 +32,7 @@ class WorkOrderPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasAnyRole(['Owner', 'Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']);
+        return $user->hasAnyRole(['Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']);
     }
 
     /**
@@ -44,7 +44,7 @@ class WorkOrderPolicy
             return false;
         }
 
-        return $user->hasAnyRole(['Owner', 'Admin', 'Admin Sistem'])
+        return $user->hasAnyRole(['Admin', 'Admin Sistem'])
             || $workOrder->assigned_to === $user->id
             || $workOrder->created_by === $user->id;
     }
@@ -55,7 +55,7 @@ class WorkOrderPolicy
             return false;
         }
 
-        if ($user->isOwner() || $user->isOperationalAdmin()) {
+        if ($user->isOperationalAdmin()) {
             return true;
         }
 
@@ -69,7 +69,7 @@ class WorkOrderPolicy
      */
     public function delete(User $user, WorkOrder $workOrder): bool
     {
-        return $user->isOwner() && $workOrder->status === 'draft';
+        return false;
     }
 
     /**

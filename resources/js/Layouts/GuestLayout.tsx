@@ -6,7 +6,7 @@ export default function Guest({ children }: PropsWithChildren) {
     return (
         <div
             className={
-                'flex min-h-screen flex-col items-center bg-gray-100 dark:bg-[#071322] pt-6 ' +
+                'flex min-h-dvh min-w-0 wrap-anywhere flex-col items-center bg-gray-100 dark:bg-[#071322] pt-6 ' +
                 'sm:justify-center sm:pt-0 text-[#0B1F63] dark:text-[#F1F5F9] transition-colors ' +
                 'duration-200'
             }

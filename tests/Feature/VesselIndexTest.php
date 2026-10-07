@@ -53,6 +53,7 @@ test('authenticated user can view vessels index with correct props and counts', 
         'imo_number' => 'IMO-9999901',
         'ship_type' => 'Cargo Ship',
         'status' => 'Labuh',
+        'image' => '/storage/sja/vessels/km-test-kapal-01.webp',
         'eta' => now(),
         'port_id' => $port->id,
         'ship_company_id' => $company->id,
@@ -67,6 +68,7 @@ test('authenticated user can view vessels index with correct props and counts', 
         ->component('Vessels/Index')
         ->has('vessels', 1)
         ->where('vessels.0.name', 'KM Test Kapal 01')
+        ->where('vessels.0.image', '/storage/sja/vessels/km-test-kapal-01.webp')
         ->where('vessels.0.status', 'Akan Datang')
         ->has('companies')
         ->has('counts', fn (Assert $counts) => $counts
@@ -118,9 +120,11 @@ test('each visit is listed separately while the vessel remains one master record
         ->has('vessels', 2)
         ->where('vessels.0.id', $ship->id)
         ->where('vessels.0.visit_id', $firstVisit->id)
+        ->where('vessels.0.image', null)
         ->where('vessels.0.status', 'Selesai')
         ->where('vessels.1.id', $ship->id)
         ->where('vessels.1.visit_id', $secondVisit->id)
+        ->where('vessels.1.image', null)
         ->where('vessels.1.status', 'Akan Datang')
         ->where('counts.semua', 2)
         ->where('counts.selesai', 1)

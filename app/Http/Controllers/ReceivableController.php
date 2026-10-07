@@ -77,6 +77,9 @@ class ReceivableController extends Controller
             'aging' => $aging,
             'companies' => $companies,
             'search' => $search ?? '',
+            'abilities' => [
+                'manage' => $request->user()->isOperationalAdmin(),
+            ],
         ]);
     }
 

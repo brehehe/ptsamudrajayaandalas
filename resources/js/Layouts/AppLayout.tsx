@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Sidebar from '../Components/navigation/Sidebar';
 import Topbar from '../Components/navigation/Topbar';
-import MobileBottomNavigation from '../Components/navigation/MobileBottomNavigation';
+import { RoleMobileBottomNavigation } from '../Components/navigation/RoleMobileBottomNavigation';
 import PageLoadingSkeleton from '../Components/feedback/PageLoadingSkeleton';
 import Logo from '../Components/ui/Logo';
 import { usePage, Link, router } from '@inertiajs/react';
@@ -28,6 +28,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     transparentMobileHeader = false,
     hideMobileHeader = false,
     noPaddingMobile = false,
+    mobileBackground = 'surface',
 }) => {
     const page = usePage<PageProps>();
     const { auth } = page.props;
@@ -42,15 +43,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const prefersReducedMotion = useReducedMotion();
     const showMobileMenu = Boolean(user);
-    const mobileBackgroundClass = 'bg-white dark:bg-[#0C1D36] md:bg-transparent';
+    const mobileBackgroundClass = mobileBackground === 'background'
+        ? 'bg-[#F0F8FF] dark:bg-[#071322] md:bg-transparent'
+        : 'bg-white dark:bg-[#0C1D36] md:bg-transparent';
     const currentPath = url.split('?')[0].replace(/\/$/, '') || '/';
     const loadingSkeletonVariant = currentPath === '/dashboard'
         ? 'dashboard'
         : currentPath.endsWith('/create') || currentPath.endsWith('/edit') || currentPath === '/profile'
-          ? 'form'
-          : /^\/(requests|vessels)\/[^/]+$/.test(currentPath)
-            ? 'detail'
-            : 'list';
+            ? 'form'
+            : /^\/(requests|vessels)\/[^/]+$/.test(currentPath)
+                ? 'detail'
+                : 'list';
 
     useEffect(() => {
         const onScroll = () => {
@@ -145,17 +148,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     // User initials for avatar
     const initials = user?.name
         ? user.name
-              .split(' ')
-              .map((w: string) => w[0])
-              .slice(0, 2)
-              .join('')
-              .toUpperCase()
+            .split(' ')
+            .map((w: string) => w[0])
+            .slice(0, 2)
+            .join('')
+            .toUpperCase()
         : '?';
 
     return (
         <div
             className={
-                'min-h-dvh bg-white md:bg-[#F0F8FF] dark:bg-[#0C1D36] md:dark:bg-[#071322] flex flex-col md:flex-row text-[#0B1F63] ' +
+                'min-h-dvh min-w-0 wrap-anywhere bg-white md:bg-[#F0F8FF] dark:bg-[#0C1D36] md:dark:bg-[#071322] flex flex-col md:flex-row text-[#0B1F63] ' +
                 'dark:text-[#F1F5F9] transition-colors duration-200 motion-reduce:transition-none'
             }
         >
@@ -185,7 +188,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             <div className={`flex min-w-0 flex-1 flex-col pb-[calc(3.25rem+env(safe-area-inset-bottom))] md:pb-0 ${mobileBackgroundClass}`}>
                 {/* Desktop Topbar */}
                 <div className="hidden md:block">
-                    <Topbar unreadNotificationsCount={0} />
+                    <Topbar />
                 </div>
 
                 {/* Mobile Header — transparent at top, solid white/dark on scroll */}
@@ -194,19 +197,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                         const isTransparent = transparentMobileHeader && !scrolled;
                         return (
                             <header
-                                className={`md:hidden h-16 px-4 flex items-center justify-between ${
-                                    transparentMobileHeader
-                                        ? 'fixed top-0 left-0 right-0 z-30'
-                                        : 'sticky top-0 z-30'
-                                } transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none ${
-                                    scrolled
+                                className={`md:hidden h-16 px-4 flex items-center justify-between ${transparentMobileHeader
+                                    ? 'fixed top-0 left-0 right-0 z-30'
+                                    : 'sticky top-0 z-30'
+                                    } transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none ${scrolled
                                         ? 'bg-white dark:bg-[#0C1D36] shadow-sm border-b ' +
-                                          'border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                        'border-[#DCEAF8] dark:border-[#1E3A5F]'
                                         : transparentMobileHeader
-                                          ? 'bg-transparent border-none border-b-0 shadow-none'
-                                          : 'bg-white dark:bg-[#0C1D36] border-b ' +
+                                            ? 'bg-transparent border-none border-b-0 shadow-none'
+                                            : 'bg-white dark:bg-[#0C1D36] border-b ' +
                                             'border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                }`}
+                                    }`}
                             >
                                 <div className="flex min-w-0 items-center gap-1">
                                     {showMobileMenu && (
@@ -214,7 +215,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                                             ref={menuButtonRef}
                                             type="button"
                                             onClick={() => setMobileMenuOpen(true)}
-                                            className={`flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent ? 'text-white focus-visible:outline-white' : 'text-[#0B1F63] dark:text-[#F1F5F9] focus-visible:outline-[#0060F4]'}`}
+                                            className={`flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent ? 'text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] focus-visible:outline-white' : 'text-[#0B1F63] dark:text-[#F1F5F9] focus-visible:outline-[#0060F4]'}`}
                                             aria-label="Buka menu utama"
                                             aria-expanded={mobileMenuOpen}
                                         >
@@ -222,52 +223,48 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                                         </button>
                                     )}
                                     <Link
-                                    href="/dashboard"
-                                    className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                                        isTransparent
+                                        href="/dashboard"
+                                        className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent
                                             ? 'focus-visible:outline-white'
                                             : 'focus-visible:outline-[#0060F4]'
-                                    }`}
-                                    aria-label="Buka beranda SJA"
-                                >
-                                    <Logo variant="icon" className="shrink-0" />
-                                    <span className="flex min-w-0 flex-col leading-tight">
-                                        <span
-                                            translate="no"
-                                            className={`truncate text-[12px] font-extrabold transition-colors ${
-                                                isTransparent
-                                                    ? 'text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]'
+                                            }`}
+                                        aria-label="Buka beranda SJA"
+                                    >
+                                        <Logo variant="icon" className="shrink-0" />
+                                        <span className="flex min-w-0 flex-col leading-tight">
+                                            <span
+                                                translate="no"
+                                                className={`truncate text-[10px] font-extrabold transition-colors ${isTransparent
+                                                    ? 'text-blue drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]'
                                                     : 'text-[#0B1F63] dark:text-[#F1F5F9]'
-                                            }`}
-                                        >
-                                            PT. SAMUDRA JAYA ANDALAS
-                                        </span>
-                                        <span
-                                            className={`truncate text-[10px] font-medium transition-colors ${
-                                                isTransparent
-                                                    ? 'text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]'
+                                                    }`}
+                                            >
+                                                PT. SAMUDRA JAYA ANDALAS
+                                            </span>
+                                            <span
+                                                className={`truncate text-[9px] font-medium transition-colors ${isTransparent
+                                                    ? 'text-blue/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]'
                                                     : 'text-[#52658E] dark:text-[#94A3B8]'
-                                            }`}
-                                        >
-                                            Ship Agency Management System
+                                                    }`}
+                                            >
+                                                Ship Agency Management System
+                                            </span>
                                         </span>
-                                    </span>
                                     </Link>
                                 </div>
 
                                 <div className="flex items-center gap-1.5">
                                     <Link
                                         href="/requests"
-                                        className={`relative flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                                            isTransparent
-                                                ? 'text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] hover:bg-white/10 focus-visible:outline-white'
-                                                : 'text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                                  'hover:text-[#0060F4] ' +
-                                                  'dark:hover:text-[#38BDF8] ' +
-                                                  'hover:bg-[#E0F0FF] ' +
-                                                  'dark:hover:bg-[#152E52] ' +
-                                                  'focus-visible:outline-[#0060F4]'
-                                        }`}
+                                        className={`relative flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent
+                                            ? 'text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] hover:bg-white/10 focus-visible:outline-white'
+                                            : 'text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                                            'hover:text-[#0060F4] ' +
+                                            'dark:hover:text-[#38BDF8] ' +
+                                            'hover:bg-[#E0F0FF] ' +
+                                            'dark:hover:bg-[#152E52] ' +
+                                            'focus-visible:outline-[#0060F4]'
+                                            }`}
                                         aria-label="Buka pengajuan dan notifikasi"
                                     >
                                         <Bell aria-hidden="true" className="size-5" strokeWidth={2} />
@@ -275,20 +272,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
                                     <Link
                                         href="/profile"
-                                        className={`flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                                            isTransparent
-                                                ? 'focus-visible:outline-white'
-                                                : 'hover:bg-[#E0F0FF] focus-visible:outline-[#0060F4] dark:hover:bg-[#152E52]'
-                                        }`}
+                                        className={`flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent
+                                            ? 'focus-visible:outline-white'
+                                            : 'hover:bg-[#E0F0FF] focus-visible:outline-[#0060F4] dark:hover:bg-[#152E52]'
+                                            }`}
                                         aria-label={`Buka profil ${user?.name || 'pengguna'}`}
                                         aria-current={url.startsWith('/profile') ? 'page' : undefined}
                                     >
                                         <span
-                                            className={`flex size-8 items-center justify-center rounded-full text-[10px] font-extrabold shadow-sm ${
-                                                isTransparent
-                                                    ? 'bg-white text-[#0B1F63] ring-2 ring-white/40'
-                                                    : 'bg-[#E0F0FF] text-[#0B1F63] ring-1 ring-[#DCEAF8] dark:bg-[#152E52] dark:text-[#F1F5F9] dark:ring-[#1E3A5F]'
-                                            }`}
+                                            className={`flex size-8 items-center justify-center rounded-full text-[10px] font-extrabold shadow-sm ${isTransparent
+                                                ? 'bg-white text-[#0B1F63] ring-2 ring-white/40'
+                                                : 'bg-[#E0F0FF] text-[#0B1F63] ring-1 ring-[#DCEAF8] dark:bg-[#152E52] dark:text-[#F1F5F9] dark:ring-[#1E3A5F]'
+                                                }`}
                                         >
                                             {initials}
                                         </span>
@@ -338,13 +333,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </AnimatePresence>
 
                 {/* Content Container with Framer Motion Page Transition */}
-                <main id="main-content" tabIndex={-1} aria-busy={isNavigating} className={`flex-1 ${mobileBackgroundClass}`}>
+                <main id="main-content" tabIndex={-1} aria-busy={isNavigating} className={`min-w-0 flex-1 wrap-anywhere ${mobileBackgroundClass}`}>
                     <div
-                        className={`${
-                            noPaddingMobile || transparentMobileHeader || hideMobileHeader
-                                ? 'p-0 md:p-6 lg:p-7'
-                                : 'p-4 pb-0 md:p-6 lg:p-7'
-                        }`}
+                        className={`${noPaddingMobile || transparentMobileHeader || hideMobileHeader
+                            ? 'p-0 md:p-6 lg:p-7'
+                            : 'p-4 pb-0 md:p-6 lg:p-7'
+                            }`}
                     >
                         <AnimatePresence mode="wait" initial={false}>
                             <motion.div
@@ -361,7 +355,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </main>
 
                 {/* Mobile Bottom Navigation */}
-                <MobileBottomNavigation />
+                <RoleMobileBottomNavigation />
             </div>
         </div>
     );

@@ -21,6 +21,7 @@ import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import Table from '../../Components/tables/Table';
 import AppLayout from '../../Layouts/AppLayout';
 import type { PageProps } from '../../types';
 
@@ -166,11 +167,7 @@ export default function WorkOrdersIndex({ workOrders, stats, filters, canCreate 
     };
 
     const detailHref = (item: WorkOrder) => {
-        if (!item.ship?.id) {
-            return null;
-        }
-
-        return `/vessels/${item.ship.id}${item.port_call?.id ? `?visit=${item.port_call.id}` : ''}`;
+        return route('work-orders.detail', item.id);
     };
 
     return (
@@ -337,7 +334,7 @@ export default function WorkOrdersIndex({ workOrders, stats, filters, canCreate 
                             <ClipboardList aria-hidden="true" className="size-7" />
                         </div>
                         <div className="max-w-md">
-                            <h2 className="text-balance font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Belum ada SPK pada filter ini</h2>
+                            <h2 className="text-balance font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Data Tidak Ditemukan</h2>
                             <p className="mt-1 text-pretty text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">
                                 Ubah filter pencarian atau catat SPK baru ketika dokumen klien diterima.
                             </p>
@@ -383,7 +380,7 @@ export default function WorkOrdersIndex({ workOrders, stats, filters, canCreate 
                                         <div className="flex flex-wrap gap-2 border-t border-[#DCEAF8] pt-3 dark:border-[#1E3A5F]">
                                             {href && (
                                                 <Link href={href} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] px-3 text-xs font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#132847]">
-                                                    Lihat job
+                                                    Lihat riwayat
                                                     <ArrowRight aria-hidden="true" className="size-4" />
                                                 </Link>
                                             )}
@@ -404,66 +401,59 @@ export default function WorkOrdersIndex({ workOrders, stats, filters, canCreate 
                             })}
                         </div>
 
-                        <Card className="hidden overflow-hidden md:block">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-[#F0F8FF] text-xs text-[#082870] dark:bg-[#102642] dark:text-[#B5C8DC]">
-                                        <tr>
-                                            <th scope="col" className="px-4 py-3 font-bold">SPK / Kegiatan</th>
-                                            <th scope="col" className="px-4 py-3 font-bold">Kapal & Perusahaan</th>
-                                            <th scope="col" className="px-4 py-3 font-bold">Kunjungan</th>
-                                            <th scope="col" className="px-4 py-3 font-bold">Penanggung Jawab</th>
-                                            <th scope="col" className="px-4 py-3 font-bold">Status</th>
-                                            <th scope="col" className="px-4 py-3 text-right font-bold">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
-                                        {workOrders.data.map((item) => {
+                        <div className="hidden md:block">
+                            <Table<WorkOrder>
+                                data={workOrders.data}
+                                keyExtractor={(item) => item.id}
+                                compact
+                                minWidth="1160px"
+                                emptyMessage="Data Tidak Ditemukan"
+                                columns={[
+                                    {
+                                        key: 'spk',
+                                        header: 'SPK / kegiatan',
+                                        width: '240px',
+                                        render: (item) => (
+                                            <div>
+                                                <Link href={detailHref(item)} prefetch className="font-bold text-[#0B1F63] hover:text-[#0060F4] dark:text-white" translate="no">{item.system_number}</Link>
+                                                <p className="mt-0.5 text-xs text-[#52658E]" translate="no">{item.client_number}</p>
+                                                <p className="mt-1 line-clamp-1 text-xs text-[#52658E]">{item.items?.[0]?.name || '-'}</p>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        key: 'ship',
+                                        header: 'Kapal & perusahaan',
+                                        width: '210px',
+                                        render: (item) => <div><p className="font-semibold">{item.ship?.name || '-'}</p><p className="mt-0.5 text-xs text-[#52658E]">{item.company?.name || '-'}</p></div>,
+                                    },
+                                    {
+                                        key: 'visit',
+                                        header: 'Kunjungan',
+                                        width: '220px',
+                                        render: (item) => <div><p>{item.port_call?.job_number || item.port?.name || '-'}</p><p className="mt-0.5 text-xs tabular-nums text-[#52658E]">ETA {formatDate(item.planned_eta_at)}</p></div>,
+                                    },
+                                    { key: 'assignee', header: 'Penanggung jawab', width: '160px', render: (item) => item.assignee?.name || '-' },
+                                    { key: 'status', header: 'Status', width: '140px', render: (item) => <StatusBadge status={statusLabels[item.status] || item.status} /> },
+                                    {
+                                        key: 'actions',
+                                        header: 'Aksi',
+                                        width: '220px',
+                                        align: 'right',
+                                        render: (item) => {
                                             const href = detailHref(item);
-
                                             return (
-                                                <tr key={item.id} className="bg-white hover:bg-[#F8FBFF] dark:bg-[#0C1D36] dark:hover:bg-[#102642]">
-                                                    <td className="px-4 py-3">
-                                                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">{item.system_number}</p>
-                                                        <p className="max-w-56 truncate text-xs text-[#52658E]" translate="no">{item.client_number}</p>
-                                                        <p className="mt-1 max-w-56 truncate text-xs text-[#52658E]">{item.items?.[0]?.name || '-'}</p>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <p className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{item.ship?.name || '-'}</p>
-                                                        <p className="max-w-48 truncate text-xs text-[#52658E]">{item.company?.name || '-'}</p>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <p className="text-[#0B1F63] dark:text-[#F1F5F9]">{item.port_call?.job_number || item.port?.name || '-'}</p>
-                                                        <p className="text-xs tabular-nums text-[#52658E]">ETA {formatDate(item.planned_eta_at)}</p>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-[#52658E]">{item.assignee?.name || '-'}</td>
-                                                    <td className="px-4 py-3"><StatusBadge status={statusLabels[item.status] || item.status} /></td>
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex justify-end gap-2">
-                                                            {href && (
-                                                                <Link aria-label={`Lihat job ${item.system_number}`} href={href} className="flex size-11 items-center justify-center rounded-xl border border-[#DCEAF8] text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#132847]">
-                                                                    <ArrowRight aria-hidden="true" className="size-4" />
-                                                                </Link>
-                                                            )}
-                                                            {item.document_path && (
-                                                                <a aria-label={`Unduh dokumen ${item.system_number}`} className="flex size-11 items-center justify-center rounded-xl border border-[#DCEAF8] text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#132847]" href={`/work-orders/${item.id}/document`}>
-                                                                    <Download aria-hidden="true" className="size-4" />
-                                                                </a>
-                                                            )}
-                                                            {item.can_transition && item.next_status && (
-                                                                <Button size="sm" onClick={() => { setTransitionError(null); setSelectedTransition(item); }}>
-                                                                    {transitionLabels[item.next_status]}
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
+                                                <div className="flex justify-end gap-2">
+                                                    {href && <Link aria-label={`Lihat riwayat ${item.system_number}`} href={href} prefetch className="flex size-9 items-center justify-center rounded-[10px] border border-[#DCEAF8] text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F]"><ArrowRight aria-hidden="true" className="size-4" /></Link>}
+                                                    {item.document_path && <a aria-label={`Unduh dokumen ${item.system_number}`} className="flex size-9 items-center justify-center rounded-[10px] border border-[#DCEAF8] text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F]" href={`/work-orders/${item.id}/document`}><Download aria-hidden="true" className="size-4" /></a>}
+                                                    {item.can_transition && item.next_status && <Button size="sm" onClick={() => { setTransitionError(null); setSelectedTransition(item); }}>{transitionLabels[item.next_status]}</Button>}
+                                                </div>
                                             );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </Card>
+                                        },
+                                    },
+                                ]}
+                            />
+                        </div>
                     </>
                 )}
 

@@ -13,7 +13,7 @@ class UpdateFundingWorkflowRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return $this->user() !== null && ! $this->user()->isOwner();
     }
 
     /**
@@ -40,10 +40,15 @@ class UpdateFundingWorkflowRequest extends FormRequest
             'destination_account' => ['nullable', 'required_if:action,record_receipt', 'string', 'max:255'],
             'reference_number' => ['nullable', 'required_if:action,record_receipt,record_payment', 'string', 'max:100'],
             'amount' => ['nullable', 'required_if:action,record_receipt,record_payment', 'numeric', 'min:1'],
-            'payment_destination' => ['nullable', 'required_if:action,record_payment', Rule::in(['vendor', 'operational'])],
-            'cost_document_id' => ['nullable', 'required_if:payment_destination,vendor', 'uuid', 'exists:cost_documents,id'],
+            'payment_destination' => ['nullable', 'required_if:action,record_payment', Rule::in(['operational'])],
             'recipient' => ['nullable', 'required_if:action,record_payment', 'string', 'max:255'],
-            'beneficiary_user_id' => ['nullable', 'required_if:payment_destination,operational', 'integer', 'exists:users,id'],
+            'beneficiary_user_id' => [
+                'nullable',
+                Rule::requiredIf(fn (): bool => $this->input('action') === 'record_payment'
+                    && $this->input('payment_destination') === 'operational'),
+                'integer',
+                'exists:users,id',
+            ],
             'payment_date' => ['nullable', 'required_if:action,record_payment', 'date'],
             'actual_amount' => ['nullable', 'required_if:action,submit_usage', 'numeric', 'min:0'],
             'remaining_amount' => ['nullable', 'required_if:action,submit_usage', 'numeric', 'min:0'],

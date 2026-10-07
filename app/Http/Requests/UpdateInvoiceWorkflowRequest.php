@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateInvoiceWorkflowRequest extends FormRequest
 {
@@ -11,7 +12,7 @@ class UpdateInvoiceWorkflowRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isOperationalAdmin() || $this->user()?->isOwner();
+        return $this->user()?->isOperationalAdmin() ?? false;
     }
 
     /**
@@ -23,7 +24,14 @@ class UpdateInvoiceWorkflowRequest extends FormRequest
     {
         return [
             'action' => ['required', 'in:release,mark_sent'],
-            'document' => ['required_if:action,release', 'nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'document_source' => ['nullable', 'required_if:action,release', 'in:upload,generated'],
+            'document' => [
+                Rule::requiredIf(fn (): bool => $this->input('action') === 'release' && $this->input('document_source') === 'upload'),
+                'nullable',
+                'file',
+                'mimes:pdf,jpg,jpeg,png',
+                'max:10240',
+            ],
             'delivery_proof' => ['required_if:action,mark_sent', 'nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ];
     }

@@ -1,380 +1,363 @@
-import React, { useState } from 'react';
-import { Head, Link, router, useForm } from '@inertiajs/react';
-import { motion, Variants } from 'framer-motion';
+import React, { useMemo, useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
+import { ArrowRight, CalendarDays, FilePlus2, FileText, MapPin, Search, Ship, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
-import Card from '../../Components/ui/Card';
-import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
-import Modal from '../../Components/overlays/Modal';
-import Input from '../../Components/forms/Input';
-import Select from '../../Components/selects/Select';
-import Textarea from '../../Components/forms/Textarea';
-import Checkbox from '../../Components/forms/Checkbox';
-import { playSjaChime } from '../../Components/feedback/AudioNotification';
-import MobilePageHero from '../../Components/navigation/MobilePageHero';
-import FilterBar from '../../Components/filters/FilterBar';
-
-const containerVariants: Variants = {
-    hidden: { opacity: 0 },
-    visible: {
-        opacity: 1,
-        transition: {
-            staggerChildren: 0.05,
-            delayChildren: 0.02,
-        },
-    },
-};
-
-const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 12 },
-    visible: {
-        opacity: 1,
-        y: 0,
-        transition: { duration: 0.28, ease: 'easeOut' },
-    },
-};
-
-interface Ship {
-    id: string;
-    name: string;
-    imo_number: string;
-    ship_type?: string;
-    status: string;
-    agent_name?: string;
-    image?: string;
-    company?: {
-        id: string;
-        name: string;
-    };
-}
+import Tabs from '../../Components/ui/Tabs';
+import Table, { Column } from '../../Components/tables/Table';
+import ShipImage from '../../Components/vessels/ShipImage';
 
 interface RequestItem {
     id: string;
-    item_name: string;
-    unit?: string;
     quantity: number | string;
-    required_date?: string;
-    required_time?: string;
     hpp_price?: number | string;
     selling_price?: number | string;
     status: string;
     director_status?: string;
-    director_notes?: string;
-    is_urgent: boolean;
-    is_invoiced?: boolean;
-    notes?: string;
-    vendor?: {
-        id: string;
-        name: string;
-    };
-    product?: {
-        id: string;
-        name: string;
-        item_type: 'jasa' | 'non_jasa';
-        category: string;
-    };
 }
 
 interface ShipRequest {
     id: string;
     request_number: string;
-    ship_id: string;
     status: string;
     request_date: string;
-    notes?: string;
     created_at: string;
-    service_type?: string;
-    ship?: Ship;
-    company?: {
+    ship?: {
         id: string;
         name: string;
+        image?: string | null;
+        company?: { name: string };
     };
-    port?: {
+    company?: { name: string };
+    port?: { name: string };
+    port_call?: {
         id: string;
-        name: string;
-        code: string;
+        job_number?: string;
+        status?: string;
+        eta_at?: string;
+        port?: { name: string };
+        work_order?: { system_number: string };
     };
     items?: RequestItem[];
-    invoices?: Array<{
+}
+
+interface PortCall {
+    id: string;
+    job_number: string;
+    status?: string;
+    eta_at?: string;
+    created_at?: string;
+    updated_at?: string;
+    ship?: {
         id: string;
-        invoice_number: string;
-        invoice_type: string;
-        grand_total: number;
-        status: string;
-    }>;
-    creator?: {
-        id: number;
         name: string;
-        role?: string;
+        image?: string | null;
+        company?: { name: string };
     };
+    port?: { name: string };
+    work_order?: { system_number: string };
 }
 
 interface RequestsIndexProps {
     requests: ShipRequest[];
-    ships: Ship[];
-    products?: Array<{
-        id: string;
-        code: string;
-        name: string;
-        unit: string;
-        item_type: 'jasa' | 'non_jasa';
-        selling_price_default: number | string;
-        hpp_default: number | string;
-    }>;
+    portCalls?: PortCall[];
     counts: {
         semua?: number;
         menunggu?: number;
         diproses?: number;
         selesai?: number;
-        aktif?: number;
-        riwayat?: number;
     };
     activeTab: string;
     search: string;
+    capabilities?: {
+        can_review_prices: boolean;
+        can_decide_items: boolean;
+        can_view_hpp: boolean;
+        can_create_requests: boolean;
+        can_process_requests: boolean;
+    };
 }
 
-const NEED_TYPES = [
-    {
-        id: 'Air (Fresh Water)',
-        label: 'Air (Fresh Water)',
-        icon: '💧',
-        desc: 'Suplai air tawar untuk awak dan kapal',
-    },
-    {
-        id: 'Perahu',
-        label: 'Perahu',
-        icon: '⛵',
-        desc: 'Kapal motor / boat penyeberangan antar dermaga',
-    },
-    {
-        id: 'Crew Transport',
-        label: 'Crew Transport',
-        icon: '👥',
-        desc: 'Antar jemput kru kapal dari darat ke laut',
-    },
-    {
-        id: 'Clearance',
-        label: 'Clearance',
-        icon: '📋',
-        desc: 'Dokumen izin sandar, bea cukai, karantina',
-    },
-    {
-        id: 'Bahan Bakar (Fuel Surcharge)',
-        label: 'Bahan Bakar (Fuel Surcharge)',
-        icon: '⛽',
-        desc: 'Bunkering BBM MGO/HFO kapal',
-    },
-    {
-        id: 'Lainnya',
-        label: 'Lainnya',
-        icon: '•••',
-        desc: 'Perbekalan, suku cadang, logistik darurat',
-    },
-];
+interface JobRow {
+    key: string;
+    jobNumber: string;
+    shipName: string;
+    shipImage?: string | null;
+    companyName: string;
+    portName: string;
+    requests: ShipRequest[];
+    totalItems: number;
+    totalHpp: number;
+    totalSelling: number;
+    status: string;
+    updatedAt: string;
+    isNew: boolean;
+}
 
-const UNITS = ['Ton', 'Unit', 'Orang', 'Paket', 'Liter', 'Set'];
+const DEFAULT_CAPABILITIES = {
+    can_review_prices: false,
+    can_decide_items: false,
+    can_view_hpp: false,
+    can_create_requests: false,
+    can_process_requests: false,
+};
 
-const formatRupiah = (val?: string | number): string => {
-    if (val === undefined || val === null || val === '') return 'Rp 0';
-    const num = typeof val === 'string' ? parseFloat(val) : val;
-    if (isNaN(num)) return 'Rp 0';
-    return new Intl.NumberFormat('id-ID', {
+const formatCurrency = (value: number): string =>
+    new Intl.NumberFormat('id-ID', {
         style: 'currency',
         currency: 'IDR',
-        minimumFractionDigits: 0,
         maximumFractionDigits: 0,
-    }).format(num);
+    }).format(value);
+
+const formatDate = (value?: string): string => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(date);
 };
 
-const formatDate = (dateStr?: string): string => {
-    if (!dateStr) return '-';
-    try {
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return dateStr;
-        return d.toLocaleDateString('id-ID', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-        });
-    } catch {
-        return dateStr;
-    }
-};
+const normalizeStatus = (status?: string): string => (status || '').trim().toLowerCase();
 
-const formatDateTime = (dateStr?: string | null): string => {
-    if (!dateStr) return '12 Januari 2026, 10:24';
-    try {
-        const d = new Date(dateStr);
-        if (isNaN(d.getTime())) return dateStr;
-        return d.toLocaleDateString('id-ID', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    } catch {
-        return dateStr;
-    }
+const statusPriority = (status: string): number => {
+    const normalized = normalizeStatus(status);
+    if (normalized.includes('tolak')) return 5;
+    if (normalized.includes('menunggu')) return 4;
+    if (normalized.includes('setuju')) return 3;
+    if (normalized.includes('proses')) return 2;
+    return 1;
 };
 
 export default function RequestsIndex({
     requests,
-    ships = [],
-    products = [],
-    counts = { semua: 0, menunggu: 0, diproses: 0, selesai: 0, aktif: 0, riwayat: 0 },
-    activeTab = 'semua',
-    search = '',
+    portCalls = [],
+    counts,
+    activeTab,
+    search: initialSearch,
+    capabilities = DEFAULT_CAPABILITIES,
 }: RequestsIndexProps) {
-    const [searchTerm, setSearchTerm] = useState(search);
-    const [filterModalOpen, setFilterModalOpen] = useState(false);
-    const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    const [search, setSearch] = useState(initialSearch);
 
-    // Modal Wizard State
-    const [wizardOpen, setWizardOpen] = useState(false);
-    const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-    const [shipSearch, setShipSearch] = useState('');
-    const [needSearch, setNeedSearch] = useState('');
-    const [confirmedAgree, setConfirmedAgree] = useState(false);
+    const requestNeedsAction = (request: ShipRequest): boolean => {
+        const status = normalizeStatus(request.status);
+        const items = request.items || [];
 
-    // Detail & Action States
-    const [detailRequest, setDetailRequest] = useState<ShipRequest | null>(null);
-    const [successModalData, setSuccessModalData] = useState<{
-        reqNumber: string;
-        date: string;
-    } | null>(null);
-    const [actionSheetRequest, setActionSheetRequest] = useState<ShipRequest | null>(null);
-
-    // Add Susulan Item State
-    const [showAddItemForm, setShowAddItemForm] = useState(false);
-    const [newItemName, setNewItemName] = useState('');
-    const [newItemProductId, setNewItemProductId] = useState('');
-    const [newItemQty, setNewItemQty] = useState('1');
-    const [newItemUnit, setNewItemUnit] = useState('Unit');
-    const [newItemNotes, setNewItemNotes] = useState('');
-    const [newItemUrgent, setNewItemUrgent] = useState(false);
-    const [submittingItem, setSubmittingItem] = useState(false);
-
-    const handleProductSelect = (pId: string) => {
-        setNewItemProductId(pId);
-        const prod = products.find((p) => p.id === pId);
-        if (prod) {
-            setNewItemName(prod.name);
-            setNewItemUnit(prod.unit || 'Unit');
+        if (capabilities.can_decide_items) {
+            return (
+                status === 'menunggu approval direktur' ||
+                items.some(
+                    (item) =>
+                        normalizeStatus(item.status).includes('direktur') &&
+                        (!item.director_status || item.director_status === 'pending')
+                )
+            );
         }
-    };
 
-    const handleAddNewItem = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!detailRequest || !newItemName) return;
-        setSubmittingItem(true);
-        router.post(
-            `/requests/${detailRequest.id}/items`,
-            {
-                item_name: newItemName,
-                product_id: newItemProductId || undefined,
-                quantity: parseFloat(newItemQty) || 1,
-                unit: newItemUnit,
-                notes: newItemNotes,
-                is_urgent: newItemUrgent,
-            },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    setShowAddItemForm(false);
-                    setNewItemName('');
-                    setNewItemProductId('');
-                    setNewItemQty('1');
-                    setNewItemNotes('');
-                    setNewItemUrgent(false);
-                    setSubmittingItem(false);
-                    playSjaChime('success');
-                },
-                onError: () => {
-                    setSubmittingItem(false);
-                },
-            }
-        );
-    };
-
-    // Wizard Form Data
-    const { data, setData, post, processing, reset } = useForm({
-        ship_id: '',
-        need_type: 'Air (Fresh Water)',
-        quantity: 8,
-        unit: 'Ton',
-        required_at: '2026-01-12 14:00',
-        notes: 'Kebutuhan air kapal saat labuh di Pelabuhan Gresik.',
-    });
-
-    const selectedShip = ships.find((s) => s.id === data.ship_id);
-
-    const handleSearch = () => {
-        router.get('/requests', { tab: activeTab, search: searchTerm }, { preserveState: true });
-    };
-
-    const handleTabChange = (tab: string) => {
-        router.get('/requests', { tab, search: searchTerm }, { preserveState: true });
-    };
-
-    const handleOpenWizard = (preselectedShipId?: string) => {
-        if (preselectedShipId) {
-            setData('ship_id', preselectedShipId);
-            setStep(2);
-        } else {
-            setData('ship_id', ships[0]?.id || '');
-            setStep(1);
+        if (capabilities.can_review_prices || capabilities.can_process_requests) {
+            return (
+                ['menunggu approval', 'disetujui', 'disetujui sebagian'].includes(status) ||
+                items.some((item) => item.director_status === 'rejected')
+            );
         }
-        setConfirmedAgree(false);
-        setWizardOpen(true);
+
+        if (capabilities.can_create_requests) {
+            return status === 'ditolak' || items.some((item) => item.director_status === 'rejected');
+        }
+
+        return false;
     };
 
-    const handleNextStep = () => {
-        if (step === 1 && !data.ship_id) return;
-        if (step === 2 && !data.need_type) return;
-        if (step < 4) setStep((prev) => (prev + 1) as 1 | 2 | 3 | 4);
-    };
+    const rows = useMemo<JobRow[]>(() => {
+        const groups = new Map<string, JobRow>();
 
-    const handlePrevStep = () => {
-        if (step > 1) setStep((prev) => (prev - 1) as 1 | 2 | 3 | 4);
-    };
-
-    const handleSubmitWizard = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!confirmedAgree) return;
-
-        post('/requests', {
-            preserveScroll: true,
-            onSuccess: () => {
-                const nowStr = new Date().toLocaleString('id-ID', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                });
-                setSuccessModalData({
-                    reqNumber: 'REQ-' + Math.floor(10000 + Math.random() * 90000),
-                    date: nowStr,
-                });
-                setWizardOpen(false);
-                reset();
-                setStep(1);
-            },
+        portCalls.forEach((portCall) => {
+            groups.set(portCall.id, {
+                key: portCall.id,
+                jobNumber: portCall.job_number || portCall.work_order?.system_number || '-',
+                shipName: portCall.ship?.name || 'Kapal belum ditentukan',
+                shipImage: portCall.ship?.image,
+                companyName: portCall.ship?.company?.name || '-',
+                portName: portCall.port?.name || '-',
+                requests: [],
+                totalItems: 0,
+                totalHpp: 0,
+                totalSelling: 0,
+                status: 'Belum Ada Pengajuan',
+                updatedAt: portCall.updated_at || portCall.eta_at || portCall.created_at || '',
+                isNew: capabilities.can_create_requests,
+            });
         });
+
+        requests.forEach((request) => {
+            const key = request.port_call?.id || request.port_call?.job_number || request.id;
+            const existing = groups.get(key);
+            const items = request.items || [];
+            const updatedAt = request.created_at || request.request_date;
+            const requestHpp = items.reduce(
+                (total, item) => total + Number(item.hpp_price || 0) * Number(item.quantity || 0),
+                0
+            );
+            const requestSelling = items.reduce(
+                (total, item) =>
+                    total + Number(item.selling_price || 0) * Number(item.quantity || 0),
+                0
+            );
+
+            if (!existing) {
+                groups.set(key, {
+                    key,
+                    jobNumber:
+                        request.port_call?.job_number ||
+                        request.port_call?.work_order?.system_number ||
+                        request.request_number,
+                    shipName: request.ship?.name || 'Kapal belum ditentukan',
+                    shipImage: request.ship?.image,
+                    companyName: request.company?.name || request.ship?.company?.name || '-',
+                    portName: request.port_call?.port?.name || request.port?.name || '-',
+                    requests: [request],
+                    totalItems: items.length,
+                    totalHpp: requestHpp,
+                    totalSelling: requestSelling,
+                    status: request.status,
+                    updatedAt,
+                    isNew: requestNeedsAction(request),
+                });
+                return;
+            }
+
+            const hadRequests = existing.requests.length > 0;
+            existing.requests.push(request);
+            existing.totalItems += items.length;
+            existing.totalHpp += requestHpp;
+            existing.totalSelling += requestSelling;
+            existing.isNew = hadRequests
+                ? existing.isNew || requestNeedsAction(request)
+                : requestNeedsAction(request);
+
+            if (!hadRequests || statusPriority(request.status) > statusPriority(existing.status)) {
+                existing.status = request.status;
+            }
+            if (new Date(updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+                existing.updatedAt = updatedAt;
+            }
+        });
+
+        return Array.from(groups.values()).sort((a, b) => {
+            if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
+            return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        });
+    }, [requests, portCalls, capabilities]);
+
+    const columns = useMemo<Column<JobRow>[]>(
+        () => [
+            {
+                key: 'job',
+                header: 'Job / Kapal',
+                width: '260px',
+                render: (row) => (
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-mono text-xs font-bold text-[#0060F4]">
+                                {row.jobNumber}
+                            </span>
+                            {row.isNew && (
+                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                    Baru
+                                </span>
+                            )}
+                        </div>
+                        <p className="mt-1 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            {row.shipName}
+                        </p>
+                    </div>
+                ),
+            },
+            {
+                key: 'location',
+                header: 'Klien / Pelabuhan',
+                width: '240px',
+                render: (row) => (
+                    <div className="space-y-1">
+                        <p className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            {row.companyName}
+                        </p>
+                        <p className="text-[#52658E] dark:text-[#94A3B8]">{row.portName}</p>
+                    </div>
+                ),
+            },
+            {
+                key: 'requests',
+                header: 'Pengajuan',
+                width: '130px',
+                render: (row) => (
+                    <div className="whitespace-nowrap">
+                        <strong>{row.requests.length}</strong> surat · <strong>{row.totalItems}</strong>{' '}
+                        item
+                    </div>
+                ),
+            },
+            {
+                key: 'status',
+                header: 'Status',
+                width: '180px',
+                render: (row) => (
+                    <StatusBadge status={row.status} label={row.status} size="sm" showDot />
+                ),
+            },
+            {
+                key: 'value',
+                header: capabilities.can_view_hpp ? 'HPP / Jual' : 'Nilai Jual',
+                align: 'right',
+                width: '190px',
+                render: (row) => (
+                    <div className="whitespace-nowrap font-mono tabular-nums">
+                        {capabilities.can_view_hpp && (
+                            <p className="text-[#52658E]">{formatCurrency(row.totalHpp)}</p>
+                        )}
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            {formatCurrency(row.totalSelling)}
+                        </p>
+                    </div>
+                ),
+            },
+            {
+                key: 'updated',
+                header: 'Diperbarui',
+                width: '150px',
+                render: (row) => (
+                    <span className="whitespace-nowrap text-[#52658E] dark:text-[#94A3B8]">
+                        {formatDate(row.updatedAt)}
+                    </span>
+                ),
+            },
+            {
+                key: 'action',
+                header: 'Aksi',
+                align: 'right',
+                width: '110px',
+                render: (row) => (
+                    <Link
+                        href={route('requests.detail', row.jobNumber)}
+                        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] bg-white px-3 font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                        aria-label={`Buka ${row.jobNumber}`}
+                    >
+                        Buka <ArrowRight aria-hidden="true" className="size-3.5" />
+                    </Link>
+                ),
+            },
+        ],
+        [capabilities.can_view_hpp]
+    );
+
+    const visit = (tab = activeTab, query = search): void => {
+        router.get('/requests', { tab, search: query || undefined }, { preserveState: true });
     };
-
-    const filteredShips = ships.filter(
-        (s) =>
-            s.name.toLowerCase().includes(shipSearch.toLowerCase()) ||
-            s.imo_number?.toLowerCase().includes(shipSearch.toLowerCase())
-    );
-
-    const filteredNeedTypes = NEED_TYPES.filter((n) =>
-        n.label.toLowerCase().includes(needSearch.toLowerCase())
-    );
 
     return (
         <AppLayout
@@ -383,1396 +366,272 @@ export default function RequestsIndex({
             noPaddingMobile
             mobileBackground="surface"
         >
-            <Head title="Pengajuan — PT Samudra Jaya Andalas" />
+            <Head title="Pengajuan - PT Samudra Jaya Andalas" />
 
-            <MobilePageHero
-                title="Pengajuan"
-                description="Kelola seluruh pengajuan kapal dan pantau progresnya dalam satu tempat."
-            />
-
-            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-2.5 rounded-t-[28px] bg-white pb-3 pt-4 dark:bg-[#0C1D36] sm:space-y-3.5 md:mt-0 md:min-h-0 md:rounded-none md:bg-transparent md:pt-0 md:dark:bg-transparent">
-                {/* ── Title Header & CTA Button matching Image 2 Screen 1 ── */}
-                <div className="hidden flex-col gap-3 px-4 pt-3 md:flex md:flex-row md:items-center md:justify-between md:px-0 md:pt-0">
-                    <div>
-                        <h1 className="text-2xl font-black text-[#0B1F63] dark:text-white tracking-tight">
+            <div className="md:hidden">
+                <div className="mobile-photo-copy relative flex min-h-[200px] w-full flex-col justify-end overflow-hidden bg-[#8FCDF4] px-4 pb-8 pt-20 text-white">
+                    <img
+                        src="/images/prima-banner.jpg"
+                        alt="Pelabuhan dan kapal PT Samudra Jaya Andalas"
+                        width={1280}
+                        height={720}
+                        fetchPriority="high"
+                        className="absolute inset-0 size-full object-cover object-[center_35%]"
+                    />
+                    <div className="relative z-10">
+                        <h1 className="text-balance text-[28px] font-extrabold leading-tight text-white">
                             Pengajuan
                         </h1>
-                        <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
-                            Kelola seluruh pengajuan Anda di sini
+                        <p className="mt-1 text-pretty text-xs font-medium text-white">
+                            Kebutuhan operasional per kunjungan kapal.
                         </p>
                     </div>
+                </div>
 
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
-                        <Link
-                            href="/requests/create"
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#082870] active:scale-[0.99] text-white text-xs sm:text-sm font-bold shadow-xs transition-all cursor-pointer"
+                <div className="relative z-10 -mt-5 rounded-t-[28px] bg-sja-surface px-3.5 pb-10 pt-4 dark:bg-[#071322]">
+                    <div className="flex items-center gap-2">
+                        <form
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                visit();
+                            }}
+                            className="relative min-w-0 flex-1"
                         >
-                            <span className="text-base leading-none font-bold">+</span>
-                            <span>Buat Pengajuan Multi Kapal</span>
-                        </Link>
-                    </div>
-                </div>
-
-                <div className="px-4 md:hidden">
-                    <Link
-                        href="/requests/create"
-                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 py-2.5 text-sm font-bold text-white shadow-xs transition-colors hover:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
-                    >
-                        <span aria-hidden="true" className="text-base font-bold leading-none">
-                            +
-                        </span>
-                        <span>Buat Pengajuan Multi Kapal</span>
-                    </Link>
-                </div>
-
-                <div className="px-4 md:px-0">
-                    <FilterBar
-                        searchValue={searchTerm}
-                        onSearchChange={setSearchTerm}
-                        onSearchSubmit={handleSearch}
-                        searchPlaceholder="Cari nomor pengajuan atau kapal…"
-                        searchAriaLabel="Cari pengajuan"
-                        chips={[
-                            { id: 'semua', label: 'Semua', count: counts.semua ?? requests.length },
-                            { id: 'menunggu', label: 'Menunggu', count: counts.menunggu ?? 0 },
-                            { id: 'diproses', label: 'Diproses', count: counts.diproses ?? 0 },
-                            { id: 'selesai', label: 'Selesai', count: counts.selesai ?? 0 },
-                        ]}
-                        activeChipId={activeTab === 'aktif' ? 'semua' : activeTab}
-                        onChipChange={handleTabChange}
-                        onOpenFilterModal={() => setFilterModalOpen(true)}
-                        filterCountBadge={selectedStatuses.length + Number(Boolean(startDate || endDate))}
-                        filterButtonLabel="Filter"
-                        className="!border-0 !bg-transparent !p-0 !shadow-none dark:!bg-transparent"
-                    />
-                </div>
-
-                {/* ── Request Cards List matching Image 2 Screen 1 ── */}
-                <motion.div
-                    variants={containerVariants}
-                    initial="hidden"
-                    animate="visible"
-                    className="space-y-1.5 px-4 md:px-0"
-                >
-                    {requests.map((req) => {
-                        const statusLower = (req.status || '').toLowerCase();
-                        const isWaiting = statusLower.includes('menunggu') || statusLower.includes('pending');
-                        const isProcessing = statusLower.includes('proses') || statusLower.includes('setuju') || statusLower.includes('disetujui');
-                        const isDone = statusLower.includes('selesai');
-
-                        let badgeBg = 'bg-[#EDF2F7] text-[#526580] border-[#EDF2F7]';
-                        let badgeLabel = req.status || 'Draft';
-
-                        if (isWaiting) {
-                            badgeBg = 'bg-[#FFF0CC] text-[#A65300] border-[#A65300]/20';
-                            badgeLabel = 'Menunggu';
-                        } else if (isProcessing) {
-                            badgeBg = 'bg-[#EFE7FF] text-[#6840BB] border-[#6840BB]/20';
-                            badgeLabel = 'Diproses';
-                        } else if (isDone) {
-                            badgeBg = 'bg-[#DCF7E8] text-[#087443] border-[#087443]/20';
-                            badgeLabel = 'Selesai';
-                        }
-
-                        // Determine ships / items summary
-                        const shipName = req.ship?.name || 'KM BINTANG INDONESIA';
-                        const itemsCount = req.items?.length || 1;
-                        const summaryText = req.notes && req.notes.includes('Kapal')
-                            ? req.notes.split('—')[0].trim()
-                            : `${shipName} • ${itemsCount} Pengajuan Layanan`;
-
-                        return (
-                            <motion.div
-                                key={req.id}
-                                variants={itemVariants}
-                                whileHover={{ y: -2 }}
-                                whileTap={{ scale: 0.995 }}
-                                transition={{ duration: 0.16 }}
-                            >
-                                <Link
-                                    href={route('requests.detail', req.id)}
-                                    className="block rounded-xl sm:rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]"
+                            <Search
+                                aria-hidden="true"
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]"
+                            />
+                            <input
+                                type="search"
+                                name="search"
+                                autoComplete="off"
+                                value={search}
+                                onChange={(event) => setSearch(event.target.value)}
+                                placeholder="Cari job, kapal, atau pengajuan…"
+                                aria-label="Cari pengajuan"
+                                className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-9 pr-10 text-xs text-[#0B1F63] shadow-2xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
+                            />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearch('');
+                                        visit(activeTab, '');
+                                    }}
+                                    className="absolute inset-y-0 right-0 flex w-11 touch-manipulation items-center justify-center rounded-r-xl text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
+                                    aria-label="Hapus pencarian"
                                 >
-                                    <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-xs hover:shadow-md transition-all flex items-center justify-between gap-3 sm:gap-4">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            {/* Document icon in soft blue circle */}
-                                            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-[#E0F0FF] dark:bg-[#132847] text-[#0060F4] dark:text-[#38BDF8] flex items-center justify-center shrink-0 shadow-xs">
-                                                <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                                </svg>
-                                            </div>
+                                    <X aria-hidden="true" className="size-4" />
+                                </button>
+                            )}
+                        </form>
 
-                                            {/* Text Content */}
-                                            <div className="space-y-0.5 min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="font-mono text-[13px] sm:text-sm font-extrabold text-[#0B1F63] dark:text-white tracking-tight">
-                                                        {req.request_number}
-                                                    </span>
-                                                    <span className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold border ${badgeBg}`}>
-                                                        {badgeLabel}
-                                                    </span>
-                                                </div>
+                        {capabilities.can_create_requests && (
+                            <Link
+                                href={route('requests.create')}
+                                prefetch
+                                aria-label="Buat pengajuan"
+                                className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                            >
+                                <FilePlus2 aria-hidden="true" className="size-5" />
+                            </Link>
+                        )}
+                    </div>
 
-                                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium truncate">
-                                                    {summaryText}
-                                                </p>
+                    <Tabs
+                        className="py-1"
+                        ariaLabel="Filter status pengajuan"
+                        activeId={activeTab}
+                        onChange={visit}
+                        items={[
+                            { id: 'semua', label: 'Semua', count: counts.semua || 0 },
+                            { id: 'menunggu', label: 'Menunggu', count: counts.menunggu || 0 },
+                            { id: 'diproses', label: 'Diproses', count: counts.diproses || 0 },
+                            { id: 'selesai', label: 'Selesai', count: counts.selesai || 0 },
+                        ]}
+                    />
 
-                                                <p className="text-[10.5px] text-[#8C9BB9] dark:text-[#64748B]">
-                                                    Diajukan: {formatDateTime(req.created_at)}
-                                                </p>
-                                            </div>
+                    {rows.length > 0 ? (
+                        <div className="space-y-2.5">
+                            {rows.map((row) => (
+                                <Link
+                                    key={row.key}
+                                    href={route('requests.detail', row.jobNumber)}
+                                    prefetch
+                                    aria-label={`Buka pengajuan ${row.jobNumber} untuk ${row.shipName}`}
+                                    className={`group grid min-h-28 touch-manipulation grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-x-3 gap-y-2 rounded-2xl border bg-white p-2.5 shadow-2xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#0C1D36] ${
+                                        row.isNew
+                                            ? 'border-[#0060F4] ring-1 ring-[#0060F4]/15 dark:border-[#38BDF8]'
+                                            : 'border-[#E2EEF9] hover:border-[#0060F4]/40 dark:border-[#1E3A5F]'
+                                    }`}
+                                >
+                                    <ShipImage
+                                        src={row.shipImage}
+                                        alt={`Foto ${row.shipName}`}
+                                        width={112}
+                                        height={112}
+                                        loading="lazy"
+                                        className="size-full min-h-28 rounded-xl border border-[#DCEAF8]/60 object-cover dark:border-[#1E3A5F]"
+                                    />
+
+                                    <div className="min-w-0 space-y-1.5 py-0.5">
+                                        <div className="flex min-w-0 items-start justify-between gap-2">
+                                            <h2 className="min-w-0 break-words text-pretty text-[13.5px] font-bold leading-5 text-[#082870] group-hover:text-[#0060F4] dark:text-[#F1F5F9]">
+                                                {row.shipName}
+                                            </h2>
+                                            {row.isNew && (
+                                                <span className="shrink-0 whitespace-nowrap rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">
+                                                    Baru
+                                                </span>
+                                            )}
                                         </div>
 
-                                        {/* Right Chevron */}
-                                        <div className="text-[#52658E] dark:text-[#94A3B8] shrink-0 pl-1">
-                                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                            </svg>
+                                        <StatusBadge
+                                            status={row.status}
+                                            label={row.status}
+                                            size="sm"
+                                            className="max-w-full shrink-0 whitespace-nowrap"
+                                        />
+
+                                        <div className="flex min-w-0 items-start gap-1 text-[11px] leading-4 text-[#52658E] dark:text-[#94A3B8]">
+                                            <MapPin aria-hidden="true" className="size-3.5 shrink-0 text-[#0060F4]" />
+                                            <span className="min-w-0 break-words">{row.portName}</span>
                                         </div>
+                                        <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                            <CalendarDays aria-hidden="true" className="size-3.5 shrink-0" />
+                                            <span className="tabular-nums">{formatDate(row.updatedAt)}</span>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                            <span><strong className="text-[#082870] dark:text-white">{row.requests.length}</strong> surat</span>
+                                            <span><strong className="text-[#0060F4]">{row.totalItems}</strong> item</span>
+                                            {capabilities.can_view_hpp && (
+                                                <span className="font-semibold tabular-nums text-[#082870] dark:text-white">
+                                                    {formatCurrency(row.totalSelling)}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="col-span-2 flex min-w-0 items-start gap-2 border-t border-[#E2EEF9] px-1 pt-2 dark:border-[#1E3A5F]">
+                                        <span className="shrink-0 text-[10px] font-semibold text-[#8C9BB9] dark:text-[#64748B]">
+                                            Job
+                                        </span>
+                                        <span className="min-w-0 flex-1 break-words font-mono text-[10px] font-bold leading-4 text-[#52658E] dark:text-[#94A3B8]" translate="no">
+                                            {row.jobNumber}
+                                        </span>
+                                        <ArrowRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#0060F4]" />
                                     </div>
                                 </Link>
-                            </motion.div>
-                        );
-                    })}
-                </motion.div>
-
-                {requests.length === 0 && (
-                    <div className="px-4 sm:px-0">
-                        <Card className="p-12 text-center rounded-2xl">
-                            <div className="text-4xl mb-3">📋</div>
-                            <h4 className="text-base font-bold text-[#0B1F63]">
-                                Tidak ada pengajuan ditemukan
-                            </h4>
-                            <p className="text-xs text-[#52658E] mt-1">
-                                {activeTab === 'aktif'
-                                    ? 'Belum ada pengajuan kebutuhan kapal yang sedang aktif saat ini.'
-                                    : 'Belum ada arsip riwayat pengajuan kebutuhan kapal.'}
-                            </p>
-                            <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() => handleOpenWizard()}
-                                className="mt-4"
-                            >
-                                Buat Pengajuan Baru
-                            </Button>
-                        </Card>
-                    </div>
-                )}
-            </div>
-
-            {/* ============================================================ */}
-            {/* 3. FILTER MODAL / BOTTOM SHEET                               */}
-            {/* ============================================================ */}
-            <Modal
-                isOpen={filterModalOpen}
-                onClose={() => setFilterModalOpen(false)}
-                title="Filter Pengajuan"
-                subtitle="Saring pengajuan berdasarkan status dan periode tanggal"
-                size="md"
-                asBottomSheetOnMobile={true}
-                footer={
-                    <div className="flex items-center gap-3 w-full">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="md"
-                            className="flex-1"
-                            onClick={() => {
-                                setSelectedStatuses([]);
-                                setStartDate('');
-                                setEndDate('');
-                                setFilterModalOpen(false);
-                                router.get('/requests');
-                            }}
-                        >
-                            Reset
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="primary"
-                            size="md"
-                            className="flex-1"
-                            onClick={() => setFilterModalOpen(false)}
-                        >
-                            Terapkan
-                        </Button>
-                    </div>
-                }
-            >
-                <div className="space-y-4">
-                    {/* Status Checkboxes */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-[#0B1F63] block">
-                            Status Pengajuan
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {[
-                                'Menunggu Approval',
-                                'Disetujui',
-                                'Dalam Proses',
-                                'Pending',
-                                'Selesai',
-                            ].map((st) => (
-                                <label
-                                    key={st}
-                                    className={
-                                        'flex items-center gap-2.5 text-xs text-[#0B1F63] ' +
-                                        'cursor-pointer p-2 rounded-lg hover:bg-[#F0F8FF] ' +
-                                        'border border-transparent hover:border-[#DCEAF8]'
-                                    }
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedStatuses.includes(st)}
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                setSelectedStatuses([...selectedStatuses, st]);
-                                            } else {
-                                                setSelectedStatuses(
-                                                    selectedStatuses.filter((s) => s !== st)
-                                                );
-                                            }
-                                        }}
-                                        className="w-4 h-4 rounded border-[#DCEAF8] text-[#0060F4] focus:ring-[#0060F4]"
-                                    />
-                                    <span>{st}</span>
-                                </label>
                             ))}
                         </div>
-                    </div>
-
-                    {/* Date Range */}
-                    <div className="space-y-2 pt-2 border-t border-[#DCEAF8]">
-                        <label className="text-xs font-bold text-[#0B1F63] block">
-                            Periode Tanggal
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <Input
-                                label="Dari Tanggal"
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                sizeVariant="sm"
-                            />
-                            <Input
-                                label="Sampai Tanggal"
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                sizeVariant="sm"
-                            />
+                    ) : (
+                        <div className="border-y border-[#DCEAF8] py-10 text-center dark:border-[#1E3A5F]">
+                            <FileText aria-hidden="true" className="mx-auto size-8 text-[#8C9BB9]" />
+                            <p className="mt-3 text-sm font-bold text-[#082870] dark:text-white">Data Tidak Ditemukan</p>
+                            <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">Ubah pencarian atau filter status.</p>
                         </div>
-                    </div>
-                </div>
-            </Modal>
+                    )}
 
-            {/* ============================================================ */}
-            {/* 4-7. 4-STEP WIZARD MODAL (BUAT PENGAJUAN)                     */}
-            {/* ============================================================ */}
-            <Modal
-                isOpen={wizardOpen}
-                onClose={() => setWizardOpen(false)}
-                title={
-                    <div className="flex items-center gap-2">
-                        {step > 1 && (
+                    <p className="mt-4 flex items-center justify-between gap-3 border-t border-[#DCEAF8] pt-3 text-xs text-[#52658E] dark:border-[#1E3A5F] dark:text-[#94A3B8]">
+                        <span>{rows.length} kegiatan ditampilkan</span>
+                        <span>Terbaru lebih dulu</span>
+                    </p>
+                </div>
+            </div>
+
+            <div className="mx-auto hidden max-w-7xl space-y-4 pb-10 md:block">
+                <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <h1 className="text-2xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">
+                            Pengajuan
+                        </h1>
+                        <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">
+                            Antrean kebutuhan per kegiatan kapal.
+                        </p>
+                    </div>
+                    {capabilities.can_create_requests && (
+                        <Link
+                            href={route('requests.create')}
+                            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                        >
+                            <FilePlus2 aria-hidden="true" className="size-4" />
+                            Buat Pengajuan
+                        </Link>
+                    )}
+                </header>
+
+                <section className="space-y-3" aria-label="Filter pengajuan">
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            visit();
+                        }}
+                        className="relative"
+                    >
+                        <Search
+                            aria-hidden="true"
+                            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#0060F4]"
+                        />
+                        <input
+                            type="search"
+                            name="search"
+                            autoComplete="off"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Cari job, kapal, klien, atau nomor pengajuan…"
+                            aria-label="Cari pengajuan"
+                            className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-10 pr-11 text-sm text-[#0B1F63] shadow-xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
+                        />
+                        {search && (
                             <button
                                 type="button"
-                                onClick={handlePrevStep}
-                                className="text-[#52658E] hover:text-[#0060F4] font-bold text-sm mr-1 cursor-pointer"
+                                onClick={() => {
+                                    setSearch('');
+                                    visit(activeTab, '');
+                                }}
+                                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
+                                aria-label="Hapus pencarian"
                             >
-                                &larr;
+                                <X aria-hidden="true" className="size-4" />
                             </button>
                         )}
-                        <span>Buat Pengajuan Kebutuhan Kapal</span>
-                    </div>
-                }
-                subtitle="Langkah mudah pencatatan perbekalan & jasa kapal untuk approval OCC"
-                size="lg"
-                asBottomSheetOnMobile={true}
-                footer={
-                    <div className="flex items-center justify-between gap-3 w-full">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="md"
-                            onClick={step === 1 ? () => setWizardOpen(false) : handlePrevStep}
-                            className="flex-1"
-                        >
-                            {step === 1 ? 'Batal' : 'Kembali'}
-                        </Button>
+                    </form>
 
-                        {step < 4 ? (
-                            <Button
-                                type="button"
-                                variant="primary"
-                                size="md"
-                                onClick={handleNextStep}
-                                className="flex-1"
-                            >
-                                Lanjut
-                            </Button>
-                        ) : (
-                            <Button
-                                type="button"
-                                variant="primary"
-                                size="md"
-                                disabled={!confirmedAgree || processing}
-                                isLoading={processing}
-                                onClick={handleSubmitWizard}
-                                className="flex-1"
-                            >
-                                Ajukan
-                            </Button>
-                        )}
-                    </div>
-                }
-            >
-                <div className="space-y-4">
-                    {/* Stepper Progress Bar */}
-                    <div className="flex items-center justify-between pb-3 border-b border-[#DCEAF8] px-2">
-                        {[
-                            { s: 1, label: 'Kapal' },
-                            { s: 2, label: 'Kebutuhan' },
-                            { s: 3, label: 'Detail' },
-                            { s: 4, label: 'Review' },
-                        ].map((item, idx) => {
-                            const isDone = step > item.s;
-                            const isCurrent = step === item.s;
-                            return (
-                                <React.Fragment key={item.s}>
-                                    <div className="flex flex-col items-center">
-                                        <div
-                                            className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                                                isDone
-                                                    ? 'bg-[#087443] text-white'
-                                                    : isCurrent
-                                                      ? 'bg-[#0060F4] text-white ring-4 ring-[#0060F4]/20'
-                                                      : 'bg-[#EDF2F7] text-[#8C9BB9]'
-                                            }`}
-                                        >
-                                            {isDone ? '✓' : item.s}
-                                        </div>
-                                        <span
-                                            className={`text-[10px] mt-1 font-semibold ${
-                                                isCurrent ? 'text-[#0060F4]' : 'text-[#8C9BB9]'
-                                            }`}
-                                        >
-                                            {item.label}
-                                        </span>
-                                    </div>
-                                    {idx < 3 && (
-                                        <div
-                                            className={`flex-1 h-0.5 mx-1.5 transition-all ${
-                                                step > item.s ? 'bg-[#087443]' : 'bg-[#DCEAF8]'
-                                            }`}
-                                        />
-                                    )}
-                                </React.Fragment>
-                            );
-                        })}
-                    </div>
+                    <Tabs
+                        ariaLabel="Filter status pengajuan"
+                        activeId={activeTab}
+                        onChange={visit}
+                        items={[
+                            { id: 'semua', label: 'Semua', count: counts.semua || 0 },
+                            { id: 'menunggu', label: 'Menunggu', count: counts.menunggu || 0 },
+                            { id: 'diproses', label: 'Diproses', count: counts.diproses || 0 },
+                            { id: 'selesai', label: 'Selesai', count: counts.selesai || 0 },
+                        ]}
+                    />
+                </section>
 
-                    {/* STEP 1: PILIH KAPAL */}
-                    {step === 1 && (
-                        <div className="space-y-3 py-1">
-                            <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">Pilih Kapal</h4>
-                                <p className="text-xs text-[#52658E]">
-                                    Tentukan kapal yang membutuhkan perbekalan atau layanan
-                                    keagenan.
-                                </p>
-                            </div>
+                <Table
+                    columns={columns}
+                    data={rows}
+                    keyExtractor={(row) => row.key}
+                    compact
+                    minWidth="1180px"
+                    emptyIcon={<FileText aria-hidden="true" className="mx-auto size-7" />}
+                    emptyMessage="Data Tidak Ditemukan"
+                    rowClassName={(row) =>
+                        row.isNew
+                            ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]'
+                            : ''
+                    }
+                />
 
-                            <Input
-                                placeholder="Cari nama kapal atau nomor IMO..."
-                                value={shipSearch}
-                                onChange={(e) => setShipSearch(e.target.value)}
-                                sizeVariant="sm"
-                            />
-
-                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                                {filteredShips.map((ship) => {
-                                    const isSelected = data.ship_id === ship.id;
-                                    return (
-                                        <motion.div
-                                            key={ship.id}
-                                            whileHover={{ y: -1 }}
-                                            whileTap={{ scale: 0.99 }}
-                                            onClick={() => {
-                                                setData('ship_id', ship.id);
-                                                setStep(2);
-                                            }}
-                                            className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                                                isSelected
-                                                    ? 'border-[#0060F4] bg-[#E0F0FF]/30 shadow-xs'
-                                                    : 'border-[#DCEAF8] hover:border-[#0060F4]/40 hover:bg-[#F0F8FF]/50'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <img
-                                                    src={ship.image || '/images/vessel-sarana.jpg'}
-                                                    alt={ship.name}
-                                                    className={
-                                                        'w-12 h-10 rounded-lg object-cover ' +
-                                                        'flex-shrink-0 border border-[#DCEAF8]'
-                                                    }
-                                                />
-                                                <div>
-                                                    <h5 className="text-xs font-bold text-[#0B1F63]">
-                                                        {ship.name}
-                                                    </h5>
-                                                    <p className="text-[11px] text-[#52658E]">
-                                                        IMO {ship.imo_number || '-'}
-                                                    </p>
-                                                    <div className="mt-0.5">
-                                                        <StatusBadge
-                                                            status={ship.status}
-                                                            label={ship.status}
-                                                            showDot
-                                                            size="sm"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <span className="text-[#8C9BB9] text-base font-bold">
-                                                &rsaquo;
-                                            </span>
-                                        </motion.div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* STEP 2: PILIH KEBUTUHAN */}
-                    {step === 2 && (
-                        <div className="space-y-3 py-1">
-                            <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">
-                                    Pilih Jenis Kebutuhan
-                                </h4>
-                                <p className="text-xs text-[#52658E]">
-                                    Pilih salah satu kategori kebutuhan yang diminta.
-                                </p>
-                            </div>
-
-                            <Input
-                                placeholder="Cari jenis kebutuhan..."
-                                value={needSearch}
-                                onChange={(e) => setNeedSearch(e.target.value)}
-                                sizeVariant="sm"
-                            />
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
-                                {filteredNeedTypes.map((item) => {
-                                    const isSelected = data.need_type === item.id;
-                                    return (
-                                        <motion.div
-                                            key={item.id}
-                                            whileHover={{ y: -2 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            onClick={() => setData('need_type', item.id)}
-                                            className={`p-3.5 rounded-xl border flex flex-col items-center text-center cursor-pointer transition-all ${
-                                                isSelected
-                                                    ? 'border-[#0060F4] bg-[#E0F0FF]/40 ring-2 ring-[#0060F4]/30'
-                                                    : 'border-[#DCEAF8] hover:border-[#0060F4]/30 hover:bg-[#F0F8FF]'
-                                            }`}
-                                        >
-                                            <div
-                                                className={
-                                                    'w-10 h-10 rounded-full bg-[#E0F0FF] ' +
-                                                    'text-[#0060F4] flex items-center ' +
-                                                    'justify-center text-xl mb-2'
-                                                }
-                                            >
-                                                {item.icon}
-                                            </div>
-                                            <h5 className="text-xs font-bold text-[#0B1F63]">
-                                                {item.label}
-                                            </h5>
-                                            <p className="text-[10px] text-[#52658E] mt-1 leading-snug line-clamp-2">
-                                                {item.desc}
-                                            </p>
-                                        </motion.div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* STEP 3: INPUT DETAIL */}
-                    {step === 3 && (
-                        <div className="space-y-3 py-1">
-                            <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">
-                                    Detail Kebutuhan
-                                </h4>
-                                <p className="text-xs text-[#52658E]">
-                                    Lengkapi informasi kuantitas, jadwal, dan catatan kebutuhan.
-                                </p>
-                            </div>
-
-                            <div className="space-y-3">
-                                <Select
-                                    label="Jenis Kebutuhan"
-                                    value={data.need_type}
-                                    onChange={(e) => setData('need_type', e.target.value)}
-                                    sizeVariant="sm"
-                                    options={NEED_TYPES.map((nt) => ({
-                                        value: nt.id,
-                                        label: nt.label,
-                                    }))}
-                                />
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Input
-                                        label="Jumlah"
-                                        type="number"
-                                        min="1"
-                                        value={data.quantity}
-                                        onChange={(e) =>
-                                            setData('quantity', Number(e.target.value))
-                                        }
-                                        sizeVariant="sm"
-                                        required
-                                    />
-                                    <Select
-                                        label="Satuan"
-                                        value={data.unit}
-                                        onChange={(e) => setData('unit', e.target.value)}
-                                        sizeVariant="sm"
-                                        options={UNITS.map((u) => ({ value: u, label: u }))}
-                                    />
-                                </div>
-
-                                <Input
-                                    label="Dibutuhkan Pada"
-                                    type="datetime-local"
-                                    value={data.required_at}
-                                    onChange={(e) => setData('required_at', e.target.value)}
-                                    sizeVariant="sm"
-                                    required
-                                />
-
-                                <Textarea
-                                    label="Keterangan & Catatan"
-                                    rows={3}
-                                    value={data.notes}
-                                    onChange={(e) => setData('notes', e.target.value)}
-                                    placeholder="Contoh: Kebutuhan air kapal saat labuh di Pelabuhan Gresik..."
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {/* STEP 4: REVIEW PENGAJUAN */}
-                    {step === 4 && (
-                        <div className="space-y-3 py-1">
-                            <div>
-                                <h4 className="text-sm font-bold text-[#0B1F63]">
-                                    Ringkasan Pengajuan
-                                </h4>
-                                <p className="text-xs text-[#52658E]">
-                                    Cek kembali data sebelum diajukan.
-                                </p>
-                            </div>
-
-                            <Card className="p-3.5 border border-[#DCEAF8] space-y-3 bg-[#F0F8FF]/30">
-                                <div className="flex items-center gap-3 pb-3 border-b border-[#DCEAF8]">
-                                    <img
-                                        src={selectedShip?.image || '/images/vessel-sarana.jpg'}
-                                        alt={selectedShip?.name || 'Kapal'}
-                                        className={
-                                            'w-14 h-12 rounded-xl object-cover flex-shrink-0 ' +
-                                            'border border-[#DCEAF8]'
-                                        }
-                                    />
-                                    <div>
-                                        <h5 className="text-xs font-bold text-[#0B1F63]">
-                                            {selectedShip?.name}
-                                        </h5>
-                                        <p className="text-[11px] text-[#52658E]">
-                                            IMO {selectedShip?.imo_number || '-'}
-                                        </p>
-                                        {selectedShip?.status && (
-                                            <div className="mt-0.5">
-                                                <StatusBadge
-                                                    status={selectedShip.status}
-                                                    label={selectedShip.status}
-                                                    showDot
-                                                    size="sm"
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2 text-xs">
-                                    <div className="flex justify-between">
-                                        <span className="text-[#52658E]">Jenis Kebutuhan:</span>
-                                        <span className="font-bold text-[#0B1F63]">
-                                            {data.need_type}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-[#52658E]">Jumlah:</span>
-                                        <span className="font-bold text-[#0B1F63]">
-                                            {data.quantity} {data.unit}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-[#52658E]">Dibutuhkan Pada:</span>
-                                        <span className="font-bold text-[#0B1F63]">
-                                            {data.required_at}
-                                        </span>
-                                    </div>
-                                    <div className="pt-2 border-t border-[#DCEAF8]">
-                                        <span className="text-[#52658E] block mb-0.5">
-                                            Keterangan:
-                                        </span>
-                                        <p
-                                            className={
-                                                'text-xs font-medium text-[#0B1F63] bg-white p-2 ' +
-                                                'rounded-lg border border-[#DCEAF8]'
-                                            }
-                                        >
-                                            {data.notes || '-'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </Card>
-
-                            <Checkbox
-                                label="Saya yakin data kebutuhan kapal yang diisi sudah benar dan sesuai permintaan kapten."
-                                checked={confirmedAgree}
-                                onChange={(e) => setConfirmedAgree(e.target.checked)}
-                            />
-                        </div>
-                    )}
-                </div>
-            </Modal>
-
-            {/* ============================================================ */}
-            {/* 8. MODAL SUKSES (PENGAJUAN BERHASIL DIAJUKAN)                */}
-            {/* ============================================================ */}
-            <Modal
-                isOpen={!!successModalData}
-                onClose={() => setSuccessModalData(null)}
-                size="sm"
-                showCloseButton={true}
-                asBottomSheetOnMobile={true}
-            >
-                {successModalData && (
-                    <div className="text-center space-y-4 py-2">
-                        <motion.div
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                            className={
-                                'w-16 h-16 rounded-full bg-[#DCF7E8] text-[#087443] flex ' +
-                                'items-center justify-center text-3xl mx-auto shadow-sm'
-                            }
-                        >
-                            ✈️
-                        </motion.div>
-
-                        <div>
-                            <h3 className="text-base font-extrabold text-[#0B1F63]">
-                                Pengajuan Berhasil Diajukan!
-                            </h3>
-                            <p className="text-xs text-[#52658E] mt-1.5 leading-relaxed">
-                                Pengajuan kebutuhan kapal berhasil disimpan dan siap diproses.
-                            </p>
-                        </div>
-
-                        {/* Ticket Card */}
-                        <div
-                            className={
-                                'bg-[#F0F8FF] border border-[#DCEAF8] rounded-xl p-3.5 text-left ' +
-                                'flex items-center gap-3'
-                            }
-                        >
-                            <div
-                                className={
-                                    'w-10 h-10 rounded-lg bg-[#E0F0FF] text-[#0060F4] flex ' +
-                                    'items-center justify-center text-lg'
-                                }
-                            >
-                                📋
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-[#52658E] uppercase font-bold tracking-wider block">
-                                    Nomor Pengajuan
-                                </span>
-                                <span className="font-mono text-xs font-extrabold text-[#0B1F63]">
-                                    {successModalData.reqNumber}
-                                </span>
-                                <span className="text-[10px] text-[#8C9BB9] block">
-                                    {successModalData.date}
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2 pt-2">
-                            <Button
-                                variant="primary"
-                                size="md"
-                                className="w-full"
-                                onClick={() => setSuccessModalData(null)}
-                            >
-                                Lihat Detail Pengajuan
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="md"
-                                className="w-full"
-                                onClick={() => {
-                                    setSuccessModalData(null);
-                                    router.get('/dashboard');
-                                }}
-                            >
-                                Kembali ke Beranda
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
-
-            {/* ============================================================ */}
-            {/* 9. DETAIL PENGAJUAN MODAL / SLIDE-OVER                       */}
-            {/* ============================================================ */}
-            <Modal
-                isOpen={!!detailRequest}
-                onClose={() => setDetailRequest(null)}
-                title={
-                    detailRequest ? (
-                        <div className="flex items-center gap-2">
-                            <span>Detail Pengajuan</span>
-                            <span
-                                className={
-                                    'font-mono text-xs font-bold text-[#0060F4] bg-[#E0F0FF] px-2 ' +
-                                    'py-0.5 rounded-lg'
-                                }
-                            >
-                                {detailRequest.request_number}
-                            </span>
-                        </div>
-                    ) : (
-                        'Detail Pengajuan'
-                    )
-                }
-                subtitle="Rincian kebutuhan kapal, logistik, dan riwayat status keagenan"
-                size="lg"
-                asBottomSheetOnMobile={true}
-                footer={
-                    <Button variant="primary" size="sm" onClick={() => setDetailRequest(null)}>
-                        Tutup
-                    </Button>
-                }
-            >
-                {detailRequest && (
-                    <div className="space-y-4">
-                        {/* Status Badge Row */}
-                        <div className="flex items-center justify-between pb-3 border-b border-[#DCEAF8]">
-                            <span className="text-xs text-[#52658E]">Status Saat Ini</span>
-                            <StatusBadge
-                                status={detailRequest.status}
-                                label={detailRequest.status}
-                                showDot
-                                size="sm"
-                            />
-                        </div>
-
-                        {/* Informasi Kapal */}
-                        <div className="p-3.5 rounded-xl border border-[#DCEAF8] bg-[#F0F8FF]/40 space-y-2">
-                            <span className="text-[11px] font-bold text-[#52658E] uppercase tracking-wider block">
-                                Informasi Kapal
-                            </span>
-                            <div className="flex items-center gap-3">
-                                <img
-                                    src={detailRequest.ship?.image || '/images/vessel-sarana.jpg'}
-                                    alt={detailRequest.ship?.name || 'Kapal'}
-                                    className="w-12 h-10 rounded-lg object-cover flex-shrink-0 border border-[#DCEAF8]"
-                                />
-                                <div>
-                                    <h4 className="text-xs font-bold text-[#0B1F63]">
-                                        {detailRequest.ship?.name}
-                                    </h4>
-                                    <p className="text-[11px] text-[#52658E]">
-                                        IMO {detailRequest.ship?.imo_number || '-'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Detail Kebutuhan & Items List */}
-                        <div className="p-3.5 rounded-xl border border-[#DCEAF8] space-y-3">
-                            <span className="text-[11px] font-bold text-[#52658E] uppercase tracking-wider block">
-                                Rincian Logistik & Kebutuhan ({detailRequest.items?.length || 0}{' '}
-                                Item)
-                            </span>
-
-                            {detailRequest.items && detailRequest.items.length > 0 ? (
-                                <div className="border border-[#DCEAF8] rounded-[10px] overflow-hidden">
-                                    <table className="w-full text-left text-xs">
-                                        <thead>
-                                            <tr className="bg-[#0D2945] text-[#E7F0FA]">
-                                                <th className="py-2 px-2.5">ITEM</th>
-                                                <th className="py-2 px-2 text-right">QTY</th>
-                                                <th className="py-2 px-2 text-right">
-                                                    HARGA SATUAN
-                                                </th>
-                                                <th className="py-2 px-2">VENDOR</th>
-                                                <th className="py-2 px-2 text-center">
-                                                    STATUS DIREKTUR
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-[#DCEAF8]/60">
-                                            {detailRequest.items.map((it) => (
-                                                <tr key={it.id} className="hover:bg-[#F0F8FF]/50">
-                                                    <td className="py-2 px-2.5">
-                                                        <span className="font-bold text-[#0B1F63]">
-                                                            {it.item_name}
-                                                        </span>
-                                                        {it.is_urgent && (
-                                                            <span className="ml-1 text-[10px] text-red-600 font-bold">
-                                                                🚨 Urgent
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                    <td
-                                                        className={
-                                                            'py-2 px-2 text-right font-mono ' +
-                                                            'font-bold text-[#0B1F63]'
-                                                        }
-                                                    >
-                                                        {it.quantity} {it.unit}
-                                                    </td>
-                                                    <td
-                                                        className={
-                                                            'py-2 px-2 text-right font-mono ' +
-                                                            'text-[#0060F4] font-semibold'
-                                                        }
-                                                    >
-                                                        {formatRupiah(it.selling_price || 0)}
-                                                    </td>
-                                                    <td className="py-2 px-2 text-[11px] text-[#52658E]">
-                                                        {it.vendor?.name || '-'}
-                                                    </td>
-                                                    <td className="py-2 px-2 text-center">
-                                                        {it.director_status === 'approved' ? (
-                                                            <span
-                                                                className={
-                                                                    'px-2 py-0.5 rounded-full ' +
-                                                                    'text-[10px] font-bold ' +
-                                                                    'bg-[#DCF7E8] text-[#087443]'
-                                                                }
-                                                            >
-                                                                Disetujui
-                                                            </span>
-                                                        ) : it.director_status === 'rejected' ? (
-                                                            <span
-                                                                className={
-                                                                    'px-2 py-0.5 rounded-full ' +
-                                                                    'text-[10px] font-bold ' +
-                                                                    'bg-[#FFE7EC] text-[#C62840]'
-                                                                }
-                                                            >
-                                                                Ditolak
-                                                            </span>
-                                                        ) : (
-                                                            <span
-                                                                className={
-                                                                    'px-2 py-0.5 rounded-full ' +
-                                                                    'text-[10px] font-semibold ' +
-                                                                    'bg-[#FFF0CC] text-[#A65300]'
-                                                                }
-                                                            >
-                                                                Menunggu
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <div className="text-xs space-y-1.5">
-                                    <div className="flex justify-between">
-                                        <span className="text-[#52658E]">Tanggal Pengajuan:</span>
-                                        <span className="font-medium text-[#0B1F63]">
-                                            {formatDate(
-                                                detailRequest.request_date ||
-                                                    detailRequest.created_at
-                                            )}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-[#52658E]">Diajukan Oleh:</span>
-                                        <span className="font-medium text-[#0B1F63]">
-                                            {detailRequest.creator?.name ||
-                                                'Pak Prima (Staff Lapangan)'}
-                                        </span>
-                                    </div>
-                                    <div className="pt-2 border-t border-[#DCEAF8]">
-                                        <span className="text-[#52658E] block mb-1">
-                                            Catatan Kebutuhan:
-                                        </span>
-                                        <p className="font-medium text-[#0B1F63] bg-[#F0F8FF]/50 p-2 rounded-lg">
-                                            {detailRequest.notes || '-'}
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Tambah Kebutuhan Susulan Section */}
-                        {detailRequest.status !== 'Selesai' &&
-                            detailRequest.status !== 'Dibatalkan' && (
-                                <div
-                                    className={
-                                        'p-3.5 rounded-xl border border-dashed border-[#0060F4]/40 ' +
-                                        'bg-[#F0F8FF]/60 space-y-3'
-                                    }
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-sm">➕</span>
-                                            <span className="text-xs font-bold text-[#0B1F63]">
-                                                Tambah Permintaan / Kebutuhan Susulan
-                                            </span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowAddItemForm(!showAddItemForm)}
-                                            className="text-xs font-bold text-[#0060F4] hover:underline"
-                                        >
-                                            {showAddItemForm ? 'Tutup Form' : '+ Tambah Item'}
-                                        </button>
-                                    </div>
-
-                                    {showAddItemForm && (
-                                        <form
-                                            onSubmit={handleAddNewItem}
-                                            className="space-y-3 pt-2 border-t border-[#DCEAF8]"
-                                        >
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                {/* Pilih dari Master Produk atau Ketik */}
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                        Pilih dari Master Produk
-                                                    </label>
-                                                    <select
-                                                        value={newItemProductId}
-                                                        onChange={(e) =>
-                                                            handleProductSelect(e.target.value)
-                                                        }
-                                                        className={
-                                                            'w-full text-xs py-1.5 px-2.5 ' +
-                                                            'bg-white border border-[#DCEAF8] ' +
-                                                            'rounded-lg focus:outline-none ' +
-                                                            'focus:ring-1 focus:ring-[#0060F4]'
-                                                        }
-                                                    >
-                                                        <option value="">
-                                                            -- Ketik manual atau pilih produk --
-                                                        </option>
-                                                        {products.map((p) => (
-                                                            <option key={p.id} value={p.id}>
-                                                                {p.name} (
-                                                                {p.item_type === 'jasa'
-                                                                    ? 'Jasa'
-                                                                    : 'Non-Jasa'}{' '}
-                                                                -{' '}
-                                                                {formatRupiah(
-                                                                    p.selling_price_default
-                                                                )}
-                                                                )
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-
-                                                {/* Nama Item Kebutuhan */}
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                        Nama Item Kebutuhan *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        required
-                                                        value={newItemName}
-                                                        onChange={(e) =>
-                                                            setNewItemName(e.target.value)
-                                                        }
-                                                        placeholder="Contoh: Air Tawar, Mooring Boat, Perbekalan..."
-                                                        className={
-                                                            'w-full text-xs py-1.5 px-2.5 ' +
-                                                            'bg-white border border-[#DCEAF8] ' +
-                                                            'rounded-lg focus:outline-none ' +
-                                                            'focus:ring-1 focus:ring-[#0060F4]'
-                                                        }
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                        Jumlah *
-                                                    </label>
-                                                    <input
-                                                        type="number"
-                                                        step="any"
-                                                        min="0.01"
-                                                        required
-                                                        value={newItemQty}
-                                                        onChange={(e) =>
-                                                            setNewItemQty(e.target.value)
-                                                        }
-                                                        className={
-                                                            'w-full text-xs py-1.5 px-2.5 ' +
-                                                            'bg-white border border-[#DCEAF8] ' +
-                                                            'rounded-lg focus:outline-none ' +
-                                                            'focus:ring-1 focus:ring-[#0060F4]'
-                                                        }
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                        Satuan
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={newItemUnit}
-                                                        onChange={(e) =>
-                                                            setNewItemUnit(e.target.value)
-                                                        }
-                                                        className={
-                                                            'w-full text-xs py-1.5 px-2.5 ' +
-                                                            'bg-white border border-[#DCEAF8] ' +
-                                                            'rounded-lg focus:outline-none ' +
-                                                            'focus:ring-1 focus:ring-[#0060F4]'
-                                                        }
-                                                    />
-                                                </div>
-                                                <div className="sm:col-span-2 flex items-center pt-5">
-                                                    <label
-                                                        className={
-                                                            'flex items-center gap-2 text-xs ' +
-                                                            'font-semibold text-[#0B1F63] ' +
-                                                            'cursor-pointer'
-                                                        }
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={newItemUrgent}
-                                                            onChange={(e) =>
-                                                                setNewItemUrgent(e.target.checked)
-                                                            }
-                                                            className="rounded text-[#C62840] focus:ring-[#C62840]"
-                                                        />
-                                                        <span
-                                                            className={
-                                                                newItemUrgent
-                                                                    ? 'text-[#C62840] font-bold'
-                                                                    : ''
-                                                            }
-                                                        >
-                                                            🚨 Tandai Kebutuhan Urgent
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-[#52658E] mb-1">
-                                                    Catatan / Spesifikasi
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={newItemNotes}
-                                                    onChange={(e) =>
-                                                        setNewItemNotes(e.target.value)
-                                                    }
-                                                    placeholder="Contoh: Pengantaran jam 16:00 dermaga utara"
-                                                    className={
-                                                        'w-full text-xs py-1.5 px-2.5 bg-white ' +
-                                                        'border border-[#DCEAF8] rounded-lg ' +
-                                                        'focus:outline-none focus:ring-1 ' +
-                                                        'focus:ring-[#0060F4]'
-                                                    }
-                                                />
-                                            </div>
-
-                                            <div className="flex justify-end gap-2 pt-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowAddItemForm(false)}
-                                                    className={
-                                                        'px-3 py-1.5 rounded-lg text-xs ' +
-                                                        'font-semibold text-[#52658E] ' +
-                                                        'hover:bg-gray-100'
-                                                    }
-                                                >
-                                                    Batal
-                                                </button>
-                                                <button
-                                                    type="submit"
-                                                    disabled={submittingItem}
-                                                    className={
-                                                        'px-4 py-1.5 bg-[#0060F4] ' +
-                                                        'hover:bg-[#082870] text-white ' +
-                                                        'rounded-lg text-xs font-bold ' +
-                                                        'transition-colors disabled:opacity-50'
-                                                    }
-                                                >
-                                                    {submittingItem
-                                                        ? 'Menyimpan...'
-                                                        : 'Simpan Kebutuhan Susulan'}
-                                                </button>
-                                            </div>
-                                        </form>
-                                    )}
-                                </div>
-                            )}
-
-                        {/* Invoices Generated (if any) */}
-                        {detailRequest.invoices && detailRequest.invoices.length > 0 && (
-                            <div className="p-3.5 rounded-xl border border-[#0060F4]/30 bg-[#E0F0FF]/40 space-y-2">
-                                <span className="text-[11px] font-bold text-[#0060F4] uppercase tracking-wider block">
-                                    Invoice Diterbitkan ({detailRequest.invoices.length} Faktur)
-                                </span>
-                                <div className="space-y-1.5">
-                                    {detailRequest.invoices.map((inv) => (
-                                        <div
-                                            key={inv.id}
-                                            className={
-                                                'flex items-center justify-between text-xs p-2 ' +
-                                                'bg-white rounded-lg border border-[#DCEAF8]'
-                                            }
-                                        >
-                                            <div>
-                                                <span className="font-mono font-bold text-[#0060F4]">
-                                                    {inv.invoice_number}
-                                                </span>
-                                                <span
-                                                    className={
-                                                        'ml-2 px-2 py-0.5 rounded text-[10px] ' +
-                                                        'font-semibold bg-[#F0F8FF] text-[#52658E]'
-                                                    }
-                                                >
-                                                    {inv.invoice_type === 'agency'
-                                                        ? 'Keagenan / Jasa'
-                                                        : 'Reimburse'}
-                                                </span>
-                                            </div>
-                                            <span className="font-mono font-bold text-[#0B1F63]">
-                                                {formatRupiah(inv.grand_total)}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Admin action buttons */}
-                        <div className="p-3.5 rounded-xl border border-[#DCEAF8] bg-[#F0F8FF]/60 space-y-2">
-                            <span className="text-[11px] font-bold text-[#0B1F63] uppercase tracking-wider block">
-                                Aksi Operasional & Keuangan
-                            </span>
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                                {detailRequest.items &&
-                                    detailRequest.items.length > 0 &&
-                                    detailRequest.status !== 'Disetujui' &&
-                                    detailRequest.status !== 'Selesai' && (
-                                        <Button
-                                            size="sm"
-                                            variant="primary"
-                                            className="bg-[#0060F4] hover:bg-[#082870] text-white text-xs font-bold"
-                                            onClick={() => {
-                                                const itemIds =
-                                                    detailRequest.items?.map((it) => it.id) || [];
-                                                router.post(
-                                                    `/requests/${detailRequest.id}/forward-director`,
-                                                    {
-                                                        selected_items: itemIds,
-                                                        admin_notes:
-                                                            'Harga Master Produk telah disesuaikan dan pengajuan dilanjutkan.',
-                                                    },
-                                                    {
-                                                        onSuccess: () => setDetailRequest(null),
-                                                    }
-                                                );
-                                            }}
-                                        >
-                                            Ajukan
-                                        </Button>
-                                    )}
-
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className={
-                                        'bg-white text-[#0B1F63] border-[#DCEAF8] ' +
-                                        'hover:bg-[#F0F8FF] text-xs font-bold'
-                                    }
-                                    onClick={() => {
-                                        router.post(
-                                            `/requests/${detailRequest.id}/create-clearance-in-invoice`,
-                                            {},
-                                            {
-                                                onSuccess: () => setDetailRequest(null),
-                                            }
-                                        );
-                                    }}
-                                >
-                                    ⚡ Shortcut Invoice Clearance In (Awal)
-                                </Button>
-
-                                {detailRequest.items?.some(
-                                    (it) => it.director_status === 'approved' && !it.is_invoiced
-                                ) && (
-                                    <Button
-                                        size="sm"
-                                        variant="primary"
-                                        className="bg-[#087443] hover:bg-[#065A34] text-white text-xs font-bold"
-                                        onClick={() => {
-                                            router.post(
-                                                `/requests/${detailRequest.id}/split-invoices`,
-                                                {},
-                                                {
-                                                    onSuccess: () => setDetailRequest(null),
-                                                }
-                                            );
-                                        }}
-                                    >
-                                        📄 Pecah Invoice (Jasa & Reimburse)
-                                    </Button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Riwayat Status Timeline */}
-                        <div className="p-3.5 rounded-xl border border-[#DCEAF8] space-y-3">
-                            <span className="text-[11px] font-bold text-[#52658E] uppercase tracking-wider block">
-                                Riwayat Status
-                            </span>
-                            <div className="relative pl-6 space-y-4 border-l-2 border-[#DCEAF8] ml-2">
-                                <div className="relative">
-                                    <span
-                                        className={
-                                            'absolute -left-[31px] top-0.5 w-3 h-3 rounded-full ' +
-                                            'bg-[#0060F4] ring-4 ring-white'
-                                        }
-                                    />
-                                    <p className="text-xs font-bold text-[#0B1F63]">
-                                        Pengajuan dibuat
-                                    </p>
-                                    <p className="text-[10px] text-[#8C9BB9]">
-                                        {formatDateTime(
-                                            detailRequest.created_at || detailRequest.request_date
-                                        )}{' '}
-                                        • Oleh {detailRequest.creator?.name || 'Pak Prima'}
-                                    </p>
-                                </div>
-
-                                <div className="relative">
-                                    <span
-                                        className={
-                                            'absolute -left-[31px] top-0.5 w-3 h-3 rounded-full ' +
-                                            'bg-[#A65300] ring-4 ring-white'
-                                        }
-                                    />
-                                    <p className="text-xs font-bold text-[#0B1F63]">
-                                        Status Saat Ini: {detailRequest.status}
-                                    </p>
-                                    <p className="text-[10px] text-[#8C9BB9]">
-                                        Terhubung ke sistem keagenan PT Samudra Jaya Andalas
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </Modal>
-
-            {/* ============================================================ */}
-            {/* 10. AKSI TAMBAHAN (BOTTOM SHEET / MENU)                      */}
-            {/* ============================================================ */}
-            <Modal
-                isOpen={!!actionSheetRequest}
-                onClose={() => setActionSheetRequest(null)}
-                title="Pilih Aksi Pengajuan"
-                size="sm"
-                asBottomSheetOnMobile={true}
-            >
-                {actionSheetRequest && (
-                    <div className="space-y-2">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                alert(`Edit pengajuan ${actionSheetRequest.request_number}`);
-                                setActionSheetRequest(null);
-                            }}
-                            className={
-                                'w-full p-2.5 rounded-xl hover:bg-[#F0F8FF] text-left text-xs ' +
-                                'font-medium text-[#0B1F63] flex items-center gap-2.5 ' +
-                                'cursor-pointer'
-                            }
-                        >
-                            <span>✏️</span>
-                            <span>Edit Pengajuan</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => {
-                                alert(`Membatalkan pengajuan ${actionSheetRequest.request_number}`);
-                                setActionSheetRequest(null);
-                            }}
-                            className={
-                                'w-full p-2.5 rounded-xl hover:bg-[#FFE7EC] text-left text-xs ' +
-                                'font-medium text-[#C62840] flex items-center gap-2.5 ' +
-                                'cursor-pointer'
-                            }
-                        >
-                            <span>❌</span>
-                            <span>Batalkan Pengajuan</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => {
-                                handleOpenWizard(actionSheetRequest.ship_id);
-                                setActionSheetRequest(null);
-                            }}
-                            className={
-                                'w-full p-2.5 rounded-xl hover:bg-[#F0F8FF] text-left text-xs ' +
-                                'font-medium text-[#0060F4] flex items-center gap-2.5 ' +
-                                'cursor-pointer'
-                            }
-                        >
-                            <span>📑</span>
-                            <span>Duplikasi Pengajuan</span>
-                        </button>
-
-                        <div className="pt-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full"
-                                onClick={() => setActionSheetRequest(null)}
-                            >
-                                Tutup
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
+                <p className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                    <Ship aria-hidden="true" className="size-3.5" />
+                    {rows.length} kegiatan ditampilkan. “Baru” menandai tugas yang perlu ditindaklanjuti
+                    oleh role Anda.
+                </p>
+            </div>
         </AppLayout>
     );
 }

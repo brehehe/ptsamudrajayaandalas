@@ -4,6 +4,8 @@ import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
+import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 
 interface PortCallReportItem {
     id: string;
@@ -47,15 +49,34 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
         window.print();
     };
 
+    const statusLabel = (status: string) => {
+        if (status === 'berthed') return 'Sandar';
+        if (status === 'anchored') return 'Labuh';
+        if (status === 'scheduled') return 'Akan Datang';
+        return 'Selesai';
+    };
+
+    const columns: Column<PortCallReportItem>[] = [
+        { key: 'job_number', header: 'No. Job', wrap: 'normal', render: (call) => <span className="font-mono font-semibold text-[#0060F4]">{call.job_number}</span> },
+        { key: 'ship', header: 'Kapal & Klien', wrap: 'normal', render: (call) => <div><p className="font-semibold text-[#082870] dark:text-[#F1F5F9]">{call.ship_name}</p><p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{call.company_name}</p></div> },
+        { key: 'port_name', header: 'Pelabuhan', wrap: 'normal' },
+        { key: 'status', header: 'Status', render: (call) => <StatusBadge status={statusLabel(call.status)} label={statusLabel(call.status)} /> },
+        { key: 'total_invoiced', header: 'Ditagihkan', align: 'right', render: (call) => formatRupiah(call.total_invoiced) },
+        { key: 'total_expenses', header: 'Pengeluaran', align: 'right', render: (call) => formatRupiah(call.total_expenses) },
+        { key: 'margin', header: 'Margin SJA', align: 'right', render: (call) => <span className="font-bold text-emerald-700 dark:text-emerald-400">{formatRupiah(call.margin)}</span> },
+    ];
+
     return (
-        <AppLayout title="Laporan Operasional & Rekonsiliasi Keuangan">
+        <AppLayout title="Laporan Operasional & Rekonsiliasi Keuangan" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Laporan Rekonsiliasi - PT Samudra Jaya Andalas" />
 
-            <div className="space-y-4 max-w-7xl mx-auto pb-10">
+            <MobilePageHero title="Laporan" description="Rekap operasional dan keuangan setiap kunjungan kapal." />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
                 {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
                 <div
                     className={
-                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
+                        'hidden flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 md:flex ' +
                         'border-b border-[#DCEAF8]'
                     }
                 >
@@ -111,7 +132,7 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                 </div>
 
                 {/* ── Title Header ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="hidden flex-col sm:flex-row sm:items-center sm:justify-between gap-2 md:flex">
                     <div>
                         <h1
                             className={
@@ -171,13 +192,13 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                         }
                     >
                         <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                            Margin Keagenan (Gross)
+                            Selisih Tagihan &amp; Pengeluaran
                         </div>
                         <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 mt-1">
                             {formatRupiah(summary.net_agency_margin)}
                         </div>
                         <div className="text-[11px] text-emerald-600 dark:text-emerald-400/80 mt-1">
-                            Keuntungan operasional bersih
+                            Total invoice dikurangi pengeluaran tercatat
                         </div>
                     </div>
 
@@ -202,105 +223,33 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                     </div>
                 </div>
 
-                {/* Port Calls Performance Table */}
-                <Card className="overflow-hidden border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-xs">
-                    <div
-                        className={
-                            'p-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F] bg-white ' +
-                            'dark:bg-[#0C1D36] flex justify-between items-center'
-                        }
-                    >
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
                         <h2 className="text-sm font-bold text-[#082870] dark:text-[#F1F5F9]">
                             Rekapitulasi Finansial per Job Kunjungan
                         </h2>
                         <span className="text-xs text-[#52658E] dark:text-[#94A3B8]">
-                            {portCalls.length} Kunjungan Kapal Terdaftar
+                            {portCalls.length} Kunjungan
                         </span>
                     </div>
-
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
-                            <thead>
-                                <tr
-                                    className={
-                                        'bg-[#F0F8FF] dark:bg-[#071322] border-b border-[#DCEAF8] ' +
-                                        'dark:border-[#1E3A5F] text-[#082870] dark:text-[#94A3B8] ' +
-                                        'font-semibold uppercase tracking-wider'
-                                    }
-                                >
-                                    <th className="py-3 px-4">No. Job</th>
-                                    <th className="py-3 px-4">Kapal & Klien</th>
-                                    <th className="py-3 px-4">Pelabuhan</th>
-                                    <th className="py-3 px-4">Status</th>
-                                    <th className="py-3 px-4">Total Ditagihkan</th>
-                                    <th className="py-3 px-4">Total Pengeluaran</th>
-                                    <th className="py-3 px-4 text-right">Margin SJA</th>
-                                </tr>
-                            </thead>
-                            <tbody
-                                className={
-                                    'divide-y divide-[#DCEAF8]/60 dark:divide-[#1E3A5F] ' +
-                                    'text-[#0B1F63] dark:text-[#F1F5F9]'
-                                }
-                            >
-                                {portCalls.map((call) => (
-                                    <tr
-                                        key={call.id}
-                                        className="hover:bg-[#F0F8FF]/50 dark:hover:bg-[#1E3A5F]/30 transition-colors"
-                                    >
-                                        <td
-                                            className={
-                                                'py-3.5 px-4 font-mono font-medium text-[#0060F4] ' +
-                                                'dark:text-[#38BDF8]'
-                                            }
-                                        >
-                                            {call.job_number}
-                                        </td>
-                                        <td className="py-3.5 px-4">
-                                            <div className="font-semibold text-[#082870] dark:text-[#F1F5F9]">
-                                                {call.ship_name}
-                                            </div>
-                                            <div className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                {call.company_name}
-                                            </div>
-                                        </td>
-                                        <td className="py-3.5 px-4 font-medium">
-                                            {call.port_name}
-                                        </td>
-                                        <td className="py-3.5 px-4">
-                                            <StatusBadge
-                                                status={
-                                                    call.status === 'berthed'
-                                                        ? 'Sandar'
-                                                        : call.status === 'anchored'
-                                                          ? 'Labuh'
-                                                          : call.status === 'scheduled'
-                                                            ? 'Akan Datang'
-                                                            : 'Selesai'
-                                                }
-                                                label={call.status}
-                                            />
-                                        </td>
-                                        <td className="py-3.5 px-4 font-mono text-neutral-800 dark:text-[#F1F5F9]">
-                                            {formatRupiah(call.total_invoiced)}
-                                        </td>
-                                        <td className="py-3.5 px-4 font-mono text-neutral-800 dark:text-[#94A3B8]">
-                                            {formatRupiah(call.total_expenses)}
-                                        </td>
-                                        <td
-                                            className={
-                                                'py-3.5 px-4 text-right font-mono font-bold ' +
-                                                'text-emerald-700 dark:text-emerald-400'
-                                            }
-                                        >
-                                            {formatRupiah(call.margin)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
+                    <ResponsiveTable<PortCallReportItem>
+                        data={portCalls}
+                        keyExtractor={(call) => call.id}
+                        desktop={{ columns, compact: true, minWidth: '940px' }}
+                        mobile={{
+                            titleRender: (call) => call.ship_name,
+                            subtitleRender: (call) => <span className="font-mono">{call.job_number}</span>,
+                            statusRender: (call) => <StatusBadge status={statusLabel(call.status)} label={statusLabel(call.status)} />,
+                            fields: [
+                                { label: 'Klien', render: (call) => call.company_name },
+                                { label: 'Pelabuhan', render: (call) => call.port_name },
+                                { label: 'Ditagihkan', render: (call) => formatRupiah(call.total_invoiced) },
+                                { label: 'Pengeluaran', render: (call) => formatRupiah(call.total_expenses) },
+                                { label: 'Margin SJA', fullWidth: true, render: (call) => <span className="text-emerald-700">{formatRupiah(call.margin)}</span> },
+                            ],
+                        }}
+                    />
+                </div>
             </div>
         </AppLayout>
     );

@@ -143,7 +143,7 @@ export default function StaffLapanganDashboardView({
                                 'text-white leading-none'
                             }
                         >
-                            {liveTime || '10:24'}
+                            {liveTime || '-'}
                         </p>
                         <div className="flex items-center gap-2 pt-1 text-xs text-[#E7F0FA]">
                             <span className="flex items-center gap-1">
@@ -164,8 +164,8 @@ export default function StaffLapanganDashboardView({
                             </span>
                             <span className="text-white/40">•</span>
                             <span className="flex items-center gap-1">
-                                <span>{weatherData.icon || '⛅'}</span>
-                                <span className="font-semibold">{weatherData.temp || '28°C'}</span>
+                                <span>{weatherData.icon || '—'}</span>
+                                <span className="font-semibold">{weatherData.temp || 'Tidak tersedia'}</span>
                                 <span className="text-[#B5C8DC]">
                                     {weatherData.weather || 'Tidak tersedia'}
                                 </span>

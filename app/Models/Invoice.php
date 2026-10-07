@@ -34,6 +34,8 @@ class Invoice extends Model
         'status',
         'delivery_status',
         'signed_document_path',
+        'document_source',
+        'supporting_document_path',
         'version',
         'notes',
         'released_at',
@@ -82,5 +84,10 @@ class Invoice extends Model
     public function receiptAllocations(): HasMany
     {
         return $this->hasMany(ClientReceiptAllocation::class);
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(InvoiceItem::class);
     }
 }

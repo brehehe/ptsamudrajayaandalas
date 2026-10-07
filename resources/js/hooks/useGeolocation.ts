@@ -43,20 +43,16 @@ export function useGeolocation(defaultLocationName = ''): GeolocationState {
                         const addr = data.address || {};
                         const parts = [
                             addr.quay || addr.harbour || addr.port || addr.industrial || addr.road || addr.suburb || data.display_name?.split(',')[0],
-                            addr.city_district || addr.city || addr.town || addr.county || 'Gresik',
+                            addr.city_district || addr.city || addr.town || addr.county,
                         ].filter(Boolean);
 
                         const detected = parts.join(', ');
                         if (detected) {
                             setLocationName(detected);
-                        } else {
-                            setLocationName('Area Pelabuhan Gresik');
                         }
-                    } else {
-                        setLocationName('Area Pelabuhan Gresik');
                     }
                 } catch {
-                    setLocationName('Area Pelabuhan Gresik');
+                    setLocationName(defaultLocationName);
                 } finally {
                     setLoading(false);
                 }
@@ -65,10 +61,6 @@ export function useGeolocation(defaultLocationName = ''): GeolocationState {
                 // User denied or unavailable
                 setError(err.message);
                 setLoading(false);
-                // Fallback default port area
-                if (!locationName) {
-                    setLocationName('Dermaga Pelabuhan Gresik');
-                }
             },
             {
                 enableHighAccuracy: true,

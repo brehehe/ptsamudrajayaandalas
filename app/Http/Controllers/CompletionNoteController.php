@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateCompletionNoteRequest;
 use App\Models\CompletionNote;
 use App\Models\CostReconciliation;
 use App\Models\PortCall;
+use App\Models\RequestItem;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,7 +32,16 @@ class CompletionNoteController extends Controller
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
         $notes = CompletionNote::query()
-            ->with(['portCall.ship:id,name', 'portCall.port:id,name', 'uploader:id,name', 'verifier:id,name', 'reconciliation'])
+            ->with([
+                'portCall.ship:id,name',
+                'portCall.port:id,name',
+                'portCall.requests:id,port_call_id',
+                'portCall.requests.items:id,request_id,quantity,hpp_price,director_status',
+                'portCall.costDocuments:id,port_call_id,verified_total,status',
+                'uploader:id,name',
+                'verifier:id,name',
+                'reconciliation',
+            ])
             ->when($status === 'waiting', fn ($query) => $query->whereRaw('1 = 0'))
             ->when($status !== 'all' && $status !== 'waiting' && $status !== 'overdue', fn ($query) => $query->where('status', $status))
             ->when($status === 'overdue', fn ($query) => $query->where('due_at', '<', now())->whereNot('status', 'reconciled'))
@@ -41,15 +51,28 @@ class CompletionNoteController extends Controller
             }))
             ->latest('uploaded_at')
             ->paginate(12)
-            ->withQueryString();
+            ->withQueryString()
+            ->through(function (CompletionNote $note): CompletionNote {
+                $this->attachFinancialSummary($note->portCall, $note);
+
+                return $note;
+            });
 
         $waitingPortCalls = PortCall::query()
-            ->with(['ship:id,name', 'port:id,name', 'workOrder:id,system_number'])
+            ->with([
+                'ship:id,name',
+                'port:id,name',
+                'workOrder:id,system_number',
+                'requests:id,port_call_id',
+                'requests.items:id,request_id,quantity,hpp_price,director_status',
+                'costDocuments:id,port_call_id,verified_total,status',
+            ])
             ->where('status', 'departed')
             ->whereDoesntHave('completionNote')
             ->when($status === 'overdue', fn ($query) => $query->where('completion_note_due_at', '<', now()))
             ->latest('departed_at')
-            ->get(['id', 'job_number', 'ship_id', 'port_id', 'work_order_id', 'departed_at', 'completion_note_due_at']);
+            ->get(['id', 'job_number', 'ship_id', 'port_id', 'work_order_id', 'departed_at', 'completion_note_due_at'])
+            ->each(fn (PortCall $portCall) => $this->attachFinancialSummary($portCall));
 
         return Inertia::render('CompletionNotes/Index', [
             'notes' => $notes,
@@ -57,7 +80,7 @@ class CompletionNoteController extends Controller
             'filters' => ['search' => $search ?? '', 'status' => $status],
             'abilities' => [
                 'create' => Gate::allows('create', CompletionNote::class),
-                'manage' => $request->user()->isOperationalAdmin() || $request->user()->isOwner(),
+                'manage' => $request->user()->isOperationalAdmin(),
             ],
         ]);
     }
@@ -71,6 +94,9 @@ class CompletionNoteController extends Controller
             $portCall = PortCall::query()->lockForUpdate()->findOrFail($validated['port_call_id']);
             if ($portCall->status !== 'departed' || ! $portCall->departed_at) {
                 throw ValidationException::withMessages(['port_call_id' => 'Nota Rampung hanya dapat dicatat setelah kapal berangkat.']);
+            }
+            if (CompletionNote::query()->where('port_call_id', $portCall->id)->exists()) {
+                throw ValidationException::withMessages(['port_call_id' => 'Nota Rampung untuk Kunjungan/Job ini sudah dicatat.']);
             }
 
             $note = CompletionNote::create([
@@ -128,7 +154,11 @@ class CompletionNoteController extends Controller
                     throw ValidationException::withMessages(['action' => 'Rekonsiliasi untuk kunjungan ini sudah tersimpan.']);
                 }
 
-                $initial = (float) $validated['initial_total'];
+                $initial = (float) RequestItem::query()
+                    ->where('director_status', 'approved')
+                    ->whereHas('request', fn ($query) => $query->where('port_call_id', $portCall->id))
+                    ->selectRaw('COALESCE(SUM(quantity * hpp_price), 0) AS total')
+                    ->value('total');
                 $actual = (float) $validated['actual_total'];
                 $adjustment = (float) ($validated['adjustment'] ?? 0);
                 CostReconciliation::create([
@@ -158,11 +188,35 @@ class CompletionNoteController extends Controller
         return back()->with('success', 'Tahap Nota Rampung dan rekonsiliasi berhasil diperbarui.');
     }
 
-    public function download(CompletionNote $completionNote): StreamedResponse
+    public function download(Request $request, CompletionNote $completionNote): StreamedResponse
     {
         Gate::authorize('view', $completionNote);
         abort_unless(Storage::disk('local')->exists($completionNote->document_path), 404);
 
-        return Storage::disk('local')->download($completionNote->document_path);
+        return $request->boolean('view')
+            ? Storage::disk('local')->response($completionNote->document_path)
+            : Storage::disk('local')->download($completionNote->document_path);
+    }
+
+    private function attachFinancialSummary(PortCall $portCall, ?CompletionNote $completionNote = null): void
+    {
+        $approvedItems = $portCall->requests
+            ->flatMap->items
+            ->where('director_status', 'approved');
+        $approvedTotal = $approvedItems->sum(
+            fn (RequestItem $requestItem): float => (float) $requestItem->hpp_price * (float) $requestItem->quantity,
+        );
+        $verifiedDocumentsTotal = $portCall->costDocuments
+            ->where('status', 'verified')
+            ->sum(fn ($document): float => (float) $document->verified_total);
+
+        $portCall->setAttribute('approved_request_item_count', $approvedItems->count());
+        $portCall->setAttribute('approved_cost_total', $approvedTotal);
+        $portCall->setAttribute(
+            'recorded_cost_total',
+            $verifiedDocumentsTotal + (float) ($completionNote?->actual_amount ?? 0),
+        );
+        $portCall->unsetRelation('requests');
+        $portCall->unsetRelation('costDocuments');
     }
 }

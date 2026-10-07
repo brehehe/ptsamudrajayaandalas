@@ -16,9 +16,23 @@ export interface MoneyInputProps extends Omit<
 }
 
 export const normalizeRupiahInput = (value: number | string, allowNegative = false): string => {
-    const textValue = String(value ?? '');
+    const textValue = String(value ?? '').trim();
+    const isNegative = allowNegative && textValue.startsWith('-');
+
+    // Laravel decimal casts are serialized as strings such as "50000.00".
+    // Treat that representation as a decimal value before removing separators;
+    // otherwise 50000.00 would incorrectly become 5,000,000 Rupiah.
+    if (/^-?\d+\.\d{1,2}$/.test(textValue)) {
+        const decimalValue = Number(textValue);
+
+        if (Number.isFinite(decimalValue)) {
+            const normalizedDecimal = Math.round(Math.abs(decimalValue));
+
+            return `${isNegative ? '-' : ''}${normalizedDecimal}`;
+        }
+    }
+
     const digits = textValue.replace(/\D/g, '');
-    const isNegative = allowNegative && textValue.trimStart().startsWith('-');
 
     if (digits === '') {
         return isNegative ? '-' : '';

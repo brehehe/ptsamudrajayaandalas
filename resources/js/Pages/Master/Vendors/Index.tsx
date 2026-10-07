@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
+import { Building2, Pencil, Plus, Trash2 } from 'lucide-react';
 import AppLayout from '../../../Layouts/AppLayout';
-import Card from '../../../Components/ui/Card';
 import Button from '../../../Components/ui/Button';
 import StatusBadge from '../../../Components/ui/StatusBadge';
 import Modal from '../../../Components/overlays/Modal';
+import { ResponsiveTable, type Column } from '../../../Components/tables/Table';
+import MobilePageHero from '../../../Components/navigation/MobilePageHero';
+import FilterBar from '../../../Components/filters/FilterBar';
+import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
+import Input from '../../../Components/forms/Input';
+import Textarea from '../../../Components/forms/Textarea';
+import Select from '../../../Components/selects/Select';
 
 interface Vendor {
     id: string;
@@ -29,7 +36,7 @@ export default function MasterVendorsIndex({
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
 
-    const { data, setData, post, put, processing, reset } = useForm({
+    const { data, setData, post, put, processing, reset, errors, clearErrors } = useForm({
         code: '',
         name: '',
         email: '',
@@ -37,11 +44,6 @@ export default function MasterVendorsIndex({
         address: '',
         is_active: true,
     });
-
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        router.get('/master/vendors', { search }, { preserveState: true });
-    };
 
     const handleCreateSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -70,15 +72,50 @@ export default function MasterVendorsIndex({
         }
     };
 
+    const openEdit = (vendor: Vendor) => {
+        clearErrors();
+        setEditingVendor(vendor);
+        setData({
+            code: vendor.code,
+            name: vendor.name,
+            email: vendor.email || '',
+            phone: vendor.phone || '',
+            address: vendor.address || '',
+            is_active: vendor.is_active,
+        });
+    };
+
+    const actions = (vendor: Vendor) => (
+        <div className="flex items-center justify-end gap-1.5">
+            <Button type="button" size="sm" variant="ghost" className="size-9 !px-0" onClick={() => openEdit(vendor)} aria-label={`Edit ${vendor.name}`}>
+                <Pencil aria-hidden="true" className="size-4" />
+            </Button>
+            <Button type="button" size="sm" variant="ghost" className="size-9 !px-0 !text-[#C62840]" onClick={() => handleDelete(vendor)} aria-label={`Nonaktifkan ${vendor.name}`}>
+                <Trash2 aria-hidden="true" className="size-4" />
+            </Button>
+        </div>
+    );
+
+    const columns: Column<Vendor>[] = [
+        { key: 'code', header: 'Kode', width: '110px', render: (vendor) => <span className="font-bold text-[#0060F4]">{vendor.code}</span> },
+        { key: 'name', header: 'Vendor', width: '230px', render: (vendor) => <span className="font-bold">{vendor.name}</span> },
+        { key: 'contact', header: 'Kontak', width: '210px', render: (vendor) => <div><p>{vendor.phone || '-'}</p><p className="text-[11px] text-[#52658E]">{vendor.email || '-'}</p></div> },
+        { key: 'address', header: 'Alamat', width: '280px', render: (vendor) => <span className="text-[#52658E]">{vendor.address || '-'}</span> },
+        { key: 'status', header: 'Status', width: '110px', render: (vendor) => <StatusBadge status={vendor.is_active ? 'success' : 'inactive'} label={vendor.is_active ? 'Aktif' : 'Nonaktif'} /> },
+        { key: 'actions', header: 'Aksi', width: '90px', align: 'right', render: actions },
+    ];
+
     return (
-        <AppLayout title="Master Data Vendor & Rekanan">
+        <AppLayout title="Master Data Vendor & Rekanan" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Data Vendor - PT Samudra Jaya Andalas" />
 
-            <div className="space-y-4 max-w-7xl mx-auto pb-10">
+            <MobilePageHero title="Vendor" description="Kelola vendor dan penyedia jasa operasional kapal." />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
                 {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
                 <div
                     className={
-                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
+                        'hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
                         'border-b border-[#DCEAF8]'
                     }
                 >
@@ -105,6 +142,7 @@ export default function MasterVendorsIndex({
                     <button
                         type="button"
                         onClick={() => {
+                            clearErrors();
                             reset();
                             setIsCreateModalOpen(true);
                         }}
@@ -121,7 +159,7 @@ export default function MasterVendorsIndex({
                 </div>
 
                 {/* ── Title Header ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="hidden flex-col gap-2 md:flex md:flex-row md:items-center md:justify-between">
                     <div>
                         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
                             Master Data Vendor & Penyedia Jasa
@@ -133,208 +171,63 @@ export default function MasterVendorsIndex({
                     </div>
                 </div>
 
-                {/* ── Search Bar ── */}
-                <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                    <div
-                        className={
-                            'absolute inset-y-0 left-0 pl-3.5 flex items-center ' +
-                            'pointer-events-none text-[#8C9BB9]'
-                        }
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            viewBox="0 0 24 24"
-                        >
-                            <circle cx="11" cy="11" r="8" />
-                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                        </svg>
-                    </div>
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari kode vendor, nama perusahaan, email, atau kontak..."
-                        className={
-                            'w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] ' +
-                            'rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs ' +
-                            'focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 ' +
-                            'focus:border-[#0060F4]'
-                        }
-                    />
-                    <button
-                        type="submit"
-                        className={
-                            'absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] ' +
-                            'hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg ' +
-                            'transition-colors cursor-pointer'
-                        }
-                    >
-                        Cari
-                    </button>
-                </form>
+                <Button type="button" className="w-full md:hidden" onClick={() => { clearErrors(); reset(); setIsCreateModalOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>
+                    Tambah Vendor
+                </Button>
 
-                {/* Vendors Table */}
-                <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
-                            <thead>
-                                <tr
-                                    className={
-                                        'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
-                                        'font-semibold uppercase tracking-wider'
-                                    }
-                                >
-                                    <th className="py-3 px-4">Kode Vendor</th>
-                                    <th className="py-3 px-4">Nama Perusahaan Vendor</th>
-                                    <th className="py-3 px-4">Email & Telepon</th>
-                                    <th className="py-3 px-4">Alamat Kantor / Dermaga</th>
-                                    <th className="py-3 px-4">Status</th>
-                                    <th className="py-3 px-4 text-right">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                {vendors.map((v) => (
-                                    <tr
-                                        key={v.id}
-                                        className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                    >
-                                        <td className="py-3.5 px-4 font-mono font-bold text-[#0060F4]">
-                                            {v.code}
-                                        </td>
-                                        <td className="py-3.5 px-4 font-semibold text-[#082870]">
-                                            {v.name}
-                                        </td>
-                                        <td className="py-3.5 px-4">
-                                            <div className="text-neutral-800">{v.phone || '-'}</div>
-                                            <div className="text-[11px] text-[#52658E]">
-                                                {v.email || '-'}
-                                            </div>
-                                        </td>
-                                        <td className="py-3.5 px-4 max-w-xs text-[#52658E]">
-                                            {v.address || '-'}
-                                        </td>
-                                        <td className="py-3.5 px-4">
-                                            <StatusBadge
-                                                status={v.is_active ? 'Selesai' : 'Dibatalkan'}
-                                                label={v.is_active ? 'Aktif' : 'Nonaktif'}
-                                            />
-                                        </td>
-                                        <td className="py-3.5 px-4 text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                                <button
-                                                    onClick={() => {
-                                                        setEditingVendor(v);
-                                                        setData({
-                                                            code: v.code,
-                                                            name: v.name,
-                                                            email: v.email || '',
-                                                            phone: v.phone || '',
-                                                            address: v.address || '',
-                                                            is_active: v.is_active,
-                                                        });
-                                                    }}
-                                                    className="text-[#0060F4] hover:underline font-semibold text-[11px]"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(v)}
-                                                    className="text-rose-600 hover:underline text-[11px]"
-                                                >
-                                                    Hapus
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
+                <FilterBar
+                    searchValue={search}
+                    onSearchChange={setSearch}
+                    onSearchSubmit={() => router.get('/master/vendors', { search }, { preserveState: true })}
+                    searchPlaceholder="Cari kode, nama, email, atau telepon…"
+                    searchAriaLabel="Cari vendor"
+                />
+
+                <ResponsiveTable<Vendor>
+                    data={vendors}
+                    keyExtractor={(vendor) => vendor.id}
+                    desktop={{ columns, compact: true, minWidth: '980px', emptyMessage: 'Data Tidak Ditemukan' }}
+                    mobile={{
+                        titleRender: (vendor) => vendor.name,
+                        subtitleRender: (vendor) => vendor.code,
+                        statusRender: (vendor) => <StatusBadge status={vendor.is_active ? 'success' : 'inactive'} label={vendor.is_active ? 'Aktif' : 'Nonaktif'} />,
+                        imageRender: () => <span className="flex size-11 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847]"><Building2 aria-hidden="true" className="size-5" /></span>,
+                        fields: [
+                            { label: 'Telepon', render: (vendor) => vendor.phone || '-' },
+                            { label: 'Email', render: (vendor) => vendor.email || '-' },
+                            { label: 'Alamat', fullWidth: true, render: (vendor) => vendor.address || '-' },
+                        ],
+                        actionsRender: actions,
+                        emptyMessage: 'Data Tidak Ditemukan',
+                    }}
+                />
             </div>
 
             {/* Modal Tambah Vendor */}
             <Modal
                 isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
+                onClose={() => {
+                    clearErrors();
+                    setIsCreateModalOpen(false);
+                }}
                 title="Tambah Rekanan Vendor Baru"
             >
-                <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
+                <form noValidate onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
+                    <FormErrorSummary errors={errors} />
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Kode Vendor
-                            </label>
-                            <input
-                                type="text"
-                                maxLength={20}
-                                value={data.code}
-                                onChange={(e) => setData('code', e.target.value.toUpperCase())}
-                                placeholder="Contoh: VND-006"
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white font-mono"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Nomor Telepon
-                            </label>
-                            <input
-                                type="text"
-                                value={data.phone}
-                                onChange={(e) => setData('phone', e.target.value)}
-                                placeholder="+62 812..."
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            />
-                        </div>
+                        <Input required name="code" autoComplete="off" label="Kode Vendor" maxLength={20} value={data.code} onChange={(e) => setData('code', e.target.value.toUpperCase())} placeholder="Contoh: VND-006" className="font-mono" error={errors.code} />
+                        <Input name="phone" autoComplete="tel" label="Nomor Telepon" type="tel" value={data.phone} onChange={(e) => setData('phone', e.target.value)} placeholder="Contoh: +62 812…" error={errors.phone} />
                     </div>
 
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Nama Perusahaan Vendor
-                        </label>
-                        <input
-                            type="text"
-                            value={data.name}
-                            onChange={(e) => setData('name', e.target.value)}
-                            placeholder="Contoh: PT Gresik Maritim Sejahtera"
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Email Kontak
-                        </label>
-                        <input
-                            type="email"
-                            value={data.email}
-                            onChange={(e) => setData('email', e.target.value)}
-                            placeholder="vendor@email.com"
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Alamat Kantor / Dermaga
-                        </label>
-                        <textarea
-                            value={data.address}
-                            onChange={(e) => setData('address', e.target.value)}
-                            rows={2}
-                            placeholder="Jl. Pelabuhan..."
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                        />
-                    </div>
+                    <Input required name="name" autoComplete="organization" label="Nama Perusahaan Vendor" value={data.name} onChange={(e) => setData('name', e.target.value)} placeholder="Contoh: PT Gresik Maritim Sejahtera" error={errors.name} />
+                    <Input name="email" autoComplete="email" label="Email Kontak" type="email" spellCheck={false} value={data.email} onChange={(e) => setData('email', e.target.value)} placeholder="Contoh: vendor@email.com" error={errors.email} />
+                    <Textarea name="address" autoComplete="street-address" label="Alamat Kantor / Dermaga" value={data.address} onChange={(e) => setData('address', e.target.value)} rows={2} placeholder="Contoh: Jl. Pelabuhan…" error={errors.address} />
 
                     <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                        <Button variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
+                        <Button type="button" variant="secondary" onClick={() => {
+                            clearErrors();
+                            setIsCreateModalOpen(false);
+                        }}>
                             Batal
                         </Button>
                         <Button
@@ -353,92 +246,29 @@ export default function MasterVendorsIndex({
             {editingVendor && (
                 <Modal
                     isOpen={!!editingVendor}
-                    onClose={() => setEditingVendor(null)}
+                    onClose={() => {
+                        clearErrors();
+                        setEditingVendor(null);
+                    }}
                     title={`Edit Vendor ${editingVendor.name}`}
                 >
-                    <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
+                    <form noValidate onSubmit={handleEditSubmit} className="space-y-4 text-xs">
+                        <FormErrorSummary errors={errors} />
                         <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="font-semibold text-[#082870] block mb-1">
-                                    Kode Vendor
-                                </label>
-                                <input
-                                    type="text"
-                                    maxLength={20}
-                                    value={data.code}
-                                    onChange={(e) => setData('code', e.target.value.toUpperCase())}
-                                    className={
-                                        'w-full text-xs rounded-xl border border-[#DCEAF8] ' +
-                                        'p-2.5 bg-white font-mono'
-                                    }
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="font-semibold text-[#082870] block mb-1">
-                                    Telepon
-                                </label>
-                                <input
-                                    type="text"
-                                    value={data.phone}
-                                    onChange={(e) => setData('phone', e.target.value)}
-                                    className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                                />
-                            </div>
+                            <Input required name="code" autoComplete="off" label="Kode Vendor" maxLength={20} value={data.code} onChange={(e) => setData('code', e.target.value.toUpperCase())} className="font-mono" error={errors.code} />
+                            <Input name="phone" autoComplete="tel" label="Telepon" type="tel" value={data.phone} onChange={(e) => setData('phone', e.target.value)} error={errors.phone} />
                         </div>
 
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Nama Vendor
-                            </label>
-                            <input
-                                type="text"
-                                value={data.name}
-                                onChange={(e) => setData('name', e.target.value)}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">Email</label>
-                            <input
-                                type="email"
-                                value={data.email}
-                                onChange={(e) => setData('email', e.target.value)}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Alamat
-                            </label>
-                            <textarea
-                                value={data.address}
-                                onChange={(e) => setData('address', e.target.value)}
-                                rows={2}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Status
-                            </label>
-                            <select
-                                value={data.is_active ? '1' : '0'}
-                                onChange={(e) => setData('is_active', e.target.value === '1')}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            >
-                                <option value="1">Aktif</option>
-                                <option value="0">Nonaktif</option>
-                            </select>
-                        </div>
+                        <Input required name="name" autoComplete="organization" label="Nama Vendor" value={data.name} onChange={(e) => setData('name', e.target.value)} error={errors.name} />
+                        <Input name="email" autoComplete="email" label="Email" type="email" spellCheck={false} value={data.email} onChange={(e) => setData('email', e.target.value)} error={errors.email} />
+                        <Textarea name="address" autoComplete="street-address" label="Alamat" value={data.address} onChange={(e) => setData('address', e.target.value)} rows={2} error={errors.address} />
+                        <Select required name="is_active" autoComplete="off" label="Status" value={data.is_active ? '1' : '0'} onChange={(e) => setData('is_active', e.target.value === '1')} error={errors.is_active} options={[{ value: '1', label: 'Aktif' }, { value: '0', label: 'Nonaktif' }]} />
 
                         <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                            <Button variant="secondary" onClick={() => setEditingVendor(null)}>
+                            <Button type="button" variant="secondary" onClick={() => {
+                                clearErrors();
+                                setEditingVendor(null);
+                            }}>
                                 Batal
                             </Button>
                             <Button

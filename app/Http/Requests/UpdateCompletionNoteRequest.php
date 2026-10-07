@@ -11,7 +11,7 @@ class UpdateCompletionNoteRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isOperationalAdmin() || $this->user()?->isOwner();
+        return $this->user()?->isOperationalAdmin() ?? false;
     }
 
     /**
@@ -23,7 +23,6 @@ class UpdateCompletionNoteRequest extends FormRequest
     {
         return [
             'action' => ['required', 'in:verify,reconcile'],
-            'initial_total' => ['required_if:action,reconcile', 'nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'actual_total' => ['required_if:action,reconcile', 'nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'adjustment' => ['nullable', 'numeric', 'min:-9999999999999.99', 'max:9999999999999.99'],
             'notes' => ['nullable', 'string', 'max:2000'],

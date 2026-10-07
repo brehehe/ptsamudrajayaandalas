@@ -32,7 +32,7 @@ class ExpenseRequestPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasAnyRole(['Owner', 'Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']);
+        return $user->hasAnyRole(['Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']);
     }
 
     /**
@@ -40,7 +40,7 @@ class ExpenseRequestPolicy
      */
     public function update(User $user, ExpenseRequest $expenseRequest): bool
     {
-        if ($user->hasAnyRole(['Owner', 'Admin', 'Admin Sistem'])) {
+        if ($user->hasAnyRole(['Admin', 'Admin Sistem'])) {
             return true;
         }
 

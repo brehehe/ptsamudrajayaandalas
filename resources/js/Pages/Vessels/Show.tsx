@@ -11,6 +11,7 @@ import Input from '../../Components/forms/Input';
 import Textarea from '../../Components/forms/Textarea';
 import DateTimePicker from '../../Components/forms/DateTimePicker';
 import MultiplePhotoUploadPicker from '../../Components/forms/MultiplePhotoUploadPicker';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import OverviewTab from '../../Components/vessels/OverviewTab';
 import ActivityTab from '../../Components/vessels/ActivityTab';
@@ -21,6 +22,7 @@ import VesselClearanceDialog from '../../Components/vessels/VesselClearanceDialo
 import AlertToast, { type AlertToastMessage } from '../../Components/feedback/AlertToast';
 import type { VesselShowProps } from '../../Components/vessels/types';
 import { formatEtaDateTime } from '../../Components/vessels/format';
+import ShipImage from '../../Components/vessels/ShipImage';
 export { formatEtaDateTime } from '../../Components/vessels/format';
 
 const containerVariants: Variants = {
@@ -52,13 +54,18 @@ const mobileTabs = [
 
 export default function VesselShow({
     vessel,
+    needs = [],
     products = [],
     clearancePortCalls = [],
     selectedPortCallId = null,
     selectedVisit = null,
     canManageClearance = false,
+    canProcessRequests = false,
 }: VesselShowProps) {
     const requests = vessel.requests || [];
+    const visitRequests = selectedVisit
+        ? requests.filter((request) => request.port_call_id === selectedVisit.id)
+        : requests;
 
     // Mobile View Tab: 'overview' | 'aktivitas' | 'kebutuhan' | 'pengajuan'
     const [mobileTab, setMobileTab] = useState<(typeof mobileTabs)[number]['key']>('overview');
@@ -73,7 +80,7 @@ export default function VesselShow({
 
     // Quick Action Modals: Catat Aktivitas Lapangan
     const [showActivityModal, setShowActivityModal] = useState(false);
-    const geo = useGeolocation('Dermaga Pelabuhan Gresik');
+    const geo = useGeolocation('');
     const [activityDate, setActivityDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [activityTime, setActivityTime] = useState(() => {
         const d = new Date();
@@ -86,6 +93,7 @@ export default function VesselShow({
     const [activityDetail, setActivityDetail] = useState('');
     const [activityPhotos, setActivityPhotos] = useState<File[]>([]);
     const [activityError, setActivityError] = useState<string | null>(null);
+    const [activityErrors, setActivityErrors] = useState<Record<string, string>>({});
     const [isSavingActivity, setIsSavingActivity] = useState(false);
 
     useEffect(() => {
@@ -97,23 +105,8 @@ export default function VesselShow({
     const handleSaveActivity = (e: React.FormEvent) => {
         e.preventDefault();
         setActivityError(null);
+        setActivityErrors({});
 
-        if (!activityTitle.trim()) {
-            setActivityError('Judul aktivitas wajib diisi.');
-            return;
-        }
-        if (!activityDetail.trim()) {
-            setActivityError('Detail aktivitas wajib diisi.');
-            return;
-        }
-        if (!activityLocation.trim()) {
-            setActivityError('Lokasi / area aktivitas wajib diisi.');
-            return;
-        }
-        if (activityCategory === 'Lainnya' && !activityCategoryOther.trim()) {
-            setActivityError('Jenis aktivitas lainnya wajib diisi.');
-            return;
-        }
         if (!selectedVisit) {
             setActivityError('Kunjungan / job kapal tidak ditemukan. Buka kapal dari daftar kunjungan.');
             return;
@@ -148,13 +141,18 @@ export default function VesselShow({
                 setActivityCategory('Kegiatan Kapal');
                 setActivityCategoryOther('');
                 setActivityPhotos([]);
+                setActivityErrors({});
                 setClearanceToast({
                     variant: 'success',
                     message: 'Aktivitas lapangan berhasil disimpan ke sistem.',
                 });
             },
             onError: (errs) => {
-                setActivityError(Object.values(errs).join(' '));
+                const validationErrors = errs as Record<string, string>;
+                const firstError = Object.values(validationErrors)[0];
+
+                setActivityErrors(validationErrors);
+                setActivityError(typeof firstError === 'string' ? firstError : 'Aktivitas gagal disimpan.');
             },
             onFinish: () => setIsSavingActivity(false),
         });
@@ -248,7 +246,7 @@ export default function VesselShow({
                 AND FLOW "3-8. Tambah Kebutuhan"
                ═══════════════════════════════════════════════════════════════ */}
             <div
-                className={`${needFlowStep === 'none' ? 'md:hidden' : 'md:mx-auto md:max-w-6xl md:px-6 lg:px-8'} min-h-[calc(100dvh-3.5rem)] bg-sja-surface pb-0 md:bg-transparent`}
+                className={`${needFlowStep === 'none' ? 'md:hidden' : 'md:mx-auto md:w-full md:max-w-7xl'} min-h-[calc(100dvh-3.5rem)] bg-white pb-0 dark:bg-[#0C1D36] md:min-h-0 md:bg-transparent dark:md:bg-transparent`}
             >
                 {/* ─────────────────────────────────────────────────────────────
                     SUB-FLOW A: NORMAL DETAIL KAPAL (OVERVIEW / AKTIVITAS / KEBUTUHAN / PENGAJUAN)
@@ -256,16 +254,15 @@ export default function VesselShow({
                 {needFlowStep === 'none' && (
                     <div>
                         {/* Ship Hero Photo sits behind the shared transparent mobile navbar. */}
-                        <div className="relative h-52 w-full overflow-hidden bg-slate-800">
-                            <img
-                                src={vessel.image || '/images/vessel-sarana.jpg'}
+                        <div className="relative h-52 w-full overflow-hidden bg-[#DCEAF8]">
+                            <ShipImage
+                                src={vessel.image}
                                 alt={vessel.name}
                                 width={1280}
                                 height={720}
                                 fetchPriority="high"
                                 className="size-full object-cover"
                             />
-                            <div className="pointer-events-none absolute inset-0 bg-[#001433]/35" />
                             <div className="absolute bottom-3 right-3 z-10">
                                 {renderStatusBadge(vessel.status)}
                             </div>
@@ -315,7 +312,7 @@ export default function VesselShow({
                                     {vessel.name}
                                 </h2>
                                 <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
-                                    {vessel.ship_type || 'Cargo Ship'}
+                                    {vessel.ship_type || 'Tipe belum diisi'}
                                 </p>
 
                                 {/* 4 Tabs: Overview | Aktivitas | Kebutuhan | Pengajuan */}
@@ -369,21 +366,28 @@ export default function VesselShow({
                                 <ActivityTab
                                     activities={vessel.operational_activities || []}
                                     onRecordActivity={() => setShowActivityModal(true)}
+                                    canRecord={canManageClearance}
                                 />
                             )}
 
                             {/* ── TAB 3: KEBUTUHAN (SEAMLESS VIEW) ── */}
                             {mobileTab === 'kebutuhan' && (
                                 <NeedsTab
+                                    needs={needs}
                                     onStartNeed={() => setNeedFlowStep('header')}
-                                    onReview={() => setNeedFlowStep('review')}
                                     filterTab={kebutuhanFilterTab}
                                     onFilterChange={setKebutuhanFilterTab}
+                                    canCreate={canManageClearance}
                                 />
                             )}
 
                             {/* ── TAB 4: PENGAJUAN (SEAMLESS VIEW) ── */}
-                            {mobileTab === 'pengajuan' && <RequestsTab requests={requests} />}
+                            {mobileTab === 'pengajuan' && (
+                                <RequestsTab
+                                    requests={visitRequests}
+                                    canProcess={canProcessRequests}
+                                />
+                            )}
                         </div>
                     </div>
                 )}
@@ -441,23 +445,25 @@ export default function VesselShow({
                                 <span className="font-mono font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
                                     {vessel.imo_number || '-'}
                                 </span>{' '}
-                                • Tipe: {vessel.ship_type || 'Cargo Ship'} • Agen:{' '}
+                                • Tipe: {vessel.ship_type || '-'} • Agen:{' '}
                                 {vessel.agent_name || 'PT Samudra Jaya Andalas'}
                             </p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setNeedFlowStep('header')}
-                                className={
-                                    'px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] ' +
-                                    'text-white text-xs font-bold shadow-sm'
-                                }
-                            >
-                                + Buat Kebutuhan
-                            </button>
-                        </div>
+                        {canManageClearance && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setNeedFlowStep('header')}
+                                    className={
+                                        'px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] ' +
+                                        'text-white text-xs font-bold shadow-sm'
+                                    }
+                                >
+                                    + Buat Kebutuhan
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Vessel Hero Image Banner */}
@@ -467,8 +473,8 @@ export default function VesselShow({
                             'dark:border-[#1E3A5F] shadow-sm'
                         }
                     >
-                        <img
-                            src={vessel.image || '/images/vessel-sarana.jpg'}
+                        <ShipImage
+                            src={vessel.image}
                             alt={vessel.name}
                             className="w-full h-full object-cover"
                         />
@@ -485,12 +491,12 @@ export default function VesselShow({
                                         'bg-white/20 backdrop-blur-xs'
                                     }
                                 >
-                                    {vessel.ship_type || 'Cargo Ship'}
+                                    {vessel.ship_type || 'Tipe belum diisi'}
                                 </span>
                                 <h2 className="text-2xl font-black">{vessel.name}</h2>
                                 <p className="text-xs text-white/80">
-                                    Perusahaan: {vessel.company?.name || 'PT. Intan Borneo Wisesa'}{' '}
-                                    • Pelabuhan: {vessel.port?.name || 'Pelabuhan Gresik'}
+                                    Perusahaan: {vessel.company?.name || 'Belum diisi'}{' '}
+                                    • Pelabuhan: {vessel.port?.name || 'Belum diisi'}
                                 </p>
                             </div>
                         </div>
@@ -513,7 +519,7 @@ export default function VesselShow({
                                         Perusahaan Pemilik
                                     </span>
                                     <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        {vessel.company?.name || 'PT. Intan Borneo Wisesa'}
+                                        {vessel.company?.name || 'Belum diisi'}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
@@ -521,7 +527,7 @@ export default function VesselShow({
                                         Alamat Kantor
                                     </span>
                                     <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        {vessel.company?.address || 'Jl. KH Kholil 18, Gresik'}
+                                        {vessel.company?.address || 'Belum diisi'}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
@@ -529,7 +535,7 @@ export default function VesselShow({
                                         Bendera Negara
                                     </span>
                                     <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        🇮🇩 {vessel.flag || 'Indonesia'}
+                                        {vessel.flag || 'Belum diisi'}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
@@ -537,8 +543,8 @@ export default function VesselShow({
                                         GT / Panjang
                                     </span>
                                     <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        GT {vessel.gross_tonnage || 1330} / {vessel.length || 74.22}{' '}
-                                        M
+                                        {vessel.gross_tonnage ? `GT ${vessel.gross_tonnage}` : 'GT -'} /{' '}
+                                        {vessel.length ? `${vessel.length} M` : '-'}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
@@ -546,7 +552,7 @@ export default function VesselShow({
                                         Call Sign
                                     </span>
                                     <span className="font-mono font-bold text-[#0B1F63] block mt-0.5">
-                                        {vessel.call_sign || 'PMSM'}
+                                        {vessel.call_sign || 'Belum diisi'}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
@@ -554,7 +560,7 @@ export default function VesselShow({
                                         Nakhoda / Captain
                                     </span>
                                     <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        {vessel.captain_name || 'Sony Robinson'}
+                                        {vessel.captain_name || 'Belum diisi'}
                                     </span>
                                 </div>
                             </div>
@@ -608,30 +614,38 @@ export default function VesselShow({
                                         Pelabuhan Labuh / Sandar
                                     </span>
                                     <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        {vessel.port?.name || 'Pelabuhan Gresik'}
+                                        {vessel.port?.name || 'Belum diisi'}
                                     </span>
                                 </div>
                             </div>
 
-                            <button
-                                type="button"
-                                onClick={() => setNeedFlowStep('header')}
-                                className={
-                                    'w-full py-2.5 rounded-xl bg-[#0060F4] text-white text-xs ' +
-                                    'font-bold shadow-xs hover:bg-[#0052D4]'
-                                }
-                            >
-                                Buat Kebutuhan Kapal &rarr;
-                            </button>
+                            {canManageClearance && (
+                                <button
+                                    type="button"
+                                    onClick={() => setNeedFlowStep('header')}
+                                    className={
+                                        'w-full py-2.5 rounded-xl bg-[#0060F4] text-white text-xs ' +
+                                        'font-bold shadow-xs hover:bg-[#0052D4]'
+                                    }
+                                >
+                                    Buat Kebutuhan Kapal &rarr;
+                                </button>
+                            )}
                         </Card>
                     </div>
+
+                    <RequestsTab requests={visitRequests} canProcess={canProcessRequests} />
                 </motion.div>
             </div>
 
             {/* Modal Catat Aktivitas Lapangan */}
             <Modal
                 isOpen={showActivityModal}
-                onClose={() => setShowActivityModal(false)}
+                onClose={() => {
+                    setActivityError(null);
+                    setActivityErrors({});
+                    setShowActivityModal(false);
+                }}
                 title="Catat Aktivitas Lapangan"
                 size="md"
                 asBottomSheetOnMobile={true}
@@ -642,7 +656,11 @@ export default function VesselShow({
                             variant="outline"
                             size="sm"
                             disabled={isSavingActivity}
-                            onClick={() => setShowActivityModal(false)}
+                            onClick={() => {
+                                setActivityError(null);
+                                setActivityErrors({});
+                                setShowActivityModal(false);
+                            }}
                         >
                             Batal
                         </Button>
@@ -658,8 +676,9 @@ export default function VesselShow({
                     </>
                 }
             >
-                <form onSubmit={handleSaveActivity} className="space-y-3.5 text-xs text-left">
-                    {activityError && (
+                <form noValidate onSubmit={handleSaveActivity} className="space-y-3.5 text-left text-xs">
+                    <FormErrorSummary errors={activityErrors} />
+                    {activityError && Object.keys(activityErrors).length === 0 && (
                         <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-1.5">
                             <span>⚠</span>
                             <span>{activityError}</span>
@@ -678,6 +697,8 @@ export default function VesselShow({
                         onTimeChange={setActivityTime}
                         layout="combined"
                         className="[&_legend]:!text-[#0B1F63] dark:[&_legend]:!text-[#F1F5F9]"
+                        dateError={activityErrors.activity_date}
+                        timeError={activityErrors.activity_time}
                         required
                     />
 
@@ -700,14 +721,27 @@ export default function VesselShow({
                         <div className="relative">
                             <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-[#52658E] dark:text-[#94A3B8]" />
                             <input
+                                id="vessel-activity-location"
+                                name="location_name"
                                 type="text"
                                 required
                                 value={activityLocation}
                                 onChange={(e) => setActivityLocation(e.target.value)}
                                 placeholder="Contoh: Dermaga A, Area Bongkar Muat, Gate, dll"
-                                className="w-full pl-9 pr-3 py-2 rounded-xl text-xs border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#082870] dark:text-white focus:ring-1 focus:ring-[#0060F4] focus:outline-none transition-all"
+                                aria-invalid={activityErrors.location_name ? true : undefined}
+                                aria-describedby={activityErrors.location_name ? 'vessel-activity-location-error' : undefined}
+                                className={`w-full rounded-xl border bg-white py-2 pl-9 pr-3 text-xs text-[#082870] outline-none transition-all focus:ring-2 dark:bg-[#0C1D36] dark:text-white ${
+                                    activityErrors.location_name
+                                        ? 'border-[#C62840] focus:ring-[#C62840]/20 dark:border-[#EF4444]'
+                                        : 'border-[#DCEAF8] focus:border-[#0060F4] focus:ring-[#0060F4]/20 dark:border-[#1E3A5F]'
+                                }`}
                             />
                         </div>
+                        {activityErrors.location_name && (
+                            <p id="vessel-activity-location-error" role="alert" className="mt-1 text-[11px] font-semibold text-[#C62840] dark:text-[#F87171]">
+                                {activityErrors.location_name}
+                            </p>
+                        )}
                     </div>
 
                     {/* 3. Terkait Kapal (Job) */}
@@ -775,6 +809,7 @@ export default function VesselShow({
                                 maxLength={100}
                                 sizeVariant="sm"
                                 required
+                                error={activityErrors.category_other}
                             />
                         )}
                     </div>
@@ -782,11 +817,13 @@ export default function VesselShow({
                     {/* 5. Judul / Jenis Aktivitas */}
                     <Input
                         label="Judul / Jenis Aktivitas"
+                        name="title"
                         required
                         value={activityTitle}
                         onChange={(e) => setActivityTitle(e.target.value)}
                         placeholder="Contoh: Bongkar muat sedang berlangsung"
                         sizeVariant="sm"
+                        error={activityErrors.title}
                     />
 
                     {/* 6. Detail Aktivitas */}
@@ -800,14 +837,27 @@ export default function VesselShow({
                             </span>
                         </div>
                         <textarea
+                            id="vessel-activity-detail"
+                            name="detail"
                             rows={3}
                             maxLength={500}
                             required
                             value={activityDetail}
                             onChange={(e) => setActivityDetail(e.target.value)}
                             placeholder="Jelaskan kondisi atau kegiatan yang terjadi di lapangan..."
-                            className="w-full p-2.5 rounded-xl text-xs border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-[#082870] dark:text-white focus:ring-1 focus:ring-[#0060F4] focus:outline-none transition-all resize-none"
+                            aria-invalid={activityErrors.detail ? true : undefined}
+                            aria-describedby={activityErrors.detail ? 'vessel-activity-detail-error' : undefined}
+                            className={`w-full resize-none rounded-xl border bg-white p-2.5 text-xs text-[#082870] outline-none transition-all focus:ring-2 dark:bg-[#0C1D36] dark:text-white ${
+                                activityErrors.detail
+                                    ? 'border-[#C62840] focus:ring-[#C62840]/20 dark:border-[#EF4444]'
+                                    : 'border-[#DCEAF8] focus:border-[#0060F4] focus:ring-[#0060F4]/20 dark:border-[#1E3A5F]'
+                            }`}
                         />
+                        {activityErrors.detail && (
+                            <p id="vessel-activity-detail-error" role="alert" className="mt-1 text-[11px] font-semibold text-[#C62840] dark:text-[#F87171]">
+                                {activityErrors.detail}
+                            </p>
+                        )}
                     </div>
 
                     {/* 7. Foto / Dokumentasi (Multiple, Kamera + Galeri, Opsional) */}
@@ -817,6 +867,7 @@ export default function VesselShow({
                         label="Foto / Dokumentasi"
                         required={false}
                         helperText="Format: JPG, PNG (Maks. 5 MB)"
+                        error={activityErrors.photos || activityErrors['photos.0']}
                     />
                 </form>
             </Modal>

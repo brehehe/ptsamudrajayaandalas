@@ -129,10 +129,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     const operasional = {
-        label: 'Operasional Lapangan',
+        label: 'Aktifitas Lapangan',
         href: '/operations',
         active: url.startsWith('/operations'),
-        hasChevron: true,
         icon: (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -164,17 +163,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         '9 9 0 11-18 0 9 9 0 0118 0z'
                     }
                 />
-            </svg>
-        ),
-    };
-
-    const pendanaan = {
-        label: 'Pendanaan & Kopra',
-        href: '/funding',
-        active: url.startsWith('/funding'),
-        icon: (
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M5 10V8l7-4 7 4v2M6 10v8m4-8v8m4-8v8m4-8v8M3 20h18" />
             </svg>
         ),
     };
@@ -241,7 +229,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         label: 'Laporan',
         href: '/reports',
         active: url.startsWith('/reports'),
-        hasChevron: true,
         icon: (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -427,8 +414,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     let masterNav: Array<any> = [];
 
     if (role === 'Lapangan') {
-        // Staf Lapangan Pak Prima: Fokus aktivitas kapal, kebutuhan logistik, dan pelaporan operasional harian
-        mainNav = [beranda, spk, kapal, kebutuhan, pengajuan, operasional, pendanaan, completionNotes];
+        // Staf Lapangan Pak Prima: Fokus aktivitas kapal, SPK, kebutuhan logistik, pengajuan, dan operasional lapangan (Pendanaan & Nota Rampung diproses oleh Admin)
+        mainNav = [beranda, spk, kapal, kebutuhan, pengajuan, operasional];
         masterNav = [];
     } else if (role === 'Direktur') {
         // Pak Ryan: Otorisasi & approval anggaran, monitoring pengajuan, pengeluaran kas, invoice, piutang, dan laporan eksekutif
@@ -438,7 +425,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             approval,
             operasional,
             vendorInvoices,
-            pendanaan,
             completionNotes,
             pengeluaran,
             invoices,
@@ -448,7 +434,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         masterNav = [];
     } else if (role === 'Owner') {
         // Hendra Wijaya: Monitoring eksekutif pendapatan, piutang, pengeluaran, armada kapal, dan laporan
-        mainNav = [beranda, spk, kapal, kebutuhan, pengajuan, operasional, vendorInvoices, pendanaan, completionNotes, pengeluaran, invoices, piutang, laporan];
+        mainNav = [beranda, spk, kapal, kebutuhan, pengajuan, operasional, vendorInvoices, completionNotes, pengeluaran, invoices, piutang, laporan];
         masterNav = [masterVessels, masterCompanies, masterRoles, masterUsers];
     } else {
         // Admin (Bu Titik): Operational Control Center lengkap dengan seluruh alur operasional & master data
@@ -460,7 +446,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             pengajuan,
             operasional,
             vendorInvoices,
-            pendanaan,
             completionNotes,
             pengeluaran,
             invoices,
@@ -617,10 +602,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="pt-2 px-2 xl:px-2.5">
                     <ThemeToggle
                         variant="pill"
-                        className={
-                            'w-full justify-center !py-1 text-[11px] bg-[#143658]/70 ' +
-                            'border-[#1E4A74]/80 text-[#E7F0FA] hover:bg-[#1E4A74]'
-                        }
+                        surface="dark"
+                        className="w-full justify-center"
                     />
                 </div>
             </div>
@@ -643,8 +626,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     />
                     <div
                         className={
-                            'absolute inset-0 bg-gradient-to-t from-[#0A223B]/95 via-[#0D2945]/80 ' +
-                            'to-[#143658]/70'
+                            'absolute inset-0 bg-[#0A223B]/85 md:bg-gradient-to-t ' +
+                            'md:from-[#0A223B]/95 md:via-[#0D2945]/80 md:to-[#143658]/70'
                         }
                     />
 

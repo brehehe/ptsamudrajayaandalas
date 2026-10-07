@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alur Sistem Lengkap PT Samudra Jaya Andalas</title>
+    <style>
+        :root { --navy:#0b1f63; --blue:#0060f4; --sky:#eaf4ff; --line:#dceaf8; --muted:#52658e; --green:#087443; --amber:#a65300; --red:#c62840; --ink:#15213a; }
+        * { box-sizing: border-box; }
+        @page { size: A4; margin: 14mm 13mm 15mm; }
+        body { margin:0; color:var(--ink); background:#fff; font:10.2pt/1.48 Inter, Arial, sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+        h1,h2,h3 { color:var(--navy); margin:0; line-height:1.2; }
+        h1 { font-size:28pt; letter-spacing:-.03em; }
+        h2 { font-size:18pt; margin-bottom:5mm; padding-bottom:2.5mm; border-bottom:2px solid var(--blue); }
+        h3 { font-size:12pt; margin:5mm 0 2mm; }
+        p { margin:0 0 2.4mm; }
+        ul,ol { margin:1.5mm 0 3mm; padding-left:5mm; }
+        li { margin:1.2mm 0; }
+        table { width:100%; border-collapse:collapse; margin:3mm 0 5mm; font-size:8.5pt; }
+        th,td { border:1px solid var(--line); padding:2.2mm; vertical-align:top; }
+        th { background:var(--navy); color:#fff; text-align:left; }
+        tr:nth-child(even) td { background:#f8fbff; }
+        code { font:8.3pt ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--navy); overflow-wrap:anywhere; }
+        .page { break-after:page; min-height:267mm; }
+        .page:last-child { break-after:auto; }
+        .cover { display:flex; min-height:267mm; flex-direction:column; justify-content:space-between; background:#f0f8ff; border:1px solid var(--line); padding:20mm 16mm; }
+        .brand { color:var(--blue); font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+        .subtitle { max-width:150mm; margin-top:7mm; color:var(--muted); font-size:14pt; }
+        .meta { border-top:1px solid var(--line); padding-top:5mm; color:var(--muted); }
+        .callout { border-left:4px solid var(--blue); background:var(--sky); padding:3mm 4mm; margin:3mm 0 5mm; }
+        .warning { border-left-color:#f59e0b; background:#fff8e6; }
+        .success { border-left-color:#16a36a; background:#ecfbf3; }
+        .danger { border-left-color:var(--red); background:#fff0f2; }
+        .flow { display:flex; flex-wrap:wrap; align-items:center; gap:2mm; margin:4mm 0 6mm; }
+        .step { border:1px solid #b8dcff; border-radius:8px; background:#f8fbff; color:var(--navy); padding:2.2mm 3mm; font-weight:700; }
+        .arrow { color:var(--blue); font-weight:900; }
+        .badge { display:inline-block; border-radius:999px; padding:.7mm 2mm; font-size:7.5pt; font-weight:800; white-space:nowrap; }
+        .view { color:var(--blue); background:#e0f0ff; }
+        .act { color:var(--green); background:#dcf7e8; }
+        .approve { color:#6b46c1; background:#f0eeff; }
+        .external { color:var(--amber); background:#fff0cc; }
+        .no { color:var(--red); background:#ffe7ec; }
+        .cols { display:grid; grid-template-columns:1fr 1fr; gap:5mm; }
+        .card { border:1px solid var(--line); border-radius:10px; padding:4mm; break-inside:avoid; }
+        .card h3 { margin-top:0; }
+        .small { color:var(--muted); font-size:8.5pt; }
+        .checklist { list-style:none; padding-left:0; }
+        .checklist li::before { content:'✓'; color:var(--green); font-weight:900; margin-right:2mm; }
+        .footer-note { margin-top:6mm; padding-top:3mm; border-top:1px solid var(--line); color:var(--muted); font-size:8pt; }
+        .avoid { break-inside:avoid; }
+    </style>
+</head>
+<body>
+    <section class="page cover">
+        <div>
+            <p class="brand">PT Samudra Jaya Andalas</p>
+            <h1>Alur Sistem Keagenan Kapal</h1>
+            <p class="subtitle">Panduan langkah demi langkah dari penerimaan SPK sampai invoice klien dibayar dan kegiatan kapal ditutup.</p>
+        </div>
+        <div class="callout success">
+            <strong>Dokumen implementasi.</strong> Nama menu, route, status, sumber data, dan batas akses di bawah disusun dari kode aplikasi yang terpasang. Angka dan nama kapal pada gambar referensi tidak digunakan sebagai data operasional.
+        </div>
+        <div class="meta">
+            <p><strong>Versi pemeriksaan:</strong> 7 Oktober 2026</p>
+            <p><strong>Platform:</strong> Laravel + React + TypeScript + Inertia + PostgreSQL</p>
+            <p><strong>Prinsip:</strong> satu SPK → satu kunjungan/job → seluruh kebutuhan, aktivitas, biaya, dokumen, pendanaan, dan invoice terhubung ke job tersebut.</p>
+        </div>
+    </section>
+
+    <section class="page">
+        <h2>1. Peran dan batas wewenang</h2>
+        <table>
+            <thead><tr><th>Peran</th><th>Dapat melihat</th><th>Dapat memproses</th><th>Tidak dapat</th></tr></thead>
+            <tbody>
+                <tr><td><strong>Operasional</strong></td><td>SPK/kunjungan yang relevan, kapal, kebutuhan, aktivitas, status pengajuan.</td><td>Membuat kebutuhan, aktivitas harian, pengajuan biaya operasional, bukti penggunaan, serta pembaruan posisi yang diizinkan.</td><td>Menyetujui pengajuan sendiri, memverifikasi invoice vendor, mencatat pembayaran vendor, approval Direktur.</td></tr>
+                <tr><td><strong>Admin</strong></td><td>Seluruh data operasional dan keuangan sesuai tugas administrasi.</td><td>Membuat SPK/job, memeriksa harga, meneruskan approval, invoice vendor, batch pendanaan, Kopra, pencairan, pembayaran, Nota Rampung, rekonsiliasi, invoice klien, penerimaan pembayaran.</td><td>Mengambil keputusan Direktur untuk item atau approval Kopra tahap Direktur.</td></tr>
+                <tr><td><strong>Direktur</strong></td><td>Kegiatan kapal, HPP, pengajuan, pendanaan, laporan, invoice, dan piutang.</td><td>Menyetujui/menolak/meminta revisi pengajuan dan memberi keputusan tahap Direktur/Kopra yang disediakan sistem.</td><td>Mencatat transaksi administrasi harian sebagai Admin.</td></tr>
+                <tr><td><strong>Owner</strong></td><td>Seluruh ringkasan operasional, laporan, keuangan, piutang, SPK, dan histori.</td><td>Pengelolaan akun Admin/konfigurasi tata kelola sesuai menu khusus.</td><td><strong>Seluruh aksi proses transaksi.</strong> Owner tidak membuat/mengubah SPK, aktivitas, kebutuhan, invoice, pendanaan, pembayaran, atau Nota Rampung.</td></tr>
+            </tbody>
+        </table>
+        <div class="callout">
+            <strong>Aturan server:</strong> tombol yang tidak sesuai peran disembunyikan, dan endpoint tetap menolak permintaan tidak berwenang. Pembatasan tidak hanya bergantung pada tampilan.
+        </div>
+        <h3>Legenda</h3>
+        <p><span class="badge view">Lihat</span> akses baca &nbsp; <span class="badge act">Proses</span> aksi operasional/Admin &nbsp; <span class="badge approve">Keputusan</span> keputusan Direktur &nbsp; <span class="badge external">Eksternal</span> dilakukan di luar SJA lalu dicatat &nbsp; <span class="badge no">Terkunci</span> dilarang oleh rule.</p>
+    </section>
+
+    <section class="page">
+        <h2>2. Alur utama sampai Closed</h2>
+        <div class="flow">
+            <span class="step">SPK diterima</span><span class="arrow">→</span>
+            <span class="step">Job dibuat</span><span class="arrow">→</span>
+            <span class="step">Clearance In</span><span class="arrow">→</span>
+            <span class="step">Labuh / Sandar</span><span class="arrow">→</span>
+            <span class="step">Aktivitas &amp; kebutuhan</span><span class="arrow">→</span>
+            <span class="step">Approval</span><span class="arrow">→</span>
+            <span class="step">Invoice vendor</span><span class="arrow">→</span>
+            <span class="step">Pendanaan &amp; pembayaran</span><span class="arrow">→</span>
+            <span class="step">Clearance Out</span><span class="arrow">→</span>
+            <span class="step">Nota Rampung</span><span class="arrow">→</span>
+            <span class="step">Rekonsiliasi</span><span class="arrow">→</span>
+            <span class="step">Invoice klien</span><span class="arrow">→</span>
+            <span class="step">Lunas</span><span class="arrow">→</span>
+            <span class="step">Closed</span>
+        </div>
+        <h3>Kunci relasi data</h3>
+        <table>
+            <thead><tr><th>Objek</th><th>Identitas</th><th>Relasi wajib</th><th>Tujuan</th></tr></thead>
+            <tbody>
+                <tr><td>SPK</td><td>Nomor sistem dan nomor SPK klien</td><td>Perusahaan, kapal, pelabuhan, penanggung jawab</td><td>Sumber otorisasi pekerjaan.</td></tr>
+                <tr><td>Kunjungan</td><td>Nomor job unik</td><td>Satu SPK, satu kapal, satu pelabuhan</td><td>Pusat seluruh transaksi per kedatangan.</td></tr>
+                <tr><td>Pengajuan/kebutuhan</td><td>Nomor REQ</td><td>Kunjungan/job</td><td>Mencegah dua job dengan kapal sama tergabung.</td></tr>
+                <tr><td>Invoice vendor</td><td>Nomor dokumen vendor</td><td>Vendor, job, kebutuhan terkait</td><td>Dasar batch pendanaan.</td></tr>
+                <tr><td>Invoice klien</td><td>Nomor invoice</td><td>Job, perusahaan, pengajuan disetujui</td><td>Dasar piutang dan pelunasan.</td></tr>
+            </tbody>
+        </table>
+        <div class="callout warning"><strong>Master Kapal berbeda dari Kunjungan.</strong> Kapal yang sama boleh datang berkali-kali. Setiap kedatangan harus memiliki job sendiri dan tidak boleh digabung hanya karena nama kapal/perusahaannya sama.</div>
+    </section>
+
+    <section class="page">
+        <h2>3. Setup akun dan master data</h2>
+        <div class="cols">
+            <div class="card">
+                <h3>Akun pengguna</h3>
+                <ol>
+                    <li>Owner/Admin membuka <code>/master/users</code>.</li>
+                    <li>Isi nama, email, telepon, jabatan, dan role.</li>
+                    <li>Akun mengikuti status undangan/aktivasi yang tersimpan.</li>
+                    <li>Registrasi publik <code>/register</code> dinonaktifkan; akun tidak dibuat sendiri oleh pengguna.</li>
+                </ol>
+            </div>
+            <div class="card">
+                <h3>Master operasional</h3>
+                <ul>
+                    <li><code>/master/companies</code> — klien/pemilik kapal.</li>
+                    <li><code>/master/vessels</code> — kapal, spesifikasi, dan foto opsional.</li>
+                    <li><code>/master/ports</code> — pelabuhan.</li>
+                    <li><code>/master/vendors</code> — vendor administrasi.</li>
+                    <li><code>/master/products</code> — barang/jasa, HPP, harga jual.</li>
+                    <li><code>/master/service-types</code> — klasifikasi layanan.</li>
+                </ul>
+            </div>
+        </div>
+        <h3>Foto kapal</h3>
+        <p>Foto diunggah ke master kapal dan path disimpan di database. Daftar kapal, detail job, pengajuan, dan histori memakai nilai <code>ships.image</code>; bila kosong sistem menampilkan placeholder “foto belum tersedia”, bukan gambar kapal lain.</p>
+        <div class="callout success">Gambar berukuran besar dioptimalkan di komponen upload dengan menjaga rasio aspek, batas dimensi, dan kualitas tinggi sebelum dikirim. File bukan gambar tetap dipertahankan apa adanya.</div>
+    </section>
+
+    <section class="page">
+        <h2>4. SPK dan pembuatan kunjungan</h2>
+        <p><strong>Menu:</strong> <code>/work-orders</code> → <code>/work-orders/create</code> → <code>/work-orders/{id}/detail</code></p>
+        <ol>
+            <li>Admin/Operasional memilih perusahaan, kapal master, pelabuhan, ETA/ETD, kegiatan, dan penanggung jawab.</li>
+            <li>Masukkan nomor SPK klien dan tanggal dokumen yang sebenarnya.</li>
+            <li>Unggah SPK ke storage private. SPK aktif wajib mempunyai dokumen.</li>
+            <li>Sistem membuat nomor SPK internal dan nomor job kunjungan secara unik.</li>
+            <li>Detail SPK menjadi halaman histori terpadu: SPK, kunjungan, kebutuhan, aktivitas, laporan, pendanaan, invoice vendor, pembayaran, Nota Rampung, dan invoice klien.</li>
+        </ol>
+        <h3>Status SPK yang diterapkan</h3>
+        <div class="flow">
+            <span class="step">draft</span><span class="arrow">→</span><span class="step">active</span><span class="arrow">→</span><span class="step">in_progress</span><span class="arrow">→</span><span class="step">operational_completed</span><span class="arrow">→</span><span class="step">awaiting_completion_note</span><span class="arrow">→</span><span class="step">billing</span><span class="arrow">→</span><span class="step">closed</span>
+        </div>
+        <p class="small">Transisi hanya boleh ke tahap berikutnya. Status lama <code>accepted</code>/<code>completed</code> tetap dikenali untuk kompatibilitas data sebelumnya.</p>
+        <div class="callout warning">Pembuatan kunjungan operasional harus dimulai dari SPK. Tombol utama pada menu Kapal diarahkan ke “Buat SPK &amp; Kunjungan” agar nomor job tidak berdiri tanpa dokumen sumber.</div>
+    </section>
+
+    <section class="page">
+        <h2>5. Kapal, Clearance In, Labuh, dan Sandar</h2>
+        <p><strong>Menu:</strong> <code>/vessels</code> dan <code>/vessels/{ship}?visit={portCall}</code></p>
+        <ol>
+            <li>Pilih baris berdasarkan <strong>nomor job</strong>, bukan hanya nama kapal.</li>
+            <li>Detail memakai ETA, pelabuhan, status, foto, kebutuhan, dan aktivitas dari job yang dipilih di database.</li>
+            <li>Ajukan Clearance In sebagai pengajuan terkait job bila biaya/dokumen memerlukan approval.</li>
+            <li>Setelah syarat clearance terpenuhi, perbarui posisi kapal.</li>
+        </ol>
+        <h3>Status fisik kunjungan</h3>
+        <div class="flow"><span class="step">scheduled · Belum tiba</span><span class="arrow">→</span><span class="step">anchored · Labuh</span><span class="arrow">atau</span><span class="step">berthed · Sandar</span><span class="arrow">→</span><span class="step">departed · Berangkat</span></div>
+        <ul>
+            <li>Labuh dan Sandar adalah alternatif posisi fisik; kapal tidak wajib melalui keduanya.</li>
+            <li>Posisi pada form aktivitas mengikuti job terpilih dan tidak diisi bebas.</li>
+            <li>Nama pelabuhan, ETA, spesifikasi, perusahaan, dan foto tidak mempunyai fallback data contoh. Data kosong ditandai “Belum diisi”.</li>
+        </ul>
+    </section>
+
+    <section class="page">
+        <h2>6. Kebutuhan, pengajuan, dan approval</h2>
+        <p><strong>Menu:</strong> <code>/needs</code>, <code>/requests</code>, <code>/requests/create</code>, <code>/requests/{job}/detail</code>, dan <code>/approvals</code>.</p>
+        <ol>
+            <li>Operasional/Admin membuat kebutuhan untuk job terpilih.</li>
+            <li>Admin memeriksa HPP/harga jual dan dapat memperbarui nilai sebelum diteruskan.</li>
+            <li>Admin meneruskan item valid kepada Direktur.</li>
+            <li>Direktur memilih item dengan checkbox, lalu memproses keputusan secara batch atau per item.</li>
+            <li>Item disetujui dikunci. Item ditolak/revisi kembali ke Admin dengan catatan.</li>
+            <li>Sesudah approval, Admin menindaklanjuti pemenuhan, invoice vendor, atau pengajuan pendanaan sesuai jenis layanan.</li>
+        </ol>
+        <h3>Status pengajuan ringkas</h3>
+        <div class="flow"><span class="step">Draft</span><span class="arrow">→</span><span class="step">Menunggu Approval</span><span class="arrow">→</span><span class="step">Menunggu Approval Direktur</span><span class="arrow">→</span><span class="step">Disetujui / Revisi / Ditolak</span><span class="arrow">→</span><span class="step">Dalam Proses</span><span class="arrow">→</span><span class="step">Selesai</span></div>
+        <div class="callout"><strong>Harga jual setelah approval:</strong> item yang sudah disetujui Direktur dikunci. Bila nilai perlu diubah, gunakan alur revisi dan approval ulang; jangan mengubah nilai final secara langsung.</div>
+        <div class="callout warning"><strong>Vendor dipilih di luar sistem.</strong> Vendor boleh kosong saat kebutuhan dibuat, tetapi wajib saat invoice vendor diterima.</div>
+    </section>
+
+    <section class="page">
+        <h2>7. Aktivitas harian dan pengajuan biaya Operasional</h2>
+        <p><strong>Menu:</strong> <code>/operations</code></p>
+        <ol>
+            <li>Pilih job/kunjungan.</li>
+            <li>Catat tanggal, waktu, lokasi, kategori, judul, rincian, dan foto lapangan.</li>
+            <li>Posisi kapal dibaca dari kunjungan/job dan tidak dapat diubah bebas dari form aktivitas.</li>
+            <li>Field aktivitas muatan, progres, kendala, dan rencana berikutnya tetap tersedia pada skema tetapi disembunyikan dari input/tampilan sesuai kebutuhan operasional saat ini.</li>
+            <li>Untuk biaya surat, sertifikat, atau pembayaran lapangan, buat pengajuan dana operasional.</li>
+        </ol>
+        <div class="flow"><span class="step">Operasional mengajukan</span><span class="arrow">→</span><span class="step">Admin memeriksa</span><span class="arrow">→</span><span class="step">Direktur memutuskan</span><span class="arrow">→</span><span class="step">Kopra</span><span class="arrow">→</span><span class="step">Dana ke Admin</span><span class="arrow">→</span><span class="step">Transfer ke Operasional</span><span class="arrow">→</span><span class="step">Bukti &amp; realisasi</span></div>
+        <p>Realisasi wajib mencatat nominal aktual, sisa dana, bukti, dan tanggal. Admin memverifikasi bukti penggunaan.</p>
+    </section>
+
+    <section class="page">
+        <h2>8. Invoice vendor dan batch pendanaan</h2>
+        <p><strong>Menu:</strong> <code>/vendor-invoices</code> dan <code>/funding</code></p>
+        <ol>
+            <li>Setelah kebutuhan dipenuhi, Admin menerima invoice vendor.</li>
+            <li>Catat nomor/tanggal invoice, vendor, job, kebutuhan, nilai, pajak, jatuh tempo, dan dokumen.</li>
+            <li>Admin memverifikasi kesesuaian dan mencegah invoice ganda.</li>
+            <li>Hanya invoice terverifikasi dan belum dibayar yang dapat dipilih ke batch.</li>
+            <li>Satu batch tidak mencampur invoice dari job yang berbeda.</li>
+            <li>Direktur menyetujui/menolak/meminta revisi batch pada sistem SJA.</li>
+        </ol>
+        <h3>Status invoice vendor</h3>
+        <div class="flow"><span class="step">received</span><span class="arrow">→</span><span class="step">verified</span><span class="arrow">→</span><span class="step">batched</span><span class="arrow">→</span><span class="step">unpaid / partially_paid</span><span class="arrow">→</span><span class="step">paid</span></div>
+        <h3>Status pendanaan</h3>
+        <div class="flow"><span class="step">waiting_admin_review</span><span class="arrow">→</span><span class="step">waiting_director</span><span class="arrow">→</span><span class="step">approved_director</span><span class="arrow">→</span><span class="step">kopra_submitted</span><span class="arrow">→</span><span class="step">kopra_approved</span><span class="arrow">→</span><span class="step">funds_received</span><span class="arrow">→</span><span class="step">payment_in_progress</span><span class="arrow">→</span><span class="step">completed</span></div>
+        <div class="callout warning"><strong>Kopra adalah proses eksternal.</strong> Sistem SJA menyimpan referensi, tanggal, nilai pencairan, dan bukti; sistem tidak mengklaim mengirim transaksi langsung ke bank.</div>
+    </section>
+
+    <section class="page">
+        <h2>9. Pembayaran vendor, Clearance Out, dan keberangkatan</h2>
+        <h3>Pembayaran vendor</h3>
+        <ol>
+            <li>Setelah dana cair, Admin membuka daftar invoice dalam batch.</li>
+            <li>Catat pembayaran satu per satu, termasuk penerima, rekening/referensi, tanggal, nominal, dan bukti private.</li>
+            <li>Sistem memakai transaksi database dan penguncian baris untuk mencegah proses ganda.</li>
+            <li>Invoice menjadi <code>paid</code> setelah nilai terpenuhi; batch menjadi <code>completed</code> setelah seluruh kewajiban selesai.</li>
+        </ol>
+        <h3>Clearance Out</h3>
+        <ol>
+            <li>Operasional/Admin membuat pengajuan Clearance Out bila dibutuhkan.</li>
+            <li>Setelah syarat dan kegiatan selesai, posisi kunjungan diperbarui menjadi <code>departed</code>.</li>
+            <li>Sistem mencatat waktu berangkat dan jatuh tempo Nota Rampung.</li>
+            <li>Status SPK bergerak ke <code>awaiting_completion_note</code>; kapal pergi belum berarti kegiatan Closed.</li>
+        </ol>
+    </section>
+
+    <section class="page">
+        <h2>10. Nota Rampung dan rekonsiliasi</h2>
+        <p><strong>Menu:</strong> <code>/completion-notes</code></p>
+        <ol>
+            <li><span class="badge external">Eksternal</span> Pelindo menerbitkan Nota Rampung setelah kapal berangkat.</li>
+            <li>Admin mengunduh dokumen dari sistem Pelindo.</li>
+            <li>Admin memilih job berstatus berangkat, mengisi nomor/tanggal/nilai, lalu mengunggah Word, PDF, JPG, JPEG, atau PNG.</li>
+            <li>Dokumen disimpan private dan hanya dapat dilihat/diunduh oleh pengguna berwenang.</li>
+            <li>Admin memverifikasi dokumen.</li>
+            <li>Admin merekonsiliasi nilai awal, nilai aktual, selisih, dan penyesuaian.</li>
+        </ol>
+        <div class="flow"><span class="step">Menunggu Pelindo</span><span class="arrow">→</span><span class="step">uploaded</span><span class="arrow">→</span><span class="step">verified</span><span class="arrow">→</span><span class="step">reconciled</span></div>
+        <p>Setelah rekonsiliasi, <code>port_calls.financial_status</code> menjadi billing dan SPK masuk tahap penagihan.</p>
+    </section>
+
+    <section class="page">
+        <h2>11. Invoice klien, piutang, dan pelunasan</h2>
+        <p><strong>Menu:</strong> <code>/invoices</code>, <code>/receivables</code>, dan <code>/reports</code>.</p>
+        <ol>
+            <li>Invoice klien hanya dibuat setelah rekonsiliasi biaya job selesai.</li>
+            <li>Pilih jenis jasa keagenan atau reimburse, perusahaan, job, dan pengajuan yang itemnya telah disetujui Direktur.</li>
+            <li>Simpan sebagai draft, unggah dokumen final bertanda tangan untuk rilis, lalu catat bukti pengiriman.</li>
+            <li>Ketika pembayaran masuk, Admin memilih invoice yang benar, mencatat rekening tujuan, referensi, nominal, tanggal, dan bukti.</li>
+            <li>Sistem menghitung <code>paid_amount</code> dan <code>outstanding_amount</code>. Pembayaran sebagian mempertahankan invoice sebagai belum lunas.</li>
+        </ol>
+        <div class="flow"><span class="step">draft</span><span class="arrow">→</span><span class="step">released</span><span class="arrow">→</span><span class="step">sent</span><span class="arrow">→</span><span class="step">paid</span></div>
+        <h3>Chart piutang</h3>
+        <p>Dashboard Admin, Direktur, dan Owner menampilkan komposisi umur piutang di sisi kiri dan daftar piutang per perusahaan di sisi kanan. Nilai berasal dari tabel invoice: total tagihan, jumlah dibayar, saldo, jatuh tempo, dan relasi perusahaan—bukan angka contoh.</p>
+    </section>
+
+    <section class="page">
+        <h2>12. Syarat penutupan kegiatan</h2>
+        <p>SPK hanya dapat diubah menjadi <code>closed</code> bila seluruh pemeriksaan berikut lulus:</p>
+        <ul class="checklist">
+            <li>Kapal sudah berangkat.</li>
+            <li>Nota Rampung sudah diverifikasi dan direkonsiliasi.</li>
+            <li>Seluruh invoice vendor sudah dibayar penuh.</li>
+            <li>Invoice klien sudah dibuat dan seluruhnya lunas.</li>
+            <li>Tidak ada pengajuan pendanaan terbuka.</li>
+            <li>Tidak ada pengajuan operasional terbuka.</li>
+        </ul>
+        <div class="callout danger"><strong>Penutupan diproteksi server.</strong> Mengirim status <code>closed</code> secara langsung tidak melewati syarat di atas. Sistem mengunci work order yang sudah Closed dari perubahan lanjutan.</div>
+        <h3>Hasil akhir</h3>
+        <p>Histori job tetap dapat dilihat pada detail Work Order untuk audit: dokumen SPK, perubahan status, kebutuhan, keputusan, aktivitas, invoice vendor, pendanaan, pembayaran, Nota Rampung, rekonsiliasi, invoice klien, dan pelunasan.</p>
+    </section>
+
+    <section class="page">
+        <h2>13. Peta menu dan route</h2>
+        <table>
+            <thead><tr><th>Menu</th><th>Route utama</th><th>Sumber data utama</th><th>Aksi utama</th></tr></thead>
+            <tbody>
+                <tr><td>Beranda</td><td><code>/dashboard</code></td><td>Kunjungan, pengajuan, invoice, pembayaran, aktivitas</td><td>Ringkasan berbasis role</td></tr>
+                <tr><td>SPK</td><td><code>/work-orders</code></td><td>work_orders + relasi job</td><td>Buat, transisi, histori</td></tr>
+                <tr><td>Kapal</td><td><code>/vessels</code></td><td>port_calls + ships</td><td>Pantau kunjungan per job</td></tr>
+                <tr><td>Kebutuhan</td><td><code>/needs</code></td><td>requests + request_items</td><td>Buat dan proses kebutuhan</td></tr>
+                <tr><td>Pengajuan</td><td><code>/requests</code></td><td>requests + request_items</td><td>Harga, teruskan, status</td></tr>
+                <tr><td>Approval</td><td><code>/approvals</code></td><td>request_items menunggu Direktur</td><td>Keputusan checkbox/batch</td></tr>
+                <tr><td>Aktivitas</td><td><code>/operations</code></td><td>operational_activities + daily_reports</td><td>Catatan lapangan dan posisi</td></tr>
+                <tr><td>Invoice Vendor</td><td><code>/vendor-invoices</code></td><td>cost_documents</td><td>Terima dan verifikasi</td></tr>
+                <tr><td>Pendanaan</td><td><code>/funding</code></td><td>expense_requests + funding_requests + payments</td><td>Approval, Kopra, cair, bayar</td></tr>
+                <tr><td>Pengeluaran</td><td><code>/expenses</code></td><td>outgoing_payments</td><td>Catat bukti pengeluaran</td></tr>
+                <tr><td>Nota Rampung</td><td><code>/completion-notes</code></td><td>completion_notes + reconciliations</td><td>Unggah, verifikasi, rekonsiliasi</td></tr>
+                <tr><td>Invoice Klien</td><td><code>/invoices</code></td><td>invoices</td><td>Draft, rilis, kirim</td></tr>
+                <tr><td>Piutang</td><td><code>/receivables</code></td><td>invoices + client_receipts</td><td>Catat pelunasan</td></tr>
+                <tr><td>Laporan</td><td><code>/reports</code></td><td>Agregasi job, invoice, pengeluaran</td><td>Lihat/cetak</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section class="page">
+        <h2>14. Sumber chart dan hasil audit data</h2>
+        <table>
+            <thead><tr><th>Informasi</th><th>Sumber PostgreSQL</th><th>Perhitungan</th></tr></thead>
+            <tbody>
+                <tr><td>Posisi kapal</td><td><code>port_calls.status</code></td><td>Jumlah scheduled, anchored, berthed, departed.</td></tr>
+                <tr><td>Status pengajuan</td><td><code>requests.status</code></td><td>Menunggu, diproses, selesai saat ini.</td></tr>
+                <tr><td>Aktivitas 7 hari</td><td><code>operational_activities</code>, <code>daily_reports</code></td><td>Dikelompokkan menurut tanggal pencatatan sebenarnya.</td></tr>
+                <tr><td>Tren tagihan</td><td><code>invoices</code></td><td>Grand total, paid, outstanding per bulan.</td></tr>
+                <tr><td>Umur piutang</td><td><code>invoices.due_date</code>, <code>outstanding_amount</code></td><td>Belum jatuh tempo, terlambat ≤30 hari, terlambat &gt;30 hari.</td></tr>
+                <tr><td>Piutang perusahaan</td><td><code>invoices.company_id</code></td><td>Saldo dan jumlah invoice dikelompokkan per klien.</td></tr>
+                <tr><td>Laporan margin</td><td><code>invoices</code>, <code>outgoing_payments</code></td><td>Total invoice dikurangi seluruh pengeluaran tercatat.</td></tr>
+            </tbody>
+        </table>
+        <h3>Data semu yang telah dihilangkan dari alur aktif</h3>
+        <ul>
+            <li>Akun demo dan kata sandi cepat pada login.</li>
+            <li>Notifikasi, token Firebase, dan pencarian topbar yang tidak mempunyai backend.</li>
+            <li>Tanggal kapal 12/13 Januari 2026 serta pengelompokan kapal berdasarkan nama tertentu.</li>
+            <li>Fallback perusahaan, pelabuhan, IMO, spesifikasi, kapten, telepon, lokasi, foto, dan cuaca contoh.</li>
+            <li>Chart “riwayat status” yang sebelumnya menebak tanggal approval/proses dari status saat ini.</li>
+        </ul>
+        <div class="callout warning"><strong>Tidak diotomatisasi:</strong> komunikasi/pemilihan vendor, transaksi Kopra, proses Pelindo, dan aktivitas fisik kapal tetap berlangsung di luar sistem. SJA hanya menyimpan hasil, status, referensi, dan bukti yang benar-benar dicatat pengguna.</div>
+    </section>
+
+    <section class="page">
+        <h2>15. Checklist penggunaan harian</h2>
+        <div class="cols">
+            <div class="card"><h3>Operasional</h3><ul class="checklist"><li>Pilih nomor job yang benar.</li><li>Periksa posisi kapal.</li><li>Catat aktivitas dan foto aktual.</li><li>Buat kebutuhan hanya untuk job terkait.</li><li>Unggah bukti penggunaan dana.</li></ul></div>
+            <div class="card"><h3>Admin</h3><ul class="checklist"><li>Validasi SPK dan relasi master.</li><li>Periksa HPP/harga jual sebelum diteruskan.</li><li>Verifikasi invoice vendor.</li><li>Jangan mencampur job dalam batch.</li><li>Simpan referensi/bukti Kopra dan pembayaran.</li><li>Rekonsiliasi sebelum invoice klien.</li></ul></div>
+            <div class="card"><h3>Direktur</h3><ul class="checklist"><li>Pilih item dengan checkbox.</li><li>Periksa HPP dan catatan.</li><li>Setujui, revisi, atau tolak dengan alasan.</li><li>Lakukan approval tahap Kopra saat status sesuai.</li><li>Pantau laporan dan piutang.</li></ul></div>
+            <div class="card"><h3>Owner</h3><ul class="checklist"><li>Pantau dashboard dan chart piutang.</li><li>Tinjau laporan dan histori job.</li><li>Pantau tata kelola akun.</li><li>Jangan memproses transaksi operasional/keuangan.</li></ul></div>
+        </div>
+        <p class="footer-note">Dokumen ini menjelaskan alur aplikasi PT SJA pada versi pemeriksaan. Bila proses bisnis atau status ditambah, route, Policy, Form Request, pengujian, dan dokumen ini harus diperbarui bersama.</p>
+    </section>
+</body>
+</html>

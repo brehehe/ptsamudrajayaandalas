@@ -1,54 +1,36 @@
-import React, { useState } from 'react';
-import { Head, router } from '@inertiajs/react';
+import React, { useMemo, useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
+import { ArrowRight, Banknote, Check, FileCheck2, Search, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
-import Card from '../../Components/ui/Card';
-import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
-import Modal from '../../Components/overlays/Modal';
+import Table, { Column } from '../../Components/tables/Table';
+import TableMobile from '../../Components/tables/TableMobile';
+import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import Tabs from '../../Components/ui/Tabs';
 
 interface RequestItem {
     id: string;
-    item_name: string;
-    unit?: string;
     quantity: number | string;
     hpp_price?: number | string;
     selling_price?: number | string;
     status: string;
     director_status?: string;
-    director_notes?: string;
-    is_urgent: boolean;
-    vendor?: {
-        name: string;
-    };
-    product?: {
-        name: string;
-        item_type: 'jasa' | 'non_jasa';
-    };
 }
 
 interface ShipRequest {
     id: string;
     request_number: string;
-    ship_id: string;
     status: string;
     request_date: string;
-    notes?: string;
     created_at: string;
-    ship?: {
-        name: string;
-        imo_number: string;
-        company?: {
-            name: string;
-        };
-    };
-    creator?: {
-        name: string;
-    };
+    company?: { name: string };
+    port?: { name: string };
+    ship?: { name: string; company?: { name: string } };
     port_call?: {
-        job_number: string;
-        port?: {
-            name: string;
-        };
+        id?: string;
+        job_number?: string;
+        port?: { name: string };
+        ship?: { name: string; company?: { name: string } };
     };
     items?: RequestItem[];
 }
@@ -62,34 +44,66 @@ interface OutgoingPayment {
     currency: string;
     payment_date: string;
     verification_status: string;
-    port_call?: {
-        job_number: string;
-        ship?: {
-            name: string;
-        };
-        port?: {
-            name: string;
-        };
-    };
-    recorder?: {
-        name: string;
-    };
-    verifier?: {
-        name: string;
-    };
+    port_call?: { job_number: string; ship?: { name: string } };
+    verifier?: { name: string };
+}
+
+interface ApprovalRow {
+    key: string;
+    jobNumber: string;
+    shipName: string;
+    companyName: string;
+    portName: string;
+    requests: ShipRequest[];
+    itemCount: number;
+    pendingCount: number;
+    totalHpp: number;
+    totalSelling: number;
+    status: string;
+    updatedAt: string;
+    isNew: boolean;
 }
 
 interface ApprovalsIndexProps {
     requests: ShipRequest[];
     payments: OutgoingPayment[];
-    counts: {
-        menunggu: number;
-        disetujui: number;
-        ditolak: number;
-    };
+    counts: { semua?: number; menunggu: number; disetujui: number; ditolak: number };
     activeTab: string;
     search: string;
+    capabilities?: {
+        can_decide_items: boolean;
+        can_view_hpp: boolean;
+        is_director: boolean;
+        can_process_requests: boolean;
+    };
 }
+
+const DEFAULT_CAPABILITIES = {
+    can_decide_items: false,
+    can_view_hpp: false,
+    is_director: false,
+    can_process_requests: false,
+};
+
+const formatCurrency = (value: number, currency = 'IDR'): string =>
+    new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency,
+        maximumFractionDigits: 0,
+    }).format(value);
+
+const formatDate = (value?: string): string => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    }).format(date);
+};
+
+const normalized = (value?: string): string => (value || '').trim().toLowerCase();
 
 export default function ApprovalsIndex({
     requests,
@@ -97,801 +111,490 @@ export default function ApprovalsIndex({
     counts,
     activeTab,
     search: initialSearch,
+    capabilities = DEFAULT_CAPABILITIES,
 }: ApprovalsIndexProps) {
     const [search, setSearch] = useState(initialSearch);
-    const [activeSection, setActiveSection] = useState<'requests' | 'payments'>('requests');
-    const [rejectModalItem, setRejectModalItem] = useState<ShipRequest | null>(null);
-    const [rejectReason, setRejectReason] = useState('');
-    const [reviewModalItem, setReviewModalItem] = useState<ShipRequest | null>(null);
-    const [itemDecisions, setItemDecisions] = useState<
-        Record<string, { status: 'approved' | 'rejected' | 'pending'; notes: string }>
-    >({});
+    const [section, setSection] = useState<'requests' | 'payments'>('requests');
+    const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        router.get('/approvals', { tab: activeTab, search }, { preserveState: true });
+    const requestNeedsAction = (request: ShipRequest): boolean => {
+        const status = normalized(request.status);
+
+        if (capabilities.can_decide_items) {
+            return (
+                status === 'menunggu approval direktur' ||
+                (request.items || []).some(
+                    (item) =>
+                        normalized(item.status).includes('direktur') &&
+                        (!item.director_status || item.director_status === 'pending')
+                )
+            );
+        }
+
+        return (
+            capabilities.can_process_requests &&
+            ['disetujui', 'disetujui sebagian'].includes(status)
+        );
     };
 
-    const handleTabChange = (tab: string) => {
-        router.get('/approvals', { tab, search }, { preserveState: true });
-    };
+    const approvalRows = useMemo<ApprovalRow[]>(() => {
+        const groups = new Map<string, ApprovalRow>();
 
-    const handleApproveRequest = (id: string) => {
-        router.post(`/approvals/requests/${id}/approve`, {}, { preserveScroll: true });
-    };
+        requests.forEach((request) => {
+            const key = request.port_call?.id || request.port_call?.job_number || request.id;
+            const items = request.items || [];
+            const hpp = items.reduce(
+                (total, item) => total + Number(item.hpp_price || 0) * Number(item.quantity || 0),
+                0
+            );
+            const selling = items.reduce(
+                (total, item) =>
+                    total + Number(item.selling_price || 0) * Number(item.quantity || 0),
+                0
+            );
+            const pending = items.filter(
+                (item) => !item.director_status || item.director_status === 'pending'
+            ).length;
+            const existing = groups.get(key);
 
-    const openReviewModal = (req: ShipRequest) => {
-        setReviewModalItem(req);
-        const initial: Record<
-            string,
-            { status: 'approved' | 'rejected' | 'pending'; notes: string }
-        > = {};
-        req.items?.forEach((it) => {
-            initial[it.id] = {
-                status: (it.director_status as 'approved' | 'rejected' | 'pending') || 'approved',
-                notes: it.director_notes || '',
-            };
+            if (!existing) {
+                groups.set(key, {
+                    key,
+                    jobNumber: request.port_call?.job_number || request.request_number,
+                    shipName: request.ship?.name || request.port_call?.ship?.name || '-',
+                    companyName:
+                        request.company?.name ||
+                        request.ship?.company?.name ||
+                        request.port_call?.ship?.company?.name ||
+                        '-',
+                    portName: request.port_call?.port?.name || request.port?.name || '-',
+                    requests: [request],
+                    itemCount: items.length,
+                    pendingCount: pending,
+                    totalHpp: hpp,
+                    totalSelling: selling,
+                    status: request.status,
+                    updatedAt: request.created_at || request.request_date,
+                    isNew: requestNeedsAction(request),
+                });
+                return;
+            }
+
+            existing.requests.push(request);
+            existing.itemCount += items.length;
+            existing.pendingCount += pending;
+            existing.totalHpp += hpp;
+            existing.totalSelling += selling;
+            existing.isNew = existing.isNew || requestNeedsAction(request);
+            if (
+                new Date(request.created_at).getTime() > new Date(existing.updatedAt).getTime()
+            ) {
+                existing.updatedAt = request.created_at;
+                existing.status = request.status;
+            }
         });
-        setItemDecisions(initial);
-    };
 
-    const handleSaveItemDecisions = () => {
-        if (!reviewModalItem) return;
-        const decisionsArray = Object.entries(itemDecisions).map(([itemId, dec]) => ({
-            item_id: itemId,
-            status: dec.status,
-            director_notes: dec.notes,
-        }));
+        return Array.from(groups.values()).sort((a, b) => {
+            if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
+            return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        });
+    }, [requests, capabilities]);
 
-        router.post(
-            `/approvals/requests/${reviewModalItem.id}/item-decision`,
+    const paymentRows = useMemo(
+        () =>
+            [...payments].sort((a, b) => {
+                const aNew = capabilities.can_decide_items && a.verification_status === 'pending';
+                const bNew = capabilities.can_decide_items && b.verification_status === 'pending';
+                if (aNew !== bNew) return aNew ? -1 : 1;
+                return new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
+            }),
+        [payments, capabilities.can_decide_items]
+    );
+
+    const approvalColumns = useMemo<Column<ApprovalRow>[]>(
+        () => [
             {
-                decisions: decisionsArray,
+                key: 'job',
+                header: 'Job / Kapal',
+                width: '260px',
+                render: (row) => (
+                    <div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-mono font-bold text-[#0060F4]">{row.jobNumber}</span>
+                            {row.isNew && (
+                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                    Baru
+                                </span>
+                            )}
+                        </div>
+                        <p className="mt-1 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            {row.shipName}
+                        </p>
+                    </div>
+                ),
             },
             {
-                preserveScroll: true,
-                onSuccess: () => {
-                    setReviewModalItem(null);
-                },
-            }
-        );
-    };
-
-    const handleRejectSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!rejectModalItem) return;
-        router.post(
-            `/approvals/requests/${rejectModalItem.id}/reject`,
-            { reason: rejectReason },
+                key: 'company',
+                header: 'Klien / Pelabuhan',
+                width: '230px',
+                render: (row) => (
+                    <div className="space-y-1">
+                        <p className="font-semibold">{row.companyName}</p>
+                        <p className="text-[#52658E] dark:text-[#94A3B8]">{row.portName}</p>
+                    </div>
+                ),
+            },
             {
-                preserveScroll: true,
-                onSuccess: () => {
-                    setRejectModalItem(null);
-                    setRejectReason('');
+                key: 'items',
+                header: 'Rincian',
+                width: '150px',
+                render: (row) => (
+                    <div className="whitespace-nowrap">
+                        <strong>{row.requests.length}</strong> surat · <strong>{row.itemCount}</strong>{' '}
+                        item
+                        {row.pendingCount > 0 && (
+                            <p className="mt-1 text-[11px] font-semibold text-[#A65300]">
+                                {row.pendingCount} menunggu
+                            </p>
+                        )}
+                    </div>
+                ),
+            },
+            {
+                key: 'value',
+                header: capabilities.can_view_hpp ? 'HPP / Jual' : 'Nilai',
+                align: 'right',
+                width: '190px',
+                render: (row) => (
+                    <div className="whitespace-nowrap font-mono tabular-nums">
+                        {capabilities.can_view_hpp && (
+                            <p className="text-[#52658E]">{formatCurrency(row.totalHpp)}</p>
+                        )}
+                        <p className="font-bold">{formatCurrency(row.totalSelling)}</p>
+                    </div>
+                ),
+            },
+            {
+                key: 'status',
+                header: 'Status',
+                width: '180px',
+                render: (row) => (
+                    <StatusBadge status={row.status} label={row.status} size="sm" showDot />
+                ),
+            },
+            {
+                key: 'updated',
+                header: 'Diperbarui',
+                width: '130px',
+                render: (row) => (
+                    <span className="whitespace-nowrap text-[#52658E]">
+                        {formatDate(row.updatedAt)}
+                    </span>
+                ),
+            },
+            {
+                key: 'action',
+                header: 'Aksi',
+                align: 'right',
+                width: '110px',
+                render: (row) => (
+                    <Link
+                        href={route('approvals.detail', row.jobNumber)}
+                        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] bg-white px-3 font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                    >
+                        Buka <ArrowRight aria-hidden="true" className="size-3.5" />
+                    </Link>
+                ),
+            },
+        ],
+        [capabilities.can_view_hpp]
+    );
+
+    const paymentColumns = useMemo<Column<OutgoingPayment>[]>(
+        () => [
+            {
+                key: 'reference',
+                header: 'Referensi / Tanggal',
+                width: '210px',
+                render: (payment) => {
+                    const isNew =
+                        capabilities.can_decide_items &&
+                        payment.verification_status === 'pending';
+                    return (
+                        <div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-mono font-bold text-[#0060F4]">
+                                    {payment.reference_number}
+                                </span>
+                                {isNew && (
+                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                        Baru
+                                    </span>
+                                )}
+                            </div>
+                            <p className="mt-1 text-[#52658E]">{formatDate(payment.payment_date)}</p>
+                        </div>
+                    );
                 },
-            }
-        );
-    };
+            },
+            {
+                key: 'recipient',
+                header: 'Penerima / Job',
+                width: '260px',
+                render: (payment) => (
+                    <div>
+                        <p className="font-semibold">{payment.recipient}</p>
+                        <p className="mt-1 text-[#52658E]">
+                            {payment.port_call?.ship?.name || '-'} ·{' '}
+                            {payment.port_call?.job_number || '-'}
+                        </p>
+                    </div>
+                ),
+            },
+            {
+                key: 'type',
+                header: 'Jenis',
+                width: '180px',
+                render: (payment) => payment.payment_type,
+            },
+            {
+                key: 'amount',
+                header: 'Nominal',
+                align: 'right',
+                width: '170px',
+                render: (payment) => (
+                    <span className="whitespace-nowrap font-mono font-bold tabular-nums">
+                        {formatCurrency(payment.amount, payment.currency || 'IDR')}
+                    </span>
+                ),
+            },
+            {
+                key: 'status',
+                header: 'Status',
+                width: '170px',
+                render: (payment) => (
+                    <StatusBadge
+                        status={
+                            payment.verification_status === 'verified'
+                                ? 'Disetujui'
+                                : payment.verification_status === 'rejected'
+                                  ? 'Ditolak'
+                                  : 'Menunggu Approval'
+                        }
+                        label={
+                            payment.verification_status === 'verified'
+                                ? 'Terverifikasi'
+                                : payment.verification_status === 'rejected'
+                                  ? 'Ditolak'
+                                  : 'Menunggu'
+                        }
+                        size="sm"
+                        showDot
+                    />
+                ),
+            },
+            {
+                key: 'action',
+                header: 'Aksi',
+                align: 'right',
+                width: '150px',
+                render: (payment) =>
+                    capabilities.can_decide_items && payment.verification_status === 'pending' ? (
+                        <button
+                            type="button"
+                            disabled={verifyingId !== null}
+                            onClick={() => {
+                                setVerifyingId(payment.id);
+                                router.post(
+                                    `/approvals/payments/${payment.id}/verify`,
+                                    {},
+                                    {
+                                        preserveScroll: true,
+                                        onFinish: () => setVerifyingId(null),
+                                    }
+                                );
+                            }}
+                            className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] bg-[#0060F4] px-3 font-bold text-white hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <Check aria-hidden="true" className="size-3.5" />
+                            {verifyingId === payment.id ? 'Memproses' : 'Verifikasi'}
+                        </button>
+                    ) : (
+                        <span className="text-[#52658E]">
+                            {payment.verifier?.name || '—'}
+                        </span>
+                    ),
+            },
+        ],
+        [capabilities.can_decide_items, verifyingId]
+    );
 
-    const handleVerifyPayment = (id: string) => {
-        router.post(`/approvals/payments/${id}/verify`, {}, { preserveScroll: true });
-    };
-
-    const formatRupiah = (val: number) => {
-        return new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR',
-            maximumFractionDigits: 0,
-        }).format(val);
+    const visit = (tab = activeTab, query = search): void => {
+        router.get('/approvals', { tab, search: query || undefined }, { preserveState: true });
     };
 
     return (
-        <AppLayout title="Approval Direktur & Otorisasi Dana Kopra">
-            <Head title="Approval & Otorisasi - PT Samudra Jaya Andalas" />
+        <AppLayout title="Persetujuan" transparentMobileHeader noPaddingMobile mobileBackground="surface">
+            <Head title="Persetujuan - PT Samudra Jaya Andalas" />
 
-            <div className="space-y-4 max-w-7xl mx-auto pb-10">
-                {/* ── Top Level Segment Switcher & Section (matching Gambar 2) ── */}
-                <div
-                    className={
-                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
-                        'border-b border-[#DCEAF8]'
-                    }
-                >
-                    <div
-                        className={
-                            'flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border ' +
-                            'border-[#DCEAF8] self-start'
-                        }
+            <MobilePageHero title="Persetujuan" description="Tinjau pengajuan dan pembayaran yang memerlukan keputusan." />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+                <header className="hidden md:block">
+                    <h1 className="text-2xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">
+                        Persetujuan
+                    </h1>
+                    <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">
+                        Pengajuan dan pembayaran yang perlu ditinjau.
+                    </p>
+                </header>
+
+                <Tabs
+                    items={[
+                        { id: 'requests', label: 'Pengajuan', count: approvalRows.length, icon: <FileCheck2 aria-hidden="true" className="size-4" /> },
+                        { id: 'payments', label: 'Pembayaran', count: payments.length, icon: <Banknote aria-hidden="true" className="size-4" /> },
+                    ]}
+                    activeId={section}
+                    onChange={(value) => setSection(value as 'requests' | 'payments')}
+                    ariaLabel="Jenis persetujuan"
+                    equalWidth
+                    className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
+                />
+
+                <section className="space-y-3" aria-label="Filter persetujuan">
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            visit();
+                        }}
+                        className="relative"
                     >
-                        <button
-                            type="button"
-                            onClick={() => setActiveSection('requests')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                activeSection === 'requests'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/50'
-                            }`}
-                        >
-                            <span>📝</span>
-                            <span>Pengajuan Kebutuhan</span>
-                            <span
-                                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                    activeSection === 'requests'
-                                        ? 'bg-white/20 text-white'
-                                        : 'bg-white text-[#0B1F63] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                {requests.length}
-                            </span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => setActiveSection('payments')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                activeSection === 'payments'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/50'
-                            }`}
-                        >
-                            <span>💸</span>
-                            <span>Disbursement & Kopra</span>
-                            <span
-                                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                    activeSection === 'payments'
-                                        ? 'bg-white/20 text-white'
-                                        : 'bg-white text-[#0B1F63] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                {payments.length}
-                            </span>
-                        </button>
-                    </div>
-
-                    <div
-                        className={
-                            'inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 ' +
-                            'border border-amber-200 text-amber-800 text-xs font-bold self-start ' +
-                            'sm:self-auto'
-                        }
-                    >
-                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                        <span>{counts.menunggu} Menunggu Otorisasi</span>
-                    </div>
-                </div>
-
-                {/* ── Title Header ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
-                            Persetujuan & Otorisasi Direksi
-                        </h1>
-                        <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                            Tinjau pengajuan kebutuhan armada dan verifikasi otorisasi pengeluaran
-                            dana disbursement operasional
-                        </p>
-                    </div>
-                </div>
-
-                {/* ── Search Bar ── */}
-                <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                    <div
-                        className={
-                            'absolute inset-y-0 left-0 pl-3.5 flex items-center ' +
-                            'pointer-events-none text-[#8C9BB9]'
-                        }
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            viewBox="0 0 24 24"
-                        >
-                            <circle cx="11" cy="11" r="8" />
-                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                        </svg>
-                    </div>
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari nomor referensi, kapal, atau penerima..."
-                        className={
-                            'w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] ' +
-                            'rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs ' +
-                            'focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 ' +
-                            'focus:border-[#0060F4]'
-                        }
-                    />
-                    <button
-                        type="submit"
-                        className={
-                            'absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-[#0060F4] ' +
-                            'hover:bg-[#0052D4] text-white text-xs font-bold rounded-lg ' +
-                            'transition-colors cursor-pointer'
-                        }
-                    >
-                        Cari
-                    </button>
-                </form>
-
-                {/* ── Status Tabs (Capsules) ── */}
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {[
-                        { id: 'menunggu', label: 'Menunggu Persetujuan', count: counts.menunggu },
-                        { id: 'disetujui', label: 'Disetujui', count: counts.disetujui },
-                        { id: 'ditolak', label: 'Ditolak', count: counts.ditolak },
-                    ].map((t) => {
-                        const isActive = activeTab === t.id;
-                        return (
-                            <button
-                                key={t.id}
-                                type="button"
-                                onClick={() => handleTabChange(t.id)}
-                                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                                    isActive
-                                        ? 'bg-[#0060F4] text-white shadow-xs'
-                                        : 'bg-white text-[#52658E] hover:bg-[#F0F8FF] hover:text-[#0B1F63] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                <span>{t.label}</span>
-                                <span
-                                    className={`px-1.5 py-0.2 rounded-full text-[10.5px] font-black ${
-                                        isActive
-                                            ? 'bg-white/25 text-white'
-                                            : 'bg-[#E0F0FF] text-[#0060F4]'
-                                    }`}
-                                >
-                                    {t.count}
-                                </span>
-                            </button>
-                        );
-                    })}
-                </div>
-
-                {/* Main Content Area */}
-                {activeSection === 'requests' ? (
-                    <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                        {requests.length === 0 ? (
-                            <div className="text-center py-16 px-4">
-                                <div
-                                    className={
-                                        'w-14 h-14 mx-auto mb-3 rounded-full bg-emerald-50 ' +
-                                        'text-emerald-600 flex items-center justify-center'
-                                    }
-                                >
-                                    <svg
-                                        className="w-7 h-7"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M5 13l4 4L19 7"
-                                        />
-                                    </svg>
-                                </div>
-                                <h3 className="text-base font-bold text-[#082870]">
-                                    Tidak Ada Pengajuan Kebutuhan Tertunda
-                                </h3>
-                                <p className="text-xs text-[#52658E] mt-1">
-                                    Semua pengajuan telah ditindaklanjuti atau sesuai kriteria
-                                    filter.
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs border-collapse">
-                                    <thead>
-                                        <tr
-                                            className={
-                                                'bg-[#F0F8FF] border-b border-[#DCEAF8] ' +
-                                                'text-[#082870] font-semibold uppercase ' +
-                                                'tracking-wider'
-                                            }
-                                        >
-                                            <th className="py-3 px-4">No. Pengajuan</th>
-                                            <th className="py-3 px-4">Kapal & Perusahaan</th>
-                                            <th className="py-3 px-4">Rincian Kebutuhan</th>
-                                            <th className="py-3 px-4">Pelapor</th>
-                                            <th className="py-3 px-4">Status</th>
-                                            <th className="py-3 px-4 text-right">
-                                                Otorisasi Direktur
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                        {requests.map((req) => (
-                                            <tr
-                                                key={req.id}
-                                                className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                            >
-                                                <td className="py-3.5 px-4 font-mono font-medium text-[#0060F4]">
-                                                    {req.request_number}
-                                                    <div className="text-[10px] text-[#52658E] font-sans font-normal">
-                                                        {new Date(
-                                                            req.request_date
-                                                        ).toLocaleDateString('id-ID', {
-                                                            day: '2-digit',
-                                                            month: 'short',
-                                                            year: 'numeric',
-                                                        })}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5 px-4">
-                                                    <div className="font-semibold text-[#082870]">
-                                                        {req.ship?.name}
-                                                    </div>
-                                                    <div className="text-[11px] text-[#52658E]">
-                                                        {req.ship?.company?.name ||
-                                                            'Klien Keagenan'}{' '}
-                                                        • IMO {req.ship?.imo_number}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5 px-4 max-w-sm">
-                                                    <p className="text-xs text-neutral-800 line-clamp-2">
-                                                        {req.notes || '-'}
-                                                    </p>
-                                                </td>
-                                                <td className="py-3.5 px-4">
-                                                    <div className="font-medium">
-                                                        {req.creator?.name || 'Pak Prima'}
-                                                    </div>
-                                                    <div className="text-[10px] text-[#52658E]">
-                                                        Tim Lapangan
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5 px-4">
-                                                    <StatusBadge
-                                                        status={req.status}
-                                                        label={req.status}
-                                                    />
-                                                </td>
-                                                <td className="py-3.5 px-4 text-right">
-                                                    {req.status === 'Menunggu Approval' ||
-                                                    req.status === 'Menunggu Approval Direktur' ? (
-                                                        <div className="flex items-center justify-end gap-1.5">
-                                                            {req.items && req.items.length > 0 && (
-                                                                <button
-                                                                    onClick={() =>
-                                                                        openReviewModal(req)
-                                                                    }
-                                                                    className={
-                                                                        'px-2.5 py-1.5 ' +
-                                                                        'bg-[#0060F4] ' +
-                                                                        'hover:bg-[#082870] ' +
-                                                                        'text-white rounded-lg ' +
-                                                                        'text-xs font-semibold ' +
-                                                                        'shadow-xs transition'
-                                                                    }
-                                                                >
-                                                                    Tinjau Item ({req.items.length})
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                onClick={() =>
-                                                                    handleApproveRequest(req.id)
-                                                                }
-                                                                className={
-                                                                    'px-2.5 py-1.5 ' +
-                                                                    'bg-emerald-600 ' +
-                                                                    'hover:bg-emerald-700 ' +
-                                                                    'text-white rounded-lg ' +
-                                                                    'text-xs font-semibold ' +
-                                                                    'shadow-xs transition'
-                                                                }
-                                                            >
-                                                                ACC Semua
-                                                            </button>
-                                                            <button
-                                                                onClick={() =>
-                                                                    setRejectModalItem(req)
-                                                                }
-                                                                className={
-                                                                    'px-2.5 py-1.5 bg-rose-50 ' +
-                                                                    'text-rose-700 ' +
-                                                                    'hover:bg-rose-100 ' +
-                                                                    'rounded-lg text-xs ' +
-                                                                    'font-semibold transition'
-                                                                }
-                                                            >
-                                                                Tolak
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-[11px] text-[#52658E]">
-                                                            Telah Diproses
-                                                        </span>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </Card>
-                ) : (
-                    <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                        {payments.length === 0 ? (
-                            <div className="text-center py-16 px-4">
-                                <div
-                                    className={
-                                        'w-14 h-14 mx-auto mb-3 rounded-full bg-emerald-50 ' +
-                                        'text-emerald-600 flex items-center justify-center'
-                                    }
-                                >
-                                    <svg
-                                        className="w-7 h-7"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M5 13l4 4L19 7"
-                                        />
-                                    </svg>
-                                </div>
-                                <h3 className="text-base font-bold text-[#082870]">
-                                    Tidak Ada Otorisasi Pembayaran Tertunda
-                                </h3>
-                                <p className="text-xs text-[#52658E] mt-1">
-                                    Semua disbursement dan pengeluaran Kopra telah terverifikasi.
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs border-collapse">
-                                    <thead>
-                                        <tr
-                                            className={
-                                                'bg-[#F0F8FF] border-b border-[#DCEAF8] ' +
-                                                'text-[#082870] font-semibold uppercase ' +
-                                                'tracking-wider'
-                                            }
-                                        >
-                                            <th className="py-3 px-4">No. Referensi Kopra</th>
-                                            <th className="py-3 px-4">Jenis Disbursement</th>
-                                            <th className="py-3 px-4">Penerima & Kapal</th>
-                                            <th className="py-3 px-4">Nominal</th>
-                                            <th className="py-3 px-4">Dicatat Oleh</th>
-                                            <th className="py-3 px-4">Status</th>
-                                            <th className="py-3 px-4 text-right">
-                                                Verifikasi Dana
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                        {payments.map((p) => (
-                                            <tr
-                                                key={p.id}
-                                                className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                            >
-                                                <td className="py-3.5 px-4 font-mono font-medium text-[#0060F4]">
-                                                    {p.reference_number}
-                                                    <div className="text-[10px] text-[#52658E] font-sans">
-                                                        {new Date(
-                                                            p.payment_date
-                                                        ).toLocaleDateString('id-ID', {
-                                                            day: '2-digit',
-                                                            month: 'short',
-                                                            year: 'numeric',
-                                                        })}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5 px-4 font-semibold text-[#082870]">
-                                                    {p.payment_type}
-                                                </td>
-                                                <td className="py-3.5 px-4">
-                                                    <div className="font-medium text-[#0B1F63]">
-                                                        {p.recipient}
-                                                    </div>
-                                                    <div className="text-[11px] text-[#52658E]">
-                                                        Kapal: {p.port_call?.ship?.name || '-'} (
-                                                        {p.port_call?.job_number || '-'})
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5 px-4 font-mono font-bold text-neutral-900">
-                                                    {formatRupiah(p.amount)}
-                                                </td>
-                                                <td className="py-3.5 px-4">
-                                                    <div className="font-medium">
-                                                        {p.recorder?.name || 'Admin'}
-                                                    </div>
-                                                    <div className="text-[10px] text-[#52658E]">
-                                                        Keuangan
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5 px-4">
-                                                    <StatusBadge
-                                                        status={
-                                                            p.verification_status === 'verified'
-                                                                ? 'Disetujui'
-                                                                : 'Menunggu Approval'
-                                                        }
-                                                        label={
-                                                            p.verification_status === 'verified'
-                                                                ? 'Terverifikasi'
-                                                                : 'Menunggu Verifikasi'
-                                                        }
-                                                    />
-                                                </td>
-                                                <td className="py-3.5 px-4 text-right">
-                                                    {p.verification_status === 'pending' ? (
-                                                        <button
-                                                            onClick={() =>
-                                                                handleVerifyPayment(p.id)
-                                                            }
-                                                            className={
-                                                                'px-3 py-1.5 bg-[#0060F4] ' +
-                                                                'hover:bg-[#082870] text-white ' +
-                                                                'rounded-lg text-xs ' +
-                                                                'font-semibold shadow-xs ' +
-                                                                'transition'
-                                                            }
-                                                        >
-                                                            Verifikasi ACC
-                                                        </button>
-                                                    ) : (
-                                                        <div className="text-[11px] text-emerald-700 font-medium">
-                                                            ACC oleh{' '}
-                                                            {p.verifier?.name || 'Direktur'}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </Card>
-                )}
-            </div>
-
-            {/* Reject Modal */}
-            {rejectModalItem && (
-                <Modal
-                    isOpen={!!rejectModalItem}
-                    onClose={() => setRejectModalItem(null)}
-                    title={`Tolak Pengajuan ${rejectModalItem.request_number}`}
-                >
-                    <form onSubmit={handleRejectSubmit} className="space-y-4 text-xs">
-                        <p className="text-[#52658E]">
-                            Masukkan alasan penolakan untuk pengajuan armada{' '}
-                            <strong>{rejectModalItem.ship?.name}</strong>:
-                        </p>
-                        <textarea
-                            value={rejectReason}
-                            onChange={(e) => setRejectReason(e.target.value)}
-                            rows={3}
-                            placeholder="Alasan penolakan (misal: spesifikasi tidak sesuai, anggaran melebihi batas, dll)..."
-                            className={
-                                'w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 ' +
-                                'bg-white focus:ring-2 focus:ring-[#C62840]'
-                            }
-                            required
+                        <Search
+                            aria-hidden="true"
+                            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#0060F4]"
                         />
-                        <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                            <Button variant="secondary" onClick={() => setRejectModalItem(null)}>
-                                Batal
-                            </Button>
+                        <input
+                            type="search"
+                            name="search"
+                            autoComplete="off"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Cari job, kapal, pengajuan, atau pembayaran…"
+                            aria-label="Cari persetujuan"
+                            className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-10 pr-11 text-sm text-[#0B1F63] shadow-xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
+                        />
+                        {search && (
                             <button
-                                type="submit"
-                                className={
-                                    'px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white ' +
-                                    'rounded-xl font-semibold transition'
-                                }
+                                type="button"
+                                onClick={() => {
+                                    setSearch('');
+                                    visit(activeTab, '');
+                                }}
+                                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
+                                aria-label="Hapus pencarian"
                             >
-                                Konfirmasi Tolak
+                                <X aria-hidden="true" className="size-4" />
                             </button>
-                        </div>
+                        )}
                     </form>
-                </Modal>
-            )}
 
-            {/* Itemized Review Modal for Direktur (Pak Ryan) */}
-            {reviewModalItem && (
-                <Modal
-                    isOpen={!!reviewModalItem}
-                    onClose={() => setReviewModalItem(null)}
-                    title={`Filter & Keputusan Direktur: ${reviewModalItem.request_number}`}
-                    size="lg"
-                >
-                    <div className="space-y-4 text-xs">
-                        <div
-                            className={
-                                'p-3 bg-[#F0F8FF] rounded-xl border border-[#DCEAF8] flex ' +
-                                'items-center justify-between'
-                            }
-                        >
-                            <div>
-                                <p className="font-bold text-[#0B1F63] text-sm">
-                                    {reviewModalItem.ship?.name}
-                                </p>
-                                <p className="text-[11px] text-[#52658E]">
-                                    Klien: {reviewModalItem.ship?.company?.name || 'Klien Keagenan'}
-                                </p>
-                            </div>
-                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#E0F0FF] text-[#0060F4]">
-                                {reviewModalItem.items?.length || 0} Item Kebutuhan
-                            </span>
+                    <Tabs
+                        items={[
+                            { id: 'menunggu', label: 'Menunggu', count: counts.menunggu },
+                            { id: 'disetujui', label: 'Disetujui', count: counts.disetujui },
+                            { id: 'ditolak', label: 'Ditolak', count: counts.ditolak },
+                        ]}
+                        activeId={activeTab}
+                        onChange={(value) => visit(value)}
+                        ariaLabel="Filter status persetujuan"
+                        className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
+                    />
+                </section>
+
+                {section === 'requests' ? (
+                    <>
+                        <div className="hidden md:block">
+                            <Table
+                                columns={approvalColumns}
+                                data={approvalRows}
+                                keyExtractor={(row) => row.key}
+                                compact
+                                minWidth="1190px"
+                                emptyIcon={<FileCheck2 aria-hidden="true" className="mx-auto size-7" />}
+                                emptyMessage="Data Tidak Ditemukan"
+                                rowClassName={(row) => row.isNew ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]' : ''}
+                            />
                         </div>
-
-                        <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                            {reviewModalItem.items?.map((it, idx) => {
-                                const dec = itemDecisions[it.id] || {
-                                    status: 'approved',
-                                    notes: '',
-                                };
-                                const hpp = Number(it.hpp_price) || 0;
-                                const sell = Number(it.selling_price) || 0;
-                                const margin = sell - hpp;
-
-                                return (
-                                    <div
-                                        key={it.id}
-                                        className={`p-3.5 rounded-xl border transition-all ${
-                                            dec.status === 'approved'
-                                                ? 'bg-[#DCF7E8]/30 border-[#087443]/40'
-                                                : dec.status === 'rejected'
-                                                  ? 'bg-[#FFE7EC]/40 border-[#C62840]/40'
-                                                  : 'bg-white border-[#DCEAF8]'
-                                        }`}
-                                    >
-                                        <div
-                                            className={
-                                                'flex flex-col sm:flex-row sm:items-center ' +
-                                                'justify-between gap-2 pb-2 border-b ' +
-                                                'border-[#DCEAF8]/60'
-                                            }
-                                        >
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-[#0B1F63] text-xs md:text-sm">
-                                                        #{idx + 1} {it.item_name}
-                                                    </span>
-                                                    {it.is_urgent && (
-                                                        <span
-                                                            className={
-                                                                'text-[10px] font-bold ' +
-                                                                'text-[#C62840] bg-[#FFE7EC] ' +
-                                                                'px-1.5 py-0.5 rounded'
-                                                            }
-                                                        >
-                                                            Urgent
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <p className="text-[11px] text-[#52658E] mt-0.5">
-                                                    Qty:{' '}
-                                                    <strong>
-                                                        {it.quantity} {it.unit}
-                                                    </strong>{' '}
-                                                    • Vendor:{' '}
-                                                    <strong>{it.vendor?.name || 'Umum'}</strong>
-                                                </p>
-                                            </div>
-
-                                            {/* Decision Toggle */}
-                                            <div className="flex items-center gap-1.5 self-start sm:self-auto">
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        setItemDecisions((prev) => ({
-                                                            ...prev,
-                                                            [it.id]: {
-                                                                ...prev[it.id],
-                                                                status: 'approved',
-                                                            },
-                                                        }))
-                                                    }
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                                        dec.status === 'approved'
-                                                            ? 'bg-[#087443] text-white shadow-xs'
-                                                            : 'bg-[#F0F8FF] text-[#52658E] hover:bg-emerald-50 hover:text-[#087443]'
-                                                    }`}
-                                                >
-                                                    ✓ Setujui
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        setItemDecisions((prev) => ({
-                                                            ...prev,
-                                                            [it.id]: {
-                                                                ...prev[it.id],
-                                                                status: 'rejected',
-                                                            },
-                                                        }))
-                                                    }
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                                        dec.status === 'rejected'
-                                                            ? 'bg-[#C62840] text-white shadow-xs'
-                                                            : 'bg-[#F0F8FF] text-[#52658E] hover:bg-rose-50 hover:text-[#C62840]'
-                                                    }`}
-                                                >
-                                                    ✗ Tolak
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 text-[11px]">
-                                            <div>
-                                                <span className="text-[#52658E]">HPP Vendor:</span>
-                                                <p className="font-mono font-bold text-[#0B1F63]">
-                                                    Rp {hpp.toLocaleString('id-ID')}
-                                                </p>
-                                            </div>
-                                            <div>
-                                                <span className="text-[#52658E]">
-                                                    Harga Jual Klien:
-                                                </span>
-                                                <p className="font-mono font-bold text-[#0060F4]">
-                                                    Rp {sell.toLocaleString('id-ID')}
-                                                </p>
-                                            </div>
-                                            <div>
-                                                <span className="text-[#52658E]">Margin SJA:</span>
-                                                <p
-                                                    className={`font-mono font-bold ${margin >= 0 ? 'text-[#087443]' : 'text-[#C62840]'}`}
-                                                >
-                                                    Rp {margin.toLocaleString('id-ID')}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {dec.status === 'rejected' && (
-                                            <div className="mt-2 pt-2 border-t border-rose-200">
-                                                <input
-                                                    type="text"
-                                                    value={dec.notes}
-                                                    onChange={(e) =>
-                                                        setItemDecisions((prev) => ({
-                                                            ...prev,
-                                                            [it.id]: {
-                                                                ...prev[it.id],
-                                                                notes: e.target.value,
-                                                            },
-                                                        }))
-                                                    }
-                                                    placeholder="Catatan penolakan untuk Admin atau Operasional..."
-                                                    className={
-                                                        'w-full px-2.5 py-1 text-xs border ' +
-                                                        'border-rose-300 rounded-lg bg-white ' +
-                                                        'text-rose-900 focus:ring-1 ' +
-                                                        'focus:ring-[#C62840]'
-                                                    }
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                        <TableMobile
+                            className="md:hidden"
+                            data={approvalRows}
+                            keyExtractor={(row) => row.key}
+                            titleRender={(row) => row.shipName}
+                            subtitleRender={(row) => row.jobNumber}
+                            statusRender={(row) => (
+                                <div className="flex flex-col items-end gap-1">
+                                    {row.isNew && <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">Baru</span>}
+                                    <StatusBadge status={row.status} label={row.status} size="sm" />
+                                </div>
+                            )}
+                            fields={[
+                                { label: 'Klien', render: (row) => row.companyName },
+                                { label: 'Pelabuhan', render: (row) => row.portName },
+                                { label: 'Rincian', render: (row) => `${row.requests.length} surat · ${row.itemCount} item` },
+                                { label: 'Nilai jual', render: (row) => <span className="tabular-nums">{formatCurrency(row.totalSelling)}</span> },
+                                { label: 'Diperbarui', fullWidth: true, render: (row) => formatDate(row.updatedAt) },
+                            ]}
+                            actionsRender={(row) => (
+                                <Link href={route('approvals.detail', row.jobNumber)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">
+                                    Buka Persetujuan <ArrowRight aria-hidden="true" className="size-4" />
+                                </Link>
+                            )}
+                            emptyIcon={<FileCheck2 aria-hidden="true" className="mx-auto size-7" />}
+                            emptyMessage="Data Tidak Ditemukan"
+                        />
+                    </>
+                ) : (
+                    <>
+                        <div className="hidden md:block">
+                            <Table
+                                columns={paymentColumns}
+                                data={paymentRows}
+                                keyExtractor={(payment) => payment.id}
+                                compact
+                                minWidth="1080px"
+                                emptyIcon={<Banknote aria-hidden="true" className="mx-auto size-7" />}
+                                emptyMessage="Data Tidak Ditemukan"
+                                rowClassName={(payment) => capabilities.can_decide_items && payment.verification_status === 'pending' ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]' : ''}
+                            />
                         </div>
+                        <TableMobile
+                            className="md:hidden"
+                            data={paymentRows}
+                            keyExtractor={(payment) => payment.id}
+                            titleRender={(payment) => payment.recipient}
+                            subtitleRender={(payment) => payment.reference_number}
+                            statusRender={(payment) => <StatusBadge status={payment.verification_status === 'verified' ? 'success' : payment.verification_status === 'rejected' ? 'danger' : 'waiting'} label={payment.verification_status === 'verified' ? 'Terverifikasi' : payment.verification_status === 'rejected' ? 'Ditolak' : 'Menunggu'} size="sm" />}
+                            fields={[
+                                { label: 'Job', fullWidth: true, render: (payment) => payment.port_call?.job_number || '-' },
+                                { label: 'Jenis', render: (payment) => payment.payment_type },
+                                { label: 'Tanggal', render: (payment) => formatDate(payment.payment_date) },
+                                { label: 'Nominal', fullWidth: true, render: (payment) => <span className="font-bold tabular-nums">{formatCurrency(payment.amount, payment.currency || 'IDR')}</span> },
+                            ]}
+                            actionsRender={(payment) => capabilities.can_decide_items && payment.verification_status === 'pending' ? (
+                                <button type="button" disabled={verifyingId !== null} onClick={() => { setVerifyingId(payment.id); router.post(`/approvals/payments/${payment.id}/verify`, {}, { preserveScroll: true, onFinish: () => setVerifyingId(null) }); }} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white disabled:opacity-50">
+                                    <Check aria-hidden="true" className="size-4" /> {verifyingId === payment.id ? 'Memproses' : 'Verifikasi'}
+                                </button>
+                            ) : undefined}
+                            emptyIcon={<Banknote aria-hidden="true" className="mx-auto size-7" />}
+                            emptyMessage="Data Tidak Ditemukan"
+                        />
+                    </>
+                )}
 
-                        <div className="flex justify-end gap-2 pt-3 border-t border-[#DCEAF8]">
-                            <Button variant="secondary" onClick={() => setReviewModalItem(null)}>
-                                Batal
-                            </Button>
-                            <Button
-                                variant="primary"
-                                onClick={handleSaveItemDecisions}
-                                className="bg-[#0060F4] hover:bg-[#082870] text-white px-5 py-2 text-xs font-bold"
-                            >
-                                Simpan Keputusan Direktur
-                            </Button>
-                        </div>
-                    </div>
-                </Modal>
-            )}
+                <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                    “Baru” hanya tampil pada status yang membutuhkan tindakan role Anda.
+                </p>
+            </div>
         </AppLayout>
     );
 }

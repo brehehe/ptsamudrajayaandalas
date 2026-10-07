@@ -18,6 +18,8 @@ export default function OverviewTab({
     canManageClearance,
     onClearance,
 }: OverviewTabProps) {
+    const etaDate = formatEtaDateTime(vessel.eta);
+
     return (
         <div className="px-4 pt-2 space-y-4">
             {/* Spesifikasi & Informasi Kapal — Tanpa garis bawah sesuai instruksi */}
@@ -25,37 +27,38 @@ export default function OverviewTab({
                 <div className="flex items-start justify-between py-1.5">
                     <span className="text-[#52658E] dark:text-[#94A3B8]">Perusahaan</span>
                     <span className="font-semibold text-[#082870] dark:text-white text-right max-w-[210px] truncate">
-                        {vessel.company?.name || 'PT. Intan Borneo Wisesa'}
+                        {vessel.company?.name || 'Belum diisi'}
                     </span>
                 </div>
                 <div className="flex items-start justify-between py-1.5">
                     <span className="text-[#52658E] dark:text-[#94A3B8]">Alamat</span>
                     <span className="font-semibold text-[#082870] dark:text-white text-right max-w-[210px] truncate">
-                        {vessel.company?.address || 'Jl. KH Kholil 18, Gresik'}
+                        {vessel.company?.address || 'Belum diisi'}
                     </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5">
                     <span className="text-[#52658E] dark:text-[#94A3B8]">Bendera</span>
                     <span className="font-semibold text-[#082870] dark:text-white">
-                        {vessel.flag || 'Indonesia'}
+                        {vessel.flag || 'Belum diisi'}
                     </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5">
                     <span className="text-[#52658E] dark:text-[#94A3B8]">GT / Panjang</span>
                     <span className="font-semibold text-[#082870] dark:text-white">
-                        GT {vessel.gross_tonnage || 1330} / {vessel.length || 74.22} M
+                        {vessel.gross_tonnage ? `GT ${vessel.gross_tonnage}` : 'GT -'} /{' '}
+                        {vessel.length ? `${vessel.length} M` : '-'}
                     </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5">
                     <span className="text-[#52658E] dark:text-[#94A3B8]">Call Sign</span>
                     <span className="font-semibold text-[#082870] dark:text-white font-mono">
-                        {vessel.call_sign || 'PMSM'}
+                        {vessel.call_sign || 'Belum diisi'}
                     </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5">
                     <span className="text-[#52658E] dark:text-[#94A3B8]">Nakhoda</span>
                     <span className="font-semibold text-[#082870] dark:text-white">
-                        {vessel.captain_name || 'Sony Robinson'}
+                        {vessel.captain_name || 'Belum diisi'}
                     </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5">
@@ -72,7 +75,7 @@ export default function OverviewTab({
                     <h3 className="font-extrabold text-sm text-[#082870] dark:text-white">
                         Jadwal &amp; Lokasi
                     </h3>
-                    <button
+                    {/* <button
                         type="button"
                         className="text-[#0060F4] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
                     >
@@ -91,7 +94,7 @@ export default function OverviewTab({
                             />
                         </svg>
                         <span>Lihat di Peta &gt;</span>
-                    </button>
+                    </button> */}
                 </div>
 
                 {/* 3 Pills: ETA | ETD | Pelabuhan */}
@@ -111,10 +114,7 @@ export default function OverviewTab({
                             ETA
                         </span>
                         <span className="font-bold text-[#082870] dark:text-white block mt-1 leading-tight text-[11px]">
-                            12 Jan 2026
-                        </span>
-                        <span className="text-[10px] text-[#52658E] block mt-0.5 font-medium">
-                            14:00
+                            {etaDate === '-' ? 'Belum ditentukan' : etaDate}
                         </span>
                     </div>
 
@@ -162,21 +162,21 @@ export default function OverviewTab({
                                 'leading-tight break-words'
                             }
                         >
-                            {vessel.port?.name || 'Pelabuhan Gresik'}
+                            {vessel.port?.name || 'Belum diisi'}
                         </span>
                     </div>
                 </div>
             </div>
 
             {/* Aksi Cepat (2x2 Grid) */}
-            <div className="pt-1 space-y-2.5 pb-2">
-                <h3 className="font-extrabold text-sm text-[#082870] dark:text-white">
-                    Aksi Cepat
-                </h3>
+            {canManageClearance && (
+                <div className="space-y-2.5 pt-1 pb-2">
+                    <h3 className="text-sm font-extrabold text-[#082870] dark:text-white">
+                        Aksi Cepat
+                    </h3>
 
-                <div className="grid grid-cols-2 gap-3">
-                    {/* 1. Clearance In (Blue) */}
-                    {canManageClearance && (
+                    <div className="grid grid-cols-2 gap-3">
+                        {/* 1. Clearance In (Blue) */}
                         <button
                             type="button"
                             onClick={() => onClearance('in')}
@@ -201,72 +201,70 @@ export default function OverviewTab({
                             </svg>
                             <span className="text-xs font-bold">Clearance In</span>
                         </button>
-                    )}
 
-                    {/* 2. Buat Kebutuhan (Peach / Orange) -> Enters Tambah Kebutuhan Flow */}
-                    <button
-                        type="button"
-                        onClick={() => onStartNeed()}
-                        className={
-                            'p-3 rounded-2xl bg-[#FFF3E8] hover:bg-[#FFE8D6] ' +
-                            'dark:bg-[#78350F]/20 text-[#D97706] border border-[#FDE68A]/70 ' +
-                            'dark:border-[#78350F]/40 flex flex-col items-center ' +
-                            'justify-center gap-1.5 shadow-2xs active:scale-97 transition-all ' +
-                            'cursor-pointer'
-                        }
-                    >
-                        <svg
-                            className="w-5 h-5 text-[#D97706]"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            viewBox="0 0 24 24"
+                        {/* 2. Buat Kebutuhan (Peach / Orange) -> Enters Tambah Kebutuhan Flow */}
+                        <button
+                            type="button"
+                            onClick={() => onStartNeed()}
+                            className={
+                                'p-3 rounded-2xl bg-[#FFF3E8] hover:bg-[#FFE8D6] ' +
+                                'dark:bg-[#78350F]/20 text-[#D97706] border border-[#FDE68A]/70 ' +
+                                'dark:border-[#78350F]/40 flex flex-col items-center ' +
+                                'justify-center gap-1.5 shadow-2xs active:scale-97 transition-all ' +
+                                'cursor-pointer'
+                            }
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d={
-                                    'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 ' +
-                                    '01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
-                                }
-                            />
-                        </svg>
-                        <span className="text-xs font-bold">Buat Kebutuhan</span>
-                    </button>
+                            <svg
+                                className="w-5 h-5 text-[#D97706]"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d={
+                                        'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 ' +
+                                        '01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
+                                    }
+                                />
+                            </svg>
+                            <span className="text-xs font-bold">Buat Kebutuhan</span>
+                        </button>
 
-                    {/* 3. Tambah Aktivitas (Green) */}
-                    <button
-                        type="button"
-                        onClick={() => onRecordActivity()}
-                        className={
-                            'p-3 rounded-2xl bg-[#E8F8F0] hover:bg-[#D5F2E3] ' +
-                            'dark:bg-[#064E3B]/20 text-[#087443] dark:text-[#34D399] border ' +
-                            'border-[#A7F3D0]/70 dark:border-[#064E3B]/40 flex flex-col ' +
-                            'items-center justify-center gap-1.5 shadow-2xs active:scale-97 ' +
-                            'transition-all cursor-pointer'
-                        }
-                    >
-                        <svg
-                            className="w-5 h-5 text-[#087443] dark:text-[#34D399]"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            viewBox="0 0 24 24"
+                        {/* 3. Tambah Aktivitas (Green) */}
+                        <button
+                            type="button"
+                            onClick={() => onRecordActivity()}
+                            className={
+                                'p-3 rounded-2xl bg-[#E8F8F0] hover:bg-[#D5F2E3] ' +
+                                'dark:bg-[#064E3B]/20 text-[#087443] dark:text-[#34D399] border ' +
+                                'border-[#A7F3D0]/70 dark:border-[#064E3B]/40 flex flex-col ' +
+                                'items-center justify-center gap-1.5 shadow-2xs active:scale-97 ' +
+                                'transition-all cursor-pointer'
+                            }
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d={
-                                    'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414' +
-                                    '-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z'
-                                }
-                            />
-                        </svg>
-                        <span className="text-xs font-bold">Tambah Aktivitas</span>
-                    </button>
+                            <svg
+                                className="w-5 h-5 text-[#087443] dark:text-[#34D399]"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d={
+                                        'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414' +
+                                        '-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z'
+                                    }
+                                />
+                            </svg>
+                            <span className="text-xs font-bold">Tambah Aktivitas</span>
+                        </button>
 
-                    {/* 4. Clearance Out (Purple) */}
-                    {canManageClearance && (
+                        {/* 4. Clearance Out (Purple) */}
                         <button
                             type="button"
                             onClick={() => onClearance('out')}
@@ -313,9 +311,9 @@ export default function OverviewTab({
                             </svg>
                             <span className="text-xs font-bold">Clearance Out</span>
                         </button>
-                    )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }

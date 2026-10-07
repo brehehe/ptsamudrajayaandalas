@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
@@ -18,6 +18,9 @@ import { useGeolocation } from '../../hooks/useGeolocation';
 import { OperationalActivityData } from '../../Components/vessels/types';
 import { PageProps } from '@/types';
 import { ListChecks, MapPin, Send } from 'lucide-react';
+import Table from '../../Components/tables/Table';
+import Tabs from '../../Components/ui/Tabs';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 
 /* ─── Domain Interfaces ─────────────────────────────────────────── */
 
@@ -79,9 +82,20 @@ interface OperationsIndexProps {
     search: string;
 }
 
+const getCurrentLocalDateTime = (): { date: string; time: string } => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+
+    return {
+        date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+        time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    };
+};
+
 /* ─── Category helpers ──────────────────────────────────────────── */
 
 const CATEGORIES = ['Semua', 'Kegiatan Kapal', 'Kendala', 'Lainnya'] as const;
+const SHOW_EXTENDED_ACTIVITY_FIELDS = false;
 
 function categoryBadgeClass(cat: string) {
     switch (cat) {
@@ -197,19 +211,38 @@ export default function OperationsIndex({
     const { auth, flash } = page.props as PageProps & { flash?: { success?: string; error?: string } };
     const user = auth?.user;
 
+    const isOperational = useMemo(() => {
+        if (!user) return false;
+        const role = (user.primary_role || user.roles?.[0] || '').toLowerCase();
+        if (role.includes('lapangan') || role.includes('operasional') || role === 'staff') {
+            return true;
+        }
+        if (Array.isArray(user.roles) && user.roles.some((r: string) => {
+            const lr = r.toLowerCase();
+            return lr.includes('lapangan') || lr.includes('operasional');
+        })) {
+            return true;
+        }
+        if (Array.isArray(user.permissions) && user.permissions.includes('daily-reports.create')) {
+            return true;
+        }
+        return false;
+    }, [user]);
+
     /* ── Desktop state ── */
-    const [tab, setTab] = useState(initialTab || 'kunjungan');
+    const [tab, setTab] = useState(initialTab || 'aktivitas');
     const [search, setSearch] = useState(initialSearch);
+    const [actSearchQuery, setActSearchQuery] = useState('');
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [departurePortCall, setDeparturePortCall] = useState<PortCall | null>(null);
     const [completionNoteDueAt, setCompletionNoteDueAt] = useState('');
+    const [departureErrors, setDepartureErrors] = useState<Record<string, string>>({});
 
-    /* ── Mobile state ── */
+    /* ── Mobile state: Staf operasional bisa 'form' & 'riwayat', role lain otomatis hanya 'riwayat' ── */
     const [mobileTab, setMobileTab] = useState<'form' | 'riwayat'>('form');
+    const effectiveMobileTab: 'form' | 'riwayat' = isOperational ? mobileTab : 'riwayat';
     const [riwayatCategoryFilter, setRiwayatCategoryFilter] = useState('Semua');
     const [showHistoryFilters, setShowHistoryFilters] = useState(true);
-    const mobileFormTabRef = useRef<HTMLButtonElement>(null);
-    const mobileHistoryTabRef = useRef<HTMLButtonElement>(null);
 
     /* ── Activity form state ── */
     const [actPhotos, setActPhotos] = useState<File[]>([]);
@@ -228,13 +261,12 @@ export default function OperationsIndex({
     const [actProgressPercent, setActProgressPercent] = useState('');
     const [actConstraints, setActConstraints] = useState('');
     const [actNextPlan, setActNextPlan] = useState('');
-    const [actDate, setActDate] = useState(new Date().toISOString().slice(0, 10));
-    const [actTime, setActTime] = useState(
-        new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false })
-    );
+    const [actDate, setActDate] = useState(() => getCurrentLocalDateTime().date);
+    const [actTime, setActTime] = useState(() => getCurrentLocalDateTime().time);
     const [actLocationName, setActLocationName] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [activityErrors, setActivityErrors] = useState<Record<string, string>>({});
     const [showSuccessAlert, setShowSuccessAlert] = useState(false);
 
     /* ── Lightbox & Detail state ── */
@@ -260,9 +292,9 @@ export default function OperationsIndex({
     }, [flash?.success]);
 
     /* ── Daily report form ── */
-    const { data, setData, post, processing, reset } = useForm({
+    const { data, setData, post, processing, reset, errors, clearErrors } = useForm({
         port_call_id: portCalls[0]?.id || '',
-        report_date: new Date().toISOString().split('T')[0],
+        report_date: getCurrentLocalDateTime().date,
         summary: '',
         no_activity: false,
     });
@@ -277,6 +309,7 @@ export default function OperationsIndex({
         if (newStatus === 'departed') {
             setDeparturePortCall(portCall);
             setCompletionNoteDueAt('');
+            setDepartureErrors({});
             return;
         }
         router.patch(`/operations/port-calls/${portCall.id}/status`, { status: newStatus, expected_status: portCall.status }, { preserveScroll: true });
@@ -285,10 +318,18 @@ export default function OperationsIndex({
     const submitDeparture = (event: React.FormEvent) => {
         event.preventDefault();
         if (!departurePortCall) return;
+        setDepartureErrors({});
         router.patch(`/operations/port-calls/${departurePortCall.id}/status`, {
             status: 'departed', expected_status: departurePortCall.status,
             occurred_at: new Date().toISOString(), completion_note_due_at: completionNoteDueAt,
-        }, { preserveScroll: true, onSuccess: () => setDeparturePortCall(null) });
+        }, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setDepartureErrors({});
+                setDeparturePortCall(null);
+            },
+            onError: (errors) => setDepartureErrors(errors as Record<string, string>),
+        });
     };
 
     const handleReportSubmit = (e: React.FormEvent) => {
@@ -304,23 +345,7 @@ export default function OperationsIndex({
     const handleActivitySubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSubmitError(null);
-
-        if (!actTitle.trim()) {
-            setSubmitError('Judul aktivitas wajib diisi.');
-            return;
-        }
-        if (!actDetail.trim()) {
-            setSubmitError('Detail aktivitas wajib diisi.');
-            return;
-        }
-        if (actCategory === 'Aktivitas Lainnya' && !actCategoryOther.trim()) {
-            setSubmitError('Jenis aktivitas lainnya wajib diisi.');
-            return;
-        }
-        if (actIsVesselRelated && (!actShipId || !actPortCallId || !actVesselPosition)) {
-            setSubmitError('Kapal, kunjungan / job, dan posisi kapal wajib dipilih.');
-            return;
-        }
+        setActivityErrors({});
 
         setSubmitting(true);
         const fd = new FormData();
@@ -351,6 +376,7 @@ export default function OperationsIndex({
         router.post('/operations/activities', fd, {
             forceFormData: true,
             onSuccess: () => {
+                const currentDateTime = getCurrentLocalDateTime();
                 setActTitle('');
                 setActDetail('');
                 setActPhotos([]);
@@ -367,12 +393,16 @@ export default function OperationsIndex({
                 setActIsVesselRelated(true);
                 setActCategory('Kegiatan Kapal');
                 setActCategoryOther('');
+                setActDate(currentDateTime.date);
+                setActTime(currentDateTime.time);
                 setShowSuccessAlert(true);
+                setActivityErrors({});
                 setMobileTab('riwayat');
                 setSubmitting(false);
             },
             onError: (errors) => {
                 const first = Object.values(errors)[0];
+                setActivityErrors(errors as Record<string, string>);
                 setSubmitError(typeof first === 'string' ? first : 'Gagal menyimpan aktivitas.');
                 setSubmitting(false);
             },
@@ -386,24 +416,6 @@ export default function OperationsIndex({
         setActPortCallId(matchingVisit?.id ?? '');
         setActVesselPosition(matchingVisit?.status ?? '');
         setActRequestId('');
-    };
-
-    const handleMobileTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-        let nextTab: 'form' | 'riwayat' | null = null;
-
-        if (event.key === 'ArrowLeft' || event.key === 'Home') {
-            nextTab = 'form';
-        } else if (event.key === 'ArrowRight' || event.key === 'End') {
-            nextTab = 'riwayat';
-        }
-
-        if (!nextTab) {
-            return;
-        }
-
-        event.preventDefault();
-        setMobileTab(nextTab);
-        (nextTab === 'form' ? mobileFormTabRef : mobileHistoryTabRef).current?.focus();
     };
 
     const formatDateTime = (dtStr?: string | null) => {
@@ -428,6 +440,16 @@ export default function OperationsIndex({
         const rawDate = parseDateKey(a.activity_date);
         if (dateRange.startDate && rawDate < dateRange.startDate) return false;
         if (dateRange.endDate && rawDate > dateRange.endDate) return false;
+
+        // 3. Search query filter
+        if (actSearchQuery.trim()) {
+            const q = actSearchQuery.toLowerCase();
+            const matchTitle = (a.title || '').toLowerCase().includes(q);
+            const matchDesc = (a.detail || '').toLowerCase().includes(q);
+            const matchShip = (a.ship?.name || '').toLowerCase().includes(q);
+            const matchLoc = (a.location_name || '').toLowerCase().includes(q);
+            if (!matchTitle && !matchDesc && !matchShip && !matchLoc) return false;
+        }
 
         return true;
     });
@@ -465,7 +487,7 @@ export default function OperationsIndex({
 
     /* ─────────────────────────────────────────────────────────────── */
     return (
-        <AppLayout title="Operasional Lapangan & Kunjungan Kapal" transparentMobileHeader mobileBackground="surface">
+        <AppLayout title="Aktifitas Lapangan & Kunjungan Kapal" transparentMobileHeader mobileBackground="surface">
             <Head title="Aktivitas Lapangan — PT Samudra Jaya Andalas" />
 
             {/* ═══════════════════════════════════════════════════════
@@ -474,7 +496,7 @@ export default function OperationsIndex({
             <div className="flex min-h-[calc(100dvh-56px)] flex-col bg-[#F0F8FF] dark:bg-[#071322] md:hidden">
 
                 {/* ── Hero Banner Header ── */}
-                <div className="relative flex min-h-[200px] shrink-0 flex-col justify-end overflow-hidden px-4 pb-10 pt-14 text-white">
+                <div className="mobile-photo-copy relative flex min-h-[200px] shrink-0 flex-col justify-end overflow-hidden bg-[#8FCDF4] px-4 pb-10 pt-14 text-white">
                     <img
                         src="/images/prima-banner.jpg"
                         alt="Kapal dan crane di area pelabuhan"
@@ -483,72 +505,37 @@ export default function OperationsIndex({
                         fetchPriority="high"
                         className="absolute inset-0 w-full h-full object-cover object-[center_35%]"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-b from-[#001433]/80 via-[#001433]/60 to-[#001433]/95 pointer-events-none" />
-
                     {/* Title */}
                     <div className="relative z-10">
-                        <h1 className="text-balance text-2xl font-extrabold leading-tight text-white drop-shadow-sm">
+                        <h1 className="text-balance text-2xl font-extrabold leading-tight text-white">
                             Aktivitas Lapangan
                         </h1>
-                        <p className="mt-1.5 max-w-sm text-pretty text-xs leading-relaxed text-white/85">
-                            {mobileTab === 'form'
-                                ? 'Catat setiap kegiatan dan kondisi di lapangan untuk memberikan update kepada atasan.'
-                                : 'Lihat riwayat seluruh aktivitas yang telah Anda catat.'}
+                        <p className="mt-1.5 max-w-sm text-pretty text-xs font-medium leading-relaxed text-white">
+                            {isOperational
+                                ? (effectiveMobileTab === 'form'
+                                    ? 'Catat setiap kegiatan dan kondisi di lapangan untuk memberikan update kepada atasan.'
+                                    : 'Lihat riwayat seluruh aktivitas yang telah Anda catat.')
+                                : 'Lihat riwayat seluruh aktivitas lapangan yang telah dicatat oleh tim operasional.'}
                         </p>
                     </div>
                 </div>
 
                 {/* ── Activity sheet with integrated tabs ── */}
                 <section className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] border-t border-[#DCEAF8] bg-white shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
-                    <div
-                        className="grid grid-cols-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F]"
-                        role="tablist"
-                        aria-label="Aktivitas lapangan"
-                    >
-                        <button
-                            ref={mobileFormTabRef}
-                            type="button"
-                            onClick={() => setMobileTab('form')}
-                            onKeyDown={handleMobileTabKeyDown}
-                            id="mobile-form-tab"
-                            role="tab"
-                            aria-controls="mobile-form-panel"
-                            aria-selected={mobileTab === 'form'}
-                            tabIndex={mobileTab === 'form' ? 0 : -1}
-                            className={`flex min-h-14 items-center justify-center gap-2 border-b-2 px-2 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0060F4] ${
-                                mobileTab === 'form'
-                                    ? 'border-[#0060F4] bg-[#F0F8FF] text-[#0060F4] dark:bg-[#082870]/20'
-                                    : 'border-transparent text-[#52658E] hover:bg-[#F8FBFF] dark:text-[#94A3B8] dark:hover:bg-[#132847]'
-                            }`}
-                        >
-                            <svg aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Form Aktivitas
-                        </button>
-                        <button
-                            ref={mobileHistoryTabRef}
-                            type="button"
-                            onClick={() => setMobileTab('riwayat')}
-                            onKeyDown={handleMobileTabKeyDown}
-                            id="mobile-history-tab"
-                            role="tab"
-                            aria-controls="mobile-history-panel"
-                            aria-selected={mobileTab === 'riwayat'}
-                            tabIndex={mobileTab === 'riwayat' ? 0 : -1}
-                            className={`flex min-h-14 items-center justify-center gap-2 border-b-2 px-2 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0060F4] ${
-                                mobileTab === 'riwayat'
-                                    ? 'border-[#0060F4] bg-[#F0F8FF] text-[#0060F4] dark:bg-[#082870]/20'
-                                    : 'border-transparent text-[#52658E] hover:bg-[#F8FBFF] dark:text-[#94A3B8] dark:hover:bg-[#132847]'
-                            }`}
-                        >
-                            <svg aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                <circle cx="12" cy="12" r="10" />
-                                <polyline points="12 6 12 12 16 14" />
-                            </svg>
-                            Riwayat Aktivitas
-                        </button>
-                    </div>
+                    {/* ── Tab Switcher: Hanya ditampilkan untuk staf operasional (role lain langsung riwayat tanpa tab) ── */}
+                    {isOperational && (
+                        <Tabs
+                            items={[
+                                { id: 'form', label: 'Form Aktivitas', tabId: 'mobile-form-tab', controls: 'mobile-form-panel' },
+                                { id: 'riwayat', label: 'Riwayat Aktivitas', tabId: 'mobile-history-tab', controls: 'mobile-history-panel' },
+                            ]}
+                            activeId={effectiveMobileTab}
+                            onChange={(nextTab) => setMobileTab(nextTab as 'form' | 'riwayat')}
+                            ariaLabel="Aktivitas lapangan"
+                            equalWidth
+                            className="min-h-14"
+                        />
+                    )}
 
                     {/* ── Success Alert ── */}
                     {showSuccessAlert && (
@@ -561,16 +548,18 @@ export default function OperationsIndex({
                     )}
 
                 {/* ════════════════════════════════════════════════════
-                    TAB 1: FORM AKTIVITAS (Full-Bleed Edge-to-Edge)
+                    TAB 1: FORM AKTIVITAS (Khusus Staf Operasional)
                     ════════════════════════════════════════════════════ */}
-                    {mobileTab === 'form' && (
+                    {isOperational && effectiveMobileTab === 'form' && (
                         <form
+                            noValidate
                             id="mobile-form-panel"
                             role="tabpanel"
                             aria-labelledby="mobile-form-tab"
                             onSubmit={handleActivitySubmit}
                             className="flex flex-1 flex-col pb-8"
                         >
+                            <FormErrorSummary errors={activityErrors} className="mx-4 mt-3" />
                             <div className="w-full divide-y divide-[#DCEAF8]/70 bg-white dark:divide-[#1E3A5F] dark:bg-[#0C1D36]">
 
                                 {/* Tanggal & Waktu */}
@@ -586,6 +575,8 @@ export default function OperationsIndex({
                                         onTimeChange={setActTime}
                                         layout="combined"
                                         className="[&_legend]:!text-[#0B1F63] dark:[&_legend]:!text-[#F1F5F9] [&_input]:!bg-[#F8FBFF] dark:[&_input]:!bg-[#071322]"
+                                        dateError={activityErrors.activity_date}
+                                        timeError={activityErrors.activity_time}
                                         required
                                     />
                                 </div>
@@ -606,6 +597,7 @@ export default function OperationsIndex({
                                         placeholder="Contoh: Dermaga A, Area Bongkar Muat, atau Gate…"
                                         leftIcon={<MapPin aria-hidden="true" className="size-5 text-[#0060F4]" strokeWidth={2} />}
                                         className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                        error={activityErrors.location_name}
                                         required
                                     />
                                 </div>
@@ -621,6 +613,7 @@ export default function OperationsIndex({
                                         layout="grid-2"
                                         variant="card"
                                         itemClassName="min-h-24 !rounded-xl !p-3"
+                                        error={activityErrors.is_vessel_related}
                                         options={[
                                             {
                                                 value: '1',
@@ -649,6 +642,7 @@ export default function OperationsIndex({
                                         placeholder="Pilih kapal"
                                         options={ships.map((ship) => ({ value: ship.id, label: ship.name }))}
                                         className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                        error={activityErrors.ship_id}
                                         required
                                     />
                                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -672,6 +666,7 @@ export default function OperationsIndex({
                                                     label: `${portCall.job_number} · ${portCall.port?.name ?? 'Pelabuhan belum diisi'}`,
                                                 }))}
                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                            error={activityErrors.port_call_id}
                                             disabled={!actShipId}
                                             required
                                         />
@@ -689,6 +684,9 @@ export default function OperationsIndex({
                                                 { value: 'departed', label: 'Berangkat' },
                                             ]}
                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                            helperText="Diambil otomatis dari kunjungan / job yang dipilih."
+                                            error={activityErrors.vessel_position}
+                                            disabled
                                             required
                                         />
                                     </div>
@@ -704,13 +702,14 @@ export default function OperationsIndex({
                                                 .filter((request) => request.ship?.id === actShipId && (!request.port_call_id || request.port_call_id === actPortCallId))
                                                 .map((request) => ({ value: request.id, label: request.request_number }))}
                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                            error={activityErrors.request_id}
                                             disabled={!actPortCallId}
                                         />
                                     </div>
                                 </div>
                                 )}
 
-                                {actIsVesselRelated && (
+                                {SHOW_EXTENDED_ACTIVITY_FIELDS && actIsVesselRelated && (
                                     <div className="space-y-3 px-4 py-3">
                                         <div className="grid gap-3 sm:grid-cols-2">
                                             <Select
@@ -806,6 +805,7 @@ export default function OperationsIndex({
                                             { value: 'Aktivitas Lainnya', label: 'Aktivitas Lainnya' },
                                         ]}
                                         className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                        error={activityErrors.category}
                                     />
                                     {actCategory === 'Aktivitas Lainnya' && (
                                         <Input
@@ -820,6 +820,7 @@ export default function OperationsIndex({
                                             placeholder="Contoh: Koordinasi pandu atau pengisian air tawar"
                                             maxLength={100}
                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                            error={activityErrors.category_other}
                                             required
                                         />
                                     )}
@@ -838,6 +839,7 @@ export default function OperationsIndex({
                                         placeholder="Contoh: Bongkar muat sedang berlangsung…"
                                         leftIcon={<ListChecks aria-hidden="true" className="size-5 text-[#0060F4]" strokeWidth={2} />}
                                         className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                        error={activityErrors.title}
                                         required
                                     />
                                 </div>
@@ -856,6 +858,7 @@ export default function OperationsIndex({
                                         maxLength={500}
                                         showCharCount
                                         className="min-h-28 resize-none !bg-[#F8FBFF] dark:!bg-[#071322]"
+                                        error={activityErrors.detail}
                                         required
                                     />
                                 </div>
@@ -870,6 +873,7 @@ export default function OperationsIndex({
                                         helperText="Format: JPG, PNG (Maks. 5 MB)"
                                         maxFiles={10}
                                         maxSizeMb={5}
+                                        error={activityErrors.photos || activityErrors['photos.0']}
                                     />
                                 </div>
                             </div>
@@ -904,7 +908,7 @@ export default function OperationsIndex({
                 {/* ════════════════════════════════════════════════════
                     TAB 2: RIWAYAT AKTIVITAS (Full-Bleed Edge-to-Edge)
                     ════════════════════════════════════════════════════ */}
-                {mobileTab === 'riwayat' && (
+                {effectiveMobileTab === 'riwayat' && (
                     <div
                         id="mobile-history-panel"
                         role="tabpanel"
@@ -1078,190 +1082,130 @@ export default function OperationsIndex({
                 DESKTOP VIEW (≥ md): existing layout
                 ═══════════════════════════════════════════════════════ */}
             <div className="hidden md:block space-y-4 max-w-7xl mx-auto pb-10">
-                {/* ── Top Level Segment Switcher & CTA Button ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-[#DCEAF8]">
-                    <div className="flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border border-[#DCEAF8] self-start">
-                        <button
-                            type="button"
-                            onClick={() => setTab('kunjungan')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                tab === 'kunjungan'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#082870] hover:bg-white/60'
-                            }`}
-                        >
-                            <span>⚓</span>
-                            <span>Kunjungan Kapal</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                tab === 'kunjungan'
-                                    ? 'bg-white/20 text-white'
-                                    : 'bg-white text-[#0060F4] border border-[#DCEAF8]'
-                            }`}>
-                                {counts.kunjungan}
-                            </span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => setTab('laporan')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                tab === 'laporan'
-                                    ? 'bg-[#082870] text-white shadow-sm'
-                                    : 'text-[#082870] hover:bg-white/60'
-                            }`}
-                        >
-                            <span>📝</span>
-                            <span>Laporan Harian</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                tab === 'laporan'
-                                    ? 'bg-white/20 text-white'
-                                    : 'bg-white text-[#082870] border border-[#DCEAF8]'
-                            }`}>
-                                {dailyReports.length}
-                            </span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => setTab('aktivitas')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                tab === 'aktivitas'
-                                    ? 'bg-emerald-600 text-white shadow-sm'
-                                    : 'text-[#082870] hover:bg-white/60'
-                            }`}
-                        >
-                            <span>📍</span>
-                            <span>Aktivitas Lapangan</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                tab === 'aktivitas'
-                                    ? 'bg-white/20 text-white'
-                                    : 'bg-white text-emerald-600 border border-[#DCEAF8]'
-                            }`}>
-                                {counts.aktivitas}
-                            </span>
-                        </button>
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={() => setIsReportModalOpen(true)}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white text-xs sm:text-sm font-bold shadow-sm transition-all flex-shrink-0 cursor-pointer self-start sm:self-auto"
-                    >
-                        <span className="text-base leading-none font-bold">+</span>
-                        <span>Kirim Laporan Lapangan</span>
-                    </button>
-                </div>
 
                 {/* ── Title Header ── */}
                 <div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
-                        Operasional Port Calls & Lapangan
+                    <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] dark:text-[#E7F0FA] tracking-tight">
+                        {tab === 'aktivitas'
+                            ? 'Aktifitas Lapangan & Dermaga'
+                            : tab === 'kunjungan'
+                            ? 'Operasional Port Calls Kapal'
+                            : 'Laporan Harian Lapangan'}
                     </h1>
-                    <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                        Pemantauan pergerakan kapal (ETA/ETD, labuh, sandar) serta catatan aktivitas harian tim operasional di dermaga
+                    <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                        {tab === 'aktivitas'
+                            ? 'Pencatatan kegiatan armada kapal, logistik, dan kendala operasional dermaga langsung secara terpadu'
+                            : tab === 'kunjungan'
+                            ? 'Pemantauan pergerakan kapal (ETA/ETD, labuh, sandar) serta status operasi per armada di pelabuhan'
+                            : 'Rekapitulasi catatan & laporan harian tim perwira operasional dermaga'}
                     </p>
                 </div>
 
                 {/* ── Stat Badges ── */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
+                        { label: 'Aktivitas Lapangan', value: counts.aktivitas, color: 'text-[#0060F4]', val: 'text-[#0060F4]' },
                         { label: 'Total Kunjungan (Job)', value: counts.kunjungan, color: 'text-[#52658E]', val: 'text-[#082870]' },
                         { label: 'Kapal Sandar (Berthed)', value: counts.berthed, color: 'text-emerald-600', val: 'text-emerald-700' },
-                        { label: 'Kapal Labuh (Anchored)', value: counts.anchored, color: 'text-[#0060F4]', val: 'text-[#0060F4]' },
-                        { label: 'Aktivitas Lapangan', value: counts.aktivitas, color: 'text-purple-600', val: 'text-purple-700' },
+                        { label: 'Kapal Labuh (Anchored)', value: counts.anchored, color: 'text-amber-600', val: 'text-amber-700' },
                     ].map((s) => (
-                        <div key={s.label} className="bg-white dark:bg-[#0C1D36] p-3.5 rounded-xl border border-[#DCEAF8] shadow-xs">
+                        <div key={s.label} className="bg-white dark:bg-[#0C1D36] p-3.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-xs">
                             <div className={`text-[11px] font-medium ${s.color}`}>{s.label}</div>
                             <div className={`text-2xl font-bold mt-0.5 ${s.val}`}>{s.value}</div>
                         </div>
                     ))}
                 </div>
 
-                {/* ── Search Bar ── */}
-                <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8C9BB9]">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                            <circle cx="11" cy="11" r="8" />
-                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                        </svg>
-                    </div>
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari job number, nama kapal, atau pelabuhan..."
-                        className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-xl text-xs sm:text-sm text-[#0B1F63] dark:text-[#F1F5F9] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] shadow-xs"
-                    />
-                    {search && (
-                        <button
-                            type="button"
-                            onClick={() => { setSearch(''); router.get('/operations', { tab }); }}
-                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#8C9BB9] hover:text-[#C62840]"
-                        >
-                            ✕
-                        </button>
-                    )}
-                </form>
+                {/* ── Search Bar (Kunjungan & Laporan) ── */}
+                {tab !== 'aktivitas' && (
+                    <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8C9BB9]">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Cari job number, nama kapal, atau pelabuhan..."
+                            className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-xl text-xs sm:text-sm text-[#0B1F63] dark:text-[#F1F5F9] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] shadow-xs"
+                        />
+                        {search && (
+                            <button
+                                type="button"
+                                onClick={() => { setSearch(''); router.get('/operations', { tab }); }}
+                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#8C9BB9] hover:text-[#C62840]"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </form>
+                )}
 
                 {/* ── Tab: Port Calls ── */}
                 {tab === 'kunjungan' && (
-                    <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                                <thead>
-                                    <tr className="bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] font-semibold uppercase tracking-wider">
-                                        <th className="py-3 px-4">No. Job / SPK</th>
-                                        <th className="py-3 px-4">Armada Kapal</th>
-                                        <th className="py-3 px-4">Pelabuhan</th>
-                                        <th className="py-3 px-4">Jadwal ETA / ETD</th>
-                                        <th className="py-3 px-4">Status Operasi</th>
-                                        <th className="py-3 px-4 text-right">Update Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                    {portCalls.map((pc) => (
-                                        <tr key={pc.id} className="hover:bg-[#F0F8FF]/50 transition-colors">
-                                            <td className="py-3.5 px-4 font-mono font-medium text-[#0060F4]">
-                                                {pc.job_number}
-                                                <div className="text-[10px] text-[#52658E] font-sans">SPK: {pc.work_order?.system_number || '-'}</div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <div className="font-semibold text-[#082870]">{pc.ship?.name}</div>
-                                                <div className="text-[11px] text-[#52658E]">{pc.ship?.company?.name || 'Klien Langsung'} • IMO {pc.ship?.imo_number}</div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <div className="font-medium">{pc.port?.name}</div>
-                                                <div className="text-[10px] text-[#52658E] font-mono">{pc.port?.code}</div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <div className="text-xs font-medium">ETA: {formatDateTime(pc.eta_at)}</div>
-                                                <div className="text-[11px] text-[#52658E]">ETD: {formatDateTime(pc.etd_at)}</div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <StatusBadge
-                                                    status={pc.status === 'berthed' ? 'Sandar' : pc.status === 'anchored' ? 'Labuh' : pc.status === 'scheduled' ? 'Akan Datang' : 'Selesai'}
-                                                    label={pc.status === 'berthed' ? 'Sandar di Dermaga' : pc.status === 'anchored' ? 'Labuh Jangkar' : pc.status === 'scheduled' ? 'Jadwal Datang' : 'Berangkat / Selesai'}
-                                                />
-                                            </td>
-                                            <td className="py-3.5 px-4 text-right">
-                                                <select
-                                                    value={pc.status}
-                                                    onChange={(e) => handleStatusChange(pc, e.target.value)}
-                                                    className="text-[11px] font-medium py-1 px-2 rounded-lg border border-[#DCEAF8] bg-white text-[#082870] focus:ring-1 focus:ring-[#0060F4]"
-                                                >
-                                                    <option value="scheduled">Jadwal (Scheduled)</option>
-                                                    <option value="anchored">Labuh (Anchored)</option>
-                                                    <option value="berthed">Sandar (Berthed)</option>
-                                                    <option value="departed">Berangkat (Departed)</option>
-                                                    <option value="completed">Selesai (Completed)</option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                    <Table<PortCall>
+                        data={portCalls}
+                        keyExtractor={(portCall) => portCall.id}
+                        compact
+                        minWidth="1100px"
+                        emptyMessage="Data Tidak Ditemukan"
+                        columns={[
+                            {
+                                key: 'job',
+                                header: 'Job / SPK',
+                                width: '200px',
+                                render: (portCall) => <div><p className="font-bold text-[#0060F4]">{portCall.job_number}</p><p className="mt-0.5 text-[10px] text-[#52658E]">SPK {portCall.work_order?.system_number || '-'}</p></div>,
+                            },
+                            {
+                                key: 'ship',
+                                header: 'Kapal',
+                                width: '230px',
+                                render: (portCall) => <div><p className="font-bold">{portCall.ship?.name || '-'}</p><p className="mt-0.5 text-[11px] text-[#52658E]">{portCall.ship?.company?.name || 'Klien langsung'} · IMO {portCall.ship?.imo_number || '-'}</p></div>,
+                            },
+                            {
+                                key: 'port',
+                                header: 'Pelabuhan',
+                                width: '180px',
+                                render: (portCall) => <div><p className="font-semibold">{portCall.port?.name || '-'}</p><p className="mt-0.5 text-[10px] text-[#52658E]">{portCall.port?.code || '-'}</p></div>,
+                            },
+                            {
+                                key: 'schedule',
+                                header: 'ETA / ETD',
+                                width: '220px',
+                                render: (portCall) => <div><p>ETA {formatDateTime(portCall.eta_at)}</p><p className="mt-0.5 text-[11px] text-[#52658E]">ETD {formatDateTime(portCall.etd_at)}</p></div>,
+                            },
+                            {
+                                key: 'status',
+                                header: 'Status operasi',
+                                width: '170px',
+                                render: (portCall) => <StatusBadge status={portCall.status === 'berthed' ? 'Sandar' : portCall.status === 'anchored' ? 'Labuh' : portCall.status === 'scheduled' ? 'Akan Datang' : 'Selesai'} label={portCall.status === 'berthed' ? 'Sandar di Dermaga' : portCall.status === 'anchored' ? 'Labuh Jangkar' : portCall.status === 'scheduled' ? 'Jadwal Datang' : 'Berangkat / Selesai'} />,
+                            },
+                            {
+                                key: 'update',
+                                header: 'Update status',
+                                width: '180px',
+                                align: 'right',
+                                render: (portCall) => (
+                                    <Select
+                                        value={portCall.status}
+                                        onChange={(event) => handleStatusChange(portCall, event.target.value)}
+                                        aria-label={`Update status ${portCall.job_number}`}
+                                        options={[
+                                            { value: 'scheduled', label: 'Jadwal' },
+                                            { value: 'anchored', label: 'Labuh' },
+                                            { value: 'berthed', label: 'Sandar' },
+                                            { value: 'departed', label: 'Berangkat' },
+                                            { value: 'completed', label: 'Selesai' },
+                                        ]}
+                                        className="h-9 min-w-36 text-xs"
+                                    />
+                                ),
+                            },
+                        ]}
+                    />
                 )}
 
                 {/* ── Tab: Daily Reports ── */}
@@ -1293,91 +1237,580 @@ export default function OperationsIndex({
                     </Card>
                 )}
 
-                {/* ── Tab: Aktivitas Lapangan ── */}
+                {/* ── Tab: Aktivitas Lapangan (Desktop Workstation) ── */}
                 {tab === 'aktivitas' && (
-                    <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                        <div className="divide-y divide-[#DCEAF8]/60">
-                            {operationalActivities.length === 0 && (
-                                <div className="p-8 text-center text-[#8C9BB9] text-sm">Belum ada aktivitas lapangan.</div>
-                            )}
-                            {operationalActivities.map((act) => (
-                                <button
-                                    type="button"
-                                    key={act.id}
-                                    onClick={() => setSelectedActivity(act)}
-                                    className="flex w-full gap-3 p-4 text-left transition-colors hover:bg-[#F0F8FF]/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0060F4]"
-                                >
-                                    {act.photos?.[0] && (
-                                        <div className="shrink-0">
-                                            <img src={act.photos[0]} alt={act.title} className="w-14 h-14 rounded-lg object-cover border border-[#DCEAF8] hover:opacity-90 transition-opacity" />
-                                        </div>
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-start justify-between gap-2">
-                                            <span className="font-semibold text-xs text-[#082870]">{act.title}</span>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${categoryBadgeClass(act.category)}`}>
-                                                {categoryLabel(act.category)}
+                    <div className="space-y-4">
+                        {/* ── Filter Toolbar ── */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-2xl shadow-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <DateRangePicker
+                                    value={dateRange}
+                                    onChange={setDateRange}
+                                    placeholder="Semua Tanggal"
+                                    className="w-56"
+                                />
+
+                                <div className="flex items-center gap-1.5 overflow-x-auto">
+                                    {CATEGORIES.map((cat) => (
+                                        <button
+                                            key={cat}
+                                            type="button"
+                                            onClick={() => setRiwayatCategoryFilter(cat)}
+                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                                riwayatCategoryFilter === cat
+                                                    ? 'bg-[#0060F4] text-white shadow-xs'
+                                                    : 'bg-[#F0F8FF] dark:bg-[#10243E] text-[#52658E] dark:text-[#9FB0C6] hover:bg-[#E0F0FF]'
+                                            }`}
+                                        >
+                                            <span>{cat}</span>
+                                            <span
+                                                className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
+                                                    riwayatCategoryFilter === cat
+                                                        ? 'bg-white/25 text-white'
+                                                        : 'bg-white dark:bg-[#0C1D36] text-[#0060F4]'
+                                                }`}
+                                            >
+                                                {catCounts[cat]}
                                             </span>
-                                        </div>
-                                        <p className="text-[11px] text-[#52658E] mt-1 leading-snug line-clamp-2">{act.detail}</p>
-                                        <div className="flex items-center gap-3 mt-1.5 text-[10px] text-[#8C9BB9]">
-                                            <span>📍 {act.location_name}</span>
-                                            {act.ship && <span>🚢 {act.ship.name}</span>}
-                                            <span>🕐 {act.activity_time} · {new Date(act.activity_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</span>
-                                            {act.photos && act.photos.length > 0 && <span>📷 {act.photos.length} foto</span>}
-                                        </div>
-                                    </div>
-                                </button>
-                            ))}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <div className="relative min-w-[200px]">
+                                    <input
+                                        type="text"
+                                        value={actSearchQuery}
+                                        onChange={(e) => setActSearchQuery(e.target.value)}
+                                        placeholder="Cari aktivitas..."
+                                        className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FBFF] dark:bg-[#071322] text-xs text-[#0B1F63] dark:text-white placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30"
+                                    />
+                                    <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                        <circle cx="11" cy="11" r="8" />
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                    </svg>
+                                    {actSearchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setActSearchQuery('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#8C9BB9] hover:text-[#C62840]"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800 text-xs">
+                                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    {actLocationName || 'Pelabuhan Teluk Bayur'}
+                                </span>
+                            </div>
                         </div>
-                    </Card>
+
+                        {/* ── Main Content Area: Split-view for Operasional vs Full-Grid for Role Lain ── */}
+                        <div className={`flex flex-col ${isOperational ? 'lg:flex-row gap-5 items-start' : 'gap-4'}`}>
+                            {/* ════════════════════════════════════════════
+                                KOLOM KIRI: Form Catat Aktivitas (HANYA STAF OPERASIONAL)
+                                ════════════════════════════════════════════ */}
+                            {isOperational && (
+                                <div className="w-full lg:w-[440px] shrink-0">
+                                    <div className="bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-2xl shadow-xs overflow-hidden sticky top-4">
+                                        {/* Card Header */}
+                                        <div className="px-5 py-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FBFF] dark:bg-[#071322] flex items-center gap-3">
+                                            <span className="flex size-8 items-center justify-center rounded-xl bg-[#0060F4]/10 text-[#0060F4]">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                            </span>
+                                            <div>
+                                                <h3 className="font-extrabold text-sm text-[#0B1F63] dark:text-white">Catat Aktivitas Lapangan</h3>
+                                                <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">Input kegiatan armada &amp; logistik</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Success Alert */}
+                                        {showSuccessAlert && (
+                                            <div role="status" aria-live="polite" className="mx-4 mt-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                                <svg aria-hidden="true" className="size-4 shrink-0 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                Aktivitas lapangan berhasil dicatat!
+                                            </div>
+                                        )}
+
+                                        {/* Form */}
+                                        <form noValidate onSubmit={handleActivitySubmit} className="flex flex-col">
+                                            <FormErrorSummary errors={activityErrors} className="mx-4 mt-3" />
+                                            <div className="divide-y divide-[#DCEAF8]/70 dark:divide-[#1E3A5F]">
+                                                {/* Tanggal & Waktu */}
+                                                <div className="px-4 py-3">
+                                                    <DateTimePicker
+                                                        id="desk-activity-date-time"
+                                                        label="Tanggal & waktu"
+                                                        dateName="activity_date"
+                                                        timeName="activity_time"
+                                                        dateValue={actDate}
+                                                        timeValue={actTime}
+                                                        onDateChange={setActDate}
+                                                        onTimeChange={setActTime}
+                                                        layout="combined"
+                                                        className="[&_legend]:!text-[#0B1F63] dark:[&_legend]:!text-[#F1F5F9] [&_input]:!bg-[#F8FBFF] dark:[&_input]:!bg-[#071322]"
+                                                        dateError={activityErrors.activity_date}
+                                                        timeError={activityErrors.activity_time}
+                                                        required
+                                                    />
+                                                </div>
+
+                                                {/* Lokasi */}
+                                                <div className="px-4 py-3">
+                                                    <Input
+                                                        id="desk-activity-location"
+                                                        label="Lokasi / area"
+                                                        name="location_name"
+                                                        type="text"
+                                                        autoComplete="off"
+                                                        value={actLocationName}
+                                                        onChange={(e) => setActLocationName(e.target.value)}
+                                                        onFocus={() => { if (!actLocationName && !geo.loading) geo.refresh(); }}
+                                                        placeholder="Contoh: Dermaga A, Area Bongkar Muat, atau Gate…"
+                                                        leftIcon={<MapPin aria-hidden="true" className="size-5 text-[#0060F4]" strokeWidth={2} />}
+                                                        className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                        error={activityErrors.location_name}
+                                                        required
+                                                    />
+                                                </div>
+
+                                                {/* Terkait Kapal */}
+                                                <div className="px-4 py-3">
+                                                    <RadioGroup
+                                                        name="desk_is_vessel_related"
+                                                        label="Terkait kapal?"
+                                                        required
+                                                        value={actIsVesselRelated ? '1' : '0'}
+                                                        onChange={(value) => setActIsVesselRelated(value === '1')}
+                                                        layout="grid-2"
+                                                        variant="card"
+                                                        itemClassName="min-h-24 !rounded-xl !p-3"
+                                                        error={activityErrors.is_vessel_related}
+                                                        options={[
+                                                            {
+                                                                value: '1',
+                                                                label: 'Ya, terkait kapal',
+                                                                description: 'Pilih jika aktivitas berhubungan dengan kapal tertentu.',
+                                                            },
+                                                            {
+                                                                value: '0',
+                                                                label: 'Tidak terkait kapal',
+                                                                description: 'Pilih untuk aktivitas umum di area pelabuhan.',
+                                                            },
+                                                        ]}
+                                                    />
+                                                </div>
+
+                                                {/* Pilih Kapal (conditional) */}
+                                                {actIsVesselRelated && (
+                                                    <div className="px-4 py-3">
+                                                        <Select
+                                                            id="desk-activity-ship"
+                                                            label="Pilih kapal"
+                                                            name="ship_id"
+                                                            autoComplete="off"
+                                                            value={actShipId}
+                                                            onChange={(e) => selectActivityShip(e.target.value)}
+                                                            placeholder="Pilih kapal"
+                                                            options={ships.map((ship) => ({ value: ship.id, label: ship.name }))}
+                                                            className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                            error={activityErrors.ship_id}
+                                                            required
+                                                        />
+                                                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                                            <Select
+                                                                id="desk-activity-port-call"
+                                                                label="Kunjungan / job"
+                                                                name="port_call_id"
+                                                                value={actPortCallId}
+                                                                onChange={(e) => {
+                                                                    const visitId = e.target.value;
+                                                                    const visit = portCalls.find((pc) => pc.id === visitId);
+                                                                    setActPortCallId(visitId);
+                                                                    setActVesselPosition(visit?.status ?? '');
+                                                                    setActRequestId('');
+                                                                }}
+                                                                placeholder={actShipId ? 'Pilih kunjungan / job' : 'Pilih kapal dahulu'}
+                                                                options={portCalls
+                                                                    .filter((pc) => pc.ship?.id === actShipId)
+                                                                    .map((pc) => ({
+                                                                        value: pc.id,
+                                                                        label: `${pc.job_number} · ${pc.port?.name ?? 'Pelabuhan belum diisi'}`,
+                                                                    }))}
+                                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                                error={activityErrors.port_call_id}
+                                                                disabled={!actShipId}
+                                                                required
+                                                            />
+                                                            <Select
+                                                                id="desk-activity-vessel-position"
+                                                                label="Posisi kapal"
+                                                                name="vessel_position"
+                                                                value={actVesselPosition}
+                                                                onChange={(e) => setActVesselPosition(e.target.value)}
+                                                                placeholder="Pilih posisi"
+                                                                options={[
+                                                                    { value: 'scheduled', label: 'Belum Tiba' },
+                                                                    { value: 'anchored', label: 'Labuh' },
+                                                                    { value: 'berthed', label: 'Sandar' },
+                                                                    { value: 'departed', label: 'Berangkat' },
+                                                                ]}
+                                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                                helperText="Diambil otomatis dari kunjungan / job yang dipilih."
+                                                                error={activityErrors.vessel_position}
+                                                                disabled
+                                                                required
+                                                            />
+                                                        </div>
+                                                        <div className="mt-3">
+                                                            <Select
+                                                                id="desk-activity-request"
+                                                                label="Pengajuan terkait (opsional)"
+                                                                name="request_id"
+                                                                value={actRequestId}
+                                                                onChange={(e) => setActRequestId(e.target.value)}
+                                                                placeholder="Tanpa pengajuan terkait"
+                                                                options={requests
+                                                                    .filter((r) => r.ship?.id === actShipId && (!r.port_call_id || r.port_call_id === actPortCallId))
+                                                                    .map((r) => ({ value: r.id, label: r.request_number }))}
+                                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                                error={activityErrors.request_id}
+                                                                disabled={!actPortCallId}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Muatan + Progress (vessel related) */}
+                                                {SHOW_EXTENDED_ACTIVITY_FIELDS && actIsVesselRelated && (
+                                                    <div className="space-y-3 px-4 py-3">
+                                                        <div className="grid gap-3 sm:grid-cols-2">
+                                                            <Select
+                                                                id="desk-activity-cargo"
+                                                                label="Aktivitas muatan"
+                                                                name="cargo_activity"
+                                                                value={actCargoActivity}
+                                                                onChange={(e) => setActCargoActivity(e.target.value)}
+                                                                options={[
+                                                                    { value: 'tidak_ada', label: 'Tidak ada' },
+                                                                    { value: 'bongkar', label: 'Bongkar' },
+                                                                    { value: 'muat', label: 'Muat' },
+                                                                ]}
+                                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                            />
+                                                            <Input
+                                                                id="desk-activity-progress"
+                                                                label="Progres (%)"
+                                                                name="progress_percent"
+                                                                type="number"
+                                                                min={0}
+                                                                max={100}
+                                                                value={actProgressPercent}
+                                                                onChange={(e) => setActProgressPercent(e.target.value)}
+                                                                placeholder="0–100"
+                                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                            />
+                                                        </div>
+                                                        {actCargoActivity !== 'tidak_ada' && (
+                                                            <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3">
+                                                                <Input
+                                                                    id="desk-activity-cargo-quantity"
+                                                                    label="Jumlah muatan"
+                                                                    name="cargo_quantity"
+                                                                    type="number"
+                                                                    min={0}
+                                                                    step="0.01"
+                                                                    value={actCargoQuantity}
+                                                                    onChange={(e) => setActCargoQuantity(e.target.value)}
+                                                                    className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                                />
+                                                                <Input
+                                                                    id="desk-activity-cargo-unit"
+                                                                    label="Satuan"
+                                                                    name="cargo_unit"
+                                                                    value={actCargoUnit}
+                                                                    onChange={(e) => setActCargoUnit(e.target.value)}
+                                                                    placeholder="Ton"
+                                                                    className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        <Textarea
+                                                            id="desk-activity-constraints"
+                                                            label="Kendala"
+                                                            name="constraints"
+                                                            value={actConstraints}
+                                                            onChange={(e) => setActConstraints(e.target.value)}
+                                                            placeholder="Kosongkan bila tidak ada kendala."
+                                                            className="min-h-20 !bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                        />
+                                                        <Textarea
+                                                            id="desk-activity-next-plan"
+                                                            label="Rencana berikutnya"
+                                                            name="next_plan"
+                                                            value={actNextPlan}
+                                                            onChange={(e) => setActNextPlan(e.target.value)}
+                                                            placeholder="Tindakan atau target pekerjaan berikutnya."
+                                                            className="min-h-20 !bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                {/* Kategori */}
+                                                <div className="space-y-3 px-4 py-3">
+                                                    <Select
+                                                        id="desk-activity-category"
+                                                        label="Kategori"
+                                                        name="category"
+                                                        autoComplete="off"
+                                                        value={actCategory}
+                                                        onChange={(e) => {
+                                                            const cat = e.target.value;
+                                                            setActCategory(cat);
+                                                            if (cat !== 'Aktivitas Lainnya') setActCategoryOther('');
+                                                        }}
+                                                        options={[
+                                                            { value: 'Kegiatan Kapal', label: 'Kegiatan Kapal' },
+                                                            { value: 'Bongkar Muat', label: 'Bongkar Muat' },
+                                                            { value: 'Kendala Operasional', label: 'Kendala Operasional' },
+                                                            { value: 'Aktivitas Lainnya', label: 'Aktivitas Lainnya' },
+                                                        ]}
+                                                        className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                        error={activityErrors.category}
+                                                    />
+                                                    {actCategory === 'Aktivitas Lainnya' && (
+                                                        <Input
+                                                            id="desk-activity-category-other"
+                                                            label="Jenis aktivitas lainnya"
+                                                            name="category_other"
+                                                            type="text"
+                                                            autoComplete="off"
+                                                            autoFocus
+                                                            value={actCategoryOther}
+                                                            onChange={(e) => setActCategoryOther(e.target.value)}
+                                                            placeholder="Contoh: Koordinasi pandu atau pengisian air tawar"
+                                                            maxLength={100}
+                                                            className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                            error={activityErrors.category_other}
+                                                            required
+                                                        />
+                                                    )}
+                                                </div>
+
+                                                {/* Judul */}
+                                                <div className="px-4 py-3">
+                                                    <Input
+                                                        id="desk-activity-title"
+                                                        label="Judul / jenis aktivitas"
+                                                        name="title"
+                                                        type="text"
+                                                        autoComplete="off"
+                                                        value={actTitle}
+                                                        onChange={(e) => setActTitle(e.target.value)}
+                                                        placeholder="Contoh: Bongkar muat sedang berlangsung…"
+                                                        leftIcon={<ListChecks aria-hidden="true" className="size-5 text-[#0060F4]" strokeWidth={2} />}
+                                                        className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                        error={activityErrors.title}
+                                                        required
+                                                    />
+                                                </div>
+
+                                                {/* Detail */}
+                                                <div className="px-4 py-3">
+                                                    <Textarea
+                                                        id="desk-activity-detail"
+                                                        label="Detail aktivitas"
+                                                        name="detail"
+                                                        autoComplete="off"
+                                                        value={actDetail}
+                                                        onChange={(e) => setActDetail(e.target.value.slice(0, 500))}
+                                                        placeholder="Jelaskan kondisi atau kegiatan yang terjadi di lapangan…"
+                                                        rows={4}
+                                                        maxLength={500}
+                                                        showCharCount
+                                                        className="min-h-28 resize-none !bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                        error={activityErrors.detail}
+                                                        required
+                                                    />
+                                                </div>
+
+                                                {/* Foto */}
+                                                <div className="px-4 py-3">
+                                                    <MultiplePhotoUploadPicker
+                                                        files={actPhotos}
+                                                        onFilesChange={setActPhotos}
+                                                        label="Foto / dokumentasi"
+                                                        required={false}
+                                                        helperText="Format: JPG, PNG (Maks. 5 MB)"
+                                                        maxFiles={10}
+                                                        maxSizeMb={5}
+                                                        error={activityErrors.photos || activityErrors['photos.0']}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Error */}
+                                            {submitError && (
+                                                <div role="alert" className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-300">
+                                                    <svg aria-hidden="true" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                        <circle cx="12" cy="12" r="10" />
+                                                        <line x1="12" y1="8" x2="12" y2="12" />
+                                                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                                                    </svg>
+                                                    {submitError}
+                                                </div>
+                                            )}
+
+                                            {/* Submit */}
+                                            <div className="px-4 py-4 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                                <Button
+                                                    type="submit"
+                                                    size="lg"
+                                                    isLoading={submitting}
+                                                    leftIcon={<Send aria-hidden="true" className="size-5" strokeWidth={2.25} />}
+                                                    className="w-full font-bold"
+                                                >
+                                                    {submitting ? 'Menyimpan…' : 'Simpan Aktivitas'}
+                                                </Button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ════════════════════════════════════════════
+                                KOLOM KANAN / FULL-WIDTH: Feed Riwayat Aktivitas
+                                ════════════════════════════════════════════ */}
+                            <div className="flex-1 min-w-0 space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:pr-1 [scrollbar-width:thin] [scrollbar-color:#DCEAF8_transparent] dark:[scrollbar-color:#1E3A5F_transparent]">
+                                {groupKeys.length === 0 ? (
+                                    <Card className="p-12 text-center border border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                        <div className="w-12 h-12 mx-auto rounded-full bg-[#F0F8FF] text-[#0060F4] flex items-center justify-center text-xl mb-3">
+                                            📋
+                                        </div>
+                                        <h4 className="font-bold text-sm text-[#0B1F63] dark:text-white">
+                                            Belum Ada Aktivitas Lapangan
+                                        </h4>
+                                        <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1 max-w-sm mx-auto">
+                                            {isOperational
+                                                ? 'Mulai catat aktivitas harian dermaga dan armada menggunakan formulir di sebelah kiri.'
+                                                : 'Tidak ditemukan rekaman aktivitas lapangan pada rentang tanggal atau filter ini.'}
+                                        </p>
+                                    </Card>
+                                ) : (
+                                    groupKeys.map((groupKey) => {
+                                        const groupActs = grouped[groupKey];
+                                        const headerInfo = getGroupDisplayHeader(groupKey);
+
+                                        return (
+                                            <div key={groupKey} className="space-y-2.5">
+                                                {/* Tanggal Header */}
+                                                <div className="flex items-center justify-between px-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-[#0060F4]" />
+                                                        <h4 className="font-extrabold text-sm text-[#082870] dark:text-white">
+                                                            {headerInfo.title}
+                                                        </h4>
+                                                    </div>
+                                                    <span className="text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                        {headerInfo.subtitle} • {groupActs.length} aktivitas
+                                                    </span>
+                                                </div>
+
+                                                {/* Grid Kartu Aktivitas */}
+                                                <div className={`grid gap-3 ${isOperational ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
+                                                    {groupActs.map((act) => {
+                                                        const firstPhoto = act.photos?.[0];
+                                                        const photoCount = act.photos?.length || 0;
+
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={act.id}
+                                                                onClick={() => setSelectedActivity(act)}
+                                                                className="flex items-start gap-3.5 p-3.5 rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-left hover:border-[#0060F4] hover:shadow-sm transition-all group cursor-pointer"
+                                                            >
+                                                                {/* Foto Thumbnail */}
+                                                                <div className="relative shrink-0 w-24 h-24 rounded-xl overflow-hidden bg-[#F0F8FF] border border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                                                    {firstPhoto ? (
+                                                                        <img
+                                                                            src={firstPhoto}
+                                                                            alt={act.title}
+                                                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                                                        />
+                                                                    ) : (
+                                                                        <div className="w-full h-full flex flex-col items-center justify-center text-[#8C9BB9] text-[10px]">
+                                                                            <span className="text-xl">📷</span>
+                                                                            <span>Tanpa Foto</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {photoCount > 1 && (
+                                                                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/70 text-white text-[9px] font-bold">
+                                                                            +{photoCount - 1}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Info Aktivitas */}
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                                                        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${categoryBadgeClass(act.category)}`}>
+                                                                            {categoryLabel(act.category)}
+                                                                        </span>
+                                                                        <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                                                            {act.activity_time} WIB
+                                                                        </span>
+                                                                    </div>
+
+                                                                    <h5 className="font-extrabold text-xs sm:text-sm text-[#0B1F63] dark:text-white line-clamp-1 group-hover:text-[#0060F4] transition-colors">
+                                                                        {act.title}
+                                                                    </h5>
+
+                                                                    <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-1 line-clamp-2 leading-relaxed">
+                                                                        {act.detail}
+                                                                    </p>
+
+                                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[10px] text-[#6E82A5] dark:text-[#8C9BB9]">
+                                                                        {act.ship && (
+                                                                            <span className="font-semibold text-[#0B1F63] dark:text-[#E7F0FA]">
+                                                                                🚢 {act.ship.name}
+                                                                            </span>
+                                                                        )}
+                                                                        <span>📍 {act.location_name || 'Area Pelabuhan'}</span>
+                                                                        {act.creator?.name && (
+                                                                            <span>👤 {act.creator.name}</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
 
             {/* ── Desktop Report Modal ── */}
-            <Modal isOpen={isReportModalOpen} onClose={() => setIsReportModalOpen(false)} title="Kirim Laporan Harian Lapangan">
-                <form onSubmit={handleReportSubmit} className="space-y-4 text-xs">
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Pilih Kunjungan Kapal (Port Call)</label>
-                        <select
-                            value={data.port_call_id}
-                            onChange={(e) => setData('port_call_id', e.target.value)}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white focus:ring-2 focus:ring-[#0060F4]"
-                            required
-                        >
-                            {portCalls.map((pc) => (
-                                <option key={pc.id} value={pc.id}>
-                                    {pc.job_number} — {pc.ship?.name} ({pc.port?.name})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Tanggal Kegiatan</label>
-                        <input
-                            type="date"
-                            value={data.report_date}
-                            onChange={(e) => setData('report_date', e.target.value)}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">Ringkasan Aktivitas Lapangan</label>
-                        <textarea
-                            value={data.summary}
-                            onChange={(e) => setData('summary', e.target.value)}
-                            rows={4}
-                            placeholder="Catat kondisi cuaca, koordinasi sandar dermaga, realisasi pengisian air/BBM, serta izin clearance..."
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white focus:ring-2 focus:ring-[#0060F4]"
-                            required
-                        />
-                    </div>
+            <Modal isOpen={isReportModalOpen} onClose={() => { clearErrors(); setIsReportModalOpen(false); }} title="Kirim Laporan Harian Lapangan">
+                <form noValidate onSubmit={handleReportSubmit} className="space-y-4 text-xs">
+                    <FormErrorSummary errors={errors} />
+                    <Select required name="port_call_id" label="Pilih Kunjungan Kapal (Port Call)" value={data.port_call_id} onChange={(event) => setData('port_call_id', event.target.value)} error={errors.port_call_id} options={portCalls.map((portCall) => ({ value: portCall.id, label: `${portCall.job_number} — ${portCall.ship?.name || '-'} (${portCall.port?.name || '-'})` }))} />
+                    <Input required name="report_date" label="Tanggal Kegiatan" type="date" value={data.report_date} onChange={(event) => setData('report_date', event.target.value)} error={errors.report_date} />
+                    <Textarea required name="summary" label="Ringkasan Aktivitas Lapangan" value={data.summary} onChange={(event) => setData('summary', event.target.value)} rows={4} maxLength={2000} showCharCount placeholder="Catat kondisi cuaca, koordinasi sandar dermaga, realisasi pengisian air/BBM, serta izin clearance…" error={errors.summary} />
 
                     <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                        <Button variant="secondary" onClick={() => setIsReportModalOpen(false)}>Batal</Button>
+                        <Button type="button" variant="secondary" onClick={() => { clearErrors(); setIsReportModalOpen(false); }}>Batal</Button>
                         <Button type="submit" variant="primary" disabled={processing} className="bg-[#0060F4] text-white">
                             {processing ? 'Mengirim...' : 'Kirim Laporan'}
                         </Button>
@@ -1385,11 +1818,12 @@ export default function OperationsIndex({
                 </form>
             </Modal>
 
-            <Modal isOpen={Boolean(departurePortCall)} onClose={() => setDeparturePortCall(null)} title="Ajukan Clearance Out" subtitle="Kapal baru berstatus Berangkat setelah approval dan penyelesaian Admin.">
-                <form onSubmit={submitDeparture} className="space-y-4 p-5">
+            <Modal isOpen={Boolean(departurePortCall)} onClose={() => { setDepartureErrors({}); setDeparturePortCall(null); }} title="Ajukan Clearance Out" subtitle="Kapal baru berstatus Berangkat setelah approval dan penyelesaian Admin.">
+                <form noValidate onSubmit={submitDeparture} className="space-y-4 p-5">
+                    <FormErrorSummary errors={departureErrors} />
                     <div className="rounded-xl bg-[#F0F8FF] p-3 text-sm text-[#0B1F63] dark:bg-[#071322] dark:text-[#F1F5F9]"><strong>{departurePortCall?.ship?.name}</strong><span className="mt-1 block text-xs text-[#52658E]">{departurePortCall?.job_number}</span></div>
-                    <Input required label="Target Nota Rampung tersedia" type="datetime-local" value={completionNoteDueAt} onChange={(event) => setCompletionNoteDueAt(event.target.value)} helperText="Isi berdasarkan estimasi yang diberikan Pelindo; sistem tidak mengasumsikan ukuran kapal." />
-                    <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setDeparturePortCall(null)}>Batal</Button><Button type="submit">Buat Pengajuan</Button></div>
+                    <Input name="completion_note_due_at" label="Target Nota Rampung tersedia (opsional)" type="datetime-local" value={completionNoteDueAt} onChange={(event) => setCompletionNoteDueAt(event.target.value)} helperText="Isi jika Pelindo sudah memberikan estimasi; sistem tidak mengasumsikan ukuran kapal." error={departureErrors.completion_note_due_at} />
+                    <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => { setDepartureErrors({}); setDeparturePortCall(null); }}>Batal</Button><Button type="submit">Buat Pengajuan</Button></div>
                 </form>
             </Modal>
 
@@ -1477,27 +1911,31 @@ export default function OperationsIndex({
                         </div>
 
                         {selectedActivity.is_vessel_related && (
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            <div className={`grid gap-3 ${SHOW_EXTENDED_ACTIVITY_FIELDS ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1'}`}>
                                 <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
                                     <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Posisi</span>
                                     <span className="mt-1 block text-xs font-bold text-[#0B1F63] dark:text-white">{vesselPositionLabel(selectedActivity.vessel_position)}</span>
                                 </div>
-                                <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Muatan</span>
-                                    <span className="mt-1 block text-xs font-bold capitalize text-[#0B1F63] dark:text-white">{selectedActivity.cargo_activity?.replace('_', ' ') || 'Tidak ada'}</span>
-                                </div>
-                                <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Jumlah</span>
-                                    <span className="mt-1 block text-xs font-bold text-[#0B1F63] dark:text-white">{selectedActivity.cargo_quantity ? `${selectedActivity.cargo_quantity} ${selectedActivity.cargo_unit ?? ''}` : 'Tidak dicatat'}</span>
-                                </div>
-                                <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Progres</span>
-                                    <span className="mt-1 block text-xs font-bold text-[#0B1F63] dark:text-white">{selectedActivity.progress_percent !== null && selectedActivity.progress_percent !== undefined ? `${selectedActivity.progress_percent}%` : 'Tidak dicatat'}</span>
-                                </div>
+                                {SHOW_EXTENDED_ACTIVITY_FIELDS && (
+                                    <>
+                                        <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Muatan</span>
+                                            <span className="mt-1 block text-xs font-bold capitalize text-[#0B1F63] dark:text-white">{selectedActivity.cargo_activity?.replace('_', ' ') || 'Tidak ada'}</span>
+                                        </div>
+                                        <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Jumlah</span>
+                                            <span className="mt-1 block text-xs font-bold text-[#0B1F63] dark:text-white">{selectedActivity.cargo_quantity ? `${selectedActivity.cargo_quantity} ${selectedActivity.cargo_unit ?? ''}` : 'Tidak dicatat'}</span>
+                                        </div>
+                                        <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Progres</span>
+                                            <span className="mt-1 block text-xs font-bold text-[#0B1F63] dark:text-white">{selectedActivity.progress_percent !== null && selectedActivity.progress_percent !== undefined ? `${selectedActivity.progress_percent}%` : 'Tidak dicatat'}</span>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         )}
 
-                        {(selectedActivity.constraints || selectedActivity.next_plan) && (
+                        {SHOW_EXTENDED_ACTIVITY_FIELDS && (selectedActivity.constraints || selectedActivity.next_plan) && (
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <div className="rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
                                     <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E]">Kendala</span>

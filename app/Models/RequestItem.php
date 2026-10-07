@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class RequestItem extends Model
 {
@@ -60,6 +61,21 @@ class RequestItem extends Model
     public function vendor(): BelongsTo
     {
         return $this->belongsTo(Vendor::class, 'vendor_id');
+    }
+
+    public function costDocumentItem(): HasOne
+    {
+        return $this->hasOne(CostDocumentItem::class);
+    }
+
+    public function expenseRequestItem(): HasOne
+    {
+        return $this->hasOne(ExpenseRequestItem::class);
+    }
+
+    public function invoiceItem(): HasOne
+    {
+        return $this->hasOne(InvoiceItem::class);
     }
 
     public function isJasa(): bool

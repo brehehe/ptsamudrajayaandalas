@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UpdateShipRequestStatusRequest;
 use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\Ship;
@@ -57,15 +58,17 @@ class NeedController extends Controller
             ],
             'activeStatus' => $status,
             'search' => $search ?? '',
+            'capabilities' => [
+                'can_create' => $request->user()?->can('create', ShipRequest::class) ?? false,
+                'can_process' => $request->user()?->isOperationalAdmin() ?? false,
+            ],
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
         abort_unless(
-            $request->user()?->isOwner()
-            || $request->user()?->isOperationalAdmin()
-            || $request->user()?->isStaff(),
+            $request->user()?->can('create', ShipRequest::class),
             403,
         );
         // Check if payload contains multi-item list from mobile flow
@@ -203,19 +206,14 @@ class NeedController extends Controller
         return redirect()->back()->with('success', "Kebutuhan {$reqNumber} berhasil dicatat dan siap ditinjau.");
     }
 
-    public function updateStatus(Request $request, string $id): RedirectResponse
+    public function updateStatus(UpdateShipRequestStatusRequest $request, string $id): RedirectResponse
     {
-        if (! $request->user()?->isOperationalAdmin() && ! $request->user()?->isOwner()) {
-            abort(403, 'Hanya Admin yang dapat memproses dan menyelesaikan pengajuan.');
-        }
-
-        $validated = $request->validate([
-            'status' => ['required', 'string', 'in:Dalam Proses,Selesai,Dibatalkan'],
-        ]);
+        $validated = $request->validated();
 
         return DB::transaction(function () use ($id, $request, $validated): RedirectResponse {
             $need = ShipRequest::lockForUpdate()->findOrFail($id);
             $nextStatus = $validated['status'];
+            $previousStatus = $need->status;
             $transitions = [
                 'Menunggu Approval' => ['Dibatalkan'],
                 'Menunggu Approval Direktur' => ['Dibatalkan'],
@@ -230,6 +228,21 @@ class NeedController extends Controller
                 ]);
             }
 
+            if ($nextStatus === 'Dalam Proses') {
+                $hasUnapprovedItems = $need->items()
+                    ->where(function ($query) {
+                        $query->whereNull('director_status')
+                            ->orWhere('director_status', '!=', 'approved');
+                    })
+                    ->exists();
+
+                if ($hasUnapprovedItems) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Pengajuan belum dapat diproses karena masih ada item yang belum disetujui Direktur.',
+                    ]);
+                }
+            }
+
             if ($nextStatus === 'Selesai') {
                 $this->applyApprovedOperationalStatus($need, $request);
             }
@@ -240,7 +253,27 @@ class NeedController extends Controller
                 'cancelled_at' => $nextStatus === 'Dibatalkan' ? now() : null,
             ]);
 
-            return redirect()->back()->with('success', "Status kebutuhan {$need->request_number} diperbarui menjadi {$nextStatus}.");
+            activity('request-processing')
+                ->performedOn($need)
+                ->causedBy($request->user())
+                ->withProperties([
+                    'from' => $previousStatus,
+                    'to' => $nextStatus,
+                    'service_type' => $need->service_type,
+                    'port_call_id' => $need->port_call_id,
+                ])
+                ->log('Admin memperbarui tahap proses pengajuan');
+
+            $updatesVesselStatus = in_array($need->service_type, ['clearance_in', 'clearance_out'], true);
+            $message = match ($nextStatus) {
+                'Dalam Proses' => "Pengajuan {$need->request_number} mulai diproses Admin.",
+                'Selesai' => $updatesVesselStatus
+                    ? "Pengajuan {$need->request_number} diselesaikan dan status operasional terkait telah diperbarui."
+                    : "Pemenuhan kebutuhan {$need->request_number} telah diselesaikan.",
+                default => "Pengajuan {$need->request_number} dibatalkan.",
+            };
+
+            return redirect()->back()->with('success', $message);
         });
     }
 

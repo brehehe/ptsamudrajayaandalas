@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import { Inbox } from 'lucide-react';
 import Card from '../ui/Card';
 import Skeleton from '../feedback/Skeleton';
 
@@ -19,6 +20,7 @@ export interface TableMobileProps<T> {
     fields?: MobileField<T>[];
     actionsRender?: (row: T, index: number) => ReactNode;
     onCardClick?: (row: T, index: number) => void;
+    cardAriaLabel?: (row: T, index: number) => string;
     isLoading?: boolean;
     emptyMessage?: string | ReactNode;
     emptyIcon?: ReactNode;
@@ -35,9 +37,10 @@ export default function TableMobile<T>({
     fields = [],
     actionsRender,
     onCardClick,
+    cardAriaLabel,
     isLoading = false,
-    emptyMessage = 'Tidak ada data ditemukan',
-    emptyIcon = '📋',
+    emptyMessage = 'Data Tidak Ditemukan',
+    emptyIcon = <Inbox aria-hidden="true" className="mx-auto size-7" />,
     className = '',
 }: TableMobileProps<T>) {
     if (isLoading) {
@@ -76,7 +79,7 @@ export default function TableMobile<T>({
             <Card
                 className={`p-8 text-center border border-[#DCEAF8] dark:border-[#1E3A5F] ${className}`}
             >
-                <div className="text-3xl mb-2">{emptyIcon}</div>
+                <div className="mb-2 text-[#8C9BB9] dark:text-[#64748B]">{emptyIcon}</div>
                 <div className="font-semibold text-sm text-[#0B1F63] dark:text-[#F1F5F9]">
                     {emptyMessage}
                 </div>
@@ -88,18 +91,30 @@ export default function TableMobile<T>({
         <div className={`space-y-3 ${className}`}>
             {data.map((row, index) => {
                 const rowKey = keyExtractor(row, index);
+                const actionsContent = actionsRender?.(row, index);
 
                 return (
                     <Card
                         key={rowKey}
-                        className={`p-4 border border-[#DCEAF8] dark:border-[#1E3A5F] transition-all duration-200 ${
+                        role={onCardClick ? 'button' : undefined}
+                        tabIndex={onCardClick ? 0 : undefined}
+                        aria-label={onCardClick ? cardAriaLabel?.(row, index) : undefined}
+                        className={`border border-[#DCEAF8] p-3.5 transition-[border-color,box-shadow,background-color] duration-200 motion-reduce:transition-none dark:border-[#1E3A5F] ${
                             onCardClick
                                 ? 'cursor-pointer hover:border-[#0060F4]/40 ' +
                                   'dark:hover:border-[#38BDF8]/40 hover:shadow-xs ' +
-                                  'active:scale-[0.995]'
+                                  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]'
                                 : ''
                         }`}
                         onClick={() => onCardClick?.(row, index)}
+                        onKeyDown={(event) => {
+                            if (!onCardClick || (event.key !== 'Enter' && event.key !== ' ')) {
+                                return;
+                            }
+
+                            event.preventDefault();
+                            onCardClick(row, index);
+                        }}
                     >
                         {/* Card Header: Thumbnail + Title + Status */}
                         <div className="flex items-start justify-between gap-3">
@@ -110,11 +125,11 @@ export default function TableMobile<T>({
                                     </div>
                                 )}
                                 <div className="min-w-0 flex-1">
-                                    <div className="text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9] leading-snug">
+                                    <div className="break-words text-sm font-bold leading-snug text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {titleRender(row, index)}
                                     </div>
                                     {subtitleRender && (
-                                        <div className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                                        <div className="mt-0.5 break-words text-xs text-[#52658E] dark:text-[#94A3B8]">
                                             {subtitleRender(row, index)}
                                         </div>
                                     )}
@@ -164,7 +179,7 @@ export default function TableMobile<T>({
                         )}
 
                         {/* Actions row */}
-                        {actionsRender && (
+                        {actionsContent && (
                             <div
                                 className={
                                     'mt-3 pt-2.5 border-t border-[#DCEAF8] ' +
@@ -172,7 +187,7 @@ export default function TableMobile<T>({
                                 }
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                {actionsRender(row, index)}
+                                {actionsContent}
                             </div>
                         )}
                     </Card>

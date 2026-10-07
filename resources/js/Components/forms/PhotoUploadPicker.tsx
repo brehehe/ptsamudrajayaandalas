@@ -3,6 +3,8 @@ import {
     AlertCircle,
     Camera,
     Check,
+    Eye,
+    FileText,
     FolderOpen,
     ImagePlus,
     Loader2,
@@ -13,16 +15,25 @@ import {
     X,
 } from 'lucide-react';
 import Modal from '../Modal';
+import { optimizeImageFile } from '../../lib/optimizeImageFile';
 
 export interface PhotoUploadPickerProps {
     value?: File | null;
     previewUrl?: string | null;
     onChange: (file: File | null, previewUrl?: string | null) => void;
+    label?: string;
+    required?: boolean;
     error?: string;
     helperText?: string;
     mode?: 'both' | 'camera' | 'gallery';
     allowCamera?: boolean;
     allowGallery?: boolean;
+    accept?: string;
+    maxSizeMb?: number;
+    variant?: 'default' | 'compact';
+    resizeImages?: boolean;
+    maxImageDimension?: number;
+    imageQuality?: number;
 }
 
 /**
@@ -39,11 +50,19 @@ export default function PhotoUploadPicker({
     value,
     previewUrl,
     onChange,
+    label,
+    required = false,
     error,
     helperText,
     mode = 'both',
     allowCamera,
     allowGallery,
+    accept = 'image/*',
+    maxSizeMb = 5,
+    variant = 'default',
+    resizeImages = true,
+    maxImageDimension = 2560,
+    imageQuality = 0.92,
 }: PhotoUploadPickerProps) {
     // Konfigurasi opsi yang aktif
     let canCamera = true;
@@ -69,9 +88,13 @@ export default function PhotoUploadPicker({
 
     const inputId = useId();
     const galleryInputRef = useRef<HTMLInputElement>(null);
+    const objectUrlRef = useRef<string | null>(null);
 
     const [showSourceModal, setShowSourceModal] = useState(false);
     const [showCameraModal, setShowCameraModal] = useState(false);
+    const [validationError, setValidationError] = useState<string | null>(null);
+    const [isOptimizing, setIsOptimizing] = useState(false);
+    const [optimizationNotice, setOptimizationNotice] = useState<string | null>(null);
 
     function formatBytes(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;
@@ -82,70 +105,150 @@ export default function PhotoUploadPicker({
     const [preview, setPreview] = useState<string | null>(previewUrl || null);
     const [fileName, setFileName] = useState<string>(value?.name || '');
     const [fileSize, setFileSize] = useState<string>(value ? formatBytes(value.size) : '');
+    const [fileType, setFileType] = useState<string>(value?.type || '');
     const [isDragging, setIsDragging] = useState(false);
+    const isDocumentPicker = accept !== 'image/*';
+    const isImagePreview = fileType.startsWith('image/') || (!fileType && !isDocumentPicker);
+    const acceptedFormats = Array.from(new Set(accept.split(',').map((rawType) => {
+        const acceptedType = rawType.trim().toLowerCase();
+
+        if (acceptedType === '.doc' || acceptedType === '.docx') return 'Word';
+        if (acceptedType === 'image/*') return 'gambar';
+        if (acceptedType.startsWith('.')) return acceptedType.slice(1).toUpperCase();
+
+        return acceptedType;
+    }))).join(', ');
+
+    function revokeObjectUrl(): void {
+        if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current);
+            objectUrlRef.current = null;
+        }
+    }
+
+    function fileMatchesAccept(file: File): boolean {
+        const fileExtension = `.${file.name.split('.').pop()?.toLowerCase() || ''}`;
+
+        return accept.split(',').some((rawType) => {
+            const acceptedType = rawType.trim().toLowerCase();
+
+            if (acceptedType.startsWith('.')) {
+                return acceptedType === fileExtension;
+            }
+
+            if (acceptedType.endsWith('/*')) {
+                return file.type.toLowerCase().startsWith(acceptedType.slice(0, -1));
+            }
+
+            return acceptedType === file.type.toLowerCase();
+        });
+    }
 
     // Sinkronisasi state internal saat props value / previewUrl berubah dari parent
     useEffect(() => {
         if (value) {
             setFileName(value.name);
             setFileSize(formatBytes(value.size));
+            setFileType(value.type);
             if (previewUrl) {
                 setPreview(previewUrl);
-            } else {
+            } else if (value.type.startsWith('image/')) {
+                revokeObjectUrl();
                 const reader = new FileReader();
                 reader.onload = (ev) => {
                     setPreview(ev.target?.result as string);
                 };
                 reader.readAsDataURL(value);
+            } else {
+                revokeObjectUrl();
+                const objectUrl = URL.createObjectURL(value);
+                objectUrlRef.current = objectUrl;
+                setPreview(objectUrl);
             }
         } else if (previewUrl) {
             setPreview(previewUrl);
+            setFileType('image/existing');
             if (!fileName) setFileName('Foto form kapal');
         } else {
+            revokeObjectUrl();
             setPreview(null);
             setFileName('');
             setFileSize('');
+            setFileType('');
         }
     }, [value, previewUrl]);
 
-    function processSelectedFile(file?: File) {
+    useEffect(() => () => revokeObjectUrl(), []);
+
+    async function processSelectedFile(file?: File): Promise<void> {
         if (!file) return;
 
-        // Validasi tipe file
-        if (!file.type.startsWith('image/')) {
+        if (!fileMatchesAccept(file)) {
+            setValidationError(`Format file tidak didukung. Pilih ${acceptedFormats}.`);
             onChange(null, null);
             return;
         }
 
-        // Validasi ukuran max 5 MB
-        if (file.size > 5 * 1024 * 1024) {
+        const originalSize = file.size;
+        setIsOptimizing(resizeImages && file.type.startsWith('image/'));
+
+        const processedFile = resizeImages
+            ? await optimizeImageFile(file, {
+                  maxWidth: maxImageDimension,
+                  maxHeight: maxImageDimension,
+                  quality: imageQuality,
+                  maxSizeBytes: maxSizeMb * 1024 * 1024,
+              })
+            : file;
+
+        setIsOptimizing(false);
+
+        if (processedFile.size > maxSizeMb * 1024 * 1024) {
+            setValidationError(`Ukuran file maksimal ${maxSizeMb} MB.`);
+            setOptimizationNotice(null);
             onChange(null, null);
             return;
         }
 
-        setFileName(file.name);
-        setFileSize(formatBytes(file.size));
+        setValidationError(null);
+        setOptimizationNotice(
+            processedFile !== file
+                ? `Gambar dioptimalkan otomatis: ${formatBytes(originalSize)} menjadi ${formatBytes(processedFile.size)}.`
+                : null
+        );
+        setFileName(processedFile.name);
+        setFileSize(formatBytes(processedFile.size));
+        setFileType(processedFile.type);
+        revokeObjectUrl();
 
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const dataUrl = ev.target?.result as string;
-            setPreview(dataUrl);
-            onChange(file, dataUrl);
-        };
-        reader.readAsDataURL(file);
+        if (processedFile.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target?.result as string;
+                setPreview(dataUrl);
+                onChange(processedFile, dataUrl);
+            };
+            reader.readAsDataURL(processedFile);
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(processedFile);
+        objectUrlRef.current = objectUrl;
+        setPreview(objectUrl);
+        onChange(processedFile, objectUrl);
     }
 
     function handleGalleryFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
         if (file) {
-            processSelectedFile(file);
+            void processSelectedFile(file);
             setShowSourceModal(false);
         }
         e.target.value = '';
     }
 
     function handleCameraCaptured(file: File) {
-        processSelectedFile(file);
+        void processSelectedFile(file);
         setShowCameraModal(false);
         setShowSourceModal(false);
     }
@@ -168,7 +271,7 @@ export default function PhotoUploadPicker({
         setIsDragging(false);
         const file = e.dataTransfer.files?.[0];
         if (file) {
-            processSelectedFile(file);
+            void processSelectedFile(file);
             setShowSourceModal(false);
         }
     }
@@ -178,25 +281,34 @@ export default function PhotoUploadPicker({
         setPreview(null);
         setFileName('');
         setFileSize('');
+        setFileType('');
+        setValidationError(null);
+        setOptimizationNotice(null);
+        revokeObjectUrl();
         onChange(null, null);
         if (galleryInputRef.current) galleryInputRef.current.value = '';
     }
 
     function handleFrameClick() {
+        if (isOptimizing) return;
         if (isBoth) {
             setShowSourceModal(true);
         } else if (isOnlyCamera) {
             setShowCameraModal(true);
+        } else if (isOnlyGallery) {
+            galleryInputRef.current?.click();
         }
     }
 
-    const borderStyle = error
+    const displayedError = error || validationError;
+
+    const borderStyle = displayedError
         ? 'border-[#C62840]'
         : isDragging
         ? 'border-[#0060F4] ring-2 ring-[#0060F4]/30'
         : 'border-[#0060F4]/40 hover:border-[#0060F4] dark:border-[#0060F4]/50 dark:hover:border-[#38BDF8]';
 
-    const bgStyle = error
+    const bgStyle = displayedError
         ? 'bg-[#FFF5F6] dark:bg-[#3A1520]'
         : isDragging
         ? 'bg-[#E8F2FF] dark:bg-[#0D264E]'
@@ -208,24 +320,68 @@ export default function PhotoUploadPicker({
     if (preview) {
         return (
             <div className="space-y-2">
+                {label && (
+                    <label htmlFor={inputId} className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                        {label}
+                        {required && <span className="ml-0.5 text-[#C62840] dark:text-[#F87171]">*</span>}
+                    </label>
+                )}
+                <input
+                    ref={galleryInputRef}
+                    id={inputId}
+                    type="file"
+                    accept={accept}
+                    onChange={handleGalleryFileSelected}
+                    aria-label={label || 'Pilih file'}
+                    aria-required={required || undefined}
+                    className="sr-only"
+                />
                 <div
-                    className={`relative flex min-h-56 w-full flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-solid ${borderStyle} bg-slate-900 shadow-sm`}
+                    className={`relative flex w-full flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-solid ${
+                        variant === 'compact' ? 'min-h-40' : 'min-h-56'
+                    } ${borderStyle} ${isImagePreview ? 'bg-slate-900' : 'bg-[#F8FBFF] dark:bg-[#071322]'} shadow-sm`}
                 >
-                    <img
-                        src={preview}
-                        alt="Pratinjau foto form kapal"
-                        className="absolute inset-0 h-full w-full object-contain bg-black/40"
-                    />
+                    {isImagePreview ? (
+                        <img
+                            src={preview}
+                            alt={`Pratinjau ${fileName || 'file gambar'}`}
+                            width={1280}
+                            height={720}
+                            className="absolute inset-0 size-full bg-black/40 object-contain"
+                        />
+                    ) : (
+                        <div className="flex flex-col items-center gap-2 px-4 pb-14 pt-5 text-center">
+                            <div className="flex size-12 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#173B5C] dark:text-[#38BDF8]">
+                                <FileText aria-hidden="true" className="size-6" />
+                            </div>
+                            <p className="max-w-full truncate text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {fileName || 'Dokumen terpilih'}
+                            </p>
+                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">{fileSize}</p>
+                        </div>
+                    )}
 
-                    {/* Gradient Overlay bawah untuk info file & tombol aksi */}
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent p-3 pt-8 flex items-end justify-between gap-2 z-10">
-                        <div className="min-w-0 flex-1 text-white">
+                    <div className={`absolute inset-x-0 bottom-0 z-10 flex flex-col items-stretch gap-2 p-3 sm:flex-row sm:items-end sm:justify-between ${
+                        isImagePreview
+                            ? 'bg-[#071322]/88 pt-3 md:bg-gradient-to-t md:from-black/85 md:via-black/50 md:to-transparent md:pt-8'
+                            : 'border-t border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#0C1D36]'
+                    }`}>
+                        <div className={`min-w-0 flex-1 ${isImagePreview ? 'text-white' : 'text-[#0B1F63] dark:text-[#F1F5F9]'}`}>
                             <p className="truncate text-xs font-semibold">{fileName || 'Foto terpilih'}</p>
-                            <p className="text-[10px] text-white/75">{fileSize}</p>
+                            <p className={`text-[10px] ${isImagePreview ? 'text-white/75' : 'text-[#52658E] dark:text-[#94A3B8]'}`}>{fileSize}</p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            {/* Tombol Ganti Foto */}
+                        <div className="flex flex-wrap items-center justify-end gap-1">
+                            <a
+                                href={preview}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#DCEAF8] bg-white px-2.5 text-xs font-bold text-[#0060F4] shadow-sm hover:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2 dark:border-[#285585] dark:bg-[#173B5C] dark:text-[#E7F0FA]"
+                            >
+                                <Eye aria-hidden="true" className="size-3.5" />
+                                <span>Lihat</span>
+                            </a>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -233,36 +389,36 @@ export default function PhotoUploadPicker({
                                     else if (isOnlyCamera) setShowCameraModal(true);
                                     else galleryInputRef.current?.click();
                                 }}
-                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-[#0060F4] px-3 py-1.5 text-xs font-bold text-white shadow-md transition-transform hover:scale-105 hover:bg-[#0051D5]"
+                                className="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-lg bg-[#0060F4] px-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#0051D5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2"
                             >
-                                <RefreshCw className="size-3.5" strokeWidth={2.5} />
+                                <RefreshCw aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
                                 <span>Ganti</span>
                             </button>
 
-                            {/* Tombol Hapus Foto */}
                             <button
                                 type="button"
                                 onClick={handleClear}
-                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-[#C62840] px-3 py-1.5 text-xs font-bold text-white shadow-md transition-transform hover:scale-105 hover:bg-[#A81E33]"
+                                className="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-lg bg-[#C62840] px-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#A81E33] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C62840] focus-visible:ring-offset-2"
                             >
-                                <X className="size-3.5" strokeWidth={2.5} />
+                                <X aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
                                 <span>Hapus</span>
                             </button>
                         </div>
                     </div>
                 </div>
 
-                {(error || helperText) && (
-                    <p
-                        className={`text-[11px] ${
-                            error
-                                ? 'font-semibold text-[#C62840] dark:text-[#F87171]'
-                                : 'text-[#52658E] dark:text-[#94A3B8]'
-                        }`}
-                    >
-                        {error ? `⚠ ${error}` : helperText}
+                {displayedError ? (
+                    <p role="alert" aria-live="polite" className="flex items-start gap-1 text-[11px] font-semibold text-[#C62840] dark:text-[#F87171]">
+                        <AlertCircle aria-hidden="true" className="mt-0.5 size-3 shrink-0" />
+                        <span>{displayedError}</span>
                     </p>
-                )}
+                ) : optimizationNotice ? (
+                    <p aria-live="polite" className="text-[11px] font-medium text-[#087443] dark:text-[#4ADE80]">
+                        {optimizationNotice}
+                    </p>
+                ) : helperText ? (
+                    <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{helperText}</p>
+                ) : null}
 
                 {/* Modal Pilihan Sumber jika user ingin Ganti Foto */}
                 {isBoth && (
@@ -274,6 +430,7 @@ export default function PhotoUploadPicker({
                             setShowCameraModal(true);
                         }}
                         onSelectGallery={handleGalleryFileSelected}
+                        accept={accept}
                     />
                 )}
 
@@ -292,9 +449,15 @@ export default function PhotoUploadPicker({
     // ─────────────────────────────────────────────────────────────────────────────
     return (
         <div className="space-y-2">
+            {label && (
+                <label htmlFor={inputId} className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                    {label}
+                    {required && <span className="ml-0.5 text-[#C62840] dark:text-[#F87171]">*</span>}
+                </label>
+            )}
             <div
-                onClick={handleFrameClick}
-                onKeyDown={(e) => {
+                onClick={isOnlyGallery ? undefined : handleFrameClick}
+                onKeyDown={isOnlyGallery ? undefined : (e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         handleFrameClick();
@@ -303,9 +466,12 @@ export default function PhotoUploadPicker({
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                role="button"
-                tabIndex={0}
-                className={`group relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed py-8 px-4 text-center transition-all duration-200 cursor-pointer select-none ${borderStyle} ${bgStyle}`}
+                role={isOnlyGallery ? undefined : 'button'}
+                tabIndex={isOnlyGallery ? undefined : 0}
+                aria-required={isOnlyGallery ? undefined : required || undefined}
+                className={`group relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed px-4 text-center transition-colors duration-200 cursor-pointer select-none focus-within:ring-2 focus-within:ring-[#0060F4] focus-within:ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2 ${
+                    variant === 'compact' ? 'py-5' : 'py-8'
+                } ${borderStyle} ${bgStyle}`}
             >
                 {/* Jika HANYA Galeri aktif: input langsung menutupi frame */}
                 {isOnlyGallery && (
@@ -313,10 +479,12 @@ export default function PhotoUploadPicker({
                         ref={galleryInputRef}
                         id={inputId}
                         type="file"
-                        accept="image/*"
+                        accept={accept}
                         onChange={handleGalleryFileSelected}
-                        title="Upload gambar dari galeri atau file"
-                        aria-label="Upload gambar dari galeri atau file"
+                        title={label || 'Pilih file dari perangkat'}
+                        aria-label={label || 'Pilih file dari perangkat'}
+                        aria-required={required || undefined}
+                        disabled={isOptimizing}
                         className="absolute inset-0 h-full w-full opacity-0 cursor-pointer z-20"
                     />
                 )}
@@ -325,8 +493,12 @@ export default function PhotoUploadPicker({
                 <div className="pointer-events-none flex flex-col items-center gap-3 z-10">
                     {/* Badge Icon Kombinasi */}
                     <div className="relative">
-                        <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0060F4] to-[#082870] text-white shadow-md shadow-[#0060F4]/20 group-hover:scale-105 transition-transform duration-200">
-                            {isOnlyGallery ? (
+                        <div className="flex size-14 items-center justify-center rounded-2xl bg-[#0060F4] text-white shadow-md shadow-[#0060F4]/20 transition-transform duration-200 group-hover:scale-105 md:bg-gradient-to-br md:from-[#0060F4] md:to-[#082870]">
+                            {isOptimizing ? (
+                                <Loader2 aria-hidden="true" className="size-7 animate-spin" strokeWidth={1.8} />
+                            ) : isDocumentPicker ? (
+                                <FileText className="size-7" strokeWidth={1.8} />
+                            ) : isOnlyGallery ? (
                                 <FolderOpen className="size-7" strokeWidth={1.8} />
                             ) : (
                                 <Camera className="size-7" strokeWidth={1.8} />
@@ -342,15 +514,23 @@ export default function PhotoUploadPicker({
                     {/* Judul & Deskripsi Frame */}
                     <div className="space-y-1">
                         <p className="text-sm font-bold text-[#082870] dark:text-white group-hover:text-[#0060F4] transition-colors">
-                            {isOnlyCamera
+                            {isOptimizing
+                                ? 'Mengoptimalkan gambar...'
+                                : isOnlyCamera
                                 ? 'Ambil Foto Kamera'
+                                : isDocumentPicker
+                                ? 'Pilih Dokumen / Bukti'
                                 : isOnlyGallery
                                 ? 'Pilih dari Galeri / File'
                                 : 'Ambil Foto atau Pilih Gambar'}
                         </p>
                         <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] max-w-xs">
-                            {isOnlyCamera
+                            {isOptimizing
+                                ? 'Ukuran gambar sedang diperkecil tanpa mengubah rasionya'
+                                : isOnlyCamera
                                 ? 'Klik di sini untuk langsung membuka kamera'
+                                : isDocumentPicker
+                                ? `Pilih ${acceptedFormats} dari perangkat Anda`
                                 : isOnlyGallery
                                 ? 'Klik di sini untuk memilih foto dokumen dari perangkat Anda'
                                 : 'Klik di sini untuk membuka kamera atau memilih dari galeri'}
@@ -374,23 +554,20 @@ export default function PhotoUploadPicker({
                         )}
                         <span className="text-[#94A3B8] text-[10px]">&bull;</span>
                         <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">
-                            Maks. 5 MB
+                            Maks. {maxSizeMb} MB
                         </span>
                     </div>
                 </div>
             </div>
 
-            {(error || helperText) && (
-                <p
-                    className={`text-[11px] ${
-                        error
-                            ? 'font-semibold text-[#C62840] dark:text-[#F87171]'
-                            : 'text-[#52658E] dark:text-[#94A3B8]'
-                    }`}
-                >
-                    {error ? `⚠ ${error}` : helperText}
+            {displayedError ? (
+                <p role="alert" aria-live="polite" className="flex items-start gap-1 text-[11px] font-semibold text-[#C62840] dark:text-[#F87171]">
+                    <AlertCircle aria-hidden="true" className="mt-0.5 size-3 shrink-0" />
+                    <span>{displayedError}</span>
                 </p>
-            )}
+            ) : helperText ? (
+                <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{helperText}</p>
+            ) : null}
 
             {/* Modal Pilihan Sumber Foto saat keduanya aktif */}
             {isBoth && (
@@ -402,6 +579,7 @@ export default function PhotoUploadPicker({
                         setShowCameraModal(true);
                     }}
                     onSelectGallery={handleGalleryFileSelected}
+                    accept={accept}
                 />
             )}
 
@@ -423,6 +601,7 @@ interface PhotoSourceModalProps {
     onClose: () => void;
     onSelectCamera: () => void;
     onSelectGallery: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    accept: string;
 }
 
 function PhotoSourceModal({
@@ -430,6 +609,7 @@ function PhotoSourceModal({
     onClose,
     onSelectCamera,
     onSelectGallery,
+    accept,
 }: PhotoSourceModalProps) {
     return (
         <Modal
@@ -471,9 +651,9 @@ function PhotoSourceModal({
                     <button
                         type="button"
                         onClick={onSelectCamera}
-                        className="group flex w-full items-center gap-3.5 rounded-2xl border-2 border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081B38] p-4 text-left transition-all duration-150 hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#0E284D] active:scale-[0.99] cursor-pointer shadow-xs"
+                        className="group flex w-full items-center gap-3.5 rounded-2xl border-2 border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081B38] p-4 text-left transition-[border-color,background-color,transform] duration-150 hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#0E284D] active:scale-[0.99] cursor-pointer shadow-xs"
                     >
-                        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0060F4] to-[#082870] text-white shadow-sm group-hover:scale-105 transition-transform">
+                        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-sm transition-transform group-hover:scale-105 md:bg-gradient-to-br md:from-[#0060F4] md:to-[#082870]">
                             <Camera className="size-6" strokeWidth={2} />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -484,21 +664,21 @@ function PhotoSourceModal({
                                 Langsung buka kamera perangkat untuk mengambil foto
                             </p>
                         </div>
-                        <div className="text-[#0060F4] dark:text-[#38BDF8] opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all font-bold text-sm">
+                        <div className="text-[#0060F4] dark:text-[#38BDF8] opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-[opacity,transform] font-bold text-sm">
                             &rarr;
                         </div>
                     </button>
 
                     {/* Opsi 2: Galeri / File */}
-                    <div className="group relative flex items-center gap-3.5 rounded-2xl border-2 border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081B38] p-4 transition-all duration-150 hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#0E284D] active:scale-[0.99] cursor-pointer shadow-xs">
+                    <div className="group relative flex items-center gap-3.5 rounded-2xl border-2 border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081B38] p-4 transition-[border-color,background-color,transform] duration-150 hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#0E284D] active:scale-[0.99] cursor-pointer shadow-xs">
                         <input
                             type="file"
-                            accept="image/*"
+                            accept={accept}
                             onChange={onSelectGallery}
                             title="Pilih dari galeri atau file"
                             className="absolute inset-0 h-full w-full opacity-0 cursor-pointer z-10"
                         />
-                        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0284C7] to-[#0369A1] text-white shadow-sm group-hover:scale-105 transition-transform">
+                        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-[#0284C7] text-white shadow-sm transition-transform group-hover:scale-105 md:bg-gradient-to-br md:from-[#0284C7] md:to-[#0369A1]">
                             <FolderOpen className="size-6" strokeWidth={2} />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -509,7 +689,7 @@ function PhotoSourceModal({
                                 Pilih foto dokumen yang sudah ada di penyimpanan perangkat
                             </p>
                         </div>
-                        <div className="text-[#0060F4] dark:text-[#38BDF8] opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all font-bold text-sm">
+                        <div className="text-[#0060F4] dark:text-[#38BDF8] opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-[opacity,transform] font-bold text-sm">
                             &rarr;
                         </div>
                     </div>
@@ -630,8 +810,11 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
         if (!videoRef.current) return;
         const video = videoRef.current;
 
-        const width = video.videoWidth || 1280;
-        const height = video.videoHeight || 720;
+        const sourceWidth = video.videoWidth || 1280;
+        const sourceHeight = video.videoHeight || 720;
+        const scale = Math.min(1, 2560 / sourceWidth, 2560 / sourceHeight);
+        const width = Math.max(1, Math.round(sourceWidth * scale));
+        const height = Math.max(1, Math.round(sourceHeight * scale));
 
         const canvas = document.createElement('canvas');
         canvas.width = width;
@@ -744,6 +927,8 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
                             <img
                                 src={capturedImage}
                                 alt="Hasil jepretan foto"
+                                width={1920}
+                                height={1080}
                                 className="w-full h-full max-h-[60vh] object-contain"
                             />
                             <div className="absolute top-3 left-3 rounded-full bg-black/60 backdrop-blur-sm px-3 py-1 text-[11px] font-semibold text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">

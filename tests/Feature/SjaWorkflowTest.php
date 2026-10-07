@@ -6,12 +6,14 @@ use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 
 test('landing page is accessible and displays maritime identity', function () {
     $response = $this->get('/');
 
-    $response->assertStatus(200);
+    $response->assertRedirect('/dashboard');
 });
 
 test('dashboard redirects unauthenticated users to login', function () {
@@ -60,8 +62,9 @@ test('authenticated user can view vessel detail page', function () {
     $response->assertStatus(200);
 });
 
-test('authenticated user can create a new ship request', function () {
+test('operational user can create a new ship request', function () {
     $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
     $ship = Ship::create([
         'name' => 'KM Test Samudra 2',
         'imo_number' => '9876544',
@@ -380,7 +383,6 @@ test('dashboard provides all bu titik occ operational datasets', function () {
         ->has('attention_ships')
         ->has('schedules')
         ->has('notifications')
-        ->has('activity_chart')
         ->has('needs_today')
         ->has('financial_overview')
         ->has('financial_overview.chart')
@@ -391,6 +393,7 @@ test('dashboard provides all bu titik occ operational datasets', function () {
 });
 
 test('admin can submit upcoming ship arrival (ShipSubmission)', function () {
+    Storage::fake('public');
     $admin = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@samudrajaya.co.id']);
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
     $port = Port::first();
@@ -411,6 +414,7 @@ test('admin can submit upcoming ship arrival (ShipSubmission)', function () {
         'port_id' => $port?->id,
         'eta' => now()->addDays(2)->format('Y-m-d\TH:i'),
         'arrival_notes' => 'Rencana sandar di dermaga KSOP',
+        'image' => UploadedFile::fake()->image('kapal-baru.jpg'),
     ]);
 
     $response->assertRedirect();
@@ -426,6 +430,10 @@ test('admin can submit upcoming ship arrival (ShipSubmission)', function () {
     $this->assertDatabaseHas('port_calls', [
         'status' => 'scheduled',
     ]);
+
+    $ship = Ship::where('name', 'KM Nusantara Jaya 01')->firstOrFail();
+    expect($ship->image)->toStartWith('/storage/sja/vessels/');
+    Storage::disk('public')->assertExists(str_replace('/storage/', '', $ship->image));
 });
 
 test('admin can schedule upcoming arrival for existing master ship and creates work order and port call', function () {

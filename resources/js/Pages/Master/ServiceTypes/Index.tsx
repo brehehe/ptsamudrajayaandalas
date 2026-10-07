@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
 import { Head, useForm } from '@inertiajs/react';
+import { Anchor, Pencil, Plus, Trash2 } from 'lucide-react';
 import AppLayout from '../../../Layouts/AppLayout';
-import Card from '../../../Components/ui/Card';
 import Button from '../../../Components/ui/Button';
+import StatusBadge from '../../../Components/ui/StatusBadge';
 import Modal from '../../../Components/overlays/Modal';
+import { ResponsiveTable, type Column } from '../../../Components/tables/Table';
+import MobilePageHero from '../../../Components/navigation/MobilePageHero';
+import Checkbox from '../../../Components/forms/Checkbox';
+import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
+import Input from '../../../Components/forms/Input';
+import Textarea from '../../../Components/forms/Textarea';
 
 interface ServiceType {
     id: string;
@@ -31,6 +38,7 @@ export default function MasterServiceTypesIndex({ serviceTypes = [] }: MasterSer
         processing,
         reset,
         errors,
+        clearErrors,
     } = useForm({
         code: '',
         name: '',
@@ -39,12 +47,14 @@ export default function MasterServiceTypesIndex({ serviceTypes = [] }: MasterSer
     });
 
     const openAddModal = () => {
+        clearErrors();
         setEditingType(null);
         reset();
         setIsModalOpen(true);
     };
 
     const openEditModal = (st: ServiceType) => {
+        clearErrors();
         setEditingType(st);
         setData({
             code: st.code,
@@ -80,15 +90,38 @@ export default function MasterServiceTypesIndex({ serviceTypes = [] }: MasterSer
         }
     };
 
+    const actions = (serviceType: ServiceType) => (
+        <div className="flex items-center justify-end gap-1.5">
+            <Button type="button" size="sm" variant="ghost" className="size-9 !px-0" onClick={() => openEditModal(serviceType)} aria-label={`Edit ${serviceType.name}`}>
+                <Pencil aria-hidden="true" className="size-4" />
+            </Button>
+            {!serviceType.is_default && (
+                <Button type="button" size="sm" variant="ghost" className="size-9 !px-0 !text-[#C62840]" onClick={() => handleDelete(serviceType)} aria-label={`Nonaktifkan ${serviceType.name}`}>
+                    <Trash2 aria-hidden="true" className="size-4" />
+                </Button>
+            )}
+        </div>
+    );
+
+    const columns: Column<ServiceType>[] = [
+        { key: 'code', header: 'Kode', width: '110px', render: (serviceType) => <span className="font-bold text-[#0060F4]">{serviceType.code}</span> },
+        { key: 'name', header: 'Tipe kegiatan', width: '220px', render: (serviceType) => <span className="font-bold">{serviceType.name}</span> },
+        { key: 'default', header: 'Jenis', width: '140px', render: (serviceType) => <StatusBadge status={serviceType.is_default ? 'success' : 'info'} label={serviceType.is_default ? 'Default sistem' : 'Opsional'} /> },
+        { key: 'description', header: 'Deskripsi', render: (serviceType) => <span className="text-[#52658E]">{serviceType.description || '-'}</span> },
+        { key: 'actions', header: 'Aksi', width: '90px', align: 'right', render: actions },
+    ];
+
     return (
-        <AppLayout title="Data Tipe Kegiatan Kapal">
+        <AppLayout title="Data Tipe Kegiatan Kapal" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Tipe Layanan Kapal — PT Samudra Jaya Andalas" />
 
-            <div className="space-y-6">
+            <MobilePageHero title="Tipe Kegiatan" description="Kelola referensi kegiatan sandar dan labuh." />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:space-y-6 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
                 {/* Header Banner */}
                 <div
                     className={
-                        'flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white ' +
+                        'hidden md:flex md:flex-row md:items-center justify-between gap-4 bg-white ' +
                         'p-5 md:p-6 rounded-[16px] border border-[#DCEAF8] ' +
                         'shadow-[0_2px_12px_rgba(8,40,112,0.04)]'
                     }
@@ -123,221 +156,62 @@ export default function MasterServiceTypesIndex({ serviceTypes = [] }: MasterSer
                             'font-semibold'
                         }
                     >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2.5}
-                                d="M12 4v16m8-8H4"
-                            />
-                        </svg>
+                        <Plus aria-hidden="true" className="size-4" />
                         Tambah Tipe Baru
                     </Button>
                 </div>
 
-                {/* Table */}
-                <Card className="bg-white border border-[#DCEAF8] rounded-[16px] overflow-hidden shadow-sm">
-                    <table className="w-full text-left text-xs md:text-sm">
-                        <thead>
-                            <tr className="bg-[#0D2945] text-[#E7F0FA]">
-                                <th className="py-3 px-4 font-bold">KODE</th>
-                                <th className="py-3 px-4 font-bold">NAMA TIPE KEGIATAN</th>
-                                <th className="py-3 px-4 font-bold">STATUS DEFAULT</th>
-                                <th className="py-3 px-4 font-bold">DESKRIPSI</th>
-                                <th className="py-3 px-4 font-bold text-center">AKSI</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#DCEAF8]/60">
-                            {serviceTypes.map((st) => (
-                                <tr key={st.id} className="hover:bg-[#F0F8FF]/60 transition-colors">
-                                    <td className="py-3 px-4 font-mono font-bold text-[#0060F4]">
-                                        {st.code}
-                                    </td>
-                                    <td className="py-3 px-4 font-bold text-[#0B1F63]">
-                                        {st.name}
-                                    </td>
-                                    <td className="py-3 px-4">
-                                        {st.is_default ? (
-                                            <span
-                                                className={
-                                                    'px-2.5 py-0.5 rounded-full text-[11px] ' +
-                                                    'font-bold bg-[#DCF7E8] text-[#087443]'
-                                                }
-                                            >
-                                                Default Sistem
-                                            </span>
-                                        ) : (
-                                            <span
-                                                className={
-                                                    'px-2.5 py-0.5 rounded-full text-[11px] ' +
-                                                    'font-semibold bg-[#F0F8FF] text-[#52658E]'
-                                                }
-                                            >
-                                                Opsional
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="py-3 px-4 text-xs text-[#52658E]">
-                                        {st.description || '-'}
-                                    </td>
-                                    <td className="py-3 px-4 text-center">
-                                        <div className="flex items-center justify-center gap-1.5">
-                                            <button
-                                                onClick={() => openEditModal(st)}
-                                                className={
-                                                    'p-1.5 rounded-[8px] text-[#0060F4] ' +
-                                                    'hover:bg-[#E0F0FF] transition-colors'
-                                                }
-                                                title="Edit"
-                                            >
-                                                <svg
-                                                    className="w-4 h-4"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    viewBox="0 0 24 24"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        strokeWidth={2}
-                                                        d={
-                                                            'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h' +
-                                                            '11a2 2 0 002-2v-5m-1.414-9.414a2 2 0' +
-                                                            ' 112.828 2.828L11.828 15H9v-2.828l8.' +
-                                                            '586-8.586z'
-                                                        }
-                                                    />
-                                                </svg>
-                                            </button>
-                                            {!st.is_default && (
-                                                <button
-                                                    onClick={() => handleDelete(st)}
-                                                    className={
-                                                        'p-1.5 rounded-[8px] text-[#C62840] ' +
-                                                        'hover:bg-[#FFE7EC] transition-colors'
-                                                    }
-                                                    title="Hapus"
-                                                >
-                                                    <svg
-                                                        className="w-4 h-4"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            strokeWidth={2}
-                                                            d={
-                                                                'M19 7l-.867 12.142A2 2 0 0116.13' +
-                                                                '8 21H7.862a2 2 0 01-1.995-1.858L' +
-                                                                '5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-' +
-                                                                '1-1h-4a1 1 0 00-1 1v3M4 7h16'
-                                                            }
-                                                        />
-                                                    </svg>
-                                                </button>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </Card>
+                <Button type="button" className="w-full md:hidden" onClick={openAddModal} leftIcon={<Plus aria-hidden="true" className="size-4" />}>
+                    Tambah Tipe Kegiatan
+                </Button>
+
+                <ResponsiveTable<ServiceType>
+                    data={serviceTypes}
+                    keyExtractor={(serviceType) => serviceType.id}
+                    desktop={{ columns, compact: true, minWidth: '760px', emptyMessage: 'Data Tidak Ditemukan' }}
+                    mobile={{
+                        titleRender: (serviceType) => serviceType.name,
+                        subtitleRender: (serviceType) => serviceType.code,
+                        statusRender: (serviceType) => <StatusBadge status={serviceType.is_default ? 'success' : 'info'} label={serviceType.is_default ? 'Default' : 'Opsional'} />,
+                        imageRender: () => <span className="flex size-11 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847]"><Anchor aria-hidden="true" className="size-5" /></span>,
+                        fields: [
+                            { label: 'Deskripsi', fullWidth: true, render: (serviceType) => serviceType.description || '-' },
+                        ],
+                        actionsRender: actions,
+                        emptyMessage: 'Data Tidak Ditemukan',
+                    }}
+                />
             </div>
 
             {/* Modal Tambah / Edit */}
             <Modal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                onClose={() => {
+                    clearErrors();
+                    setIsModalOpen(false);
+                }}
                 title={editingType ? `Edit Tipe: ${editingType.name}` : 'Tambah Tipe Kegiatan Baru'}
                 size="md"
             >
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form noValidate onSubmit={handleSubmit} className="space-y-4">
+                    <FormErrorSummary errors={errors} />
                     <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Kode Tipe <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={data.code}
-                                onChange={(e) => setData('code', e.target.value.toUpperCase())}
-                                placeholder="SDR, LBH..."
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm font-mono border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                                required
-                            />
-                            {errors.code && (
-                                <p className="text-[11px] text-red-500 mt-0.5">{errors.code}</p>
-                            )}
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Nama Tipe Kegiatan <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={data.name}
-                                onChange={(e) => setData('name', e.target.value)}
-                                placeholder="Contoh: Sandar, Labuh..."
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                                required
-                            />
-                        </div>
+                        <Input required name="code" autoComplete="off" label="Kode Tipe" value={data.code} onChange={(e) => setData('code', e.target.value.toUpperCase())} placeholder="Contoh: SDR" className="font-mono" error={errors.code} />
+                        <Input required name="name" autoComplete="off" label="Nama Tipe Kegiatan" value={data.name} onChange={(e) => setData('name', e.target.value)} placeholder="Contoh: Sandar" error={errors.name} />
                     </div>
 
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Deskripsi
-                        </label>
-                        <textarea
-                            value={data.description}
-                            onChange={(e) => setData('description', e.target.value)}
-                            rows={2}
-                            placeholder="Deskripsi kegiatan..."
-                            className={
-                                'w-full px-3 py-2 text-xs md:text-sm border border-[#DCEAF8] ' +
-                                'rounded-[10px] text-[#0B1F63]'
-                            }
-                        />
-                    </div>
+                    <Textarea name="description" autoComplete="off" label="Deskripsi" value={data.description} onChange={(e) => setData('description', e.target.value)} rows={2} placeholder="Jelaskan tipe kegiatan…" error={errors.description} />
 
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="checkbox"
-                            id="is_default"
-                            checked={data.is_default}
-                            onChange={(e) => setData('is_default', e.target.checked)}
-                            className="w-4 h-4 rounded text-[#0060F4] border-[#DCEAF8] focus:ring-[#0060F4]"
-                        />
-                        <label
-                            htmlFor="is_default"
-                            className="text-xs font-semibold text-[#0B1F63]"
-                        >
-                            Jadikan Tipe Kegiatan Utama (Default)
-                        </label>
-                    </div>
+                    <Checkbox id="is_default" name="is_default" checked={data.is_default} onChange={(e) => setData('is_default', e.target.checked)} label="Jadikan Tipe Kegiatan Utama (Default)" error={errors.is_default} />
 
                     <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#DCEAF8]">
                         <Button
                             type="button"
                             variant="secondary"
-                            onClick={() => setIsModalOpen(false)}
+                            onClick={() => {
+                                clearErrors();
+                                setIsModalOpen(false);
+                            }}
                             className="px-4 py-2 text-xs font-bold rounded-[10px]"
                         >
                             Batal

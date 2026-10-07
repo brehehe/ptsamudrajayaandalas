@@ -6,7 +6,10 @@ import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
 import Modal from '../../Components/overlays/Modal';
 import Input from '../../Components/forms/Input';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Select from '../../Components/selects/Select';
+import ShipImage from '../../Components/vessels/ShipImage';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 
 const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -57,7 +60,7 @@ export interface Vessel {
     status: string;
     agent_name: string;
     is_active: boolean;
-    image?: string;
+    image?: string | null;
     eta?: string;
     port_name?: string;
     needs_count?: number;
@@ -85,6 +88,7 @@ export interface MasterShip {
     captain_phone?: string;
     ship_company_id?: string;
     port_id?: string;
+    image?: string | null;
     company?: ShipCompany;
 }
 
@@ -106,38 +110,17 @@ interface VesselsIndexProps {
     search: string;
 }
 
-const MONTHS_ID = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'Mei',
-    'Jun',
-    'Jul',
-    'Agu',
-    'Sep',
-    'Okt',
-    'Nov',
-    'Des',
-];
-
 export const formatEtaDateTime = (dateStr?: string | null): string => {
-    if (!dateStr) return '12 Jan 2026 14:00';
+    if (!dateStr) return '-';
     try {
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
 
-        const day = d.getDate().toString().padStart(2, '0');
-        const month = MONTHS_ID[d.getMonth()] || 'Jan';
-        const year = d.getFullYear();
-        const hours = d.getHours().toString().padStart(2, '0');
-        const minutes = d.getMinutes().toString().padStart(2, '0');
-
-        if (hours === '00' && minutes === '00') {
-            return `${day} ${month} ${year}  --:--`;
-        }
-
-        return `${day} ${month} ${year}  ${hours}:${minutes}`;
+        return new Intl.DateTimeFormat('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        }).format(d);
     } catch {
         return dateStr;
     }
@@ -146,7 +129,7 @@ export const formatEtaDateTime = (dateStr?: string | null): string => {
 export default function VesselsIndex({
     vessels,
     companies = [],
-    counts = { semua: 5, akan_datang: 1, labuh: 1, sandar: 2, selesai: 1 },
+    counts = { semua: 0, akan_datang: 0, labuh: 0, sandar: 0, selesai: 0 },
     ports = [],
     allMasterShips = [],
     canCreateShip = false,
@@ -183,10 +166,12 @@ export default function VesselsIndex({
     const [newShipGrossTonnage, setNewShipGrossTonnage] = useState('');
     const [newShipLength, setNewShipLength] = useState('');
     const [newShipCallSign, setNewShipCallSign] = useState('');
+    const [newShipImage, setNewShipImage] = useState<File | null>(null);
     const [newShipCompanyId, setNewShipCompanyId] = useState('');
     const [isNewCompany, setIsNewCompany] = useState(false);
     const [newCompanyName, setNewCompanyName] = useState('');
     const [newCompanyCode, setNewCompanyCode] = useState('');
+    const [arrivalErrors, setArrivalErrors] = useState<Record<string, string>>({});
 
     // Modal state for Master Perusahaan
     const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
@@ -196,6 +181,7 @@ export default function VesselsIndex({
     const [companyFormEmail, setCompanyFormEmail] = useState('');
     const [companyFormAddress, setCompanyFormAddress] = useState('');
     const [companySearchTerm, setCompanySearchTerm] = useState('');
+    const [companyErrors, setCompanyErrors] = useState<Record<string, string>>({});
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -264,24 +250,16 @@ export default function VesselsIndex({
     // Save Ship / Schedule Arrival
     const handleSaveShipArrival = (e: React.FormEvent) => {
         e.preventDefault();
+        setArrivalErrors({});
 
         if (shipModalTab === 'existing') {
-            if (!selectedMasterShipId) {
-                alert('Silakan pilih kapal dari Master Kapal terlebih dahulu.');
-                return;
-            }
-            if (!arrivalEta) {
-                alert('Jadwal Kedatangan (ETA) wajib diisi.');
-                return;
-            }
-
             router.post(
                 '/ship-arrivals',
                 {
                     ship_selection_type: 'existing',
                     ship_id: selectedMasterShipId,
                     port_id: arrivalPortId || (ports.length > 0 ? ports[0].id : null),
-                    eta: arrivalEta ? new Date(arrivalEta).toISOString() : new Date().toISOString(),
+                    eta: arrivalEta ? new Date(arrivalEta).toISOString() : '',
                     captain_name: arrivalCaptainName || null,
                     captain_phone: arrivalCaptainPhone || null,
                     arrival_notes: arrivalNotes || null,
@@ -293,26 +271,10 @@ export default function VesselsIndex({
                         setSelectedMasterShipId('');
                         setArrivalNotes('');
                     },
+                    onError: (errors) => setArrivalErrors(errors as Record<string, string>),
                 }
             );
         } else {
-            if (!newShipName.trim() || !newShipIMO.trim()) {
-                alert('Nama Kapal dan Nomor IMO wajib diisi.');
-                return;
-            }
-            if (isNewCompany && !newCompanyName.trim()) {
-                alert('Nama Perusahaan Baru wajib diisi jika memilih opsi Buat Perusahaan Baru.');
-                return;
-            }
-            if (!isNewCompany && !newShipCompanyId && companies.length > 0) {
-                alert('Silakan pilih Perusahaan Pemilik Kapal.');
-                return;
-            }
-            if (!arrivalEta) {
-                alert('Jadwal Kedatangan Perdana (ETA) wajib diisi.');
-                return;
-            }
-
             router.post(
                 '/ship-arrivals',
                 {
@@ -327,8 +289,9 @@ export default function VesselsIndex({
                     gross_tonnage: newShipGrossTonnage ? parseFloat(newShipGrossTonnage) : null,
                     length: newShipLength ? parseFloat(newShipLength) : null,
                     call_sign: newShipCallSign.trim() || null,
+                    image: newShipImage,
                     port_id: arrivalPortId || (ports.length > 0 ? ports[0].id : null),
-                    eta: arrivalEta ? new Date(arrivalEta).toISOString() : new Date().toISOString(),
+                    eta: arrivalEta ? new Date(arrivalEta).toISOString() : '',
                     captain_name: arrivalCaptainName.trim() || null,
                     captain_phone: arrivalCaptainPhone.trim() || null,
                     arrival_notes: arrivalNotes.trim() || null,
@@ -342,11 +305,13 @@ export default function VesselsIndex({
                         setNewShipGrossTonnage('');
                         setNewShipLength('');
                         setNewShipCallSign('');
+                        setNewShipImage(null);
                         setIsNewCompany(false);
                         setNewCompanyName('');
                         setNewCompanyCode('');
                         setArrivalNotes('');
                     },
+                    onError: (errors) => setArrivalErrors(errors as Record<string, string>),
                 }
             );
         }
@@ -355,10 +320,7 @@ export default function VesselsIndex({
     // Save Company
     const handleSaveCompany = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!companyFormName.trim()) {
-            alert('Nama Perusahaan Pelayaran wajib diisi.');
-            return;
-        }
+        setCompanyErrors({});
 
         router.post(
             '/companies',
@@ -378,6 +340,7 @@ export default function VesselsIndex({
                     setCompanyFormEmail('');
                     setCompanyFormAddress('');
                 },
+                onError: (errors) => setCompanyErrors(errors as Record<string, string>),
             }
         );
     };
@@ -452,46 +415,35 @@ export default function VesselsIndex({
         { label: 'Selesai', count: counts.selesai, value: 'Selesai' },
     ];
 
-    // Partition sorted vessels into "Hari ini" vs "Besok" vs others for the mobile view
+    // Group only from persisted ETA values; records without ETA remain in the other group.
     const todayVessels: Vessel[] = [];
     const tomorrowVessels: Vessel[] = [];
     const otherVessels: Vessel[] = [];
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const formatGroupDate = (value: Date) =>
+        new Intl.DateTimeFormat('id-ID', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+        }).format(value);
 
     sortedVessels.forEach((v) => {
         if (!v.eta) {
-            todayVessels.push(v);
+            otherVessels.push(v);
             return;
         }
         const d = new Date(v.eta);
-        const day = d.getDate();
-        const month = d.getMonth(); // 0 is January
-        const year = d.getFullYear();
-
-        // 12 Jan 2026 or 11 Jan (past) goes into Hari ini
-        if (
-            (day === 12 && month === 0 && year === 2026) ||
-            (day <= 11 && month === 0 && year === 2026)
-        ) {
+        if (Number.isNaN(d.getTime())) {
+            otherVessels.push(v);
+        } else if (d.toDateString() === now.toDateString()) {
             todayVessels.push(v);
-        } else if (day === 13 && month === 0 && year === 2026) {
+        } else if (d.toDateString() === tomorrow.toDateString()) {
             tomorrowVessels.push(v);
         } else {
-            // Check against actual system date if dynamic
-            const now = new Date();
-            const isToday = d.toDateString() === now.toDateString();
-            const tmrw = new Date();
-            tmrw.setDate(now.getDate() + 1);
-            const isTomorrow = d.toDateString() === tmrw.toDateString();
-
-            if (isToday) {
-                todayVessels.push(v);
-            } else if (isTomorrow) {
-                tomorrowVessels.push(v);
-            } else if (tomorrowVessels.length === 0 && v.name.includes('Lintas Bahari')) {
-                tomorrowVessels.push(v);
-            } else {
-                todayVessels.push(v);
-            }
+            otherVessels.push(v);
         }
     });
 
@@ -506,7 +458,8 @@ export default function VesselsIndex({
                 {/* 1. HERO BANNER HEADER */}
                 <div
                     className={
-                        'relative w-full overflow-hidden min-h-[200px] flex flex-col ' +
+                        'mobile-photo-copy relative w-full overflow-hidden min-h-[200px] flex flex-col ' +
+                        'bg-[#8FCDF4] ' +
                         'justify-end pt-20 pb-8 px-4 text-white'
                     }
                 >
@@ -518,19 +471,12 @@ export default function VesselsIndex({
                         fetchPriority="high"
                         className="absolute inset-0 size-full object-cover object-[center_35%]"
                     />
-                    <div
-                        className={
-                            'absolute inset-0 bg-gradient-to-b from-[#001433]/90 via-[#001433]/70 ' +
-                            'to-[#001433]/95 pointer-events-none'
-                        }
-                    />
-
                     {/* Title & Subtitle inside Hero Banner */}
                     <div className="relative z-10 mt-5 mb-2">
                         <h1 className="text-[28px] font-extrabold tracking-tight text-white leading-tight">
                             Kapal
                         </h1>
-                        <p className="text-[12px] text-white/85 mt-0.5">
+                        <p className="mt-0.5 text-[12px] font-medium text-white">
                             Setiap baris adalah satu kunjungan dengan nomor job tersendiri.
                         </p>
                     </div>
@@ -645,19 +591,18 @@ export default function VesselsIndex({
 
                         {/* Admin Add Button on Mobile */}
                         {canCreateShip && (
-                            <button
-                                type="button"
-                                onClick={() => setShowAddModal(true)}
+                            <Link
+                                href="/work-orders/create"
                                 className={
                                     'inline-flex items-center gap-1 px-3 py-2 bg-[#0060F4] ' +
                                     'hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
                                     'rounded-xl text-xs font-bold shadow-xs transition-colors flex-shrink-0'
                                 }
-                                title="Tambah kedatangan kapal"
+                                title="Buat SPK dan jadwalkan kunjungan kapal"
                             >
                                 <span className="text-base leading-none font-bold">+</span>
-                                <span>Datang</span>
-                            </button>
+                                <span>Buat SPK</span>
+                            </Link>
                         )}
                     </div>
 
@@ -718,8 +663,8 @@ export default function VesselsIndex({
                                     type="button"
                                     onClick={() => handleFilterStatus(tab.value)}
                                     className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer flex-shrink-0 ${isActive
-                                            ? 'bg-[#0060F4] text-white shadow-xs'
-                                            : 'bg-[#EAF4FE] dark:bg-[#132847] text-[#0060F4] dark:text-[#38BDF8] hover:bg-[#DCEAF8]'
+                                        ? 'bg-[#0060F4] text-white shadow-xs'
+                                        : 'bg-[#EAF4FE] dark:bg-[#132847] text-[#0060F4] dark:text-[#38BDF8] hover:bg-[#DCEAF8]'
                                         }`}
                                 >
                                     <span>{tab.label}</span>
@@ -738,7 +683,7 @@ export default function VesselsIndex({
                                     Hari ini
                                 </h2>
                                 <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
-                                    Senin, 12 Januari 2026
+                                    {formatGroupDate(now)}
                                 </span>
                             </div>
 
@@ -759,8 +704,8 @@ export default function VesselsIndex({
                                         }
                                     >
                                         {/* Left: Thumbnail image */}
-                                        <img
-                                            src={vessel.image || '/images/vessel-sarana.jpg'}
+                                        <ShipImage
+                                            src={vessel.image}
                                             alt={vessel.name}
                                             className={
                                                 'min-h-24 w-24 self-stretch rounded-xl object-cover ' +
@@ -774,7 +719,8 @@ export default function VesselsIndex({
                                             {/* Row 1: Ship name */}
                                             <h3
                                                 className={
-                                                    'truncate font-bold text-[13.5px] text-[#082870] ' +
+                                                    'wrap-anywhere text-balance font-bold text-[13.5px] ' +
+                                                    'leading-5 text-[#082870] ' +
                                                     'transition-colors group-hover:text-[#0060F4] ' +
                                                     'dark:text-[#F1F5F9]'
                                                 }
@@ -782,15 +728,23 @@ export default function VesselsIndex({
                                                 {vessel.name}
                                             </h3>
 
-                                            {/* Row 2: Status + job number */}
-                                            <div className="flex min-w-0 items-center gap-2">
+                                            {/* Row 2: Status */}
+                                            <div className="flex items-center">
                                                 {renderStatusBadge(vessel.status)}
-                                                <span className="truncate text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                                    {vessel.job_number}
-                                                </span>
                                             </div>
 
-                                            {/* Row 3: Date + Location */}
+                                            {/* Row 3: Full job number */}
+                                            <p
+                                                translate="no"
+                                                className={
+                                                    'wrap-anywhere text-[10px] font-bold leading-4 ' +
+                                                    'text-[#52658E] dark:text-[#94A3B8]'
+                                                }
+                                            >
+                                                {vessel.job_number}
+                                            </p>
+
+                                            {/* Row 4: Date + Location */}
                                             <div
                                                 className={
                                                     'flex items-center gap-2 text-[11px] ' +
@@ -838,13 +792,13 @@ export default function VesselsIndex({
                                                             d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                                                         />
                                                     </svg>
-                                                    <span className="truncate">
-                                                        {vessel.port_name || 'Pelabuhan Gresik'}
+                                                    <span className="wrap-anywhere text-pretty">
+                                                        {vessel.port_name || 'Pelabuhan belum diisi'}
                                                     </span>
                                                 </div>
                                             </div>
 
-                                            {/* Row 4: Kebutuhan + Pengajuan */}
+                                            {/* Row 5: Kebutuhan + Pengajuan */}
                                             <div
                                                 className={
                                                     'flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] ' +
@@ -945,7 +899,7 @@ export default function VesselsIndex({
                                     Besok
                                 </h2>
                                 <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
-                                    Selasa, 13 Januari 2026
+                                    {formatGroupDate(tomorrow)}
                                 </span>
                             </div>
 
@@ -966,8 +920,8 @@ export default function VesselsIndex({
                                         }
                                     >
                                         {/* Left: Thumbnail image */}
-                                        <img
-                                            src={vessel.image || '/images/vessel-lestari-jaya.jpg'}
+                                        <ShipImage
+                                            src={vessel.image}
                                             alt={vessel.name}
                                             className={
                                                 'min-h-24 w-24 self-stretch rounded-xl object-cover ' +
@@ -981,7 +935,8 @@ export default function VesselsIndex({
                                             {/* Row 1: Ship name */}
                                             <h3
                                                 className={
-                                                    'truncate font-bold text-[13.5px] text-[#082870] ' +
+                                                    'wrap-anywhere text-balance font-bold text-[13.5px] ' +
+                                                    'leading-5 text-[#082870] ' +
                                                     'transition-colors group-hover:text-[#0060F4] ' +
                                                     'dark:text-[#F1F5F9]'
                                                 }
@@ -989,15 +944,23 @@ export default function VesselsIndex({
                                                 {vessel.name}
                                             </h3>
 
-                                            {/* Row 2: Status + job number */}
-                                            <div className="flex min-w-0 items-center gap-2">
+                                            {/* Row 2: Status */}
+                                            <div className="flex items-center">
                                                 {renderStatusBadge(vessel.status)}
-                                                <span className="truncate text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                                    {vessel.job_number}
-                                                </span>
                                             </div>
 
-                                            {/* Row 3: Date + Location */}
+                                            {/* Row 3: Full job number */}
+                                            <p
+                                                translate="no"
+                                                className={
+                                                    'wrap-anywhere text-[10px] font-bold leading-4 ' +
+                                                    'text-[#52658E] dark:text-[#94A3B8]'
+                                                }
+                                            >
+                                                {vessel.job_number}
+                                            </p>
+
+                                            {/* Row 4: Date + Location */}
                                             <div
                                                 className={
                                                     'flex items-center gap-2 text-[11px] ' +
@@ -1045,13 +1008,13 @@ export default function VesselsIndex({
                                                             d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                                                         />
                                                     </svg>
-                                                    <span className="truncate">
-                                                        {vessel.port_name || 'Pelabuhan Gresik'}
+                                                    <span className="wrap-anywhere text-pretty">
+                                                        {vessel.port_name || 'Pelabuhan belum diisi'}
                                                     </span>
                                                 </div>
                                             </div>
 
-                                            {/* Row 4: Kebutuhan + Pengajuan */}
+                                            {/* Row 5: Kebutuhan + Pengajuan */}
                                             <div
                                                 className={
                                                     'flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] ' +
@@ -1235,8 +1198,8 @@ export default function VesselsIndex({
                                 type="button"
                                 onClick={() => setActiveModule('kapal')}
                                 className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeModule === 'kapal'
-                                        ? 'bg-[#0060F4] text-white shadow-sm'
-                                        : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#132847]'
+                                    ? 'bg-[#0060F4] text-white shadow-sm'
+                                    : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#132847]'
                                     }`}
                             >
                                 <svg
@@ -1256,10 +1219,10 @@ export default function VesselsIndex({
                                 <span>Kapal</span>
                                 <span
                                     className={`px-2 py-0.5 rounded-full text-[11px] font-black ${activeModule === 'kapal'
-                                            ? 'bg-white/20 text-white'
-                                            : 'bg-white dark:bg-[#071322] text-[#0060F4] ' +
-                                            'dark:text-[#38BDF8] border border-[#DCEAF8] ' +
-                                            'dark:border-[#1E3A5F]'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-white dark:bg-[#071322] text-[#0060F4] ' +
+                                        'dark:text-[#38BDF8] border border-[#DCEAF8] ' +
+                                        'dark:border-[#1E3A5F]'
                                         }`}
                                 >
                                     {vessels.length}
@@ -1304,8 +1267,8 @@ export default function VesselsIndex({
                                 type="button"
                                 onClick={() => setActiveModule('perusahaan')}
                                 className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${activeModule === 'perusahaan'
-                                        ? 'bg-[#082870] dark:bg-[#2563EB] text-white shadow-sm'
-                                        : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#132847]'
+                                    ? 'bg-[#082870] dark:bg-[#2563EB] text-white shadow-sm'
+                                    : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#132847]'
                                     }`}
                             >
                                 <svg
@@ -1325,10 +1288,10 @@ export default function VesselsIndex({
                                 <span>Master Perusahaan</span>
                                 <span
                                     className={`px-2 py-0.5 rounded-full text-[11px] font-black ${activeModule === 'perusahaan'
-                                            ? 'bg-white/20 text-white'
-                                            : 'bg-white dark:bg-[#071322] text-[#082870] ' +
-                                            'dark:text-[#F1F5F9] border border-[#DCEAF8] ' +
-                                            'dark:border-[#1E3A5F]'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-white dark:bg-[#071322] text-[#082870] ' +
+                                        'dark:text-[#F1F5F9] border border-[#DCEAF8] ' +
+                                        'dark:border-[#1E3A5F]'
                                         }`}
                                 >
                                     {companies.length}
@@ -1339,9 +1302,8 @@ export default function VesselsIndex({
                         {canCreateShip && (
                             <div className="flex items-center gap-2">
                                 {activeModule === 'kapal' ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowAddModal(true)}
+                                    <Link
+                                        href="/work-orders/create"
                                         className={
                                             'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
                                             'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] ' +
@@ -1350,8 +1312,8 @@ export default function VesselsIndex({
                                         }
                                     >
                                         <span className="text-base leading-none font-bold">+</span>
-                                        <span>Tambah Kapal</span>
-                                    </button>
+                                        <span>Buat SPK &amp; Kunjungan</span>
+                                    </Link>
                                 ) : (
                                     <button
                                         type="button"
@@ -1419,7 +1381,7 @@ export default function VesselsIndex({
                                     </div>
                                 )}
 
-                                {canCreateShip && (
+                                {/* {canCreateShip && (
                                     <button
                                         type="button"
                                         onClick={() => setShowAddModal(true)}
@@ -1446,7 +1408,7 @@ export default function VesselsIndex({
                                         </svg>
                                         Tambah Kapal
                                     </button>
-                                )}
+                                )} */}
                             </div>
 
                             {/* Search Bar, Company Filter Dropdown, and Sort */}
@@ -1622,22 +1584,22 @@ export default function VesselsIndex({
                                             type="button"
                                             onClick={() => handleFilterStatus(tab.value)}
                                             className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition-all select-none shadow-xs cursor-pointer ${isActive
-                                                    ? 'bg-[#0060F4] text-white shadow-[#0060F4]/20'
-                                                    : 'bg-[#F0F8FF] dark:bg-[#0C1D36] ' +
-                                                    'text-[#0057D9] dark:text-[#94A3B8] ' +
-                                                    'hover:bg-[#E0F0FF] border ' +
-                                                    'border-[#DCEAF8]/60 ' +
-                                                    'dark:border-[#1E3A5F]'
+                                                ? 'bg-[#0060F4] text-white shadow-[#0060F4]/20'
+                                                : 'bg-[#F0F8FF] dark:bg-[#0C1D36] ' +
+                                                'text-[#0057D9] dark:text-[#94A3B8] ' +
+                                                'hover:bg-[#E0F0FF] border ' +
+                                                'border-[#DCEAF8]/60 ' +
+                                                'dark:border-[#1E3A5F]'
                                                 }`}
                                         >
                                             <span>{tab.label}</span>
                                             <span
                                                 className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${isActive
-                                                        ? 'bg-white/25 text-white'
-                                                        : 'bg-white dark:bg-[#071322] ' +
-                                                        'text-[#0057D9] dark:text-[#38BDF8] ' +
-                                                        'border border-[#DCEAF8] ' +
-                                                        'dark:border-[#1E3A5F]'
+                                                    ? 'bg-white/25 text-white'
+                                                    : 'bg-white dark:bg-[#071322] ' +
+                                                    'text-[#0057D9] dark:text-[#38BDF8] ' +
+                                                    'border border-[#DCEAF8] ' +
+                                                    'dark:border-[#1E3A5F]'
                                                     }`}
                                             >
                                                 {tab.count}
@@ -1666,10 +1628,8 @@ export default function VesselsIndex({
                                             }
                                         >
                                             <div className="flex min-w-0 flex-1 items-center gap-4">
-                                                <img
-                                                    src={
-                                                        vessel.image || '/images/vessel-sarana.jpg'
-                                                    }
+                                                <ShipImage
+                                                    src={vessel.image}
                                                     alt={vessel.name}
                                                     className={
                                                         'w-24 h-20 rounded-[14px] object-cover ' +
@@ -1768,7 +1728,7 @@ export default function VesselsIndex({
                                                             </svg>
                                                             <span className="truncate">
                                                                 {vessel.port_name ||
-                                                                    'Pelabuhan Gresik'}
+                                                                    'Pelabuhan belum diisi'}
                                                             </span>
                                                         </span>
                                                     </div>
@@ -2028,7 +1988,7 @@ export default function VesselsIndex({
                ═══════════════════════════════════════════════════════════════ */}
             <Modal
                 isOpen={showAddModal}
-                onClose={() => setShowAddModal(false)}
+                onClose={() => { setArrivalErrors({}); setShowAddModal(false); }}
                 title={
                     <div>
                         <div className="text-base sm:text-lg font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
@@ -2049,7 +2009,7 @@ export default function VesselsIndex({
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setShowAddModal(false)}
+                            onClick={() => { setArrivalErrors({}); setShowAddModal(false); }}
                         >
                             Batal
                         </Button>
@@ -2066,15 +2026,16 @@ export default function VesselsIndex({
                     </>
                 }
             >
-                <form onSubmit={handleSaveShipArrival} className="space-y-4">
+                <form noValidate onSubmit={handleSaveShipArrival} className="space-y-4">
+                    <FormErrorSummary errors={arrivalErrors} />
                     {/* Tab Selector: Existing vs New */}
                     <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#F0F8FF] dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-xl">
                         <button
                             type="button"
                             onClick={() => setShipModalTab('existing')}
                             className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${shipModalTab === 'existing'
-                                    ? 'bg-[#0060F4] text-white shadow-xs'
-                                    : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#0D2945]'
+                                ? 'bg-[#0060F4] text-white shadow-xs'
+                                : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#0D2945]'
                                 }`}
                         >
                             <span>🚢</span>
@@ -2084,8 +2045,8 @@ export default function VesselsIndex({
                             type="button"
                             onClick={() => setShipModalTab('new')}
                             className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${shipModalTab === 'new'
-                                    ? 'bg-[#0060F4] text-white shadow-xs'
-                                    : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#0D2945]'
+                                ? 'bg-[#0060F4] text-white shadow-xs'
+                                : 'text-[#082870] dark:text-[#94A3B8] hover:bg-white/60 dark:hover:bg-[#0D2945]'
                                 }`}
                         >
                             <span>➕</span>
@@ -2101,6 +2062,8 @@ export default function VesselsIndex({
                                     Pilih Kapal Terdaftar *
                                 </label>
                                 <select
+                                    required
+                                    name="ship_id"
                                     value={selectedMasterShipId}
                                     onChange={(e) => handleSelectMasterShip(e.target.value)}
                                     className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
@@ -2112,6 +2075,7 @@ export default function VesselsIndex({
                                         </option>
                                     ))}
                                 </select>
+                                {arrivalErrors.ship_id && <p role="alert" className="mt-1 text-[11px] font-semibold text-[#C62840]">{arrivalErrors.ship_id}</p>}
                             </div>
 
                             {/* Info Card Kapal Terpilih */}
@@ -2172,18 +2136,21 @@ export default function VesselsIndex({
                                         Jadwal Kedatangan (ETA) *
                                     </label>
                                     <input
+                                        name="eta"
                                         type="datetime-local"
                                         required
                                         value={arrivalEta}
                                         onChange={(e) => setArrivalEta(e.target.value)}
                                         className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
                                     />
+                                    {arrivalErrors.eta && <p role="alert" className="mt-1 text-[11px] font-semibold text-[#C62840]">{arrivalErrors.eta}</p>}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
-                                        Pelabuhan Tujuan *
+                                        Pelabuhan Tujuan
                                     </label>
                                     <select
+                                        name="port_id"
                                         value={arrivalPortId}
                                         onChange={(e) => setArrivalPortId(e.target.value)}
                                         className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
@@ -2199,27 +2166,33 @@ export default function VesselsIndex({
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <Input
+                                    name="captain_name"
                                     label="Nama Nahkoda (Kapten)"
                                     value={arrivalCaptainName}
                                     onChange={(e) => setArrivalCaptainName(e.target.value)}
                                     placeholder="Capt. Bambang"
                                     sizeVariant="sm"
+                                    error={arrivalErrors.captain_name}
                                 />
                                 <Input
+                                    name="captain_phone"
                                     label="No. Telepon Nahkoda / Kontak"
                                     value={arrivalCaptainPhone}
                                     onChange={(e) => setArrivalCaptainPhone(e.target.value)}
                                     placeholder="0812..."
                                     sizeVariant="sm"
+                                    error={arrivalErrors.captain_phone}
                                 />
                             </div>
 
                             <Input
+                                name="arrival_notes"
                                 label="Catatan Kunjungan / Instruksi SPK"
                                 value={arrivalNotes}
                                 onChange={(e) => setArrivalNotes(e.target.value)}
                                 placeholder="Rencana sandar dermaga KSOP / labuh rede..."
                                 sizeVariant="sm"
+                                error={arrivalErrors.arrival_notes}
                             />
                         </div>
                     )}
@@ -2242,34 +2215,45 @@ export default function VesselsIndex({
                                     </button>
                                 </div>
                                 {!isNewCompany ? (
-                                    <select
-                                        value={newShipCompanyId}
-                                        onChange={(e) => setNewShipCompanyId(e.target.value)}
-                                        className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
-                                    >
-                                        <option value="">-- Pilih Perusahaan Pelayaran --</option>
-                                        {companies.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.name} {c.code ? `(${c.code})` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <div>
+                                        <select
+                                            required
+                                            name="ship_company_id"
+                                            value={newShipCompanyId}
+                                            onChange={(e) => setNewShipCompanyId(e.target.value)}
+                                            aria-invalid={arrivalErrors.ship_company_id ? true : undefined}
+                                            aria-describedby={arrivalErrors.ship_company_id ? 'arrival-ship-company-error' : undefined}
+                                            className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
+                                        >
+                                            <option value="">-- Pilih Perusahaan Pelayaran --</option>
+                                            {companies.map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                    {c.name} {c.code ? `(${c.code})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {arrivalErrors.ship_company_id && <p id="arrival-ship-company-error" role="alert" className="mt-1 text-[11px] font-semibold text-[#C62840]">{arrivalErrors.ship_company_id}</p>}
+                                    </div>
                                 ) : (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <Input
+                                            name="new_company_name"
                                             label="Nama Perusahaan Baru"
                                             required
                                             value={newCompanyName}
                                             onChange={(e) => setNewCompanyName(e.target.value)}
                                             placeholder="PT Pelayaran..."
                                             sizeVariant="sm"
+                                            error={arrivalErrors.new_company_name}
                                         />
                                         <Input
+                                            name="new_company_code"
                                             label="Kode Singkat (Opsional)"
                                             value={newCompanyCode}
                                             onChange={(e) => setNewCompanyCode(e.target.value)}
                                             placeholder="Contoh: PMS"
                                             sizeVariant="sm"
+                                            error={arrivalErrors.new_company_code}
                                         />
                                     </div>
                                 )}
@@ -2277,24 +2261,28 @@ export default function VesselsIndex({
 
                             {/* Identitas Kapal Baru */}
                             <Input
+                                name="name"
                                 label="Nama Kapal Baru"
                                 required
                                 value={newShipName}
                                 onChange={(e) => setNewShipName(e.target.value)}
                                 placeholder="Contoh: KM Samudra Mandiri 01"
                                 sizeVariant="sm"
+                                error={arrivalErrors.name}
                             />
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <Input
+                                    name="imo_number"
                                     label="Nomor IMO"
-                                    required
                                     value={newShipIMO}
                                     onChange={(e) => setNewShipIMO(e.target.value)}
                                     placeholder="7 Digit (mis. 9812345)"
                                     sizeVariant="sm"
+                                    error={arrivalErrors.imo_number}
                                 />
                                 <Select
+                                    name="ship_type"
                                     label="Tipe Kapal"
                                     value={newShipType}
                                     onChange={(e) => setNewShipType(e.target.value)}
@@ -2307,34 +2295,53 @@ export default function VesselsIndex({
                                         { value: 'Chemical Tanker', label: 'Chemical Tanker' },
                                         { value: 'Tugboat / Barge', label: 'Tugboat / Barge' },
                                     ]}
+                                    error={arrivalErrors.ship_type}
                                 />
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                                 <Input
+                                    name="gross_tonnage"
                                     label="Gross Tonnage (GT)"
                                     type="number"
                                     value={newShipGrossTonnage}
                                     onChange={(e) => setNewShipGrossTonnage(e.target.value)}
                                     placeholder="5400"
                                     sizeVariant="sm"
+                                    error={arrivalErrors.gross_tonnage}
                                 />
                                 <Input
+                                    name="length"
                                     label="Panjang Kapal (LOA/m)"
                                     type="number"
                                     value={newShipLength}
                                     onChange={(e) => setNewShipLength(e.target.value)}
                                     placeholder="128.5"
                                     sizeVariant="sm"
+                                    error={arrivalErrors.length}
                                 />
                                 <Input
+                                    name="call_sign"
                                     label="Call Sign"
                                     value={newShipCallSign}
                                     onChange={(e) => setNewShipCallSign(e.target.value)}
                                     placeholder="PKSL"
                                     sizeVariant="sm"
+                                    error={arrivalErrors.call_sign}
                                 />
                             </div>
+
+                            <PhotoUploadPicker
+                                label="Foto Kapal (Opsional)"
+                                value={newShipImage}
+                                onChange={setNewShipImage}
+                                mode="both"
+                                accept="image/jpeg,image/png,image/webp"
+                                maxSizeMb={5}
+                                variant="compact"
+                                helperText="JPG, PNG, atau WebP. Maksimal 5 MB."
+                                error={arrivalErrors.image}
+                            />
 
                             {/* Kunjungan Perdana */}
                             <div className="pt-2 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
@@ -2347,18 +2354,21 @@ export default function VesselsIndex({
                                             Jadwal Kedatangan (ETA) *
                                         </label>
                                         <input
+                                            name="eta"
                                             type="datetime-local"
                                             required
                                             value={arrivalEta}
                                             onChange={(e) => setArrivalEta(e.target.value)}
                                             className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
                                         />
+                                        {arrivalErrors.eta && <p role="alert" className="mt-1 text-[11px] font-semibold text-[#C62840]">{arrivalErrors.eta}</p>}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
-                                            Pelabuhan Tujuan *
+                                            Pelabuhan Tujuan
                                         </label>
                                         <select
+                                            name="port_id"
                                             value={arrivalPortId}
                                             onChange={(e) => setArrivalPortId(e.target.value)}
                                             className="w-full px-3 py-2 text-xs rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4]"
@@ -2380,7 +2390,7 @@ export default function VesselsIndex({
             {/* Modal Tambah Perusahaan */}
             <Modal
                 isOpen={showAddCompanyModal}
-                onClose={() => setShowAddCompanyModal(false)}
+                onClose={() => { setCompanyErrors({}); setShowAddCompanyModal(false); }}
                 title="Tambah Perusahaan Pelayaran Baru"
                 size="md"
                 asBottomSheetOnMobile={true}
@@ -2390,7 +2400,7 @@ export default function VesselsIndex({
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setShowAddCompanyModal(false)}
+                            onClick={() => { setCompanyErrors({}); setShowAddCompanyModal(false); }}
                         >
                             Batal
                         </Button>
@@ -2405,45 +2415,56 @@ export default function VesselsIndex({
                     </>
                 }
             >
-                <form onSubmit={handleSaveCompany} className="space-y-3.5">
+                <form noValidate onSubmit={handleSaveCompany} className="space-y-3.5">
+                    <FormErrorSummary errors={companyErrors} />
                     <Input
+                        name="name"
                         label="Nama Resmi Perusahaan Pelayaran"
                         required
                         value={companyFormName}
                         onChange={(e) => setCompanyFormName(e.target.value)}
                         placeholder="Contoh: PT Pelayaran Nusantara Mandiri"
                         sizeVariant="sm"
+                        error={companyErrors.name}
                     />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input
+                            name="code"
                             label="Kode Singkatan"
                             value={companyFormCode}
                             onChange={(e) => setCompanyFormCode(e.target.value)}
                             placeholder="Contoh: PNM"
                             sizeVariant="sm"
+                            error={companyErrors.code}
                         />
                         <Input
+                            name="phone"
                             label="No. Telepon / PIC"
                             value={companyFormPhone}
                             onChange={(e) => setCompanyFormPhone(e.target.value)}
                             placeholder="031-xxxxxxx"
                             sizeVariant="sm"
+                            error={companyErrors.phone}
                         />
                     </div>
                     <Input
+                        name="email"
                         label="Email Resmi"
                         type="email"
                         value={companyFormEmail}
                         onChange={(e) => setCompanyFormEmail(e.target.value)}
                         placeholder="ops@pelayaran.co.id"
                         sizeVariant="sm"
+                        error={companyErrors.email}
                     />
                     <Input
+                        name="address"
                         label="Alamat Kantor"
                         value={companyFormAddress}
                         onChange={(e) => setCompanyFormAddress(e.target.value)}
                         placeholder="Jl. Tanjung Perak Barat..."
                         sizeVariant="sm"
+                        error={companyErrors.address}
                     />
                 </form>
             </Modal>

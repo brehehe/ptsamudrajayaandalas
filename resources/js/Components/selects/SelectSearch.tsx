@@ -24,6 +24,7 @@ export interface SelectSearchProps {
     id?: string;
     name?: string;
     label?: string;
+    action?: ReactNode;
     placeholder?: string;
     searchPlaceholder?: string;
     helperText?: string;
@@ -43,6 +44,7 @@ export default function SelectSearch({
     id,
     name,
     label,
+    action,
     placeholder = 'Pilih opsi…',
     searchPlaceholder = 'Ketik untuk mencari…',
     helperText,
@@ -89,15 +91,20 @@ export default function SelectSearch({
         >
             {({ open }) => (
                 <div className={`relative w-full space-y-1.5 text-left ${open ? 'z-50' : 'z-10'} ${className}`}>
-                    {label && (
-                        <label htmlFor={inputId} className="block select-none text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                            {label}
-                            {required && <span className="ml-0.5 text-[#C62840] dark:text-[#F87171]">*</span>}
-                        </label>
+                    {(label || action) && (
+                        <div className="flex items-center justify-between gap-2">
+                            {label ? (
+                                <label htmlFor={inputId} className="block select-none text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {label}
+                                    {required && <span className="ml-0.5 text-[#C62840] dark:text-[#F87171]">*</span>}
+                                </label>
+                            ) : <span />}
+                            {action}
+                        </div>
                     )}
 
                     <div
-                        className={`group flex h-11 w-full items-center gap-2 rounded-xl border bg-white px-3.5 transition-[border-color,box-shadow] focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 motion-reduce:transition-none sm:h-12 dark:bg-[#0C1D36] ${
+                        className={`group flex h-11 w-full items-center gap-2 rounded-xl border bg-white px-3 transition-[border-color,box-shadow] focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 motion-reduce:transition-none dark:bg-[#0C1D36] ${
                             error
                                 ? 'border-[#C62840] ring-2 ring-[#C62840]/15 dark:border-[#EF4444]'
                                 : 'border-[#DCEAF8] hover:border-[#0060F4]/50 dark:border-[#1E3A5F] dark:hover:border-[#38BDF8]/50'

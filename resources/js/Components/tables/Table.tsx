@@ -1,5 +1,7 @@
 import React, { ReactNode } from 'react';
+import { Inbox } from 'lucide-react';
 import Skeleton from '../feedback/Skeleton';
+import TableMobile, { type TableMobileProps } from './TableMobile';
 
 export interface Column<T> {
     key: string;
@@ -9,6 +11,7 @@ export interface Column<T> {
     align?: 'left' | 'center' | 'right';
     width?: string;
     className?: string;
+    wrap?: 'normal' | 'nowrap' | 'truncate';
 }
 
 export interface TableProps<T> {
@@ -19,8 +22,10 @@ export interface TableProps<T> {
     sortDirection?: 'asc' | 'desc';
     onSort?: (columnKey: string) => void;
     onRowClick?: (row: T) => void;
+    rowClassName?: (row: T, index: number) => string;
     selectable?: boolean;
     selectedKeys?: (string | number)[];
+    isRowSelectable?: (row: T, index: number) => boolean;
     onSelectRow?: (key: string | number, selected: boolean) => void;
     onSelectAll?: (selected: boolean) => void;
     isLoading?: boolean;
@@ -34,6 +39,44 @@ export interface TableProps<T> {
     className?: string;
 }
 
+export interface ResponsiveTableProps<T> {
+    data: T[];
+    keyExtractor: (row: T, index: number) => string | number;
+    desktop: Omit<TableProps<T>, 'data' | 'keyExtractor' | 'className'> & {
+        className?: string;
+    };
+    mobile: Omit<TableMobileProps<T>, 'data' | 'keyExtractor' | 'className'> & {
+        className?: string;
+    };
+    className?: string;
+}
+
+interface TableEmptyRowProps {
+    colSpan: number;
+    message?: ReactNode;
+    icon?: ReactNode;
+}
+
+export function TableEmptyRow({
+    colSpan,
+    message = 'Data Tidak Ditemukan',
+    icon = <Inbox aria-hidden="true" className="mx-auto size-7" />,
+}: TableEmptyRowProps) {
+    return (
+        <tr>
+            <td
+                colSpan={colSpan}
+                className="px-4 py-10 text-center text-[#52658E] dark:text-[#94A3B8]"
+            >
+                <div className="mb-2 text-[#8C9BB9] dark:text-[#64748B]">{icon}</div>
+                <p className="text-sm font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                    {message}
+                </p>
+            </td>
+        </tr>
+    );
+}
+
 export default function Table<T>({
     columns,
     data,
@@ -42,13 +85,15 @@ export default function Table<T>({
     sortDirection = 'asc',
     onSort,
     onRowClick,
+    rowClassName,
     selectable = false,
     selectedKeys = [],
+    isRowSelectable,
     onSelectRow,
     onSelectAll,
     isLoading = false,
-    emptyMessage = 'Tidak ada data ditemukan',
-    emptyIcon = '📋',
+    emptyMessage = 'Data Tidak Ditemukan',
+    emptyIcon = <Inbox aria-hidden="true" className="mx-auto size-7" />,
     compact = false,
     striped = false,
     stickyHeader = false,
@@ -56,9 +101,12 @@ export default function Table<T>({
     minWidth,
     className = '',
 }: TableProps<T>) {
+    const selectableRowKeys = data.flatMap((row, index) =>
+        isRowSelectable?.(row, index) === false ? [] : [keyExtractor(row, index)]
+    );
     const isAllSelected =
-        data.length > 0 && data.every((row, idx) => selectedKeys.includes(keyExtractor(row, idx)));
-    const isSomeSelected = selectedKeys.length > 0 && !isAllSelected;
+        selectableRowKeys.length > 0 && selectableRowKeys.every((key) => selectedKeys.includes(key));
+    const isSomeSelected = selectedKeys.some((key) => selectableRowKeys.includes(key)) && !isAllSelected;
 
     const handleSelectAllChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         onSelectAll?.(e.target.checked);
@@ -89,10 +137,22 @@ export default function Table<T>({
         }
     };
 
+    const getWrapClass = (column: Column<T>) => {
+        if (column.wrap === 'truncate') {
+            return 'max-w-0 truncate whitespace-nowrap';
+        }
+
+        if (column.wrap === 'nowrap' || column.align === 'right' || column.align === 'center') {
+            return 'whitespace-nowrap';
+        }
+
+        return 'whitespace-normal break-words';
+    };
+
     return (
         <div
             aria-busy={isLoading || undefined}
-            className={`w-full overflow-x-auto rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] shadow-xs ${className}`}
+            className={`w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] shadow-xs ${className}`}
         >
             {isLoading && <span className="sr-only">Memuat data…</span>}
             <table
@@ -117,6 +177,7 @@ export default function Table<T>({
                                     <input
                                         type="checkbox"
                                         checked={isAllSelected}
+                                        disabled={selectableRowKeys.length === 0}
                                         ref={(el) => {
                                             if (el) el.indeterminate = isSomeSelected;
                                         }}
@@ -125,7 +186,8 @@ export default function Table<T>({
                                             'w-4 h-4 rounded-md text-[#0060F4] ' +
                                             'border-[#DCEAF8] dark:border-[#1E3A5F] ' +
                                             'dark:bg-[#071322] focus:ring-[#0060F4] ' +
-                                            'focus:ring-offset-0 transition'
+                                            'focus:ring-offset-0 transition disabled:cursor-not-allowed ' +
+                                            'disabled:opacity-50'
                                         }
                                         aria-label="Pilih semua baris"
                                     />
@@ -140,17 +202,26 @@ export default function Table<T>({
                                     key={col.key}
                                     scope="col"
                                     style={{ width: col.width }}
-                                    onClick={() => handleSort(col.key, col.sortable)}
-                                    className={`${compact ? 'py-2.5 px-3' : 'py-3.5 px-4'} ${getAlignmentClass(
+                                    aria-sort={
+                                        isSorted
+                                            ? sortDirection === 'asc'
+                                                ? 'ascending'
+                                                : 'descending'
+                                            : undefined
+                                    }
+                                    className={`${compact ? 'px-2.5 py-2' : 'px-3 py-3'} whitespace-nowrap ${getAlignmentClass(
                                         col.align
-                                    )} ${
-                                        col.sortable
-                                            ? 'cursor-pointer select-none hover:bg-[#E0F0FF]/70 dark:hover:bg-[#132847] transition-colors'
-                                            : ''
-                                    } ${col.className || ''}`}
+                                    )} ${col.className || ''}`}
                                 >
-                                    <div
-                                        className={`inline-flex items-center gap-1.5 ${
+                                    <button
+                                        type="button"
+                                        disabled={!col.sortable || !onSort}
+                                        onClick={() => handleSort(col.key, col.sortable)}
+                                        className={`inline-flex items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] disabled:cursor-default ${
+                                            col.sortable
+                                                ? 'cursor-pointer select-none hover:text-[#0060F4] dark:hover:text-[#38BDF8]'
+                                                : ''
+                                        } ${
                                             col.align === 'right'
                                                 ? 'justify-end w-full'
                                                 : col.align === 'center'
@@ -181,7 +252,7 @@ export default function Table<T>({
                                                 </span>
                                             </span>
                                         )}
-                                    </div>
+                                    </button>
                                 </th>
                             );
                         })}
@@ -205,7 +276,7 @@ export default function Table<T>({
                                 {columns.map((col) => (
                                     <td
                                         key={col.key}
-                                        className={compact ? 'py-2.5 px-3' : 'py-3.5 px-4'}
+                                        className={compact ? 'px-2.5 py-2' : 'px-3 py-3'}
                                     >
                                         <Skeleton className="h-4 w-3/4 rounded-md opacity-60" />
                                     </td>
@@ -213,27 +284,22 @@ export default function Table<T>({
                             </tr>
                         ))
                     ) : data.length === 0 ? (
-                        <tr>
-                            <td
-                                colSpan={columns.length + (selectable ? 1 : 0)}
-                                className="py-12 px-4 text-center text-[#52658E] dark:text-[#94A3B8]"
-                            >
-                                <div className="text-3xl mb-2">{emptyIcon}</div>
-                                <div className="font-semibold text-sm text-[#0B1F63] dark:text-[#F1F5F9]">
-                                    {emptyMessage}
-                                </div>
-                            </td>
-                        </tr>
+                        <TableEmptyRow
+                            colSpan={columns.length + (selectable ? 1 : 0)}
+                            message={emptyMessage}
+                            icon={emptyIcon}
+                        />
                     ) : (
                         data.map((row, index) => {
                             const rowKey = keyExtractor(row, index);
                             const isSelected = selectedKeys.includes(rowKey);
+                            const canSelectRow = isRowSelectable?.(row, index) ?? true;
 
                             return (
                                 <tr
                                     key={rowKey}
                                     onClick={() => onRowClick?.(row)}
-                                    className={`transition-colors ${
+                                    className={`transition-colors motion-reduce:transition-none ${
                                         striped && index % 2 === 1
                                             ? 'bg-[#F0F8FF]/30 dark:bg-[#071322]/30'
                                             : 'bg-white dark:bg-[#0C1D36]'
@@ -241,7 +307,7 @@ export default function Table<T>({
                                         isSelected
                                             ? 'bg-[#E0F0FF]/50 dark:bg-[#162E52]/60'
                                             : 'hover:bg-[#F0F8FF]/70 dark:hover:bg-[#132847]'
-                                    } ${onRowClick ? 'cursor-pointer' : ''}`}
+                                    } ${!canSelectRow ? 'opacity-60' : ''} ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName?.(row, index) || ''}`}
                                 >
                                     {selectable && (
                                         <td
@@ -251,13 +317,14 @@ export default function Table<T>({
                                             <input
                                                 type="checkbox"
                                                 checked={isSelected}
+                                                disabled={!canSelectRow}
                                                 onChange={(e) => handleRowSelectChange(rowKey, e)}
                                                 className={
                                                     'w-4 h-4 rounded-md text-[#0060F4] ' +
                                                     'border-[#DCEAF8] dark:border-[#1E3A5F] ' +
                                                     'dark:bg-[#071322] focus:ring-[#0060F4] ' +
-                                                    'focus:ring-offset-0 transition ' +
-                                                    'cursor-pointer'
+                                                    'focus:ring-offset-0 transition disabled:cursor-not-allowed ' +
+                                                    'disabled:opacity-50 cursor-pointer'
                                                 }
                                                 aria-label={`Pilih baris ${index + 1}`}
                                             />
@@ -267,9 +334,9 @@ export default function Table<T>({
                                     {columns.map((col) => (
                                         <td
                                             key={col.key}
-                                            className={`${compact ? 'py-2.5 px-3' : 'py-3.5 px-4'} ${getAlignmentClass(
+                                            className={`${compact ? 'px-2.5 py-2' : 'px-3 py-3'} ${getAlignmentClass(
                                                 col.align
-                                            )} ${col.className || ''}`}
+                                            )} ${getWrapClass(col)} ${col.className || ''}`}
                                         >
                                             {col.render
                                                 ? col.render(row, index)
@@ -282,6 +349,32 @@ export default function Table<T>({
                     )}
                 </tbody>
             </table>
+        </div>
+    );
+}
+
+export function ResponsiveTable<T>({
+    data,
+    keyExtractor,
+    desktop,
+    mobile,
+    className = '',
+}: ResponsiveTableProps<T>) {
+    return (
+        <div className={className}>
+            <div className="hidden md:block">
+                <Table<T>
+                    {...desktop}
+                    data={data}
+                    keyExtractor={keyExtractor}
+                />
+            </div>
+            <TableMobile<T>
+                {...mobile}
+                data={data}
+                keyExtractor={keyExtractor}
+                className={`md:hidden ${mobile.className || ''}`}
+            />
         </div>
     );
 }

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import React, { useMemo, useState } from 'react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { AlertTriangle, ChevronRight, FileCheck2, FileText, Plus, Search } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
@@ -10,14 +10,21 @@ import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import Input from '../../Components/forms/Input';
 import MoneyInput from '../../Components/forms/MoneyInput';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Select from '../../Components/selects/Select';
 import Pagination from '../../Components/pagination/Pagination';
+import DocumentActions from '../../Components/ui/DocumentActions';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import Textarea from '../../Components/forms/Textarea';
 
 interface PortCall {
     id: string;
     job_number?: string;
     departed_at: string;
     completion_note_due_at?: string | null;
+    approved_request_item_count?: number;
+    approved_cost_total?: number;
+    recorded_cost_total?: number;
     ship?: { name: string };
     port?: { name: string };
 }
@@ -79,6 +86,10 @@ export default function CompletionNotesIndex({ notes, waitingPortCalls, filters,
     const [action, setAction] = useState<'verify' | 'reconcile'>('verify');
     const createForm = useForm({ port_call_id: '', document_number: '', issued_at: '', downloaded_at: '', actual_amount: '', notes: '', document: null as File | null });
     const actionForm = useForm({ action: 'verify', initial_total: '', actual_total: '', adjustment: '0', notes: '' });
+    const selectedPortCall = useMemo(
+        () => waitingPortCalls.find((portCall) => portCall.id === createForm.data.port_call_id),
+        [waitingPortCalls, createForm.data.port_call_id],
+    );
 
     const filter = (status = filters.status) => router.get('/completion-notes', { search, status }, { preserveState: true, preserveScroll: true });
     const submitCreate = (event: React.FormEvent) => {
@@ -89,7 +100,13 @@ export default function CompletionNotesIndex({ notes, waitingPortCalls, filters,
         setDetailNote(null);
         setActiveNote(note);
         setAction(nextAction);
-        actionForm.setData({ action: nextAction, initial_total: '', actual_total: String(note.actual_amount), adjustment: '0', notes: '' });
+        actionForm.setData({
+            action: nextAction,
+            initial_total: String(note.port_call?.approved_cost_total || 0),
+            actual_total: String(note.port_call?.recorded_cost_total || note.actual_amount),
+            adjustment: '0',
+            notes: '',
+        });
     };
     const submitAction = (event: React.FormEvent) => {
         event.preventDefault();
@@ -185,7 +202,11 @@ export default function CompletionNotesIndex({ notes, waitingPortCalls, filters,
                                         </dl>
                                         <div className="mt-4 flex flex-wrap gap-2 border-t border-[#DCEAF8] pt-3 dark:border-[#1E3A5F]">
                                             <Button size="sm" variant="outline" onClick={() => setDetailNote(note)} rightIcon={<ChevronRight aria-hidden="true" className="size-4" />}>Detail</Button>
-                                            <Link href={`/completion-notes/${note.id}/document`} className="inline-flex min-h-10 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] px-3 text-xs font-semibold text-[#0B1F63] hover:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:text-[#F1F5F9]"><FileText aria-hidden="true" className="size-4" /> Dokumen</Link>
+                                            <DocumentActions
+                                                viewHref={`/completion-notes/${note.id}/document?view=1`}
+                                                downloadHref={`/completion-notes/${note.id}/document`}
+                                                viewLabel="Lihat Dokumen"
+                                            />
                                             {abilities.manage && note.status === 'uploaded' && <Button size="sm" onClick={() => openAction(note, 'verify')} leftIcon={<FileCheck2 aria-hidden="true" className="size-4" />}>Verifikasi</Button>}
                                             {abilities.manage && note.status === 'verified' && <Button size="sm" onClick={() => openAction(note, 'reconcile')}>Rekonsiliasi</Button>}
                                         </div>
@@ -199,7 +220,24 @@ export default function CompletionNotesIndex({ notes, waitingPortCalls, filters,
             </div>
 
             {detailNote && (
-                <Modal isOpen onClose={() => setDetailNote(null)} title={`Detail ${detailNote.document_number}`} subtitle="Ringkasan dokumen Pelindo dan hasil rekonsiliasi." size="lg" asBottomSheetOnMobile>
+                <Modal
+                    isOpen
+                    onClose={() => setDetailNote(null)}
+                    title={`Detail ${detailNote.document_number}`}
+                    subtitle="Ringkasan dokumen Pelindo dan hasil rekonsiliasi."
+                    size="lg"
+                    asBottomSheetOnMobile
+                    footer={(
+                        <>
+                            <Button variant="secondary" onClick={() => setDetailNote(null)}>Tutup</Button>
+                            <DocumentActions
+                                viewHref={`/completion-notes/${detailNote.id}/document?view=1`}
+                                downloadHref={`/completion-notes/${detailNote.id}/document`}
+                                viewLabel="Lihat Dokumen"
+                            />
+                        </>
+                    )}
+                >
                     <div className="space-y-4">
                         <div className="rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
                             <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-mono text-sm font-bold text-[#0060F4]" translate="no">{detailNote.document_number}</p><h2 className="mt-1 text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">{detailNote.port_call?.ship?.name || 'Kapal'}</h2><p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">{detailNote.port_call?.job_number || '-'} · {detailNote.port_call?.port?.name || '-'}</p></div><StatusBadge status={detailNote.status} label={labels[detailNote.status] || detailNote.status} showDot /></div>
@@ -211,25 +249,58 @@ export default function CompletionNotesIndex({ notes, waitingPortCalls, filters,
                             <div className="rounded-xl border border-[#DCEAF8] p-3 dark:border-[#1E3A5F]"><dt className="text-[11px] text-[#52658E]">Diverifikasi oleh</dt><dd className="mt-1 truncate text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{detailNote.verifier?.name || 'Belum diverifikasi'}</dd></div>
                         </dl>
                         {detailNote.reconciliation && <section aria-labelledby="reconciliation-title"><h3 id="reconciliation-title" className="text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Hasil rekonsiliasi</h3><dl className="mt-2 divide-y divide-[#DCEAF8] rounded-xl border border-[#DCEAF8] px-3 dark:divide-[#1E3A5F] dark:border-[#1E3A5F]"><div className="flex items-center justify-between gap-3 py-3"><dt className="text-sm text-[#52658E]">Nilai awal</dt><dd className="font-bold tabular-nums">{money(detailNote.reconciliation.initial_total)}</dd></div><div className="flex items-center justify-between gap-3 py-3"><dt className="text-sm text-[#52658E]">Nilai aktual</dt><dd className="font-bold tabular-nums">{money(detailNote.reconciliation.actual_total)}</dd></div><div className="flex items-center justify-between gap-3 py-3"><dt className="text-sm text-[#52658E]">Penyesuaian</dt><dd className="font-bold tabular-nums">{money(detailNote.reconciliation.adjustment)}</dd></div><div className="flex items-center justify-between gap-3 py-3"><dt className="text-sm text-[#52658E]">Selisih</dt><dd className={`font-bold tabular-nums ${Number(detailNote.reconciliation.variance) > 0 ? 'text-[#C62840]' : 'text-[#087443]'}`}>{money(detailNote.reconciliation.variance)}</dd></div></dl></section>}
-                        <div className="flex flex-col-reverse gap-2 border-t border-[#DCEAF8] pt-4 sm:flex-row sm:justify-between dark:border-[#1E3A5F]"><Button variant="secondary" onClick={() => setDetailNote(null)}>Tutup</Button><Link href={`/completion-notes/${detailNote.id}/document`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2"><FileText aria-hidden="true" className="size-4" /> Buka Dokumen</Link></div>
                     </div>
                 </Modal>
             )}
 
-            <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="Unggah Nota Rampung" subtitle="Pilih kunjungan kapal yang sudah berangkat." size="lg" asBottomSheetOnMobile>
-                <form onSubmit={submitCreate} className="space-y-4 p-1 sm:p-5">
+            <Modal
+                isOpen={createOpen}
+                onClose={() => { createForm.clearErrors(); setCreateOpen(false); }}
+                title="Unggah Nota Rampung"
+                subtitle="Pilih kunjungan kapal yang sudah berangkat."
+                size="lg"
+                asBottomSheetOnMobile
+                footer={(
+                    <>
+                        <Button type="button" variant="secondary" onClick={() => { createForm.clearErrors(); setCreateOpen(false); }}>Batal</Button>
+                        <Button type="submit" form="completion-note-create-form" isLoading={createForm.processing}>Unggah Nota</Button>
+                    </>
+                )}
+            >
+                <form id="completion-note-create-form" noValidate onSubmit={submitCreate} className="space-y-4">
+                    <FormErrorSummary errors={createForm.errors} />
                     <Select required label="Kunjungan / Job" value={createForm.data.port_call_id} onChange={(event) => createForm.setData('port_call_id', event.target.value)} placeholder="Pilih kapal" options={waitingPortCalls.map((call) => ({ value: call.id, label: `${call.job_number || '-'} · ${call.ship?.name || '-'}` }))} error={createForm.errors.port_call_id} />
-                    <div className="grid gap-4 sm:grid-cols-2"><Input required label="Nomor Nota Rampung" name="document_number" autoComplete="off" value={createForm.data.document_number} onChange={(event) => createForm.setData('document_number', event.target.value)} error={createForm.errors.document_number} /><Input required label="Tanggal terbit" type="date" name="issued_at" value={createForm.data.issued_at} onChange={(event) => createForm.setData('issued_at', event.target.value)} error={createForm.errors.issued_at} /><Input label="Tanggal diunduh" type="date" name="downloaded_at" value={createForm.data.downloaded_at} onChange={(event) => createForm.setData('downloaded_at', event.target.value)} error={createForm.errors.downloaded_at} /><MoneyInput required label="Nilai biaya" name="actual_amount" value={createForm.data.actual_amount} onChange={(value) => createForm.setData('actual_amount', value)} error={createForm.errors.actual_amount} /><Input required label="Dokumen PDF / gambar" type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" onChange={(event) => createForm.setData('document', event.target.files?.[0] || null)} error={createForm.errors.document} /></div>
-                    <div><label htmlFor="completion-note-notes" className="mb-1.5 block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Catatan</label><textarea id="completion-note-notes" name="notes" autoComplete="off" value={createForm.data.notes} onChange={(event) => createForm.setData('notes', event.target.value)} className="min-h-24 w-full rounded-xl border border-[#DCEAF8] bg-white p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36]" /></div>
-                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>Batal</Button><Button type="submit" isLoading={createForm.processing}>Unggah Nota</Button></div>
+                    {selectedPortCall && (
+                        <div className="grid grid-cols-2 gap-2 rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                            <div><p className="text-[11px] text-[#52658E]">Item disetujui</p><p className="mt-0.5 text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedPortCall.approved_request_item_count || 0} item</p></div>
+                            <div><p className="text-[11px] text-[#52658E]">HPP awal</p><p className="mt-0.5 text-sm font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{money(selectedPortCall.approved_cost_total || 0)}</p></div>
+                        </div>
+                    )}
+                    <div className="grid gap-4 sm:grid-cols-2"><Input required label="Nomor Nota Rampung" name="document_number" autoComplete="off" value={createForm.data.document_number} onChange={(event) => createForm.setData('document_number', event.target.value)} error={createForm.errors.document_number} /><Input required label="Tanggal terbit" type="date" name="issued_at" value={createForm.data.issued_at} onChange={(event) => createForm.setData('issued_at', event.target.value)} error={createForm.errors.issued_at} /><Input label="Tanggal diunduh" type="date" name="downloaded_at" value={createForm.data.downloaded_at} onChange={(event) => createForm.setData('downloaded_at', event.target.value)} error={createForm.errors.downloaded_at} /><MoneyInput required label="Nilai biaya" name="actual_amount" value={createForm.data.actual_amount} onChange={(value) => createForm.setData('actual_amount', value)} error={createForm.errors.actual_amount} /><div className="sm:col-span-2"><PhotoUploadPicker required label="Dokumen Nota Rampung" value={createForm.data.document} onChange={(file) => createForm.setData('document', file)} mode="gallery" accept=".doc,.docx,.pdf,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={createForm.errors.document} helperText="Word, PDF, JPG, JPEG, atau PNG. Maksimal 10 MB." /></div></div>
+                    <Textarea id="completion-note-notes" name="notes" autoComplete="off" label="Catatan" value={createForm.data.notes} onChange={(event) => createForm.setData('notes', event.target.value)} error={createForm.errors.notes} rows={3} maxLength={2000} showCharCount />
                 </form>
             </Modal>
 
-            <Modal isOpen={Boolean(activeNote)} onClose={() => setActiveNote(null)} title={action === 'verify' ? 'Verifikasi Nota Rampung' : 'Rekonsiliasi Biaya'} subtitle="Nilai awal tetap dipertahankan; selisih dicatat sebagai realisasi." size="lg" asBottomSheetOnMobile>
-                <form onSubmit={submitAction} className="space-y-4 p-1 sm:p-5">
-                    {action === 'reconcile' && <div className="grid gap-4 sm:grid-cols-2"><MoneyInput required label="Total nilai awal" name="initial_total" value={actionForm.data.initial_total} onChange={(value) => actionForm.setData('initial_total', value)} error={actionForm.errors.initial_total} /><MoneyInput required label="Total aktual/final" name="actual_total" value={actionForm.data.actual_total} onChange={(value) => actionForm.setData('actual_total', value)} error={actionForm.errors.actual_total} /><MoneyInput label="Penyesuaian" name="adjustment" value={actionForm.data.adjustment} onChange={(value) => actionForm.setData('adjustment', value)} error={actionForm.errors.adjustment} allowNegative /></div>}
-                    <div><label htmlFor="completion-action-notes" className="mb-1.5 block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Catatan</label><textarea id="completion-action-notes" name="notes" autoComplete="off" value={actionForm.data.notes} onChange={(event) => actionForm.setData('notes', event.target.value)} className="min-h-24 w-full rounded-xl border border-[#DCEAF8] bg-white p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36]" /></div>
-                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="secondary" onClick={() => setActiveNote(null)}>Batal</Button><Button type="submit" isLoading={actionForm.processing}>{action === 'verify' ? 'Verifikasi' : 'Simpan Rekonsiliasi'}</Button></div>
+            <Modal
+                isOpen={Boolean(activeNote)}
+                onClose={() => { actionForm.clearErrors(); setActiveNote(null); }}
+                title={action === 'verify' ? 'Verifikasi Nota Rampung' : 'Rekonsiliasi Biaya'}
+                subtitle="Nilai awal diambil otomatis dari item pengajuan yang disetujui."
+                size="lg"
+                asBottomSheetOnMobile
+                footer={(
+                    <>
+                        <Button type="button" variant="secondary" onClick={() => setActiveNote(null)}>Batal</Button>
+                        <Button type="submit" form="completion-note-action-form" isLoading={actionForm.processing}>
+                            {action === 'verify' ? 'Verifikasi' : 'Simpan Rekonsiliasi'}
+                        </Button>
+                    </>
+                )}
+            >
+                <form id="completion-note-action-form" noValidate onSubmit={submitAction} className="space-y-4">
+                    <FormErrorSummary errors={actionForm.errors} />
+                    {action === 'reconcile' && <div className="grid gap-4 sm:grid-cols-2"><div className="rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]"><p className="text-[11px] font-semibold text-[#52658E]">Total nilai awal</p><p className="mt-1 text-sm font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{money(actionForm.data.initial_total)}</p><p className="mt-1 text-[10px] text-[#52658E]">Dari HPP item yang disetujui Direktur</p></div><MoneyInput required label="Total aktual/final" name="actual_total" value={actionForm.data.actual_total} onChange={(value) => actionForm.setData('actual_total', value)} error={actionForm.errors.actual_total} /><MoneyInput label="Penyesuaian" name="adjustment" value={actionForm.data.adjustment} onChange={(value) => actionForm.setData('adjustment', value)} error={actionForm.errors.adjustment} allowNegative /></div>}
+                    <Textarea id="completion-action-notes" name="notes" autoComplete="off" label="Catatan" value={actionForm.data.notes} onChange={(event) => actionForm.setData('notes', event.target.value)} error={actionForm.errors.notes} rows={3} maxLength={2000} showCharCount />
                 </form>
             </Modal>
         </AppLayout>

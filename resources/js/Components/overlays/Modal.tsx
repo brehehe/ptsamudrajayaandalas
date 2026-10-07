@@ -1,5 +1,5 @@
-import React, { Fragment, ReactNode, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { ReactNode, useEffect, useId, useRef } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 export interface ModalProps {
     isOpen: boolean;
@@ -39,19 +39,64 @@ export default function Modal({
     asBottomSheetOnMobile = true,
     className = '',
 }: ModalProps) {
+    const shouldReduceMotion = useReducedMotion();
+    const titleId = useId();
+    const subtitleId = useId();
+    const dialogRef = useRef<HTMLDivElement>(null);
+
     // Handle Escape key
     useEffect(() => {
-        if (!isOpen || !closeOnEsc) return;
+        if (!isOpen) return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
+            if (e.key === 'Escape' && closeOnEsc) {
                 onClose();
+                return;
+            }
+
+            if (e.key === 'Tab' && dialogRef.current) {
+                const focusableElements = Array.from(
+                    dialogRef.current.querySelectorAll<HTMLElement>(
+                        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                    )
+                );
+                const firstElement = focusableElements[0];
+                const lastElement = focusableElements[focusableElements.length - 1];
+
+                if (!firstElement || !lastElement) {
+                    e.preventDefault();
+                    dialogRef.current.focus();
+                } else if (e.shiftKey && document.activeElement === firstElement) {
+                    e.preventDefault();
+                    lastElement.focus();
+                } else if (!e.shiftKey && document.activeElement === lastElement) {
+                    e.preventDefault();
+                    firstElement.focus();
+                }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, closeOnEsc, onClose]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const previouslyFocusedElement = document.activeElement as HTMLElement | null;
+        const animationFrame = window.requestAnimationFrame(() => {
+            const firstFocusableElement = dialogRef.current?.querySelector<HTMLElement>(
+                'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+            );
+
+            (firstFocusableElement || dialogRef.current)?.focus();
+        });
+
+        return () => {
+            window.cancelAnimationFrame(animationFrame);
+            previouslyFocusedElement?.focus();
+        };
+    }, [isOpen]);
 
     // Handle Body Scroll Lock
     useEffect(() => {
@@ -70,10 +115,10 @@ export default function Modal({
                 <div className="fixed inset-0 z-50 overflow-y-auto">
                     {/* Backdrop */}
                     <motion.div
-                        initial={{ opacity: 0 }}
+                        initial={shouldReduceMotion ? false : { opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
+                        transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
                         onClick={() => closeOnBackdrop && onClose()}
                         className="fixed inset-0 bg-[#082870]/60 backdrop-blur-sm z-0"
                         aria-hidden="true"
@@ -87,8 +132,11 @@ export default function Modal({
                         } justify-center p-0 sm:p-4 text-center cursor-pointer`}
                     >
                         <motion.div
+                            ref={dialogRef}
                             initial={
-                                asBottomSheetOnMobile
+                                shouldReduceMotion
+                                    ? false
+                                    : asBottomSheetOnMobile
                                     ? { opacity: 0, y: '100%' }
                                     : { opacity: 0, scale: 0.95, y: -10 }
                             }
@@ -102,10 +150,13 @@ export default function Modal({
                                     ? { opacity: 0, y: '100%' }
                                     : { opacity: 0, scale: 0.95, y: -10 }
                             }
-                            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                            transition={{ duration: shouldReduceMotion ? 0 : 0.25, ease: [0.16, 1, 0.3, 1] }}
                             onClick={(e) => e.stopPropagation()}
                             role="dialog"
+                            tabIndex={-1}
                             aria-modal="true"
+                            aria-labelledby={title ? titleId : undefined}
+                            aria-describedby={subtitle ? subtitleId : undefined}
                             className={`w-full ${sizeClasses[size]} bg-white dark:bg-[#0C1D36] ${
                                 asBottomSheetOnMobile
                                     ? 'rounded-t-[28px] sm:rounded-2xl'
@@ -136,6 +187,7 @@ export default function Modal({
                                     <div className="min-w-0 flex-1">
                                         {title && (
                                             <div
+                                                id={titleId}
                                                 className={
                                                     'text-base sm:text-lg font-extrabold ' +
                                                     'text-[#0B1F63] dark:text-[#F1F5F9] ' +
@@ -147,6 +199,7 @@ export default function Modal({
                                         )}
                                         {subtitle && (
                                             <p
+                                                id={subtitleId}
                                                 className={
                                                     'text-xs text-[#52658E] dark:text-[#94A3B8] ' +
                                                     'mt-0.5 leading-relaxed'
@@ -193,7 +246,8 @@ export default function Modal({
                             <div
                                 className={
                                     'px-5 py-4 overflow-y-auto flex-1 text-xs sm:text-sm ' +
-                                    'text-[#0B1F63] dark:text-[#F1F5F9] bg-white dark:bg-[#0C1D36]'
+                                    'overscroll-contain text-[#0B1F63] dark:text-[#F1F5F9] ' +
+                                    'bg-white dark:bg-[#0C1D36]'
                                 }
                             >
                                 {children}
@@ -205,7 +259,8 @@ export default function Modal({
                                     className={
                                         'px-5 py-3.5 border-t border-[#DCEAF8] ' +
                                         'dark:border-[#1E3A5F] bg-[#F0F8FF] dark:bg-[#071322] flex ' +
-                                        'items-center justify-end gap-2.5 flex-shrink-0'
+                                        'flex-col-reverse items-stretch gap-2 flex-shrink-0 ' +
+                                        'sm:flex-row sm:items-center sm:justify-end'
                                     }
                                 >
                                     {footer}

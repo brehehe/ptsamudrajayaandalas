@@ -11,7 +11,7 @@ class StoreFundingBatchRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isOperationalAdmin() || $this->user()?->isOwner();
+        return $this->user()?->isOperationalAdmin() ?? false;
     }
 
     /**

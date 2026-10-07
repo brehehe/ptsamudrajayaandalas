@@ -8,7 +8,7 @@ export default function MobilePageHero({
     description,
 }: MobilePageHeroProps) {
     return (
-        <section className="relative flex min-h-[200px] shrink-0 flex-col justify-end overflow-hidden px-4 pb-10 pt-20 text-white md:hidden">
+        <section className="mobile-photo-copy relative flex min-h-[200px] shrink-0 flex-col justify-end overflow-hidden bg-[#8FCDF4] px-4 pb-10 pt-20 text-white md:hidden">
             <img
                 src="/images/prima-banner.jpg"
                 alt=""
@@ -18,13 +18,11 @@ export default function MobilePageHero({
                 fetchPriority="high"
                 className="absolute inset-0 size-full object-cover object-[center_35%]"
             />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#001433]/90 via-[#001433]/70 to-[#001433]/95" />
-
             <div className="relative z-10">
-                <h1 className="text-balance text-2xl font-extrabold leading-tight text-white drop-shadow-sm">
+                <h1 className="text-balance text-2xl font-extrabold leading-tight text-white">
                     {title}
                 </h1>
-                <p className="mt-1.5 max-w-sm text-pretty text-xs leading-relaxed text-white/85">
+                <p className="mt-1.5 max-w-sm text-pretty text-xs font-medium leading-relaxed text-white">
                     {description}
                 </p>
             </div>

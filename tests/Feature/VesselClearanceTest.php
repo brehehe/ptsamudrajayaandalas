@@ -4,6 +4,8 @@ use App\Models\OperationalActivity;
 use App\Models\OutgoingPayment;
 use App\Models\Port;
 use App\Models\PortCall;
+use App\Models\Product;
+use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
 use App\Models\User;
@@ -71,6 +73,11 @@ test('operational staff creates a clearance in request without changing vessel s
         'requested_port_call_status' => $status,
         'operational_occurred_at' => now()->format('Y-m-d H:i:s'),
     ]);
+    $clearanceRequest = ShipRequest::where('port_call_id', $portCall->id)
+        ->where('service_type', 'clearance_in')
+        ->firstOrFail();
+    expect((float) $clearanceRequest->items()->firstOrFail()->hpp_price)->toBe(0.0)
+        ->and((float) $clearanceRequest->items()->firstOrFail()->selling_price)->toBe(0.0);
     $this->assertDatabaseHas('activity_log', ['subject_id' => $portCall->id, 'causer_id' => $user->id, 'log_name' => 'clearance']);
 })->with(['labuh' => 'anchored', 'sandar' => 'berthed']);
 
@@ -221,6 +228,70 @@ test('vessel detail exposes active clearance jobs to operational staff without p
         ->missing('clearancePortCalls.0.verified_arrival_payments'));
 });
 
+test('vessel detail returns database needs for the selected visit and excludes clearance requests', function () {
+    $user = User::factory()->create();
+    $selectedVisit = createClearancePortCall($user);
+    $otherVisit = createClearancePortCall($user, [
+        'ship_id' => $selectedVisit->ship_id,
+        'eta_at' => now()->addDay(),
+    ]);
+
+    ShipRequest::create([
+        'request_number' => 'REQ-CIN-TEST-001',
+        'ship_id' => $selectedVisit->ship_id,
+        'port_call_id' => $selectedVisit->id,
+        'created_by' => $user->id,
+        'status' => 'Selesai',
+        'request_date' => now()->toDateString(),
+        'service_type' => 'clearance_in',
+    ]);
+    $selectedNeed = ShipRequest::create([
+        'request_number' => 'REQ-NEED-TEST-001',
+        'ship_id' => $selectedVisit->ship_id,
+        'port_call_id' => $selectedVisit->id,
+        'created_by' => $user->id,
+        'status' => 'Draft',
+        'request_date' => now()->toDateString(),
+        'notes' => 'Kebutuhan untuk kunjungan terpilih.',
+    ]);
+    $selectedItem = RequestItem::create([
+        'request_id' => $selectedNeed->id,
+        'item_type' => 'product',
+        'item_name' => 'Air Tawar',
+        'quantity' => 10,
+        'unit' => 'Ton',
+        'hpp_price' => 150000,
+        'selling_price' => 200000,
+    ]);
+    ShipRequest::create([
+        'request_number' => 'REQ-NEED-TEST-002',
+        'ship_id' => $selectedVisit->ship_id,
+        'port_call_id' => $otherVisit->id,
+        'created_by' => $user->id,
+        'status' => 'Draft',
+        'request_date' => now()->addDay()->toDateString(),
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('vessels.show', [
+            'id' => $selectedVisit->ship_id,
+            'visit' => $selectedVisit->id,
+        ]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('needs', 1, fn (Assert $need) => $need
+                ->where('id', $selectedNeed->id)
+                ->where('request_number', 'REQ-NEED-TEST-001')
+                ->has('items', 1, fn (Assert $item) => $item
+                    ->where('id', $selectedItem->id)
+                    ->where('item_name', 'Air Tawar')
+                    ->where('quantity', '10.00')
+                    ->where('unit', 'Ton')
+                    ->missing('hpp_price')
+                    ->missing('selling_price')
+                    ->etc())
+                ->etc()));
+});
+
 test('vessel detail selects the requested visit and otherwise prefers an upcoming visit', function () {
     $user = User::factory()->create();
     $previousVisit = createClearancePortCall($user, [
@@ -298,10 +369,62 @@ test('operational administrators can submit clearance for an assigned officers j
         'created_by' => $administrator->id,
         'requested_port_call_status' => 'departed',
     ]);
-})->with(['Admin', 'Admin Sistem', 'Owner']);
+})->with(['Admin', 'Admin Sistem']);
+
+test('owner can monitor vessel workflow but cannot submit or process clearance', function () {
+    $officer = User::factory()->create();
+    $portCall = createClearancePortCall($officer);
+    $owner = User::factory()->create();
+    $owner->assignRole(Role::firstOrCreate(['name' => 'Owner', 'guard_name' => 'web']));
+
+    $this->actingAs($owner)
+        ->get(route('vessels.show', $portCall->ship_id))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('canManageClearance', false)
+            ->where('canProcessRequests', false));
+
+    $this->patch(route('operations.port-calls.status', $portCall->id), [
+        'status' => 'anchored',
+        'expected_status' => 'scheduled',
+    ])->assertForbidden();
+
+    $clearanceRequest = ShipRequest::create([
+        'request_number' => 'REQ-OWNER-READ-ONLY',
+        'ship_id' => $portCall->ship_id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $officer->id,
+        'status' => 'Disetujui',
+        'service_type' => 'clearance_in',
+        'requested_port_call_status' => 'anchored',
+        'request_date' => now()->toDateString(),
+    ]);
+
+    $this->patch(route('needs.update-status', $clearanceRequest->id), [
+        'status' => 'Dalam Proses',
+    ])->assertForbidden();
+
+    $this->assertDatabaseHas('requests', [
+        'id' => $clearanceRequest->id,
+        'status' => 'Disetujui',
+    ]);
+    $this->assertDatabaseHas('port_calls', [
+        'id' => $portCall->id,
+        'status' => 'scheduled',
+    ]);
+});
 
 test('clearance in changes vessel status only after director approval and admin completion', function () {
     $this->freezeTime();
+    Product::create([
+        'code' => 'CLR-IN-TEST',
+        'name' => 'Clearance In',
+        'category' => 'Clearance',
+        'item_type' => 'jasa',
+        'unit' => 'Dokumen',
+        'hpp_default' => 2500000,
+        'selling_price_default' => 4200000,
+        'is_active' => true,
+    ]);
     $staff = User::factory()->create();
     $portCall = createClearancePortCall($staff);
 
@@ -439,6 +562,42 @@ test('admin cannot process clearance before director approval', function () {
     $this->assertDatabaseHas('port_calls', [
         'id' => $portCall->id,
         'status' => 'scheduled',
+    ]);
+});
+
+test('admin cannot start an approved request while an item still awaits director approval', function () {
+    $staff = User::factory()->create();
+    $portCall = createClearancePortCall($staff);
+    $clearanceRequest = ShipRequest::create([
+        'request_number' => 'REQ-PARTIAL-APPROVAL',
+        'ship_id' => $portCall->ship_id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $staff->id,
+        'status' => 'Disetujui',
+        'service_type' => 'clearance_in',
+        'requested_port_call_status' => 'anchored',
+        'request_date' => now()->toDateString(),
+    ]);
+    $clearanceRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Clearance In',
+        'unit' => 'Dokumen',
+        'quantity' => 1,
+        'hpp_price' => 1000000,
+        'selling_price' => 1500000,
+        'status' => 'pending',
+        'director_status' => 'pending',
+    ]);
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+
+    $this->actingAs($admin)
+        ->patch(route('needs.update-status', $clearanceRequest->id), ['status' => 'Dalam Proses'])
+        ->assertSessionHasErrors('status');
+
+    $this->assertDatabaseHas('requests', [
+        'id' => $clearanceRequest->id,
+        'status' => 'Disetujui',
     ]);
 });
 

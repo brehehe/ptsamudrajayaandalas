@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Port;
+use App\Models\PortCall;
 use App\Models\Product;
 use App\Models\RequestItem;
 use App\Models\Ship;
@@ -9,8 +10,9 @@ use App\Models\ShipRequest;
 use App\Models\User;
 use Spatie\Permission\Models\Role;
 
-test('authenticated user can view request wizard creation page', function () {
+test('operational user can view request wizard creation page', function () {
     $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
 
     $response = $this->actingAs($user)->get('/requests/create');
 
@@ -19,6 +21,7 @@ test('authenticated user can view request wizard creation page', function () {
 
 test('lapangan user can submit wizard request with multiple items', function () {
     $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
     $port = Port::create([
         'code' => 'IDJKT',
         'name' => 'Pelabuhan Tanjung Priok',
@@ -236,6 +239,7 @@ test('admin can forward selected items to director and split invoices', function
 
 test('user can append additional need items to an existing active request', function () {
     $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
     $ship = Ship::create([
         'name' => 'KM Glory 88',
         'imo_number' => 'IMO8877665',
@@ -296,21 +300,40 @@ test('lapangan user can submit multi kapal request and view filtered tabs', func
         'is_active' => true,
     ]);
 
-    Port::firstOrCreate(
+    $port = Port::firstOrCreate(
         ['code' => 'TJP'],
         ['name' => 'Pelabuhan Tanjung Perak', 'city' => 'Surabaya', 'country' => 'Indonesia', 'is_active' => true]
     );
+
+    $visit1 = PortCall::create([
+        'job_number' => 'JOB-REQUEST-MULTI-001',
+        'ship_id' => $ship1->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => '2026-09-18 08:00:00',
+    ]);
+
+    $visit2 = PortCall::create([
+        'job_number' => 'JOB-REQUEST-MULTI-002',
+        'ship_id' => $ship2->id,
+        'port_id' => $port->id,
+        'status' => 'berthed',
+        'eta_at' => '2026-09-18 09:00:00',
+    ]);
 
     $multiPayload = [
         'ships' => [
             [
                 'ship_id' => $ship1->id,
+                'port_call_id' => $visit1->id,
                 'request_type' => 'Kedatangan (Clearance In)',
                 'department' => 'Deck',
                 'requester_name' => 'Budi Santoso',
                 'requester_phone' => '0812 3456 7890',
                 'required_date' => '2026-09-18',
                 'required_time' => '10:00',
+                'requested_port_call_status' => 'berthed',
+                'operational_occurred_at' => '2026-09-18',
                 'items' => [
                     [
                         'item_name' => 'Air Tawar',
@@ -322,6 +345,7 @@ test('lapangan user can submit multi kapal request and view filtered tabs', func
             ],
             [
                 'ship_id' => $ship2->id,
+                'port_call_id' => $visit2->id,
                 'request_type' => 'Perpanjangan Surat / Endors Surat Laut',
                 'department' => 'Deck',
                 'requester_name' => 'Budi Santoso',
@@ -339,12 +363,15 @@ test('lapangan user can submit multi kapal request and view filtered tabs', func
 
     $this->assertDatabaseHas('requests', [
         'ship_id' => $ship1->id,
-        'service_type' => 'Kedatangan (Clearance In)',
+        'port_call_id' => $visit1->id,
+        'service_type' => 'clearance_in',
+        'requested_port_call_status' => 'berthed',
         'status' => 'Menunggu Approval',
     ]);
 
     $this->assertDatabaseHas('requests', [
         'ship_id' => $ship2->id,
+        'port_call_id' => $visit2->id,
         'service_type' => 'Perpanjangan Surat / Endors Surat Laut',
         'status' => 'Menunggu Approval',
     ]);
@@ -365,4 +392,190 @@ test('lapangan user can submit multi kapal request and view filtered tabs', func
             ->has('counts.diproses')
             ->has('counts.selesai')
         );
+});
+
+test('request pages keep separate jobs for the same vessel', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+
+    $company = ShipCompany::create([
+        'code' => 'DUP',
+        'name' => 'PT Dua Kunjungan',
+        'is_active' => true,
+    ]);
+    $ship = Ship::create([
+        'ship_company_id' => $company->id,
+        'name' => 'KM Kunjungan Ganda',
+        'imo_number' => 'IMO7000123',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+    $port = Port::create([
+        'code' => 'IDDUA',
+        'name' => 'Pelabuhan Dua Job',
+        'city' => 'Gresik',
+        'country' => 'Indonesia',
+        'is_active' => true,
+    ]);
+    $firstVisit = PortCall::create([
+        'job_number' => 'JOB-SAME-SHIP-001',
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'anchored',
+        'eta_at' => '2026-10-07 08:00:00',
+    ]);
+    $secondVisit = PortCall::create([
+        'job_number' => 'JOB-SAME-SHIP-002',
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => '2026-10-08 08:00:00',
+    ]);
+
+    ShipRequest::create([
+        'request_number' => 'REQ-SAME-SHIP-001',
+        'ship_id' => $ship->id,
+        'company_id' => $company->id,
+        'port_id' => $port->id,
+        'port_call_id' => $firstVisit->id,
+        'service_type' => 'Kebutuhan Kapal',
+        'created_by' => $user->id,
+        'status' => 'Menunggu Approval',
+        'request_date' => '2026-10-07',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('requests.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Requests/Index')
+            ->has('portCalls', 2)
+            ->has('requests', 1)
+            ->where('counts.semua', 2)
+        );
+
+    $this->actingAs($user)
+        ->get(route('requests.create'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Requests/Create')
+            ->has('portCalls', 2)
+            ->where('portCalls.0.id', $secondVisit->id)
+            ->where('portCalls.1.id', $firstVisit->id)
+        );
+
+    $this->actingAs($user)
+        ->post(route('requests.store-multi'), [
+            'ships' => [[
+                'ship_id' => $ship->id,
+                'port_call_id' => $secondVisit->id,
+                'request_type' => 'Kebutuhan Kapal',
+                'department' => 'Deck',
+                'required_date' => '2026-10-08',
+                'required_time' => '10:00',
+                'items' => [[
+                    'item_name' => 'Air Tawar',
+                    'quantity' => 10,
+                    'unit' => 'Ton',
+                ]],
+            ]],
+        ])
+        ->assertRedirect(route('requests.index'));
+
+    $this->assertDatabaseHas('requests', [
+        'ship_id' => $ship->id,
+        'port_call_id' => $secondVisit->id,
+        'service_type' => 'Kebutuhan Kapal',
+    ]);
+});
+
+test('request wizard disables duplicate clearance in and omits completed visits', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $company = ShipCompany::create([
+        'code' => 'CLR-WIZ',
+        'name' => 'PT Clearance Wizard',
+        'is_active' => true,
+    ]);
+    $ship = Ship::create([
+        'ship_company_id' => $company->id,
+        'name' => 'KM Clearance Wizard',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+    $port = Port::create([
+        'code' => 'CLRW',
+        'name' => 'Pelabuhan Clearance Wizard',
+        'city' => 'Gresik',
+        'country' => 'Indonesia',
+        'is_active' => true,
+    ]);
+    $availableVisit = PortCall::create([
+        'job_number' => 'JOB-CLEARANCE-AVAILABLE',
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => today()->addDay(),
+    ]);
+    $pendingVisit = PortCall::create([
+        'job_number' => 'JOB-CLEARANCE-PENDING',
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => today()->addDays(2),
+    ]);
+    PortCall::create([
+        'job_number' => 'JOB-CLEARANCE-COMPLETED',
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'completed',
+        'eta_at' => today()->addDays(3),
+        'departed_at' => today(),
+    ]);
+    ShipRequest::create([
+        'request_number' => 'REQ-CIN-WIZARD-PENDING',
+        'ship_id' => $ship->id,
+        'company_id' => $company->id,
+        'port_id' => $port->id,
+        'port_call_id' => $pendingVisit->id,
+        'service_type' => 'clearance_in',
+        'requested_port_call_status' => 'anchored',
+        'operational_occurred_at' => today(),
+        'created_by' => $user->id,
+        'status' => 'Menunggu Approval',
+        'request_date' => today(),
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('requests.create'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Requests/Create')
+            ->has('portCalls', 2)
+            ->where('portCalls.0.id', $pendingVisit->id)
+            ->where('portCalls.0.clearance_in_block_reason', 'Pengajuan Clearance In untuk kunjungan ini sudah ada dan masih diproses.')
+            ->where('portCalls.1.id', $availableVisit->id)
+            ->where('portCalls.1.clearance_in_block_reason', null)
+        );
+
+    $this->actingAs($user)
+        ->from(route('requests.create'))
+        ->post(route('requests.store-multi'), [
+            'ships' => [[
+                'ship_id' => $ship->id,
+                'port_call_id' => $pendingVisit->id,
+                'request_type' => 'Kedatangan (Clearance In)',
+                'requested_port_call_status' => 'anchored',
+                'operational_occurred_at' => today()->toDateString(),
+                'required_date' => today()->toDateString(),
+                'items' => [],
+            ]],
+        ])
+        ->assertRedirect(route('requests.create'))
+        ->assertSessionHasErrors('ships.0.request_type');
+
+    expect(ShipRequest::query()
+        ->where('port_call_id', $pendingVisit->id)
+        ->where('service_type', 'clearance_in')
+        ->count())->toBe(1);
 });

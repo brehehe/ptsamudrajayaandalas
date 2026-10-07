@@ -58,6 +58,7 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
         ->component('Dashboard')
         ->where('current_role', $role)
         ->where('role_dashboard.role', $workspace)
+        ->where('role_dashboard.is_read_only', $role === 'Owner')
         ->where('role_dashboard.primary_action.href', $primaryAction)
         ->has('role_dashboard.metrics', 4)
         ->has('role_dashboard.priorities', 3)
@@ -78,29 +79,51 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
 })->with([
     'operasional' => ['Lapangan', 'operasional', '/operations', ['vessel_status', 'field_activity', 'request_status']],
     'admin' => ['Admin', 'admin', '/work-orders/create', ['workflow_pipeline', 'vendor_invoices', 'request_status']],
-    'direktur' => ['Direktur', 'direktur', '/approvals', ['approval_queue', 'financial_trend', 'receivables_aging']],
+    'direktur' => ['Direktur', 'direktur', '/approvals', ['approval_queue', 'financial_trend', 'director_pipeline']],
     'owner' => ['Owner', 'owner', '/reports', ['financial_trend', 'collection_mix', 'business_pipeline']],
 ]);
 
-test('admin master users index only offers the operational role it may assign', function () {
+test('admin master users index lists every account and master role', function () {
     $admin = User::firstOrCreate(
         ['email' => 'titik@samudrajaya.co.id'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
     );
     $admin->syncRoles(['Admin']);
 
+    $fieldUser = User::factory()->create([
+        'name' => 'Pak Prima',
+        'email' => 'field-only@samudrajaya.co.id',
+    ]);
+    $fieldUser->syncRoles(['Lapangan']);
+
+    $director = User::factory()->create([
+        'name' => 'Pak Ryan',
+        'email' => 'director-visible@samudrajaya.co.id',
+    ]);
+    $director->syncRoles(['Direktur']);
+
+    $owner = User::factory()->create([
+        'name' => 'Hendra Wijaya',
+        'email' => 'owner-visible@samudrajaya.co.id',
+    ]);
+    $owner->syncRoles(['Owner']);
+
     $response = $this->actingAs($admin)->get('/master/users');
 
-    $response->assertStatus(200);
+    $response->assertOk();
     $response->assertInertia(fn ($page) => $page
         ->component('Master/Users/Index')
-        ->has('users')
-        ->has('roles')
-        ->where('roles', ['Lapangan'])
+        ->has('users', 4)
+        ->where('users.0.email', $admin->email)
+        ->where('users.1.email', $owner->email)
+        ->where('users.2.email', $fieldUser->email)
+        ->where('users.3.email', $director->email)
+        ->where('roles', ['Owner', 'Direktur', 'Admin', 'Lapangan'])
+        ->where('can_manage', true)
     );
 });
 
-test('can create a new user with assigned Spatie role in master users', function () {
+test('admin can create a new user with any master role', function () {
     $admin = User::firstOrCreate(
         ['email' => 'titik@samudrajaya.co.id'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
@@ -108,21 +131,21 @@ test('can create a new user with assigned Spatie role in master users', function
     $admin->syncRoles(['Admin']);
 
     $payload = [
-        'name' => 'Staf Operasional Baru',
-        'email' => 'stafbaru@samudrajaya.co.id',
+        'name' => 'Direktur Baru',
+        'email' => 'direkturbaru@samudrajaya.co.id',
         'password' => 'password123',
-        'role' => 'Lapangan',
+        'role' => 'Direktur',
     ];
 
     $response = $this->actingAs($admin)->post('/master/users', $payload);
 
     $response->assertRedirect();
-    $newUser = User::where('email', 'stafbaru@samudrajaya.co.id')->first();
+    $newUser = User::where('email', 'direkturbaru@samudrajaya.co.id')->first();
     expect($newUser)->not->toBeNull();
-    expect($newUser->hasRole('Lapangan'))->toBeTrue();
+    expect($newUser->hasRole('Direktur'))->toBeTrue();
 });
 
-test('admin cannot promote an operational user to director', function () {
+test('admin can update an account and assign another master role', function () {
     $admin = User::firstOrCreate(
         ['email' => 'titik@samudrajaya.co.id'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
@@ -145,14 +168,14 @@ test('admin cannot promote an operational user to director', function () {
 
     $response = $this->actingAs($admin)->put("/master/users/{$targetUser->id}", $updatePayload);
 
-    $response->assertForbidden();
+    $response->assertRedirect();
     $targetUser->refresh();
-    expect($targetUser->name)->toBe('Staff To Update');
-    expect($targetUser->hasRole('Lapangan'))->toBeTrue();
-    expect(Hash::check('oldpassword', $targetUser->password))->toBeTrue();
+    expect($targetUser->name)->toBe('Staff Updated Name');
+    expect($targetUser->hasRole('Direktur'))->toBeTrue();
+    expect(Hash::check('newsecretpassword', $targetUser->password))->toBeTrue();
 });
 
-test('owner can update an existing user role and optional password', function () {
+test('owner can view all users and roles but cannot mutate accounts', function () {
     $owner = User::factory()->create();
     $owner->syncRoles(['Owner']);
 
@@ -163,18 +186,28 @@ test('owner can update an existing user role and optional password', function ()
     ]);
     $targetUser->syncRoles(['Lapangan']);
 
+    $this->actingAs($owner)
+        ->get('/master/users')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Master/Users/Index')
+            ->where('roles', ['Owner', 'Direktur', 'Admin', 'Lapangan'])
+            ->where('can_manage', false)
+            ->has('users', 2)
+        );
+
     $response = $this->actingAs($owner)->put("/master/users/{$targetUser->id}", [
         'name' => 'Staff Updated Name',
         'email' => $targetUser->email,
-        'role' => 'Direktur',
+        'role' => 'Lapangan',
         'password' => 'newsecretpassword',
     ]);
 
-    $response->assertRedirect();
+    $response->assertForbidden();
     $targetUser->refresh();
-    expect($targetUser->name)->toBe('Staff Updated Name');
-    expect($targetUser->hasRole('Direktur'))->toBeTrue();
-    expect(Hash::check('newsecretpassword', $targetUser->password))->toBeTrue();
+    expect($targetUser->name)->toBe('Staff To Update');
+    expect($targetUser->hasRole('Lapangan'))->toBeTrue();
+    expect(Hash::check('oldpassword', $targetUser->password))->toBeTrue();
 });
 
 test('cannot delete own user account in master users', function () {

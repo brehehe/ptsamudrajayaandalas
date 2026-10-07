@@ -4,27 +4,30 @@ import { useTheme } from '../../hooks/useTheme';
 
 export interface ThemeToggleProps {
     variant?: 'icon' | 'pill' | 'compact';
+    surface?: 'adaptive' | 'dark';
     className?: string;
     showLabel?: boolean;
 }
 
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({
     variant = 'icon',
+    surface = 'adaptive',
     className = '',
     showLabel = false,
 }) => {
     const { isDark, toggleTheme } = useTheme();
     const shouldReduceMotion = useReducedMotion();
+    const usesDarkSurface = surface === 'dark' || isDark;
 
     if (variant === 'pill') {
         return (
             <button
                 type="button"
                 onClick={toggleTheme}
-                className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors duration-150 ${
-                    isDark
-                        ? 'bg-[#0F223D] border-[#1E3A5F] text-[#F1F5F9] hover:bg-[#152E52]'
-                        : 'bg-white border-[#DCEAF8] text-[#0B1F63] hover:bg-[#F0F8FF]'
+                className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                    usesDarkSurface
+                        ? 'border-[#1E3A5F] bg-[#0F223D] text-[#F1F5F9] hover:bg-[#152E52] focus-visible:outline-[#38BDF8]'
+                        : 'border-[#DCEAF8] bg-white text-[#0B1F63] hover:bg-[#F0F8FF] focus-visible:outline-[#0060F4]'
                 } ${className}`}
                 aria-label={isDark ? 'Beralih ke mode terang' : 'Beralih ke mode gelap'}
                 aria-pressed={isDark}
@@ -40,7 +43,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
                 >
                     {!isDark ? (
                         // Moon Icon
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
                             <path
                                 d={
                                     'M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75' +
@@ -52,7 +55,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
                     ) : (
                         // Sun Icon
                         <svg
-                            className="w-4 h-4"
+                            className="size-4"
                             fill="none"
                             stroke="currentColor"
                             strokeWidth={2}
@@ -100,7 +103,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
                 {!isDark ? (
                     // Maritime Moon / Night Sky
                     <svg
-                        className="w-5 h-5 text-[#38BDF8]"
+                        className="size-5 text-[#38BDF8]"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth={2}
@@ -115,7 +118,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
                 ) : (
                     // Harbor Sun / Daylight
                     <svg
-                        className="w-5 h-5 text-[#E68A00]"
+                        className="size-5 text-[#E68A00]"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth={2}

@@ -6,6 +6,7 @@ import PhotoUploadPicker from '@/Components/forms/PhotoUploadPicker';
 import DateTimePicker from '@/Components/forms/DateTimePicker';
 import RadioGroup from '@/Components/forms/Radio';
 import Input from '@/Components/forms/Input';
+import FormErrorSummary from '@/Components/forms/FormErrorSummary';
 
 interface Company {
     id: string;
@@ -20,7 +21,7 @@ interface Ship {
     imo_number?: string;
     ship_type?: string;
     status?: string;
-    image?: string;
+    image?: string | null;
     ship_company_id?: string | null;
     company?: Company;
     captain_name?: string;
@@ -48,9 +49,25 @@ interface Product {
     item_type: 'jasa' | 'non_jasa';
 }
 
+interface PortCall {
+    id: string;
+    job_number: string;
+    status?: string;
+    eta_at?: string;
+    clearance_in_block_reason?: string | null;
+    can_clearance_out?: boolean;
+    ship: Ship;
+    port?: Port;
+    work_order?: {
+        id: string;
+        system_number: string;
+    };
+}
+
 interface RequestsCreateProps {
     companies: Company[];
     ships: Ship[];
+    portCalls: PortCall[];
     ports: Port[];
     serviceTypes: ServiceType[];
     products: Product[];
@@ -69,6 +86,7 @@ interface ItemDetail {
 
 interface ShipSelectionData {
     ship_id: string;
+    port_call_id: string;
     ship_name: string;
     request_type: string;
     department: 'Deck' | 'Engine' | 'Lainnya';
@@ -79,6 +97,8 @@ interface ShipSelectionData {
     items: ItemDetail[];
     required_date: string;
     required_time: string;
+    requested_port_call_status: '' | 'anchored' | 'berthed' | 'departed';
+    operational_occurred_at: string;
     notes: string;
     form_photo?: File | null;
     form_photo_preview?: string | null;
@@ -101,77 +121,99 @@ const DEFAULT_REQUEST_TYPES = [
     'Kebutuhan Kapal',
 ];
 
-const COMMON_UNITS = ['Ton', 'Lonjor', 'Unit', 'Liter', 'Orang', 'Paket', 'Set', 'Pcs'];
+const CLEARANCE_IN = 'Kedatangan (Clearance In)';
+const CLEARANCE_OUT = 'Keberangkatan (Clearance Out)';
 
-const getSampleItems = (shipName: string, index: number): ItemDetail[] => {
-    const today = new Date().toISOString().split('T')[0];
-    const lower = (shipName || '').toLowerCase();
-    if (lower.includes('amigo')) {
-        return [
-            { id: 'amigo-1', item_name: 'Air Tawar', quantity: 60, unit: 'Ton', notes: 'Untuk kebutuhan operasional kapal', is_urgent: false, required_date: today, required_time: '10:00' },
-            { id: 'amigo-2', item_name: 'Pipa Besi', quantity: 1, unit: 'Lonjor', notes: 'Untuk pegangan tangga deck', is_urgent: false, required_date: today, required_time: '10:00' },
-        ];
-    }
-    if (lower.includes('kyodo')) {
-        return [
-            { id: 'kyodo-1', item_name: 'Solar B35', quantity: 5000, unit: 'Liter', notes: 'Bunker bahan bakar kapal', is_urgent: false, required_date: today, required_time: '10:00' },
-            { id: 'kyodo-2', item_name: 'Oli Mesin Meditran S40', quantity: 4, unit: 'Drum', notes: 'Penggantian oli mesin induk', is_urgent: true, required_date: today, required_time: '10:00' },
-        ];
-    }
-    if (lower.includes('clarity')) {
-        return [
-            { id: 'clarity-1', item_name: 'Cat Anti-Fouling Marine', quantity: 4, unit: 'Pail', notes: 'Pengecatan lambung kapal', is_urgent: false, required_date: today, required_time: '10:00' },
-        ];
-    }
-    if (lower.includes('lintas') || lower.includes('bahari')) {
-        return [
-            { id: 'lintas-1', item_name: 'Tali Tambat Polypropylene', quantity: 2, unit: 'Roll', notes: 'Tali tambat haluan', is_urgent: false, required_date: today, required_time: '10:00' },
-        ];
-    }
-    return [
-        { id: `item-${index}-1`, item_name: 'Air Tawar', quantity: 50, unit: 'Ton', notes: 'Kebutuhan operasional', is_urgent: false, required_date: today, required_time: '10:00' },
-    ];
+const getCurrentLocalDate = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
 };
 
-const makeDefaultDetail = (ship: Ship, index: number): ShipSelectionData => ({
-    ship_id: ship.id,
-    ship_name: ship.name,
+const visitStatusLabel = (status?: string): string => {
+    switch (status) {
+        case 'scheduled':
+            return 'Akan Datang';
+        case 'anchored':
+            return 'Labuh';
+        case 'berthed':
+            return 'Sandar';
+        case 'departed':
+        case 'completed':
+            return 'Selesai';
+        default:
+            return status || 'Belum Ditentukan';
+    }
+};
+
+const visitStatusClasses = (status?: string): string => {
+    if (status === 'berthed') return 'bg-[#DCF7E8] text-[#087443] dark:bg-emerald-950/45 dark:text-emerald-300';
+    if (status === 'anchored') return 'bg-[#FFF0CC] text-[#A65300] dark:bg-amber-950/45 dark:text-amber-300';
+    if (status === 'completed' || status === 'departed') return 'bg-[#EEF2F7] text-[#52658E] dark:bg-slate-800 dark:text-slate-300';
+
+    return 'bg-[#E0F0FF] text-[#0057D9] dark:bg-blue-950/45 dark:text-blue-300';
+};
+
+const formatDisplayDate = (value?: string): string => {
+    if (!value) return '-';
+
+    return new Intl.DateTimeFormat('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    }).format(new Date(`${value}T00:00:00`));
+};
+
+const COMMON_UNITS = ['Ton', 'Lonjor', 'Unit', 'Liter', 'Orang', 'Paket', 'Set', 'Pcs'];
+
+const createInitialItem = (): ItemDetail => {
+    const today = getCurrentLocalDate();
+    return {
+        id: Date.now().toString(),
+        item_name: '',
+        quantity: 1,
+        unit: 'Unit',
+        notes: '',
+        is_urgent: false, // Bagian prioritas kebutuhan auto-isi default ke 'Normal'
+        required_date: today,
+        required_time: '10:00',
+    };
+};
+
+const makeDefaultDetail = (portCall: PortCall): ShipSelectionData => ({
+    ship_id: portCall.ship.id,
+    port_call_id: portCall.id,
+    ship_name: portCall.ship.name,
     request_type: '',
     department: 'Deck',
-    order_date: new Date().toISOString().split('T')[0],
-    requester_name: (ship as any).captain_name || '',
-    requester_phone: (ship as any).captain_phone || '',
+    order_date: getCurrentLocalDate(),
+    requester_name: portCall.ship.captain_name || '',
+    requester_phone: portCall.ship.captain_phone || '',
     items: [],
-    required_date: new Date().toISOString().split('T')[0],
+    required_date: getCurrentLocalDate(),
     required_time: '10:00',
+    requested_port_call_status: '',
+    operational_occurred_at: getCurrentLocalDate(),
     notes: '',
 });
 
 export default function RequestsCreate({
-    companies = [],
-    ships = [],
-    ports = [],
-    serviceTypes = [],
+    portCalls = [],
     products = [],
 }: RequestsCreateProps) {
-    const availableProducts = (products && products.length > 0) ? products : [
-        { id: 'prod-1', name: 'Air Tawar', unit: 'Ton', code: 'PRD-001', item_type: 'non_jasa' as const },
-        { id: 'prod-2', name: 'Solar B35', unit: 'Liter', code: 'PRD-002', item_type: 'non_jasa' as const },
-        { id: 'prod-3', name: 'Oli Mesin Meditran S40', unit: 'Drum', code: 'PRD-003', item_type: 'non_jasa' as const },
-        { id: 'prod-4', name: 'Pipa Besi', unit: 'Lonjor', code: 'PRD-004', item_type: 'non_jasa' as const },
-        { id: 'prod-5', name: 'Shackle 25 Ton', unit: 'Unit', code: 'PRD-005', item_type: 'non_jasa' as const },
-        { id: 'prod-6', name: 'Tali Tambat Polypropylene', unit: 'Roll', code: 'PRD-006', item_type: 'non_jasa' as const },
-        { id: 'prod-7', name: 'Cat Anti-Fouling Marine', unit: 'Pail', code: 'PRD-007', item_type: 'non_jasa' as const },
-    ];
+    const availableProducts = products;
 
     // ── State ──
     const [stage, setStage] = useState<Stage>('list');
     const [shipSearch, setShipSearch] = useState('');
 
-    // Map of ship_id -> ShipSelectionData (only for configured ships)
+    // Map of port_call_id -> ShipSelectionData (only for configured visits)
     const [shipDetails, setShipDetails] = useState<Record<string, ShipSelectionData>>({});
 
-    // Which ship is currently being configured in the pick-type / kebutuhan panel
+    // Which visit is currently being configured in the pick-type / kebutuhan panel
     const [activeShipId, setActiveShipId] = useState<string>('');
 
     // Temp request_type selection while in pick-type panel (before confirming)
@@ -181,45 +223,71 @@ export default function RequestsCreate({
     const [notesGlobal, setNotesGlobal] = useState('');
     const [submittedNumber, setSubmittedNumber] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submissionError, setSubmissionError] = useState<string | null>(null);
+    const [submissionErrors, setSubmissionErrors] = useState<Record<string, string>>({});
 
     // Whether we entered kebutuhan panel from review (to go back to review after save)
     const [returnToReviewAfterKebutuhan, setReturnToReviewAfterKebutuhan] = useState(false);
 
     // ── Derived ──
-    const filteredShips = ships.filter(
-        (s) =>
-            s.name.toLowerCase().includes(shipSearch.toLowerCase()) ||
-            (s.imo_number && s.imo_number.toLowerCase().includes(shipSearch.toLowerCase()))
+    const filteredVisits = portCalls.filter(
+        (visit) =>
+            visit.ship.name.toLowerCase().includes(shipSearch.toLowerCase()) ||
+            visit.job_number.toLowerCase().includes(shipSearch.toLowerCase()) ||
+            (visit.ship.imo_number && visit.ship.imo_number.toLowerCase().includes(shipSearch.toLowerCase())) ||
+            (visit.port?.name && visit.port.name.toLowerCase().includes(shipSearch.toLowerCase()))
     );
 
-    const configuredShipIds = Object.keys(shipDetails).filter(
+    const configuredVisitIds = Object.keys(shipDetails).filter(
         (id) => shipDetails[id]?.request_type !== ''
     );
-    const configuredCount = configuredShipIds.length;
+    const configuredCount = configuredVisitIds.length;
 
-    const activeShip = ships.find((s) => s.id === activeShipId) || null;
-    const activeDetail = activeShip ? (shipDetails[activeShipId] || makeDefaultDetail(activeShip, 0)) : null;
+    const activeVisit = portCalls.find((visit) => visit.id === activeShipId) || null;
+    const activeShip = activeVisit?.ship || null;
+    const activeDetail = activeVisit
+        ? { ...makeDefaultDetail(activeVisit), ...shipDetails[activeShipId] }
+        : null;
+    const requestTypeBlockReason = (requestType: string): string | null => {
+        if (!activeVisit) return 'Pilih kunjungan / job terlebih dahulu.';
+
+        if (requestType === CLEARANCE_IN) {
+            return activeVisit.clearance_in_block_reason || null;
+        }
+
+        if (requestType === CLEARANCE_OUT && !activeVisit.can_clearance_out) {
+            return 'Clearance Out tersedia setelah kapal berstatus Labuh atau Sandar.';
+        }
+
+        return null;
+    };
+    const selectedRequestTypeBlockReason = requestTypeBlockReason(tempRequestType);
 
     // ── Helpers ──
-    const openPickType = (ship: Ship) => {
-        const existing = shipDetails[ship.id];
-        setActiveShipId(ship.id);
+    const openPickType = (visit: PortCall) => {
+        const existing = shipDetails[visit.id];
+        setActiveShipId(visit.id);
         setTempRequestType(existing?.request_type || '');
         setStage('pick-type');
     };
 
     const confirmPickType = () => {
-        if (!tempRequestType || !activeShip) return;
+        if (!tempRequestType || !activeVisit || selectedRequestTypeBlockReason) return;
+
+        const isClearanceIn = tempRequestType === CLEARANCE_IN;
+        const isClearanceOut = tempRequestType === CLEARANCE_OUT;
+        if ((isClearanceIn || isClearanceOut) && !activeDetail?.operational_occurred_at) return;
+        if (isClearanceIn && !['anchored', 'berthed'].includes(activeDetail?.requested_port_call_status || '')) return;
 
         setShipDetails((prev) => {
-            const existing = prev[activeShip.id] || makeDefaultDetail(activeShip, 0);
+            const existing = { ...makeDefaultDetail(activeVisit), ...prev[activeVisit.id] };
             const needsItems = tempRequestType === 'Kebutuhan Kapal' && (existing.items || []).length === 0;
             return {
                 ...prev,
-                [activeShip.id]: {
+                [activeVisit.id]: {
                     ...existing,
                     request_type: tempRequestType,
-                    items: needsItems ? getSampleItems(activeShip.name, 0) : existing.items,
+                    items: needsItems ? [createInitialItem()] : existing.items,
                 },
             };
         });
@@ -235,11 +303,12 @@ export default function RequestsCreate({
     };
 
     const updateActiveDetail = (field: keyof ShipSelectionData, value: any) => {
-        if (!activeShipId) return;
+        if (!activeShipId || !activeVisit) return;
         setShipDetails((prev) => ({
             ...prev,
             [activeShipId]: {
-                ...(prev[activeShipId] || {}),
+                ...makeDefaultDetail(activeVisit),
+                ...prev[activeShipId],
                 [field]: value,
             },
         }));
@@ -247,17 +316,7 @@ export default function RequestsCreate({
 
     const addItem = () => {
         if (!activeShipId) return;
-        const today = new Date().toISOString().split('T')[0];
-        const newItem: ItemDetail = {
-            id: Date.now().toString(),
-            item_name: '',
-            quantity: 1,
-            unit: 'Unit',
-            notes: '',
-            is_urgent: false,
-            required_date: today,
-            required_time: '10:00',
-        };
+        const newItem = createInitialItem();
         setShipDetails((prev) => ({
             ...prev,
             [activeShipId]: {
@@ -294,13 +353,16 @@ export default function RequestsCreate({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
+        setSubmissionError(null);
+        setSubmissionErrors({});
 
-        const configuredShips = ships.filter((s) => configuredShipIds.includes(s.id));
+        const configuredVisits = portCalls.filter((visit) => configuredVisitIds.includes(visit.id));
         const payload = {
-            ships: configuredShips.map((s) => {
-                const det = shipDetails[s.id];
+            ships: configuredVisits.map((visit) => {
+                const det = shipDetails[visit.id];
                 return {
-                    ship_id: s.id,
+                    ship_id: visit.ship.id,
+                    port_call_id: visit.id,
                     request_type: det.request_type,
                     department: det.department,
                     order_date: det.order_date,
@@ -308,6 +370,14 @@ export default function RequestsCreate({
                     requester_phone: det.requester_phone,
                     required_date: det.required_date,
                     required_time: det.required_time,
+                    requested_port_call_status: det.request_type === CLEARANCE_IN
+                        ? det.requested_port_call_status
+                        : det.request_type === CLEARANCE_OUT
+                            ? 'departed'
+                            : null,
+                    operational_occurred_at: [CLEARANCE_IN, CLEARANCE_OUT].includes(det.request_type)
+                        ? det.operational_occurred_at
+                        : null,
                     notes: det.notes,
                     items: det.request_type === 'Kebutuhan Kapal'
                         ? (det.items || [])
@@ -317,6 +387,7 @@ export default function RequestsCreate({
                                 quantity: Number(it.quantity) || 1,
                                 unit: it.unit || 'Unit',
                                 notes: it.notes || '',
+                                is_urgent: Boolean(it.is_urgent),
                             }))
                         : [],
                 };
@@ -328,14 +399,14 @@ export default function RequestsCreate({
             preserveScroll: true,
             onSuccess: (page) => {
                 setIsSubmitting(false);
-                const generated = (page.props.flash as any)?.submitted_request_number || 'PGJ-2026-0015';
-                setSubmittedNumber(generated);
+                const generated = (page.props.flash as any)?.submitted_request_number;
+                setSubmittedNumber(typeof generated === 'string' ? generated : '');
                 setStage('success');
             },
-            onError: () => {
+            onError: (errors) => {
                 setIsSubmitting(false);
-                setSubmittedNumber('PGJ-2026-0015');
-                setStage('success');
+                setSubmissionErrors(errors as Record<string, string>);
+                setSubmissionError(Object.values(errors)[0] || 'Periksa kembali data pengajuan.');
             },
         });
     };
@@ -420,15 +491,15 @@ export default function RequestsCreate({
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F] pb-3">
                             <div>
                                 <h2 className="text-lg font-black text-[#0B1F63] dark:text-white">
-                                    Pilih Kapal
+                                    Pilih Kunjungan Kapal
                                 </h2>
                                 <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
-                                    Ketuk kapal untuk memilih jenis pengajuan.
+                                    Pilih berdasarkan nomor job agar pengajuan masuk ke kunjungan yang tepat.
                                 </p>
                             </div>
                             {configuredCount > 0 && (
                                 <span className="text-xs font-bold text-[#0060F4] dark:text-[#38BDF8] bg-[#E0F0FF] dark:bg-[#132847] px-3 py-1 rounded-full self-start sm:self-auto">
-                                    {configuredCount} Kapal Terpilih
+                                    {configuredCount} Job Terpilih
                                 </span>
                             )}
                         </div>
@@ -436,7 +507,7 @@ export default function RequestsCreate({
                         {/* Search */}
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                                <svg className="w-4 h-4 text-[#0060F4]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <svg aria-hidden="true" className="size-4 text-[#0060F4]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                                     <circle cx="11" cy="11" r="8" />
                                     <line x1="21" y1="21" x2="16.65" y2="16.65" />
                                 </svg>
@@ -445,26 +516,27 @@ export default function RequestsCreate({
                                 type="text"
                                 value={shipSearch}
                                 onChange={(e) => setShipSearch(e.target.value)}
-                                placeholder="Cari nama kapal..."
+                                placeholder="Cari job, kapal, atau pelabuhan…"
+                                aria-label="Cari kunjungan kapal"
                                 className="w-full pl-10 pr-4 h-11 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
                             />
                         </div>
 
-                        {/* Ship list */}
+                        {/* Visit list */}
                         <div className="space-y-2.5 pt-1">
-                            {filteredShips.map((ship, idx) => {
-                                const isConfigured = !!shipDetails[ship.id]?.request_type;
-                                const reqType = shipDetails[ship.id]?.request_type;
-                                const statusLabel = idx % 2 === 0 ? 'Sandar - Dermaga A' : 'Sandar - Dermaga B';
+                            {filteredVisits.map((visit) => {
+                                const isConfigured = !!shipDetails[visit.id]?.request_type;
+                                const reqType = shipDetails[visit.id]?.request_type;
 
                                 return (
-                                    <div
-                                        key={ship.id}
-                                        onClick={() => openPickType(ship)}
+                                    <button
+                                        type="button"
+                                        key={visit.id}
+                                        onClick={() => openPickType(visit)}
                                         className={`p-3.5 rounded-xl border-2 flex items-center justify-between gap-3 transition-all cursor-pointer active:scale-[0.99] ${isConfigured
                                                 ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444]'
                                                 : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:border-[#0060F4]/50 hover:bg-[#F8FAFC]'
-                                            }`}
+                                            } w-full text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
                                             {/* Check / Ship icon */}
@@ -473,11 +545,11 @@ export default function RequestsCreate({
                                                     : 'bg-[#E0F0FF] dark:bg-[#1A3358] text-[#0060F4] dark:text-[#38BDF8]'
                                                 }`}>
                                                 {isConfigured ? (
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                    <svg aria-hidden="true" className="size-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                                     </svg>
                                                 ) : (
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                                    <svg aria-hidden="true" className="size-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M2 19l2.5 3h15l2.5-3L20 12H4L2 19z" />
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 12V6h4v6" />
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M14 12V8h4v4" />
@@ -487,26 +559,38 @@ export default function RequestsCreate({
 
                                             <div className="min-w-0">
                                                 <h3 className="text-sm font-bold text-[#0B1F63] dark:text-white truncate">
-                                                    {ship.name}
+                                                    {visit.ship.name}
                                                 </h3>
-                                                {isConfigured ? (
+                                                <p className="truncate text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                    <span className="font-mono font-semibold text-[#0060F4]">{visit.job_number}</span>
+                                                    {' · '}{visit.port?.name || 'Pelabuhan belum ditentukan'}
+                                                </p>
+                                                {isConfigured && (
                                                     <span className="text-[11px] font-semibold text-[#0060F4] dark:text-[#38BDF8] truncate block">
                                                         ✓ {reqType}
                                                     </span>
-                                                ) : (
-                                                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8] truncate">
-                                                        {statusLabel}
-                                                    </p>
                                                 )}
                                             </div>
                                         </div>
 
-                                        <svg className="w-4 h-4 text-[#8C9BB9] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </div>
+                                        <span className="flex shrink-0 flex-col items-end gap-2">
+                                            <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold ${visitStatusClasses(visit.status)}`}>
+                                                {visitStatusLabel(visit.status)}
+                                            </span>
+                                            <svg aria-hidden="true" className="size-4 text-[#8C9BB9]" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        </span>
+                                    </button>
                                 );
                             })}
+
+                            {filteredVisits.length === 0 && (
+                                <div className="rounded-xl border border-dashed border-[#DCEAF8] px-4 py-8 text-center dark:border-[#1E3A5F]">
+                                    <p className="text-sm font-bold text-[#0B1F63] dark:text-white">Kunjungan kapal tidak ditemukan</p>
+                                    <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">Buat atau aktifkan job kapal terlebih dahulu.</p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Bottom action */}
@@ -517,7 +601,7 @@ export default function RequestsCreate({
                                 onClick={() => setStage('review')}
                                 className="w-full py-3.5 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] active:scale-[0.99] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <span>Lanjutkan ({configuredCount} Kapal)</span>
+                                <span>Lanjutkan ({configuredCount} Job)</span>
                                 <span>→</span>
                             </button>
                         </div>
@@ -535,9 +619,10 @@ export default function RequestsCreate({
                                 <button
                                     type="button"
                                     onClick={() => setStage('list')}
-                                    className="w-7 h-7 rounded-lg bg-[#F0F8FF] dark:bg-[#132847] text-[#0060F4] flex items-center justify-center hover:bg-[#DCEAF8] transition-colors cursor-pointer"
+                                    aria-label="Kembali ke daftar kunjungan"
+                                    className="flex size-11 cursor-pointer items-center justify-center rounded-lg bg-[#F0F8FF] text-[#0060F4] transition-colors hover:bg-[#DCEAF8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] md:size-9 dark:bg-[#132847]"
                                 >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                    <svg aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                                     </svg>
                                 </button>
@@ -546,7 +631,7 @@ export default function RequestsCreate({
                                 </h2>
                             </div>
                             <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5 pl-9">
-                                Pilih jenis pengajuan untuk {activeShip.name}.
+                                Pilih jenis pengajuan untuk {activeVisit?.job_number}.
                             </p>
                         </div>
 
@@ -562,7 +647,7 @@ export default function RequestsCreate({
                             <div>
                                 <h3 className="text-sm font-black text-[#0B1F63] dark:text-white">{activeShip.name}</h3>
                                 <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                    {activeShip.company?.name || 'PT. Samudra Jaya Andalas'}
+                                    {activeVisit?.job_number} · {activeVisit?.port?.name || 'Pelabuhan belum ditentukan'}
                                 </p>
                             </div>
                         </div>
@@ -574,33 +659,99 @@ export default function RequestsCreate({
                             </h4>
                             {DEFAULT_REQUEST_TYPES.map((rt) => {
                                 const isSelected = tempRequestType === rt;
+                                const blockReason = requestTypeBlockReason(rt);
+                                const isDisabled = Boolean(blockReason);
                                 return (
                                     <button
                                         key={rt}
                                         type="button"
+                                        disabled={isDisabled}
                                         onClick={() => setTempRequestType(rt)}
-                                        className={`w-full text-left px-4 py-3.5 rounded-xl border-2 flex items-center justify-between gap-3 transition-all cursor-pointer ${isSelected
+                                        className={`w-full text-left px-4 py-3.5 rounded-xl border-2 flex items-center justify-between gap-3 transition-colors ${isDisabled
+                                                ? 'cursor-not-allowed border-[#DCEAF8] bg-[#F3F8FD] opacity-55 dark:border-[#1E3A5F] dark:bg-[#071322]'
+                                                : 'cursor-pointer'
+                                            } ${isSelected
                                                 ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444]'
-                                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:border-[#0060F4]/40'
+                                                : isDisabled
+                                                    ? ''
+                                                    : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] hover:border-[#0060F4]/40'
                                             }`}
                                     >
-                                        <span className={`text-sm font-semibold ${isSelected ? 'text-[#0060F4] dark:text-[#38BDF8]' : 'text-[#0B1F63] dark:text-white'}`}>
-                                            {rt}
+                                        <span className="min-w-0">
+                                            <span className={`block text-sm font-semibold ${isSelected ? 'text-[#0060F4] dark:text-[#38BDF8]' : 'text-[#0B1F63] dark:text-white'}`}>
+                                                {rt}
+                                            </span>
+                                            {blockReason && (
+                                                <span className="mt-1 block text-pretty text-[11px] leading-4 text-[#52658E] dark:text-[#94A3B8]">
+                                                    {blockReason}
+                                                </span>
+                                            )}
                                         </span>
-                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${isSelected
+                                        <span className={`size-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${isSelected
                                                 ? 'border-[#0060F4] bg-[#0060F4]'
                                                 : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
                                             }`}>
                                             {isSelected && (
-                                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+                                                <svg aria-hidden="true" className="size-3 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                                 </svg>
                                             )}
-                                        </div>
+                                        </span>
                                     </button>
                                 );
                             })}
                         </div>
+
+                        {tempRequestType === CLEARANCE_IN && !selectedRequestTypeBlockReason && activeDetail && (
+                            <div className="space-y-4 border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]">
+                                <RadioGroup
+                                    name="clearance-in-target-status"
+                                    label="Target status setelah pengajuan selesai"
+                                    value={activeDetail.requested_port_call_status}
+                                    onChange={(value) => updateActiveDetail('requested_port_call_status', value)}
+                                    options={[
+                                        {
+                                            value: 'anchored',
+                                            label: 'Labuh',
+                                            description: 'Kapal lego jangkar atau menunggu antrean.',
+                                        },
+                                        {
+                                            value: 'berthed',
+                                            label: 'Sandar',
+                                            description: 'Kapal langsung bersandar di dermaga.',
+                                        },
+                                    ]}
+                                    required
+                                />
+                                <Input
+                                    id="clearance-in-actual-date"
+                                    name="operational_occurred_at"
+                                    type="date"
+                                    label="Tanggal kedatangan aktual"
+                                    value={activeDetail.operational_occurred_at}
+                                    max={getCurrentLocalDate()}
+                                    onChange={(event) => updateActiveDetail('operational_occurred_at', event.target.value)}
+                                    autoComplete="off"
+                                    required
+                                />
+                            </div>
+                        )}
+
+                        {tempRequestType === CLEARANCE_OUT && !selectedRequestTypeBlockReason && activeDetail && (
+                            <div className="border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]">
+                                <Input
+                                    id="clearance-out-actual-date"
+                                    name="operational_occurred_at"
+                                    type="date"
+                                    label="Tanggal keberangkatan aktual"
+                                    value={activeDetail.operational_occurred_at}
+                                    max={getCurrentLocalDate()}
+                                    onChange={(event) => updateActiveDetail('operational_occurred_at', event.target.value)}
+                                    autoComplete="off"
+                                    required
+                                />
+                            </div>
+                        )}
 
                         {/* Helper text for Kebutuhan Kapal */}
                         {tempRequestType === 'Kebutuhan Kapal' && (
@@ -621,7 +772,12 @@ export default function RequestsCreate({
                             </button>
                             <button
                                 type="button"
-                                disabled={!tempRequestType}
+                                disabled={
+                                    !tempRequestType ||
+                                    Boolean(selectedRequestTypeBlockReason) ||
+                                    ([CLEARANCE_IN, CLEARANCE_OUT].includes(tempRequestType) && !activeDetail?.operational_occurred_at) ||
+                                    (tempRequestType === CLEARANCE_IN && !['anchored', 'berthed'].includes(activeDetail?.requested_port_call_status || ''))
+                                }
                                 onClick={confirmPickType}
                                 className="flex-1 py-3 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
@@ -750,7 +906,22 @@ export default function RequestsCreate({
                             </div>
 
                             <div className="space-y-4">
-                                {(activeDetail.items || []).map((item, idx) => (
+                                {(activeDetail.items || []).length === 0 ? (
+                                    <div className="p-6 text-center rounded-xl border border-dashed border-[#BCE0FD] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] space-y-2">
+                                        <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                            Belum ada item kebutuhan yang ditambahkan.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={addItem}
+                                            className="px-3.5 py-2 rounded-lg bg-[#0060F4] text-white text-xs font-bold shadow-xs hover:bg-[#082870] transition-all cursor-pointer inline-flex items-center gap-1.5"
+                                        >
+                                            <span className="text-base font-bold leading-none">+</span>
+                                            <span>Tambah Item Kebutuhan</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    (activeDetail.items || []).map((item, idx) => (
                                     <div
                                         key={item.id}
                                         className="p-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] space-y-3.5"
@@ -884,17 +1055,19 @@ export default function RequestsCreate({
                                             />
                                         </div>
                                     </div>
-                                ))}
+                                )))}
 
                                 {/* Tambah Item */}
-                                <button
-                                    type="button"
-                                    onClick={addItem}
-                                    className="w-full py-3 rounded-xl border-2 border-dashed border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#081528] text-[#0060F4] dark:text-[#38BDF8] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                                >
-                                    <span className="text-base font-bold">+</span>
-                                    <span>Tambah Item Lain</span>
-                                </button>
+                                {(activeDetail.items || []).length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={addItem}
+                                        className="w-full py-3 rounded-xl border-2 border-dashed border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#081528] text-[#0060F4] dark:text-[#38BDF8] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                                    >
+                                        <span className="text-base font-bold">+</span>
+                                        <span>Tambah Item Lain</span>
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -960,7 +1133,8 @@ export default function RequestsCreate({
                     STAGE: review  —  Review semua kapal & Submit
                 ══════════════════════════════════════════ */}
                 {stage === 'review' && (
-                    <form onSubmit={handleSubmit} className={`${cardCls} space-y-5`}>
+                    <form noValidate onSubmit={handleSubmit} className={`${cardCls} space-y-5`}>
+                        <FormErrorSummary errors={submissionErrors} />
                         <div className="border-b border-[#DCEAF8] dark:border-[#1E3A5F] pb-3">
                             <h2 className="text-lg font-black text-[#0B1F63] dark:text-white">Review Pengajuan</h2>
                             <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">
@@ -970,15 +1144,16 @@ export default function RequestsCreate({
 
                         {/* Review cards */}
                         <div className="space-y-3">
-                            {ships
-                                .filter((s) => configuredShipIds.includes(s.id))
-                                .map((ship, idx) => {
-                                    const det = shipDetails[ship.id];
+                            {portCalls
+                                .filter((visit) => configuredVisitIds.includes(visit.id))
+                                .map((visit, idx) => {
+                                    const ship = visit.ship;
+                                    const det = shipDetails[visit.id];
                                     const items = det?.items || [];
 
                                     return (
                                         <div
-                                            key={ship.id}
+                                            key={visit.id}
                                             className="p-4 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] flex items-start justify-between gap-3"
                                         >
                                             <div className="flex items-start gap-3 min-w-0">
@@ -989,6 +1164,9 @@ export default function RequestsCreate({
                                                     <h3 className="text-sm font-bold text-[#0B1F63] dark:text-white truncate">
                                                         {ship.name}
                                                     </h3>
+                                                    <p className="font-mono text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                                        {visit.job_number}
+                                                    </p>
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="text-xs font-semibold text-[#0060F4] dark:text-[#38BDF8]">
                                                             {det?.request_type}
@@ -1004,6 +1182,14 @@ export default function RequestsCreate({
                                                             </span>
                                                         )}
                                                     </div>
+                                                    {[CLEARANCE_IN, CLEARANCE_OUT].includes(det?.request_type || '') && (
+                                                        <p className="text-pretty text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                            {det?.request_type === CLEARANCE_IN
+                                                                ? `Target ${det.requested_port_call_status === 'berthed' ? 'Sandar' : 'Labuh'}`
+                                                                : 'Target Selesai'}
+                                                            {' · '}{formatDisplayDate(det?.operational_occurred_at)}
+                                                        </p>
+                                                    )}
                                                     {det?.request_type === 'Kebutuhan Kapal' && (
                                                         <div>
                                                             {items.length > 0 ? (
@@ -1031,7 +1217,7 @@ export default function RequestsCreate({
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    setActiveShipId(ship.id);
+                                                    setActiveShipId(visit.id);
                                                     setTempRequestType(det?.request_type || '');
                                                     if (det?.request_type === 'Kebutuhan Kapal') {
                                                         setReturnToReviewAfterKebutuhan(true);
@@ -1062,6 +1248,12 @@ export default function RequestsCreate({
                                 className="w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
                             />
                         </div>
+
+                        {submissionError && Object.keys(submissionErrors).length === 0 && (
+                            <p role="alert" className="rounded-xl border border-[#F8BAC5] bg-[#FFF1F3] px-4 py-3 text-pretty text-xs font-semibold text-[#C62840] dark:border-rose-900 dark:bg-rose-950/35 dark:text-rose-300">
+                                {submissionError}
+                            </p>
+                        )}
 
                         {/* Actions */}
                         <div className="pt-4 border-t border-[#DCEAF8] dark:border-[#1E3A5F] flex items-center gap-3">
@@ -1100,12 +1292,16 @@ export default function RequestsCreate({
                             <h2 className="text-xl font-black text-[#0B1F63] dark:text-white">
                                 Pengajuan Berhasil Dikirim!
                             </h2>
-                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Nomor Pengajuan</p>
-                            <span className="font-mono text-lg font-black text-[#0060F4] dark:text-[#38BDF8] block">
-                                {submittedNumber}
-                            </span>
+                            {submittedNumber && (
+                                <>
+                                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Nomor Pengajuan</p>
+                                    <span className="font-mono text-lg font-black text-[#0060F4] dark:text-[#38BDF8] block">
+                                        {submittedNumber}
+                                    </span>
+                                </>
+                            )}
                             <p className="text-xs font-bold text-[#0B1F63] dark:text-white pt-1">
-                                {configuredCount} Kapal • {configuredCount} Pengajuan
+                                {configuredCount} Job • {configuredCount} Pengajuan
                             </p>
                             <p className="text-xs text-[#52658E] dark:text-[#94A3B8] max-w-sm mx-auto pt-1 leading-relaxed">
                                 Pengajuan Anda telah dikirim ke Bu Titik. Status dapat dipantau di menu Pengajuan.

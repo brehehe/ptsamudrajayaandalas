@@ -9,8 +9,7 @@ class PortCallPolicy
 {
     public function updateStatus(User $user, PortCall $portCall): bool
     {
-        return $user->isOwner()
-            || $user->isOperationalAdmin()
+        return $user->isOperationalAdmin()
             || $user->isStaff();
     }
 }

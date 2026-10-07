@@ -25,7 +25,7 @@ class OperationController extends Controller
 {
     public function index(Request $request): Response
     {
-        $tab = $request->query('tab', 'kunjungan'); // 'kunjungan' | 'laporan'
+        $tab = $request->query('tab', 'aktivitas'); // 'aktivitas' | 'kunjungan' | 'laporan'
         $search = $request->query('search');
 
         $portCallsQuery = PortCall::query()
@@ -183,7 +183,7 @@ class OperationController extends Controller
                 : now();
             $lastEventAt = $portCall->berthed_at ?? $portCall->arrived_at;
             if ($lastEventAt && $occurredAt->lt($lastEventAt)) {
-                throw ValidationException::withMessages(['occurred_at' => 'Waktu kejadian tidak boleh mendahului kedatangan atau sandar terakhir.']);
+                throw ValidationException::withMessages(['occurred_at' => 'Tanggal kejadian tidak boleh mendahului kedatangan atau sandar terakhir.']);
             }
 
             if ($previousStatus === 'scheduled' || $nextStatus === 'departed') {
@@ -270,8 +270,8 @@ class OperationController extends Controller
             'unit' => 'Dokumen',
             'quantity' => 1,
             'required_date' => now()->toDateString(),
-            'hpp_price' => $product?->hpp_default ?? 750000,
-            'selling_price' => $product?->selling_price_default ?? 1500000,
+            'hpp_price' => $product?->hpp_default ?? 0,
+            'selling_price' => $product?->selling_price_default ?? 0,
             'is_urgent' => true,
             'status' => 'pending',
             'director_status' => 'pending',

@@ -3,6 +3,7 @@ import { Head, Link } from '@inertiajs/react';
 import AppLayout from '../../../Layouts/AppLayout';
 import Card from '../../../Components/ui/Card';
 import Modal from '../../../Components/overlays/Modal';
+import MobilePageHero from '../../../Components/navigation/MobilePageHero';
 
 interface UserSummary {
     id: number;
@@ -59,14 +60,16 @@ export default function MasterRolesIndex({ roles = [] }: MasterRolesProps) {
     const [viewingRole, setViewingRole] = useState<RoleItem | null>(null);
 
     return (
-        <AppLayout title="Master Peran & Hak Akses">
+        <AppLayout title="Master Peran & Hak Akses" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Master Role — PT Samudra Jaya Andalas" />
 
-            <div className="space-y-6">
+            <MobilePageHero title="Peran & Hak Akses" description="Lihat pembagian kewenangan setiap peran di sistem SJA." />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
                 {/* Header Banner */}
                 <div
                     className={
-                        'flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white ' +
+                        'hidden flex-col md:flex-row md:items-center justify-between gap-4 bg-white md:flex ' +
                         'p-5 md:p-6 rounded-[16px] border border-[#DCEAF8] ' +
                         'shadow-[0_2px_12px_rgba(8,40,112,0.04)]'
                     }

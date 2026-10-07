@@ -1,4 +1,5 @@
 import DashboardAnalytics, { type DashboardChartData } from '@/Components/dashboard/DashboardAnalytics';
+import ReceivablesOverview, { type ReceivablesOverviewData } from '@/Components/dashboard/ReceivablesOverview';
 import { Link } from '@inertiajs/react';
 import {
     Activity,
@@ -24,6 +25,9 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import RoleDashboardMobileView from './RoleDashboardMobileView';
+import ShipImage from '@/Components/vessels/ShipImage';
+import Table, { type Column } from '@/Components/tables/Table';
 
 type DashboardRole = 'admin' | 'operasional' | 'direktur' | 'owner';
 type MetricFormat = 'number' | 'currency' | 'percentage';
@@ -60,6 +64,7 @@ interface PipelineItem {
 
 export interface RoleDashboardData {
     role: DashboardRole;
+    is_read_only: boolean;
     eyebrow: string;
     title: string;
     subtitle: string;
@@ -85,7 +90,7 @@ interface RoleDashboardViewProps {
 }
 
 const roleMeta: Record<DashboardRole, { label: string; icon: LucideIcon }> = {
-    operasional: { label: 'Pusat Kendali Operasional Lapangan', icon: Anchor },
+    operasional: { label: 'Pusat Kendali Aktifitas Lapangan', icon: Anchor },
     admin: { label: 'Pusat Kendali Administrasi & Operasional', icon: ClipboardCheck },
     direktur: { label: 'Pusat Persetujuan & Pengawasan', icon: Landmark },
     owner: { label: 'Ringkasan Strategis Perusahaan', icon: Building2 },
@@ -199,10 +204,18 @@ function Panel({ title, subtitle, href, linkLabel = 'Lihat semua', children, cla
 
 function LatestRequests({ requests }: { requests: any[] }) {
     if (!requests.length) {
-        return <EmptyState title="Belum ada pengajuan terbaru" href="/requests" action="Buka pengajuan" />;
+        return <EmptyState title="Data Tidak Ditemukan" href="/requests" action="Buka pengajuan" />;
     }
 
     const items = requests.slice(0, 5);
+    const columns: Column<any>[] = [
+        { key: 'request_number', header: 'No. Pengajuan', wrap: 'normal', render: (request) => <Link href={`/requests/${request.id}`} className="font-extrabold text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">{request.request_number}</Link> },
+        { key: 'date', header: 'Tanggal' },
+        { key: 'ship_name', header: 'Kapal', wrap: 'normal' },
+        { key: 'items_count', header: 'Jumlah', render: (request) => `${request.items_count} kebutuhan` },
+        { key: 'estimated_cost', header: 'Nilai Estimasi', align: 'right', render: (request) => formatValue(request.estimated_cost, 'currency') },
+        { key: 'status', header: 'Status', render: (request) => <StatusBadge status={request.status} /> },
+    ];
 
     return (
         <>
@@ -213,26 +226,12 @@ function LatestRequests({ requests }: { requests: any[] }) {
                             <div className="min-w-0"><p className="truncate text-xs font-extrabold text-[#0B1F63] dark:text-white">{request.request_number}</p><p className="mt-0.5 truncate text-[11px] text-[#52658E] dark:text-[#9FB0C6]">{request.ship_name} · {request.items_count} kebutuhan</p></div>
                             <StatusBadge status={request.status} />
                         </div>
-                        <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#52658E] dark:text-[#9FB0C6]"><span>{request.date} · {request.time}</span><span className="font-bold tabular-nums text-[#0B1F63] dark:text-white">{formatValue(request.estimated_cost, 'currency')}</span></div>
+                        <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#52658E] dark:text-[#9FB0C6]"><span>{request.date}</span><span className="font-bold tabular-nums text-[#0B1F63] dark:text-white">{formatValue(request.estimated_cost, 'currency')}</span></div>
                     </Link>
                 ))}
             </div>
-            <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[660px] text-left text-[10px]">
-                    <thead className="bg-[#F3F8FD] text-[#52658E] dark:bg-[#10243E] dark:text-[#9FB0C6]"><tr><th className="rounded-l-lg px-3 py-2 font-bold">No. Pengajuan</th><th className="px-3 py-2 font-bold">Tanggal</th><th className="px-3 py-2 font-bold">Kapal</th><th className="px-3 py-2 font-bold">Jumlah</th><th className="px-3 py-2 font-bold">Nilai Estimasi</th><th className="rounded-r-lg px-3 py-2 font-bold">Status</th></tr></thead>
-                    <tbody className="divide-y divide-[#EAF1F8] dark:divide-[#1E3A5F]">
-                        {items.map((request) => (
-                            <tr key={request.id} className="hover:bg-[#F8FBFF] dark:hover:bg-[#10243E]">
-                                <td className="px-3 py-2.5"><Link href={`/requests/${request.id}`} className="font-extrabold text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">{request.request_number}</Link></td>
-                                <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-[#52658E] dark:text-[#9FB0C6]">{request.date}<br />{request.time}</td>
-                                <td className="max-w-40 px-3 py-2.5 font-semibold text-[#0B1F63] dark:text-white">{request.ship_name}</td>
-                                <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-[#52658E] dark:text-[#9FB0C6]">{request.items_count} kebutuhan</td>
-                                <td className="whitespace-nowrap px-3 py-2.5 font-bold tabular-nums text-[#0B1F63] dark:text-white">{formatValue(request.estimated_cost, 'currency')}</td>
-                                <td className="px-3 py-2.5"><StatusBadge status={request.status} /></td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            <div className="hidden md:block">
+                <Table columns={columns} data={items} keyExtractor={(request) => request.id} compact minWidth="660px" />
             </div>
         </>
     );
@@ -264,7 +263,7 @@ function ActiveShips({ ships }: { ships: any[] }) {
         <div className="grid gap-2 sm:grid-cols-2">
             {ships.slice(0, 6).map((shipItem) => (
                 <Link key={shipItem.id} href={`/vessels/${shipItem.ship_id}?visit=${shipItem.id}`} className="group grid min-h-[74px] grid-cols-[54px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[#E5EEF7] p-2.5 hover:border-[#9CC9F5] hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#10243E]">
-                    {shipItem.image_url ? <img src={shipItem.image_url} width="54" height="54" loading="lazy" alt="" className="size-[54px] rounded-lg object-cover" /> : <span className="flex size-[54px] items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]"><Ship aria-hidden="true" className="size-6" /></span>}
+                    <ShipImage src={shipItem.image_url} width="54" height="54" loading="lazy" alt={`Foto ${shipItem.name}`} className="size-[54px] rounded-lg object-cover" placeholderIconClassName="size-6" />
                     <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">{shipItem.name}</span><span className="mt-1 block truncate text-[10px] text-[#52658E] dark:text-[#9FB0C6]">{shipItem.port}</span><span className="mt-1 block truncate text-[9px] tabular-nums text-[#7C91AC]">{shipItem.eta}</span></span>
                     <span className="flex flex-col items-end gap-1"><StatusBadge status={shipItem.status} /><ArrowRight aria-hidden="true" className="size-3.5 text-[#8BA4C1] group-hover:text-[#0060F4]" /></span>
                 </Link>
@@ -331,7 +330,7 @@ function PriorityList({ priorities }: { priorities: Priority[] }) {
     return (
         <div className="space-y-2">
             {priorities.map((priority) => (
-                <Link key={priority.title} href={priority.href} className={`grid min-h-14 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${priorityStyles[priority.tone]}`}>
+                <Link key={priority.title} href={priority.href} className={`grid min-h-14 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border px-3 py-2 hover:brightness-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:brightness-110 ${priorityStyles[priority.tone]}`}>
                     <span className="flex size-9 items-center justify-center rounded-lg bg-white/80 text-sm font-black tabular-nums shadow-sm dark:bg-black/15">{new Intl.NumberFormat('id-ID').format(priority.count)}</span>
                     <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold">{priority.title}</span><span className="mt-0.5 block truncate text-[9px] opacity-80">{priority.description}</span></span>
                     <ArrowRight aria-hidden="true" className="size-3.5" />
@@ -362,9 +361,30 @@ function QuickActions({ actions }: { actions: QuickAction[] }) {
 export default function RoleDashboardView({ dashboard, userName, liveDate, liveTime, latestRequests, needsToday, activeShips, recentActivities, pendingApprovals, financialOverview }: RoleDashboardViewProps) {
     const meta = roleMeta[dashboard.role];
     const RoleIcon = meta.icon;
+    const receivablesOverview: ReceivablesOverviewData | null = financialOverview
+        ? {
+              aging: financialOverview.aging,
+              receivables_by_company: financialOverview.receivables_by_company ?? [],
+          }
+        : null;
 
     return (
-        <div className="mx-auto w-full max-w-[1680px] space-y-3 sm:space-y-4">
+        <>
+            <RoleDashboardMobileView
+                dashboard={dashboard}
+                userName={userName}
+                liveDate={liveDate}
+                liveTime={liveTime}
+                activeShips={activeShips}
+                recentActivities={recentActivities}
+                latestRequests={latestRequests}
+                needsToday={needsToday}
+                pendingApprovals={pendingApprovals}
+                recentInvoices={financialOverview?.recent_invoices ?? []}
+                receivablesOverview={receivablesOverview}
+            />
+
+            <div className="mx-auto hidden w-full max-w-[1680px] space-y-3 sm:space-y-4 md:block">
             <section className="relative isolate min-h-[210px] overflow-hidden rounded-2xl bg-[#082870] text-white shadow-sm md:min-h-[190px]">
                 <img src="/images/background-kapal.png" width="1600" height="230" fetchPriority="high" alt="" className="absolute inset-0 -z-20 size-full object-cover" />
                 <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#061B3D]/90 via-[#082870]/50 to-[#061B3D]/70" />
@@ -372,7 +392,15 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
                     <div className="flex flex-col justify-center px-5 py-5 sm:px-7 lg:px-8">
                         <p className="text-sm font-medium text-white/85">Selamat datang,</p>
                         <h1 className="mt-1 text-balance text-3xl font-black leading-none text-white sm:text-4xl">{userName}</h1>
-                        <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-white/90"><RoleIcon aria-hidden="true" className="size-4" />{meta.label}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-white/90">
+                            <RoleIcon aria-hidden="true" className="size-4" />
+                            {meta.label}
+                            {dashboard.is_read_only && (
+                                <span className="rounded-full border border-white/25 bg-white/15 px-2.5 py-1 text-[10px] font-bold text-white">
+                                    Mode lihat saja
+                                </span>
+                            )}
+                        </div>
                         <p className="mt-3 max-w-2xl text-pretty text-xs italic leading-5 text-white/80 sm:text-sm">“{dashboard.subtitle}”</p>
                     </div>
                     <div className="flex items-end justify-between gap-3 border-t border-white/15 bg-[#061B3D]/25 px-5 py-4 md:flex-col md:items-end md:justify-center md:border-l md:border-t-0 md:px-6 md:text-right">
@@ -404,12 +432,16 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
                 {dashboard.role === 'owner' && <><Panel title="Tagihan klien terbaru" subtitle="Invoice dan saldo yang masih harus ditagih" href="/receivables" className="xl:col-span-7"><RecentInvoices invoices={financialOverview?.recent_invoices ?? []} /></Panel><Panel title="Kapal dalam pemantauan" subtitle="Kunjungan aktif di seluruh kegiatan" href="/vessels" className="xl:col-span-5"><ActiveShips ships={activeShips} /></Panel></>}
             </div>
 
+            {dashboard.role !== 'operasional' && receivablesOverview && (
+                <ReceivablesOverview data={receivablesOverview} headingId="desktop-receivables-overview-title" />
+            )}
+
             <DashboardAnalytics charts={dashboard.charts} />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
                 <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="md:col-span-2 xl:col-span-6"><RecentActivities activities={recentActivities} /></Panel>
-                <Panel title="Prioritas Anda" subtitle="Pekerjaan yang perlu ditindaklanjuti" className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
-                <Panel title="Akses cepat" subtitle={`Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
+                <Panel title={dashboard.is_read_only ? 'Perlu dipantau' : 'Prioritas Anda'} subtitle={dashboard.is_read_only ? 'Ringkasan yang memerlukan perhatian Owner' : 'Pekerjaan yang perlu ditindaklanjuti'} className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
+                <Panel title={dashboard.is_read_only ? 'Akses pemantauan' : 'Akses cepat'} subtitle={dashboard.is_read_only ? 'Seluruh menu Owner bersifat lihat saja' : `Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
             </div>
 
             {dashboard.role === 'admin' && (
@@ -418,6 +450,7 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
                     <div><h2 className="text-sm font-extrabold text-[#0B1F63] dark:text-white">Kontrol dokumen sampai pembayaran</h2><p className="mt-1 text-pretty text-[11px] leading-4 text-[#52658E] dark:text-[#9FB0C6]">Pastikan invoice vendor, bukti pembayaran, Nota Rampung, dan invoice klien terhubung dengan SPK serta kunjungan yang benar.</p></div>
                 </div>
             )}
-        </div>
+            </div>
+        </>
     );
 }

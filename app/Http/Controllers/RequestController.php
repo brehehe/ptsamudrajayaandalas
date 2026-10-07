@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\ShipRequestSubmitted;
 use App\Models\Invoice;
 use App\Models\Port;
+use App\Models\PortCall;
 use App\Models\Product;
 use App\Models\ProductPortPrice;
 use App\Models\RequestItem;
@@ -15,7 +16,11 @@ use App\Models\ShipRequest;
 use App\Models\Vendor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -27,24 +32,30 @@ class RequestController extends Controller
         $tab = $request->query('tab', 'semua');
         $search = $request->query('search');
 
+        $includedStatuses = match ($tab) {
+            'menunggu' => ['Menunggu Approval', 'Menunggu', 'pending'],
+            'diproses' => ['Dalam Proses', 'Diproses', 'Disetujui', 'Disetujui Sebagian'],
+            'selesai', 'riwayat' => ['Selesai', 'Dibatalkan'],
+            default => null,
+        };
+        $excludedStatuses = $tab === 'aktif' ? ['Selesai', 'Dibatalkan'] : null;
+
         $query = ShipRequest::query()->with([
             'ship.company',
             'company',
             'port',
+            'portCall.workOrder',
+            'portCall.port',
             'creator',
             'invoices',
             'items.product.vendor',
             'items.vendor',
         ]);
 
-        if ($tab === 'menunggu') {
-            $query->whereIn('status', ['Menunggu Approval', 'Menunggu', 'pending']);
-        } elseif ($tab === 'diproses') {
-            $query->whereIn('status', ['Dalam Proses', 'Diproses', 'Disetujui', 'Disetujui Sebagian']);
-        } elseif ($tab === 'selesai' || $tab === 'riwayat') {
-            $query->whereIn('status', ['Selesai', 'Dibatalkan']);
-        } elseif ($tab === 'aktif') {
-            $query->whereNotIn('status', ['Selesai', 'Dibatalkan']);
+        if ($includedStatuses) {
+            $query->whereIn('status', $includedStatuses);
+        } elseif ($excludedStatuses) {
+            $query->whereNotIn('status', $excludedStatuses);
         }
 
         if ($search) {
@@ -54,17 +65,64 @@ class RequestController extends Controller
                     ->orWhere('notes', $like, "%{$search}%")
                     ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"))
                     ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"))
-                    ->orWhereHas('items', fn ($iq) => $iq->where('item_name', $like, "%{$search}%"));
+                    ->orWhereHas('items', fn ($iq) => $iq->where('item_name', $like, "%{$search}%"))
+                    ->orWhereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$search}%"));
             });
         }
 
         $requests = $query->orderByDesc('created_at')->get();
 
-        $semuaCount = ShipRequest::count();
-        $menungguCount = ShipRequest::whereIn('status', ['Menunggu Approval', 'Menunggu', 'pending'])->count();
-        $diprosesCount = ShipRequest::whereIn('status', ['Dalam Proses', 'Diproses', 'Disetujui', 'Disetujui Sebagian'])->count();
-        $selesaiCount = ShipRequest::whereIn('status', ['Selesai', 'Dibatalkan'])->count();
-        $activeCount = ShipRequest::whereNotIn('status', ['Selesai', 'Dibatalkan'])->count();
+        $portCallsQuery = PortCall::query()->with([
+            'ship.company',
+            'port',
+            'workOrder',
+        ]);
+
+        if ($includedStatuses) {
+            $portCallsQuery->whereHas('requests', fn ($query) => $query->whereIn('status', $includedStatuses));
+        } elseif ($excludedStatuses) {
+            $portCallsQuery->whereHas('requests', fn ($query) => $query->whereNotIn('status', $excludedStatuses));
+        }
+
+        if ($search) {
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $portCallsQuery->where(function ($query) use ($search, $like) {
+                $query->where('job_number', $like, "%{$search}%")
+                    ->orWhereHas('ship', function ($shipQuery) use ($search, $like) {
+                        $shipQuery->where('name', $like, "%{$search}%")
+                            ->orWhereHas('company', fn ($companyQuery) => $companyQuery->where('name', $like, "%{$search}%"));
+                    })
+                    ->orWhereHas('port', fn ($portQuery) => $portQuery->where('name', $like, "%{$search}%"))
+                    ->orWhereHas('requests', function ($requestQuery) use ($search, $like) {
+                        $requestQuery->where('request_number', $like, "%{$search}%")
+                            ->orWhere('notes', $like, "%{$search}%")
+                            ->orWhereHas('items', fn ($itemQuery) => $itemQuery->where('item_name', $like, "%{$search}%"));
+                    });
+            });
+        }
+
+        $portCalls = $portCallsQuery->orderByDesc('created_at')->get();
+
+        $countRows = function (?array $included = null, ?array $excluded = null): int {
+            $portCallQuery = PortCall::query();
+            $orphanRequestQuery = ShipRequest::query()->whereNull('port_call_id');
+
+            if ($included) {
+                $portCallQuery->whereHas('requests', fn ($query) => $query->whereIn('status', $included));
+                $orphanRequestQuery->whereIn('status', $included);
+            } elseif ($excluded) {
+                $portCallQuery->whereHas('requests', fn ($query) => $query->whereNotIn('status', $excluded));
+                $orphanRequestQuery->whereNotIn('status', $excluded);
+            }
+
+            return $portCallQuery->count() + $orphanRequestQuery->count();
+        };
+
+        $semuaCount = $countRows();
+        $menungguCount = $countRows(['Menunggu Approval', 'Menunggu', 'pending']);
+        $diprosesCount = $countRows(['Dalam Proses', 'Diproses', 'Disetujui', 'Disetujui Sebagian']);
+        $selesaiCount = $countRows(['Selesai', 'Dibatalkan']);
+        $activeCount = $countRows(null, ['Selesai', 'Dibatalkan']);
         $historyCount = $selesaiCount;
 
         $ships = Ship::query()->where('is_active', true)->with('company')->orderBy('name')->get();
@@ -73,13 +131,32 @@ class RequestController extends Controller
         $products = Product::query()->where('is_active', true)->with('vendor')->orderBy('name')->get();
         $vendors = Vendor::query()->where('is_active', true)->orderBy('name')->get();
 
+        $canReviewPrices = $request->user()?->isOperationalAdmin() ?? false;
+        $canDecideItems = $request->user()?->isDirector() ?? false;
+        $canViewHpp = $canReviewPrices || $canDecideItems || ($request->user()?->isOwner() ?? false);
+
+        if (! $canViewHpp) {
+            $requests->each(function ($req) {
+                $req->items->each->makeHidden('hpp_price');
+            });
+            $products->each->makeHidden('hpp_default');
+        }
+
         return Inertia::render('Requests/Index', [
             'requests' => $requests,
+            'portCalls' => $portCalls,
             'ships' => $ships,
             'companies' => $companies,
             'ports' => $ports,
             'products' => $products,
             'vendors' => $vendors,
+            'capabilities' => [
+                'can_review_prices' => $canReviewPrices,
+                'can_decide_items' => $canDecideItems,
+                'can_view_hpp' => $canViewHpp,
+                'can_create_requests' => $request->user()?->can('create', ShipRequest::class) ?? false,
+                'can_process_requests' => $request->user()?->isOperationalAdmin() ?? false,
+            ],
             'counts' => [
                 'semua' => $semuaCount,
                 'menunggu' => $menungguCount,
@@ -93,18 +170,66 @@ class RequestController extends Controller
         ]);
     }
 
-    public function show(Request $request, ShipRequest $shipRequest): Response
+    public function show(Request $request, string $id): Response
     {
-        $shipRequest->load([
+        $isUuid = Str::isUuid($id);
+
+        // 1. Try finding PortCall (Job) by ID or job_number
+        $portCallQuery = PortCall::with([
             'ship.company',
-            'company',
             'port',
-            'portCall.port',
-            'creator',
-            'invoices',
-            'items.product.vendor',
-            'items.vendor',
+            'workOrder',
+            'requests.ship.company',
+            'requests.company',
+            'requests.port',
+            'requests.creator',
+            'requests.invoices',
+            'requests.items.product.vendor',
+            'requests.items.vendor',
         ]);
+
+        $portCall = $isUuid
+            ? $portCallQuery->where('id', $id)->first()
+            : $portCallQuery->where('job_number', $id)->first();
+
+        $shipRequest = null;
+
+        if ($portCall) {
+            $reqQuery = $request->query('req');
+            if ($reqQuery) {
+                $shipRequest = $portCall->requests->first(function ($r) use ($reqQuery) {
+                    return $r->id === $reqQuery || $r->request_number === $reqQuery;
+                }) ?? $portCall->requests->first();
+            } else {
+                $shipRequest = $portCall->requests->first();
+            }
+        } else {
+            // 2. Try finding ShipRequest by ID or request_number
+            $shipRequestQuery = ShipRequest::with([
+                'ship.company',
+                'company',
+                'port',
+                'portCall.port',
+                'portCall.workOrder',
+                'portCall.ship.company',
+                'portCall.requests.creator',
+                'portCall.requests.invoices',
+                'portCall.requests.items.product.vendor',
+                'portCall.requests.items.vendor',
+                'creator',
+                'invoices',
+                'items.product.vendor',
+                'items.vendor',
+            ]);
+
+            $shipRequest = $isUuid
+                ? $shipRequestQuery->where('id', $id)->firstOrFail()
+                : $shipRequestQuery->where('request_number', $id)->firstOrFail();
+
+            $portCall = $shipRequest->portCall;
+        }
+
+        $allRequests = $portCall ? $portCall->requests : ($shipRequest ? collect([$shipRequest]) : collect());
 
         $products = Product::query()
             ->where('is_active', true)
@@ -119,22 +244,31 @@ class RequestController extends Controller
                 'hpp_default',
             ]);
 
-        $canReviewPrices = $request->user()?->isOperationalAdmin() || $request->user()?->isOwner();
-        $canDecideItems = $request->user()?->isDirector() || $request->user()?->isOwner();
-        $canViewHpp = $canReviewPrices || $canDecideItems;
+        $canReviewPrices = $request->user()?->isOperationalAdmin() ?? false;
+        $canDecideItems = $request->user()?->isDirector() ?? false;
+        $canViewHpp = $canReviewPrices || $canDecideItems || ($request->user()?->isOwner() ?? false);
 
         if (! $canViewHpp) {
-            $shipRequest->items->each->makeHidden('hpp_price');
+            if ($shipRequest) {
+                $shipRequest->items->each->makeHidden('hpp_price');
+            }
+            foreach ($allRequests as $req) {
+                $req->items->each->makeHidden('hpp_price');
+            }
             $products->each->makeHidden('hpp_default');
         }
 
         return Inertia::render('Requests/Show', [
-            'request' => $shipRequest,
+            'job' => $portCall,
+            'requests' => $allRequests,
+            'request' => $shipRequest ?? $allRequests->first(),
             'products' => $products,
             'capabilities' => [
                 'can_review_prices' => $canReviewPrices,
                 'can_decide_items' => $canDecideItems,
                 'can_view_hpp' => $canViewHpp,
+                'can_create_requests' => $request->user()?->can('create', ShipRequest::class) ?? false,
+                'can_process_requests' => $request->user()?->isOperationalAdmin() ?? false,
             ],
         ]);
     }
@@ -142,10 +276,29 @@ class RequestController extends Controller
     /**
      * Show 3-Step Wizard for Lapangan (Pak Prima)
      */
-    public function create(): Response
+    public function create(Request $request): Response
     {
+        Gate::authorize('create', ShipRequest::class);
+
         $companies = ShipCompany::where('is_active', true)->orderBy('name')->get();
         $ships = Ship::where('is_active', true)->with('company')->orderBy('name')->get();
+        $portCalls = PortCall::query()
+            ->whereHas('ship', fn ($query) => $query->where('is_active', true))
+            ->whereIn('status', ['scheduled', 'anchored', 'berthed'])
+            ->with([
+                'ship.company',
+                'port',
+                'workOrder',
+                'clearanceInRequests:id,port_call_id',
+            ])
+            ->orderByDesc('eta_at')
+            ->orderByDesc('created_at')
+            ->get()
+            ->each(function (PortCall $portCall): void {
+                $portCall->setAttribute('clearance_in_block_reason', $portCall->clearanceInBlockReason());
+                $portCall->setAttribute('can_clearance_out', in_array($portCall->status, ['anchored', 'berthed'], true));
+                $portCall->unsetRelation('clearanceInRequests');
+            });
         $ports = Port::where('is_active', true)->orderBy('name')->get();
         $serviceTypes = ServiceType::where('is_active', true)->orderByDesc('is_default')->orderBy('name')->get();
         $products = Product::where('is_active', true)->with(['vendor', 'portPrices'])->orderBy('item_type')->orderBy('name')->get();
@@ -153,6 +306,7 @@ class RequestController extends Controller
         return Inertia::render('Requests/Create', [
             'companies' => $companies,
             'ships' => $ships,
+            'portCalls' => $portCalls,
             'ports' => $ports,
             'serviceTypes' => $serviceTypes,
             'products' => $products,
@@ -164,12 +318,15 @@ class RequestController extends Controller
      */
     public function storeWizard(Request $request): RedirectResponse
     {
+        Gate::authorize('create', ShipRequest::class);
+
         $validated = $request->validate([
             // Wizard 1: Perusahaan, Kapal, Type, Pelabuhan
             'company_id' => ['nullable', 'uuid', 'exists:ship_companies,id'],
             'is_new_company' => ['nullable', 'boolean'],
             'new_company_name' => ['nullable', 'required_if:is_new_company,true', 'string', 'max:255'],
             'ship_id' => ['nullable', 'uuid', 'exists:ships,id'],
+            'port_call_id' => ['nullable', 'uuid', 'exists:port_calls,id'],
             'is_new_ship' => ['nullable', 'boolean'],
             'new_ship_name' => ['nullable', 'required_if:is_new_ship,true', 'string', 'max:255'],
             'new_ship_imo' => ['nullable', 'string', 'max:50'],
@@ -209,8 +366,8 @@ class RequestController extends Controller
             if (! empty($validated['is_new_ship']) && ! empty($validated['new_ship_name'])) {
                 $newShip = Ship::create([
                     'name' => trim($validated['new_ship_name']),
-                    'imo_number' => $validated['new_ship_imo'] ?? 'IMO-'.rand(1000000, 9999999),
-                    'ship_type' => 'General Cargo',
+                    'imo_number' => $validated['new_ship_imo'] ?? null,
+                    'ship_type' => null,
                     'status' => $validated['service_type'] === 'Labuh' ? 'Labuh' : 'Akan Datang',
                     'ship_company_id' => $companyId,
                     'is_active' => true,
@@ -237,16 +394,26 @@ class RequestController extends Controller
             $reqNumber = sprintf('REQ-%05d', $nextNum);
 
             // 4. Create ShipRequest
+            $portCall = ! empty($validated['port_call_id'])
+                ? PortCall::whereKey($validated['port_call_id'])->where('ship_id', $shipId)->first()
+                : PortCall::where('ship_id', $shipId)->latest()->first();
+
+            if (! empty($validated['port_call_id']) && ! $portCall) {
+                throw ValidationException::withMessages([
+                    'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                ]);
+            }
             $newRequest = ShipRequest::create([
                 'request_number' => $reqNumber,
                 'ship_id' => $shipId,
                 'company_id' => $companyId,
                 'port_id' => $validated['port_id'],
+                'port_call_id' => $portCall?->id,
                 'service_type' => $validated['service_type'],
                 'created_by' => $request->user()->id,
                 'status' => 'Menunggu Approval',
                 'request_date' => now()->toDateString(),
-                'notes' => $validated['notes'] ?? 'Pengajuan operasional lapangan via Wizard Lapangan.',
+                'notes' => $validated['notes'] ?? null,
             ]);
 
             // 5. Create RequestItems
@@ -323,16 +490,30 @@ class RequestController extends Controller
      */
     public function storeMulti(Request $request): RedirectResponse
     {
+        Gate::authorize('create', ShipRequest::class);
+
         $validated = $request->validate([
             'ships' => ['required', 'array', 'min:1'],
             'ships.*.ship_id' => ['required', 'uuid', 'exists:ships,id'],
-            'ships.*.request_type' => ['required', 'string'],
+            'ships.*.port_call_id' => ['required', 'uuid', 'distinct', 'exists:port_calls,id'],
+            'ships.*.request_type' => [
+                'required',
+                'string',
+                Rule::in([
+                    'Kedatangan (Clearance In)',
+                    'Perpanjangan Surat / Endors Surat Laut',
+                    'Keberangkatan (Clearance Out)',
+                    'Kebutuhan Kapal',
+                ]),
+            ],
             'ships.*.department' => ['nullable', 'string'],
             'ships.*.order_date' => ['nullable', 'date'],
             'ships.*.requester_name' => ['nullable', 'string', 'max:255'],
             'ships.*.requester_phone' => ['nullable', 'string', 'max:50'],
             'ships.*.required_date' => ['nullable', 'date'],
             'ships.*.required_time' => ['nullable', 'string'],
+            'ships.*.requested_port_call_status' => ['nullable', 'string', 'in:anchored,berthed,departed'],
+            'ships.*.operational_occurred_at' => ['nullable', 'date', 'before_or_equal:today'],
             'ships.*.notes' => ['nullable', 'string', 'max:1000'],
             'ships.*.items' => ['nullable', 'array'],
             'ships.*.items.*.product_id' => ['nullable', 'uuid'],
@@ -357,30 +538,91 @@ class RequestController extends Controller
             }
             $batchCode = sprintf('PGJ-%s-%04d', $year, $nextNum);
 
-            $defaultPort = Port::where('is_active', true)->first();
             $createdRequests = [];
-            $shipIndex = 0;
 
-            foreach ($validated['ships'] as $shipData) {
-                $shipIndex++;
-                $ship = Ship::with('company')->find($shipData['ship_id']);
-                if (! $ship) {
-                    continue;
+            foreach ($validated['ships'] as $shipIndex => $shipData) {
+                $portCall = PortCall::query()
+                    ->with([
+                        'ship.company',
+                        'port',
+                        'clearanceInRequests:id,port_call_id',
+                    ])
+                    ->lockForUpdate()
+                    ->whereKey($shipData['port_call_id'])
+                    ->where('ship_id', $shipData['ship_id'])
+                    ->first();
+
+                if (! $portCall) {
+                    throw ValidationException::withMessages([
+                        "ships.{$shipIndex}.port_call_id" => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                    ]);
                 }
+
+                $ship = $portCall->ship;
+                $requestType = $shipData['request_type'];
+                $requestTypeLower = strtolower($requestType);
+                $isClearanceIn = str_contains($requestTypeLower, 'clearance in') || str_contains($requestTypeLower, 'kedatangan');
+                $isClearanceOut = str_contains($requestTypeLower, 'clearance out') || str_contains($requestTypeLower, 'keberangkatan');
+
+                if ($isClearanceIn && ($blockReason = $portCall->clearanceInBlockReason())) {
+                    throw ValidationException::withMessages([
+                        "ships.{$shipIndex}.request_type" => $blockReason,
+                    ]);
+                }
+
+                if ($isClearanceOut && ! in_array($portCall->status, ['anchored', 'berthed'], true)) {
+                    throw ValidationException::withMessages([
+                        "ships.{$shipIndex}.request_type" => 'Clearance Out hanya dapat diajukan ketika kapal berstatus Labuh atau Sandar.',
+                    ]);
+                }
+
+                if (($isClearanceIn || $isClearanceOut) && empty($shipData['operational_occurred_at'])) {
+                    throw ValidationException::withMessages([
+                        "ships.{$shipIndex}.operational_occurred_at" => $isClearanceIn
+                            ? 'Tanggal kedatangan aktual wajib diisi.'
+                            : 'Tanggal keberangkatan aktual wajib diisi.',
+                    ]);
+                }
+
+                if ($isClearanceIn && ! in_array($shipData['requested_port_call_status'] ?? null, ['anchored', 'berthed'], true)) {
+                    throw ValidationException::withMessages([
+                        "ships.{$shipIndex}.requested_port_call_status" => 'Pilih target status Labuh atau Sandar.',
+                    ]);
+                }
+
+                if ($isClearanceOut) {
+                    $hasActiveClearanceOut = ShipRequest::query()
+                        ->where('port_call_id', $portCall->id)
+                        ->whereIn('service_type', ['clearance_out', 'Keberangkatan (Clearance Out)'])
+                        ->whereNotIn('status', ['Ditolak', 'Dibatalkan'])
+                        ->exists();
+
+                    if ($hasActiveClearanceOut) {
+                        throw ValidationException::withMessages([
+                            "ships.{$shipIndex}.request_type" => 'Pengajuan Clearance Out untuk kunjungan ini sudah ada dan masih diproses.',
+                        ]);
+                    }
+                }
+
+                $requestedPortCallStatus = $isClearanceIn
+                    ? $shipData['requested_port_call_status']
+                    : ($isClearanceOut ? 'departed' : null);
+                $operationalOccurredAt = ($isClearanceIn || $isClearanceOut)
+                    ? Carbon::parse($shipData['operational_occurred_at'], config('app.timezone'))->startOfDay()
+                    : null;
 
                 // In multi-ship submissions, all ships share the same PGJ batch number
                 // while maintaining their own individual request record per vessel
                 $reqNumber = $batchCode;
 
                 $serviceType = 'Sandar';
-                $reqTypeLower = strtolower($shipData['request_type']);
-                if (str_contains($reqTypeLower, 'clearance in') || str_contains($reqTypeLower, 'kedatangan')) {
-                    $serviceType = 'Kedatangan (Clearance In)';
-                } elseif (str_contains($reqTypeLower, 'clearance out') || str_contains($reqTypeLower, 'keberangkatan')) {
-                    $serviceType = 'Keberangkatan (Clearance Out)';
-                } elseif (str_contains($reqTypeLower, 'perpanjangan') || str_contains($reqTypeLower, 'endors')) {
+                if ($isClearanceIn) {
+                    $serviceType = 'clearance_in';
+                } elseif ($isClearanceOut) {
+                    $serviceType = 'clearance_out';
+                } elseif (str_contains($requestTypeLower, 'perpanjangan') || str_contains($requestTypeLower, 'endors')) {
                     $serviceType = 'Perpanjangan Surat / Endors Surat Laut';
-                } elseif (str_contains($reqTypeLower, 'kebutuhan')) {
+                } elseif (str_contains($requestTypeLower, 'kebutuhan')) {
                     $serviceType = 'Kebutuhan Kapal';
                 }
 
@@ -398,8 +640,11 @@ class RequestController extends Controller
                     'batch_number' => $batchCode,
                     'ship_id' => $ship->id,
                     'company_id' => $ship->ship_company_id,
-                    'port_id' => $defaultPort?->id,
+                    'port_id' => $portCall->port_id,
+                    'port_call_id' => $portCall->id,
                     'service_type' => $serviceType,
+                    'requested_port_call_status' => $requestedPortCallStatus,
+                    'operational_occurred_at' => $operationalOccurredAt,
                     'created_by' => $request->user()->id,
                     'status' => 'Menunggu Approval',
                     'request_date' => $shipData['required_date'] ?? now()->toDateString(),
@@ -489,6 +734,8 @@ class RequestController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        Gate::authorize('create', ShipRequest::class);
+
         $validated = $request->validate([
             'ship_id' => ['required', 'exists:ships,id'],
             'need_type' => ['required', 'string'],
@@ -589,14 +836,27 @@ class RequestController extends Controller
                 }
 
                 $price = $submittedPrices->get($itemId, []);
+                $newHpp = isset($price['hpp_price']) && is_numeric($price['hpp_price'])
+                    ? (float) $price['hpp_price']
+                    : (float) $item->hpp_price;
+                $newSelling = isset($price['selling_price']) && is_numeric($price['selling_price'])
+                    ? (float) $price['selling_price']
+                    : (float) $item->selling_price;
+
+                if ($newHpp <= 0 || $newSelling <= 0) {
+                    throw ValidationException::withMessages([
+                        'selected_items' => "Item '{$item->item_name}' belum memiliki HPP atau Harga Jual yang valid (> Rp 0). Harap lengkapi harga terlebih dahulu sebelum diajukan ke Direktur.",
+                    ]);
+                }
+
                 $oldPrices = [
                     'hpp_price' => (float) $item->hpp_price,
                     'selling_price' => (float) $item->selling_price,
                 ];
 
                 $item->update([
-                    'hpp_price' => $price['hpp_price'] ?? $item->hpp_price,
-                    'selling_price' => $price['selling_price'] ?? $item->selling_price,
+                    'hpp_price' => $newHpp,
+                    'selling_price' => $newSelling,
                     'vendor_id' => $price['vendor_id'] ?? $item->vendor_id,
                     'status' => 'diajukan_ke_direktur',
                     'director_status' => 'pending',
@@ -620,7 +880,7 @@ class RequestController extends Controller
 
             $shipRequest->items
                 ->whereNotIn('id', $selectedItemIds)
-                ->filter(fn (RequestItem $item): bool => ! $item->isLocked() && $item->status !== 'diajukan_ke_direktur')
+                ->filter(fn (RequestItem $item): bool => ! $item->isLocked() && $item->director_status !== 'rejected' && $item->status !== 'diajukan_ke_direktur')
                 ->each(fn (RequestItem $item) => $item->update([
                     'status' => 'pending',
                     'director_status' => 'pending',
@@ -713,7 +973,7 @@ class RequestController extends Controller
         $this->authorizeAdminPricing($request);
 
         return DB::transaction(function () use ($id) {
-            $shipRequest = ShipRequest::with(['ship.company', 'items'])->findOrFail($id);
+            $shipRequest = ShipRequest::with(['ship.company', 'items'])->lockForUpdate()->findOrFail($id);
 
             $companyId = $shipRequest->company_id ?? $shipRequest->ship?->ship_company_id;
             if (! $companyId) {
@@ -729,6 +989,8 @@ class RequestController extends Controller
                     $q->where('item_name', $like, '%Clearance In%')
                         ->orWhere('item_name', $like, '%Pelindo Kedatangan%');
                 })
+                ->whereDoesntHave('invoiceItem')
+                ->lockForUpdate()
                 ->first();
 
             if (! $clearanceItem) {
@@ -763,6 +1025,14 @@ class RequestController extends Controller
             ]);
 
             if ($clearanceItem) {
+                $invoice->items()->create([
+                    'request_item_id' => $clearanceItem->id,
+                    'description' => $clearanceItem->item_name,
+                    'quantity' => $clearanceItem->quantity,
+                    'unit' => $clearanceItem->unit ?: 'Paket',
+                    'unit_price' => $clearanceItem->selling_price,
+                    'subtotal' => $amount,
+                ]);
                 $clearanceItem->update(['is_invoiced' => true]);
             }
 
@@ -778,7 +1048,7 @@ class RequestController extends Controller
         $this->authorizeAdminPricing($request);
 
         return DB::transaction(function () use ($id) {
-            $shipRequest = ShipRequest::with(['ship.company', 'items.product'])->findOrFail($id);
+            $shipRequest = ShipRequest::with(['ship.company', 'items.product'])->lockForUpdate()->findOrFail($id);
 
             $companyId = $shipRequest->company_id ?? $shipRequest->ship?->ship_company_id;
             if (! $companyId) {
@@ -788,6 +1058,8 @@ class RequestController extends Controller
             $approvedItems = $shipRequest->items()
                 ->where('director_status', 'approved')
                 ->where('is_invoiced', false)
+                ->whereDoesntHave('invoiceItem')
+                ->lockForUpdate()
                 ->get();
 
             if ($approvedItems->isEmpty()) {
@@ -832,6 +1104,14 @@ class RequestController extends Controller
                 ]);
 
                 foreach ($jasaItems as $ji) {
+                    $invJasa->items()->create([
+                        'request_item_id' => $ji->id,
+                        'description' => $ji->item_name,
+                        'quantity' => $ji->quantity,
+                        'unit' => $ji->unit ?: 'Paket',
+                        'unit_price' => $ji->selling_price,
+                        'subtotal' => (float) $ji->selling_price * (float) $ji->quantity,
+                    ]);
                     $ji->update(['is_invoiced' => true]);
                 }
                 $createdInvoices[] = $invNumberJasa;
@@ -866,6 +1146,14 @@ class RequestController extends Controller
                 ]);
 
                 foreach ($nonJasaItems as $ni) {
+                    $invRmb->items()->create([
+                        'request_item_id' => $ni->id,
+                        'description' => $ni->item_name,
+                        'quantity' => $ni->quantity,
+                        'unit' => $ni->unit ?: 'Paket',
+                        'unit_price' => $ni->selling_price,
+                        'subtotal' => (float) $ni->selling_price * (float) $ni->quantity,
+                    ]);
                     $ni->update(['is_invoiced' => true]);
                 }
                 $createdInvoices[] = $invNumberRmb;
@@ -880,6 +1168,9 @@ class RequestController extends Controller
      */
     public function addItem(Request $request, string $id): RedirectResponse
     {
+        $shipRequest = ShipRequest::findOrFail($id);
+        Gate::authorize('addItem', $shipRequest);
+
         $validated = $request->validate([
             'item_name' => ['required', 'string', 'max:255'],
             'product_id' => ['nullable', 'uuid', 'exists:products,id'],
@@ -891,8 +1182,7 @@ class RequestController extends Controller
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        return DB::transaction(function () use ($id, $validated, $request) {
-            $shipRequest = ShipRequest::findOrFail($id);
+        return DB::transaction(function () use ($shipRequest, $validated, $request) {
 
             $productId = $validated['product_id'] ?? null;
             $hppPrice = 0.00;
@@ -964,9 +1254,178 @@ class RequestController extends Controller
         });
     }
 
+    public function batchForwardDirector(Request $request): RedirectResponse
+    {
+        $this->authorizeAdminPricing($request);
+
+        $validated = $request->validate([
+            'selected_items' => ['required', 'array', 'min:1'],
+            'selected_items.*' => ['uuid', 'exists:request_items,id'],
+            'item_prices' => ['nullable', 'array'],
+            'item_prices.*.id' => ['required_with:item_prices', 'uuid', 'exists:request_items,id'],
+            'item_prices.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
+            'item_prices.*.selling_price' => ['nullable', 'numeric', 'min:0'],
+            'admin_notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return DB::transaction(function () use ($validated, $request) {
+            $selectedItemIds = collect($validated['selected_items'])->unique()->values();
+            $items = RequestItem::lockForUpdate()->with('request')->whereIn('id', $selectedItemIds)->get();
+            $submittedPrices = collect($validated['item_prices'] ?? [])->keyBy('id');
+
+            $requestGroups = $items->groupBy('request_id');
+
+            foreach ($requestGroups as $requestId => $groupItems) {
+                $shipRequest = ShipRequest::lockForUpdate()->findOrFail($requestId);
+
+                if (in_array($shipRequest->status, ['Dalam Proses', 'Selesai', 'Dibatalkan'], true)) {
+                    continue;
+                }
+
+                foreach ($groupItems as $item) {
+                    if ($item->isLocked()) {
+                        continue;
+                    }
+
+                    $price = $submittedPrices->get($item->id, []);
+                    $newHpp = isset($price['hpp_price']) && is_numeric($price['hpp_price'])
+                        ? (float) $price['hpp_price']
+                        : (float) $item->hpp_price;
+                    $newSelling = isset($price['selling_price']) && is_numeric($price['selling_price'])
+                        ? (float) $price['selling_price']
+                        : (float) $item->selling_price;
+
+                    if ($newHpp <= 0 || $newSelling <= 0) {
+                        throw ValidationException::withMessages([
+                            'selected_items' => "Item '{$item->item_name}' pada pengajuan {$shipRequest->request_number} belum memiliki HPP atau Harga Jual yang valid (> Rp 0). Harap lengkapi harga terlebih dahulu sebelum diajukan ke Direktur.",
+                        ]);
+                    }
+
+                    $item->update([
+                        'hpp_price' => $newHpp,
+                        'selling_price' => $newSelling,
+                        'status' => 'diajukan_ke_direktur',
+                        'director_status' => 'pending',
+                        'director_notes' => null,
+                    ]);
+                }
+
+                $shipRequest->update([
+                    'status' => 'Menunggu Approval Direktur',
+                    'forwarded_to_director_at' => now(),
+                    'notes' => ! empty($validated['admin_notes'])
+                        ? $shipRequest->notes."\n[Catatan Batch Admin: {$validated['admin_notes']}]"
+                        : $shipRequest->notes,
+                ]);
+
+                if (function_exists('activity')) {
+                    activity('request')
+                        ->performedOn($shipRequest)
+                        ->causedBy($request->user())
+                        ->withProperties([
+                            'action' => 'batch_forward_director',
+                            'item_count' => $groupItems->count(),
+                        ])
+                        ->log("Admin mengajukan {$groupItems->count()} item ke Direktur secara batch");
+                }
+            }
+
+            return redirect()->back()->with('success', count($selectedItemIds).' item kebutuhan berhasil diajukan ke Direktur.');
+        });
+    }
+
+    public function updateItemPrice(Request $request, string $requestId, string $itemId): RedirectResponse
+    {
+        $this->authorizeAdminPricing($request);
+
+        $validated = $request->validate([
+            'hpp_price' => ['nullable', 'numeric', 'min:0'],
+            'selling_price' => ['nullable', 'numeric', 'min:0'],
+            'vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
+        ]);
+
+        return DB::transaction(function () use ($requestId, $itemId, $validated, $request) {
+            $shipRequest = ShipRequest::lockForUpdate()->findOrFail($requestId);
+            $item = RequestItem::lockForUpdate()->where('request_id', $shipRequest->id)->findOrFail($itemId);
+
+            if ($item->isLocked()) {
+                throw ValidationException::withMessages([
+                    'hpp_price' => "Harga {$item->item_name} sudah disetujui Direktur dan tidak dapat diubah tanpa proses revisi.",
+                ]);
+            }
+
+            $oldHpp = (float) $item->hpp_price;
+            $oldSelling = (float) $item->selling_price;
+
+            $item->update([
+                'hpp_price' => array_key_exists('hpp_price', $validated) ? $validated['hpp_price'] : $item->hpp_price,
+                'selling_price' => array_key_exists('selling_price', $validated) ? $validated['selling_price'] : $item->selling_price,
+                'vendor_id' => array_key_exists('vendor_id', $validated) ? $validated['vendor_id'] : $item->vendor_id,
+            ]);
+
+            if (function_exists('activity')) {
+                activity('request-item-pricing')
+                    ->performedOn($item)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'request_id' => $shipRequest->id,
+                        'action' => 'price_updated',
+                        'old' => ['hpp_price' => $oldHpp, 'selling_price' => $oldSelling],
+                        'new' => ['hpp_price' => (float) $item->hpp_price, 'selling_price' => (float) $item->selling_price],
+                    ])
+                    ->log("Admin memperbarui harga {$item->item_name}");
+            }
+
+            return redirect()->back()->with('success', "Harga {$item->item_name} berhasil diperbarui.");
+        });
+    }
+
+    public function batchUpdateItemPrices(Request $request): RedirectResponse
+    {
+        $this->authorizeAdminPricing($request);
+
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.id' => ['required', 'uuid', 'exists:request_items,id'],
+            'items.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.selling_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
+        ]);
+
+        return DB::transaction(function () use ($validated) {
+            $lockedItem = RequestItem::query()
+                ->whereIn('id', collect($validated['items'])->pluck('id'))
+                ->where('director_status', 'approved')
+                ->first();
+
+            if ($lockedItem) {
+                throw ValidationException::withMessages([
+                    'items' => "Harga {$lockedItem->item_name} sudah dikunci oleh approval Direktur. Ajukan revisi terlebih dahulu.",
+                ]);
+            }
+
+            $updatedCount = 0;
+            foreach ($validated['items'] as $itemData) {
+                $item = RequestItem::lockForUpdate()->find($itemData['id']);
+                if (! $item) {
+                    continue;
+                }
+
+                $item->update([
+                    'hpp_price' => $itemData['hpp_price'] ?? $item->hpp_price,
+                    'selling_price' => $itemData['selling_price'] ?? $item->selling_price,
+                    'vendor_id' => array_key_exists('vendor_id', $itemData) ? $itemData['vendor_id'] : $item->vendor_id,
+                ]);
+                $updatedCount++;
+            }
+
+            return redirect()->back()->with('success', "{$updatedCount} harga item berhasil disimpan.");
+        });
+    }
+
     private function authorizeAdminPricing(Request $request): void
     {
-        if (! $request->user()?->isOperationalAdmin() && ! $request->user()?->isOwner()) {
+        if (! $request->user()?->isOperationalAdmin()) {
             abort(403, 'Hanya Admin yang dapat meninjau harga dan mengirim item kepada Direktur.');
         }
     }

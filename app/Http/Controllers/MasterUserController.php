@@ -2,18 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreMasterUserRequest;
+use App\Http\Requests\UpdateMasterUserRequest;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Inertia\Inertia;
 use Inertia\Response;
+use Spatie\Permission\Models\Role;
 
 class MasterUserController extends Controller
 {
+    private const MANAGED_ROLES = ['Owner', 'Direktur', 'Admin', 'Lapangan'];
+
     public function index(Request $request): Response
     {
-        $this->authorizeUserManagement($request);
+        Gate::authorize('viewAny', User::class);
         $search = $request->query('search');
 
         $query = User::query()->with('roles');
@@ -26,30 +32,25 @@ class MasterUserController extends Controller
         }
 
         $users = $query->orderBy('name')->get();
-        $roles = $request->user()->isOwner()
-            ? ['Owner', 'Direktur', 'Admin', 'Lapangan']
-            : ['Lapangan'];
+        $availableRoles = Role::query()
+            ->where('guard_name', 'web')
+            ->whereIn('name', self::MANAGED_ROLES)
+            ->pluck('name')
+            ->all();
+        $roles = array_values(array_intersect(self::MANAGED_ROLES, $availableRoles));
 
         return Inertia::render('Master/Users/Index', [
             'users' => $users,
             'roles' => $roles,
             'search' => $search ?? '',
+            'can_manage' => Gate::allows('create', User::class) && $roles !== [],
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(StoreMasterUserRequest $request): RedirectResponse
     {
-        $this->authorizeUserManagement($request);
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', 'string', 'exists:roles,name'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'job_title' => ['nullable', 'string', 'max:100'],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
-        $this->authorizeRoleAssignment($request, $validated['role']);
+        Gate::authorize('create', User::class);
+        $validated = $request->validated();
 
         $user = User::create([
             'name' => $validated['name'],
@@ -66,22 +67,11 @@ class MasterUserController extends Controller
         return redirect()->back()->with('success', "Pengguna {$user->name} berhasil ditambahkan dengan peran {$validated['role']}.");
     }
 
-    public function update(Request $request, int $id): RedirectResponse
+    public function update(UpdateMasterUserRequest $request, int $id): RedirectResponse
     {
-        $this->authorizeUserManagement($request);
         $user = User::findOrFail($id);
-
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email,'.$user->id],
-            'role' => ['required', 'string', 'exists:roles,name'],
-            'password' => ['nullable', 'string', 'min:8'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'job_title' => ['nullable', 'string', 'max:100'],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
-        $this->authorizeTargetUser($request, $user);
-        $this->authorizeRoleAssignment($request, $validated['role']);
+        Gate::authorize('update', $user);
+        $validated = $request->validated();
 
         $updateData = [
             'name' => $validated['name'],
@@ -107,37 +97,15 @@ class MasterUserController extends Controller
 
     public function destroy(Request $request, int $id): RedirectResponse
     {
-        $this->authorizeUserManagement($request);
         if ($request->user()->id === $id) {
             return redirect()->back()->with('error', 'Anda tidak dapat menghapus akun Anda sendiri.');
         }
 
         $user = User::findOrFail($id);
-        $this->authorizeTargetUser($request, $user);
+        Gate::authorize('delete', $user);
         $name = $user->name;
         $user->delete();
 
         return redirect()->back()->with('success', "Pengguna {$name} berhasil dihapus.");
-    }
-
-    private function authorizeUserManagement(Request $request): void
-    {
-        if (! $request->user()?->isOwner() && ! $request->user()?->isOperationalAdmin()) {
-            abort(403, 'Anda tidak memiliki kewenangan mengelola pengguna.');
-        }
-    }
-
-    private function authorizeRoleAssignment(Request $request, string $role): void
-    {
-        if (! $request->user()->isOwner() && $role !== 'Lapangan') {
-            abort(403, 'Admin hanya dapat membuat dan mengelola akun Operasional.');
-        }
-    }
-
-    private function authorizeTargetUser(Request $request, User $target): void
-    {
-        if (! $request->user()->isOwner() && ! $target->hasAnyRole(['Lapangan', 'Tim Lapangan', 'Staf Operasional'])) {
-            abort(403, 'Admin hanya dapat mengelola akun Operasional.');
-        }
     }
 }

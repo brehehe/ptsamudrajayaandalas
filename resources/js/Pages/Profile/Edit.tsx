@@ -7,6 +7,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { PageProps } from '@/types';
 import { Head, useForm, usePage, router } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
+import FormErrorSummary from '@/Components/forms/FormErrorSummary';
 
 interface ProfileInfo {
     name: string;
@@ -32,18 +33,23 @@ export default function Edit({
     const user = auth.user;
 
     const info: ProfileInfo = profileInfo || {
-        name: user.name || 'Pak Prima',
-        email: user.email || 'prima@sja.co.id',
-        role: user.primary_role || 'Staf Lapangan',
-        title: 'Staf Lapangan',
-        phone: '0812 3456 7890',
-        department: 'Operasional Lapangan',
-        location: 'Surabaya',
-        company: 'PT. Samudra Jaya Andalas',
+        name: user.name || 'Pengguna',
+        email: user.email || '',
+        role: user.primary_role || 'Tanpa Role',
+        title: user.primary_role || '',
+        phone: '',
+        department: '',
+        location: '',
+        company: 'PT Samudra Jaya Andalas',
     };
+    const profileInitials = info.name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('');
 
-    // Sub-screen navigation: 'menu' (Screen 1) | 'akun' (Screen 2) | 'password' (Screen 3) | 'notifikasi' (Screen 4) | 'tampilan' (Screen 5)
-    const [activeSubScreen, setActiveSubScreen] = useState<'menu' | 'akun' | 'password' | 'notifikasi' | 'tampilan'>('akun');
+    const [activeSubScreen, setActiveSubScreen] = useState<'menu' | 'akun' | 'password' | 'tampilan'>('akun');
     const [mobileView, setMobileView] = useState<'menu' | 'detail'>('menu');
 
     // Password form state
@@ -79,11 +85,10 @@ export default function Edit({
         });
     };
 
-    // Notification Toggles (saved locally)
+    const [toast, setToast] = useState<AlertToastMessage | null>(null);
     const [notifPengajuan, setNotifPengajuan] = useState(true);
     const [notifKapal, setNotifKapal] = useState(true);
     const [notifJadwal, setNotifJadwal] = useState(true);
-    const [toast, setToast] = useState<AlertToastMessage | null>(null);
 
     const showToast = (message: string, variant: 'success' | 'error' = 'success') => {
         setToast({ message, variant });
@@ -94,7 +99,6 @@ export default function Edit({
     const selectedTheme = resolvedTheme === 'dark' ? 'gelap' : 'terang';
     const [dateFormat, setDateFormat] = useState('DD MMMM YYYY');
     const [timezone, setTimezone] = useState('WIB (GMT+7)');
-
     const handleThemeChange = (theme: 'terang' | 'gelap') => {
         setTheme(theme === 'gelap' ? 'dark' : 'light');
         showToast(`Tema aplikasi diubah ke ${theme === 'terang' ? 'Terang' : 'Gelap'}`);
@@ -115,7 +119,7 @@ export default function Edit({
         });
     };
 
-    const navigateTo = (screen: 'akun' | 'password' | 'notifikasi' | 'tampilan') => {
+    const navigateTo = (screen: 'akun' | 'password' | 'tampilan') => {
         setActiveSubScreen(screen);
         setMobileView('detail');
     };
@@ -137,11 +141,10 @@ export default function Edit({
                 />
             )}
 
-            <div className={`max-w-6xl mx-auto pb-3 sm:pb-6 md:pb-16 px-0 md:px-6 ${
-                mobileView === 'menu'
-                    ? 'relative z-10 -mt-6 rounded-t-[28px] bg-white px-4 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 min-h-[calc(100dvh-200px)]'
-                    : 'px-0 pt-0 min-h-[calc(100dvh-56px)] flex flex-col'
-            }`}>
+            <div className={`max-w-6xl mx-auto pb-3 sm:pb-6 md:pb-16 px-0 md:px-6 ${mobileView === 'menu'
+                ? 'relative z-10 -mt-6 rounded-t-[28px] bg-white px-4 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 min-h-[calc(100dvh-200px)]'
+                : 'px-0 pt-0 min-h-[calc(100dvh-56px)] flex flex-col'
+                }`}>
 
                 {/* Header banner - visible on desktop */}
                 <div className="hidden md:block mb-5 pt-3 md:pt-0">
@@ -157,35 +160,13 @@ export default function Edit({
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
                     {/* LEFT COLUMN: Profile Summary Card + Menu List (Visible on desktop or when mobileView === 'menu') */}
                     <div
-                        className={`md:col-span-5 lg:col-span-4 space-y-4 ${
-                            mobileView === 'detail' ? 'hidden md:block' : 'block'
-                        }`}
+                        className={`md:col-span-5 lg:col-span-4 space-y-4 ${mobileView === 'detail' ? 'hidden md:block' : 'block'
+                            }`}
                     >
                         {/* Profile Info Card (Screen 1 Top) */}
                         <div className="bg-white dark:bg-[#0C1D36] border sm:border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-2xl p-6 shadow-xs text-center relative overflow-hidden">
-                            {/* Avatar with Camera Overlay Badge */}
-                            <div className="relative inline-block mx-auto mb-3">
-                                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-4 border-white dark:border-[#0C1D36] shadow-md bg-[#E0F0FF] mx-auto">
-                                    <img
-                                        src="/images/avatar-prima.jpg"
-                                        alt={info.name}
-                                        className="w-full h-full object-cover"
-                                        onError={(e) => {
-                                            // Fallback to avatar-titik or initial
-                                            (e.target as HTMLImageElement).src = '/images/avatar-titik.png';
-                                        }}
-                                    />
-                                </div>
-                                <div
-                                    className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[#0060F4] text-white flex items-center justify-center shadow-md border-2 border-white dark:border-[#0C1D36] cursor-pointer hover:bg-[#082870] transition-colors"
-                                    title="Ubah Foto Profil"
-                                    onClick={() => showToast('Fitur unggah foto avatar dapat diatur melalui Super Admin.')}
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                </div>
+                            <div className="mx-auto mb-3 inline-flex size-24 items-center justify-center rounded-full border-4 border-white bg-[#E0F0FF] text-2xl font-black text-[#0B1F63] shadow-md dark:border-[#0C1D36] dark:bg-[#152E52] dark:text-[#E7F0FA] sm:size-28">
+                                {profileInitials || 'PG'}
                             </div>
 
                             <h2 className="text-lg font-black text-[#0B1F63] dark:text-white tracking-tight">
@@ -205,11 +186,10 @@ export default function Edit({
                             <button
                                 type="button"
                                 onClick={() => navigateTo('akun')}
-                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${
-                                    activeSubScreen === 'akun'
-                                        ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
-                                        : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
-                                }`}
+                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${activeSubScreen === 'password'
+                                    ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
+                                    : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
+                                    }`}
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-[#E0F0FF] dark:bg-[#1A3358] text-[#0060F4] dark:text-[#38BDF8] flex items-center justify-center shrink-0">
@@ -228,11 +208,10 @@ export default function Edit({
                             <button
                                 type="button"
                                 onClick={() => navigateTo('password')}
-                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${
-                                    activeSubScreen === 'password'
-                                        ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
-                                        : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
-                                }`}
+                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${activeSubScreen === 'password'
+                                    ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
+                                    : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
+                                    }`}
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-[#E0F0FF] dark:bg-[#1A3358] text-[#0060F4] dark:text-[#38BDF8] flex items-center justify-center shrink-0">
@@ -247,38 +226,14 @@ export default function Edit({
                                 </svg>
                             </button>
 
-                            {/* 3. Pengaturan Notifikasi */}
-                            <button
-                                type="button"
-                                onClick={() => navigateTo('notifikasi')}
-                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${
-                                    activeSubScreen === 'notifikasi'
-                                        ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
-                                        : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
-                                }`}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-[#E0F0FF] dark:bg-[#1A3358] text-[#0060F4] dark:text-[#38BDF8] flex items-center justify-center shrink-0">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                        </svg>
-                                    </div>
-                                    <span className="text-sm font-bold">Pengaturan Notifikasi</span>
-                                </div>
-                                <svg className="w-4 h-4 text-[#52658E]" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-
-                            {/* 4. Preferensi Tampilan */}
+                            {/* 3. Preferensi Tampilan */}
                             <button
                                 type="button"
                                 onClick={() => navigateTo('tampilan')}
-                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${
-                                    activeSubScreen === 'tampilan'
-                                        ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
-                                        : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
-                                }`}
+                                className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left cursor-pointer ${activeSubScreen === 'tampilan'
+                                    ? 'bg-[#E8F1FD] dark:bg-[#132847] border-[#0060F4]/30 text-[#0060F4] dark:text-[#38BDF8] font-bold shadow-xs'
+                                    : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F] hover:bg-[#F0F8FF] dark:hover:bg-[#102444] text-[#0B1F63] dark:text-white font-semibold'
+                                    }`}
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-[#E0F0FF] dark:bg-[#1A3358] text-[#0060F4] dark:text-[#38BDF8] flex items-center justify-center shrink-0">
@@ -294,7 +249,7 @@ export default function Edit({
                                 </svg>
                             </button>
 
-                            {/* 5. Keluar (Logout) */}
+                            {/* 4. Keluar (Logout) */}
                             <button
                                 type="button"
                                 onClick={handleLogoutClick}
@@ -317,9 +272,8 @@ export default function Edit({
 
                     {/* RIGHT COLUMN: Active Sub-screen View */}
                     <div
-                        className={`md:col-span-7 lg:col-span-8 ${
-                            mobileView === 'menu' ? 'hidden md:block' : 'block'
-                        }`}
+                        className={`md:col-span-7 lg:col-span-8 ${mobileView === 'menu' ? 'hidden md:block' : 'block'
+                            }`}
                     >
                         {/* Mobile Back Header Bar (Sticky Top) */}
                         <div className="sticky top-16 z-20 flex items-center gap-3 border-b border-[#DCEAF8] bg-white px-4 py-3.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:hidden">
@@ -336,7 +290,6 @@ export default function Edit({
                             <h2 className="text-base font-extrabold text-[#0B1F63] dark:text-white">
                                 {activeSubScreen === 'akun' && 'Informasi Akun'}
                                 {activeSubScreen === 'password' && 'Ubah Kata Sandi'}
-                                {activeSubScreen === 'notifikasi' && 'Pengaturan Notifikasi'}
                                 {activeSubScreen === 'tampilan' && 'Preferensi Tampilan'}
                             </h2>
                         </div>
@@ -358,29 +311,10 @@ export default function Edit({
                                     </span>
                                 </div>
 
-                                {/* Center Avatar with edit icon */}
+                                {/* Initial avatar reflects the authenticated account. */}
                                 <div className="text-center pt-2 pb-1">
-                                    <div className="relative inline-block mx-auto">
-                                        <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#E0F0FF] dark:border-[#1E3A5F] shadow-sm bg-[#E0F0FF] mx-auto">
-                                            <img
-                                                src="/images/avatar-prima.jpg"
-                                                alt={info.name}
-                                                className="w-full h-full object-cover"
-                                                onError={(e) => {
-                                                    (e.target as HTMLImageElement).src = '/images/avatar-titik.png';
-                                                }}
-                                            />
-                                        </div>
-                                        <div
-                                            className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-[#0060F4] text-white flex items-center justify-center shadow-xs cursor-pointer hover:bg-[#082870] transition-colors"
-                                            title="Ubah Foto Profil"
-                                            onClick={() => showToast('Ubah foto profil melalui Super Admin.')}
-                                        >
-                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                        </div>
+                                    <div className="mx-auto inline-flex size-24 items-center justify-center rounded-full border-4 border-[#E0F0FF] bg-[#E0F0FF] text-xl font-black text-[#0B1F63] shadow-sm dark:border-[#1E3A5F] dark:bg-[#152E52] dark:text-[#E7F0FA]">
+                                        {profileInitials || 'PG'}
                                     </div>
                                 </div>
 
@@ -443,7 +377,7 @@ export default function Edit({
                                     </div>
 
                                     {/* Lokasi Kerja */}
-                                    <div>
+                                    {/* <div>
                                         <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
                                             Lokasi Kerja
                                         </label>
@@ -454,7 +388,7 @@ export default function Edit({
                                             </svg>
                                             <span>{info.location}</span>
                                         </div>
-                                    </div>
+                                    </div> */}
                                 </div>
 
                                 {/* Blue Lock Callout Box */}
@@ -499,11 +433,12 @@ export default function Edit({
                                     </div>
                                 )}
 
-                                <form onSubmit={handlePasswordSubmit} className="space-y-4 max-w-lg mx-auto">
+                                <form noValidate onSubmit={handlePasswordSubmit} className="mx-auto max-w-lg space-y-4">
+                                    <FormErrorSummary errors={passwordErrors} />
                                     {/* Kata Sandi Saat Ini */}
                                     <div>
-                                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
-                                            Kata Sandi Saat Ini
+                                        <label htmlFor="profile-current-password" className="mb-1 block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA]">
+                                            Kata Sandi Saat Ini <span className="text-[#C62840]">*</span>
                                         </label>
                                         <div className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#52658E]">
@@ -512,11 +447,16 @@ export default function Edit({
                                                 </svg>
                                             </div>
                                             <input
+                                                id="profile-current-password"
+                                                name="current_password"
                                                 type={showCurrentPassword ? 'text' : 'password'}
+                                                required
                                                 value={passwordData.current_password}
                                                 onChange={(e) => setPasswordData('current_password', e.target.value)}
                                                 placeholder="Masukkan kata sandi saat ini"
-                                                className="w-full pl-10 pr-10 py-3 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                                aria-invalid={passwordErrors.current_password ? true : undefined}
+                                                aria-describedby={passwordErrors.current_password ? 'profile-current-password-error' : undefined}
+                                                className={`w-full rounded-xl border bg-[#F8FAFC] py-3 pl-10 pr-10 text-sm text-[#0B1F63] outline-none focus:ring-2 dark:bg-[#081528] dark:text-white ${passwordErrors.current_password ? 'border-[#C62840] focus:ring-[#C62840]/20' : 'border-[#DCEAF8] focus:ring-[#0060F4] dark:border-[#1E3A5F]'}`}
                                             />
                                             <button
                                                 type="button"
@@ -536,14 +476,14 @@ export default function Edit({
                                             </button>
                                         </div>
                                         {passwordErrors.current_password && (
-                                            <p className="text-xs text-[#C62840] mt-1 font-medium">{passwordErrors.current_password}</p>
+                                            <p id="profile-current-password-error" role="alert" className="mt-1 text-xs font-medium text-[#C62840]">{passwordErrors.current_password}</p>
                                         )}
                                     </div>
 
                                     {/* Kata Sandi Baru */}
                                     <div>
-                                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
-                                            Kata Sandi Baru
+                                        <label htmlFor="profile-new-password" className="mb-1 block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA]">
+                                            Kata Sandi Baru <span className="text-[#C62840]">*</span>
                                         </label>
                                         <div className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#52658E]">
@@ -552,11 +492,16 @@ export default function Edit({
                                                 </svg>
                                             </div>
                                             <input
+                                                id="profile-new-password"
+                                                name="password"
                                                 type={showNewPassword ? 'text' : 'password'}
+                                                required
                                                 value={passwordData.password}
                                                 onChange={(e) => setPasswordData('password', e.target.value)}
                                                 placeholder="Minimal 8 karakter"
-                                                className="w-full pl-10 pr-10 py-3 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                                aria-invalid={passwordErrors.password ? true : undefined}
+                                                aria-describedby={passwordErrors.password ? 'profile-new-password-error' : undefined}
+                                                className={`w-full rounded-xl border bg-[#F8FAFC] py-3 pl-10 pr-10 text-sm text-[#0B1F63] outline-none focus:ring-2 dark:bg-[#081528] dark:text-white ${passwordErrors.password ? 'border-[#C62840] focus:ring-[#C62840]/20' : 'border-[#DCEAF8] focus:ring-[#0060F4] dark:border-[#1E3A5F]'}`}
                                             />
                                             <button
                                                 type="button"
@@ -576,7 +521,7 @@ export default function Edit({
                                             </button>
                                         </div>
                                         {passwordErrors.password && (
-                                            <p className="text-xs text-[#C62840] mt-1 font-medium">{passwordErrors.password}</p>
+                                            <p id="profile-new-password-error" role="alert" className="mt-1 text-xs font-medium text-[#C62840]">{passwordErrors.password}</p>
                                         )}
                                     </div>
 
@@ -621,8 +566,8 @@ export default function Edit({
 
                                     {/* Konfirmasi Kata Sandi Baru */}
                                     <div>
-                                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
-                                            Konfirmasi Kata Sandi Baru
+                                        <label htmlFor="profile-password-confirmation" className="mb-1 block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA]">
+                                            Konfirmasi Kata Sandi Baru <span className="text-[#C62840]">*</span>
                                         </label>
                                         <div className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#52658E]">
@@ -631,11 +576,16 @@ export default function Edit({
                                                 </svg>
                                             </div>
                                             <input
+                                                id="profile-password-confirmation"
+                                                name="password_confirmation"
                                                 type={showConfirmPassword ? 'text' : 'password'}
+                                                required
                                                 value={passwordData.password_confirmation}
                                                 onChange={(e) => setPasswordData('password_confirmation', e.target.value)}
                                                 placeholder="Ulangi kata sandi baru"
-                                                className="w-full pl-10 pr-10 py-3 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081528] text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                                                aria-invalid={passwordErrors.password_confirmation ? true : undefined}
+                                                aria-describedby={passwordErrors.password_confirmation ? 'profile-password-confirmation-error' : undefined}
+                                                className={`w-full rounded-xl border bg-[#F8FAFC] py-3 pl-10 pr-10 text-sm text-[#0B1F63] outline-none focus:ring-2 dark:bg-[#081528] dark:text-white ${passwordErrors.password_confirmation ? 'border-[#C62840] focus:ring-[#C62840]/20' : 'border-[#DCEAF8] focus:ring-[#0060F4] dark:border-[#1E3A5F]'}`}
                                             />
                                             <button
                                                 type="button"
@@ -654,6 +604,9 @@ export default function Edit({
                                                 )}
                                             </button>
                                         </div>
+                                        {passwordErrors.password_confirmation && (
+                                            <p id="profile-password-confirmation-error" role="alert" className="mt-1 text-xs font-medium text-[#C62840]">{passwordErrors.password_confirmation}</p>
+                                        )}
                                     </div>
 
                                     {/* Submit Button */}
@@ -674,7 +627,7 @@ export default function Edit({
                         )}
 
                         {/* ── SCREEN 4: PENGATURAN NOTIFIKASI ── */}
-                        {activeSubScreen === 'notifikasi' && (
+                        {false && (
                             <div className="bg-white dark:bg-[#0C1D36] sm:border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-none sm:rounded-2xl p-4 sm:p-7 shadow-none sm:shadow-xs space-y-4 sm:space-y-5 flex-1">
                                 {/* Centered Bell Circle */}
                                 <div className="text-center pt-2">
@@ -717,14 +670,12 @@ export default function Edit({
                                                 setNotifPengajuan(next);
                                                 showToast(next ? 'Notifikasi Status Pengajuan diaktifkan' : 'Notifikasi Status Pengajuan dinonaktifkan');
                                             }}
-                                            className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${
-                                                notifPengajuan ? 'bg-[#0060F4]' : 'bg-gray-300 dark:bg-gray-700'
-                                            }`}
+                                            className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${notifPengajuan ? 'bg-[#0060F4]' : 'bg-gray-300 dark:bg-gray-700'
+                                                }`}
                                         >
                                             <div
-                                                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
-                                                    notifPengajuan ? 'translate-x-6' : 'translate-x-0'
-                                                }`}
+                                                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${notifPengajuan ? 'translate-x-6' : 'translate-x-0'
+                                                    }`}
                                             />
                                         </button>
                                     </div>
@@ -755,14 +706,12 @@ export default function Edit({
                                                 setNotifKapal(next);
                                                 showToast(next ? 'Notifikasi Informasi Kapal diaktifkan' : 'Notifikasi Informasi Kapal dinonaktifkan');
                                             }}
-                                            className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${
-                                                notifKapal ? 'bg-[#0060F4]' : 'bg-gray-300 dark:bg-gray-700'
-                                            }`}
+                                            className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${notifKapal ? 'bg-[#0060F4]' : 'bg-gray-300 dark:bg-gray-700'
+                                                }`}
                                         >
                                             <div
-                                                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
-                                                    notifKapal ? 'translate-x-6' : 'translate-x-0'
-                                                }`}
+                                                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${notifKapal ? 'translate-x-6' : 'translate-x-0'
+                                                    }`}
                                             />
                                         </button>
                                     </div>
@@ -791,14 +740,12 @@ export default function Edit({
                                                 setNotifJadwal(next);
                                                 showToast(next ? 'Notifikasi Pengingat Jadwal diaktifkan' : 'Notifikasi Pengingat Jadwal dinonaktifkan');
                                             }}
-                                            className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${
-                                                notifJadwal ? 'bg-[#0060F4]' : 'bg-gray-300 dark:bg-gray-700'
-                                            }`}
+                                            className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${notifJadwal ? 'bg-[#0060F4]' : 'bg-gray-300 dark:bg-gray-700'
+                                                }`}
                                         >
                                             <div
-                                                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
-                                                    notifJadwal ? 'translate-x-6' : 'translate-x-0'
-                                                }`}
+                                                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${notifJadwal ? 'translate-x-6' : 'translate-x-0'
+                                                    }`}
                                             />
                                         </button>
                                     </div>
@@ -845,11 +792,10 @@ export default function Edit({
                                         <button
                                             type="button"
                                             onClick={() => handleThemeChange('terang')}
-                                            className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2.5 transition-all cursor-pointer relative ${
-                                                selectedTheme === 'terang'
-                                                    ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444] text-[#0060F4]'
-                                                    : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] text-[#52658E] hover:border-[#0060F4]/40'
-                                            }`}
+                                            className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2.5 transition-all cursor-pointer relative ${selectedTheme === 'terang'
+                                                ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444] text-[#0060F4]'
+                                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] text-[#52658E] hover:border-[#0060F4]/40'
+                                                }`}
                                         >
                                             {selectedTheme === 'terang' && (
                                                 <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#0060F4] text-white flex items-center justify-center text-[10px] font-bold">
@@ -868,11 +814,10 @@ export default function Edit({
                                         <button
                                             type="button"
                                             onClick={() => handleThemeChange('gelap')}
-                                            className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2.5 transition-all cursor-pointer relative ${
-                                                selectedTheme === 'gelap'
-                                                    ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444] text-[#0060F4] dark:text-[#38BDF8]'
-                                                    : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] text-[#52658E] hover:border-[#0060F4]/40'
-                                            }`}
+                                            className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2.5 transition-all cursor-pointer relative ${selectedTheme === 'gelap'
+                                                ? 'border-[#0060F4] bg-[#F0F8FF] dark:bg-[#102444] text-[#0060F4] dark:text-[#38BDF8]'
+                                                : 'border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#081528] text-[#52658E] hover:border-[#0060F4]/40'
+                                                }`}
                                         >
                                             {selectedTheme === 'gelap' && (
                                                 <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#0060F4] text-white flex items-center justify-center text-[10px] font-bold">
@@ -889,8 +834,8 @@ export default function Edit({
                                     </div>
                                 </div>
 
-                                {/* Section 2: Format Tanggal */}
-                                <div>
+                                {/* Format tanggal belum ditampilkan sampai preferensi tersimpan di backend. */}
+                                <div className="hidden">
                                     <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
                                         Format Tanggal
                                     </label>
@@ -923,8 +868,8 @@ export default function Edit({
                                     </p>
                                 </div>
 
-                                {/* Section 3: Zona Waktu */}
-                                <div>
+                                {/* Zona waktu belum ditampilkan sampai preferensi tersimpan di backend. */}
+                                <div className="hidden">
                                     <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#E7F0FA] mb-1">
                                         Zona Waktu
                                     </label>

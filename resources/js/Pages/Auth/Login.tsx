@@ -2,46 +2,15 @@ import Button from '@/Components/ui/Button';
 import Logo from '@/Components/ui/Logo';
 import ThemeToggle from '@/Components/ui/ThemeToggle';
 import { useTheme } from '@/hooks/useTheme';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Anchor, Building2, CheckCircle2, Ship, UserRound } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import type { FormEventHandler } from 'react';
 
 interface LoginProps {
     status?: string;
     canResetPassword?: boolean;
 }
-
-const demoAccounts = [
-    {
-        name: 'Bu Titik',
-        email: 'titik@samudrajaya.co.id',
-        role: 'Admin',
-        subtitle: 'Administrasi dan operasional',
-        icon: Building2,
-    },
-    {
-        name: 'Pak Prima',
-        email: 'prima@samudrajaya.co.id',
-        role: 'Lapangan',
-        subtitle: 'Kunjungan dan aktivitas kapal',
-        icon: Anchor,
-    },
-    {
-        name: 'Pak Ryan',
-        email: 'ryan@samudrajaya.co.id',
-        role: 'Direktur',
-        subtitle: 'Persetujuan dan pengawasan',
-        icon: UserRound,
-    },
-    {
-        name: 'Hendra Wijaya',
-        email: 'owner@samudrajaya.co.id',
-        role: 'Owner',
-        subtitle: 'Ringkasan strategis perusahaan',
-        icon: Ship,
-    },
-];
 
 export default function Login({ status, canResetPassword }: LoginProps) {
     const { isDark } = useTheme();
@@ -63,20 +32,6 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                     document.getElementById(firstInvalidField)?.focus();
                 }
             },
-        });
-    };
-
-    const handleQuickLogin = (email: string) => {
-        setData({
-            email,
-            password: 'password',
-            remember: true,
-        });
-
-        router.post(route('login'), {
-            email,
-            password: 'password',
-            remember: true,
         });
     };
 
@@ -252,42 +207,6 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                             </Button>
                         </form>
 
-                        <section className="mt-6 border-t border-[#DCEAF8] pt-5 dark:border-[#1E3A5F]" aria-labelledby="demo-accounts-title">
-                            <div className="flex items-center justify-between gap-3">
-                                <h2 id="demo-accounts-title" className="text-xs font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">Akun demo</h2>
-                                <span className="text-[10px] text-[#7C91AC] dark:text-[#94A3B8]">Pilih sesuai peran</span>
-                            </div>
-
-                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                                {demoAccounts.map((account) => {
-                                    const Icon = account.icon;
-
-                                    return (
-                                        <button
-                                            key={account.email}
-                                            type="button"
-                                            onClick={() => handleQuickLogin(account.email)}
-                                            className={`grid min-h-[72px] grid-cols-[32px_minmax(0,1fr)] items-center gap-3 rounded-xl border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
-                                                data.email === account.email
-                                                    ? 'border-[#0060F4] bg-[#EAF4FF] dark:border-[#38BDF8] dark:bg-[#12335A]'
-                                                    : 'border-[#DCEAF8] bg-[#F8FBFF] hover:border-[#9CC9F5] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#091A2E] dark:hover:border-[#416C98] dark:hover:bg-[#102844]'
-                                            }`}
-                                        >
-                                            <span className="flex size-8 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#152E52] dark:text-[#60A5FA]">
-                                                <Icon aria-hidden="true" className="size-4" />
-                                            </span>
-                                            <span className="min-w-0">
-                                                <span className="flex items-center justify-between gap-2">
-                                                    <span className="truncate text-xs font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">{account.name}</span>
-                                                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[9px] font-bold text-[#0060F4] dark:bg-[#17375D] dark:text-[#7DD3FC]">{account.role}</span>
-                                                </span>
-                                                <span className="mt-1 block truncate text-[10px] text-[#52658E] dark:text-[#A8BAD0]">{account.subtitle}</span>
-                                            </span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </section>
                     </div>
                 </motion.div>
             </main>

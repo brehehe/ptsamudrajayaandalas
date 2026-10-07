@@ -27,11 +27,11 @@ class ProfileController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->getPrimaryRoleName(),
-                'title' => $user->isStaff() ? 'Staf Lapangan' : ($user->isDirector() ? 'Direktur Utama' : ($user->isOwner() ? 'Owner Perusahaan' : 'Admin Operasional')),
-                'phone' => '0812 3456 7890',
-                'department' => $user->isStaff() ? 'Operasional Lapangan' : ($user->isOperationalAdmin() ? 'Administrasi & Keagenan' : 'Direksi & Manajemen'),
-                'location' => 'Surabaya',
-                'company' => 'PT. Samudra Jaya Andalas',
+                'title' => $user->job_title ?: $user->getPrimaryRoleName(),
+                'phone' => $user->phone ?? '',
+                'department' => $user->isStaff() ? 'Aktifitas Lapangan' : ($user->isOperationalAdmin() ? 'Administrasi & Keagenan' : 'Direksi & Manajemen'),
+                'location' => '',
+                'company' => 'PT Samudra Jaya Andalas',
             ],
         ]);
     }

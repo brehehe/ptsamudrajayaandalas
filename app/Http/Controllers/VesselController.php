@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Product;
+use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipCompany;
+use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\WorkOrder;
 use Illuminate\Http\RedirectResponse;
@@ -85,9 +87,9 @@ class VesselController extends Controller
                 'status' => $translatedStatus,
                 'agent_name' => $ship->agent_name,
                 'is_active' => $ship->is_active,
-                'image' => $ship->image ?? '/images/vessel-sarana.jpg',
+                'image' => $ship->image,
                 'eta' => $portCall->eta_at?->toISOString(),
-                'port_name' => $portCall->port?->name ?? 'Pelabuhan Gresik',
+                'port_name' => $portCall->port?->name,
                 'needs_count' => $needsCount,
                 'requests_count' => $requestsCount,
                 'ship_company_id' => $ship->ship_company_id,
@@ -120,7 +122,7 @@ class VesselController extends Controller
         $ports = Port::where('is_active', true)->select('id', 'name', 'code')->orderBy('name')->get();
         $allMasterShips = Ship::where('is_active', true)
             ->with('company')
-            ->select('id', 'name', 'imo_number', 'ship_type', 'gross_tonnage', 'length', 'call_sign', 'captain_name', 'ship_company_id', 'port_id')
+            ->select('id', 'name', 'imo_number', 'ship_type', 'gross_tonnage', 'length', 'call_sign', 'captain_name', 'ship_company_id', 'port_id', 'image')
             ->orderBy('name')
             ->get();
         $canCreateShip = $request->user()?->isOperationalAdmin() ?? false;
@@ -154,6 +156,7 @@ class VesselController extends Controller
             ->get();
 
         $portCalls = $vessel->portCalls()
+            ->with(['port', 'clearanceInRequests:id,port_call_id'])
             ->orderByDesc('eta_at')
             ->get();
 
@@ -191,8 +194,45 @@ class VesselController extends Controller
                 ->with('creator'),
         ]);
 
+        $needs = $selectedVisit
+            ? $vessel->requests
+                ->where('port_call_id', $selectedVisit->id)
+                ->reject(fn (ShipRequest $shipRequest) => in_array(
+                    $shipRequest->service_type,
+                    ['clearance_in', 'clearance_out'],
+                    true,
+                ))
+                ->values()
+                ->map(fn (ShipRequest $shipRequest) => [
+                    'id' => $shipRequest->id,
+                    'request_number' => $shipRequest->request_number,
+                    'status' => $shipRequest->status,
+                    'request_date' => $shipRequest->request_date?->toDateString(),
+                    'port_call_id' => $shipRequest->port_call_id,
+                    'service_type' => $shipRequest->service_type,
+                    'notes' => $shipRequest->notes,
+                    'created_at' => $shipRequest->created_at?->toISOString(),
+                    'items' => $shipRequest->items->map(fn (RequestItem $item) => [
+                        'id' => $item->id,
+                        'item_name' => $item->item_name,
+                        'quantity' => $item->quantity,
+                        'unit' => $item->unit,
+                        'notes' => $item->notes,
+                        'required_date' => $item->required_date?->toDateString(),
+                        'required_time' => $item->required_time,
+                        'is_urgent' => $item->is_urgent,
+                        'director_status' => $item->director_status,
+                    ])->values(),
+                ])
+            : collect();
+
+        $vesselPayload = $vessel->toArray();
+        $vesselPayload['eta'] = $selectedVisit?->eta_at?->toISOString();
+        $vesselPayload['port'] = $selectedVisit?->port?->toArray();
+
         return Inertia::render('Vessels/Show', [
-            'vessel' => $vessel,
+            'vessel' => $vesselPayload,
+            'needs' => $needs,
             'products' => $products,
             'clearancePortCalls' => $clearancePortCalls,
             'selectedPortCallId' => $selectedPortCall['id'] ?? null,
@@ -200,8 +240,12 @@ class VesselController extends Controller
                 'id' => $selectedVisit->id,
                 'job_number' => $selectedVisit->job_number,
                 'status' => $selectedVisit->status,
+                'eta_at' => $selectedVisit->eta_at?->toISOString(),
+                'etd_at' => $selectedVisit->etd_at?->toISOString(),
+                'port' => $selectedVisit->port?->only(['id', 'name', 'code', 'city']),
             ] : null,
-            'canManageClearance' => $request->user()->isStaff() || $request->user()->isOperationalAdmin() || $request->user()->isOwner(),
+            'canManageClearance' => $request->user()->isStaff() || $request->user()->isOperationalAdmin(),
+            'canProcessRequests' => $request->user()->isOperationalAdmin(),
         ]);
     }
 
@@ -331,12 +375,12 @@ class VesselController extends Controller
         }
         $validated = $request->validate([
             'ship_selection_type' => 'required|in:existing,new',
-            'ship_id' => 'nullable|uuid|exists:ships,id',
+            'ship_id' => 'nullable|required_if:ship_selection_type,existing|uuid|exists:ships,id',
             'name' => 'nullable|required_if:ship_selection_type,new|string|max:255',
             'imo_number' => 'nullable|string|max:50',
             'ship_type' => 'nullable|string|max:100',
             'company_selection_type' => 'nullable|in:existing,new',
-            'ship_company_id' => 'nullable|uuid|exists:ship_companies,id',
+            'ship_company_id' => 'nullable|required_if:company_selection_type,existing|uuid|exists:ship_companies,id',
             'new_company_name' => 'nullable|required_if:company_selection_type,new|string|max:255',
             'new_company_code' => 'nullable|string|max:50',
             'gross_tonnage' => 'nullable|numeric|min:0',
@@ -347,6 +391,7 @@ class VesselController extends Controller
             'port_id' => 'nullable|uuid|exists:ports,id',
             'eta' => 'required|date',
             'arrival_notes' => 'nullable|string',
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);
 
         $companyId = $validated['ship_company_id'] ?? null;
@@ -381,12 +426,14 @@ class VesselController extends Controller
                 'is_active' => true,
             ]);
         } else {
+            $imagePath = $request->file('image')?->store('sja/vessels', 'public');
+
             $ship = Ship::create([
                 'ship_company_id' => $companyId,
                 'port_id' => $validated['port_id'] ?? null,
                 'name' => trim($validated['name']),
-                'imo_number' => ! empty($validated['imo_number']) ? trim($validated['imo_number']) : 'IMO-'.rand(1000000, 9999999),
-                'ship_type' => $validated['ship_type'] ?: 'Cargo Ship',
+                'imo_number' => ! empty($validated['imo_number']) ? trim($validated['imo_number']) : null,
+                'ship_type' => $validated['ship_type'] ?: null,
                 'gross_tonnage' => $validated['gross_tonnage'] ?? null,
                 'length' => $validated['length'] ?? null,
                 'call_sign' => $validated['call_sign'] ?? null,
@@ -396,6 +443,7 @@ class VesselController extends Controller
                 'eta' => $validated['eta'],
                 'agent_name' => 'PT Samudra Jaya Andalas',
                 'arrival_notes' => $validated['arrival_notes'] ?? null,
+                'image' => $imagePath ? '/storage/'.$imagePath : null,
                 'created_by' => $request->user()?->id,
                 'is_active' => true,
             ]);

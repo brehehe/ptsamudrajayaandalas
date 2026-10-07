@@ -32,4 +32,9 @@ class ExpenseRequestItem extends Model
     {
         return $this->belongsTo(CostDocumentItem::class);
     }
+
+    public function requestItem(): BelongsTo
+    {
+        return $this->belongsTo(RequestItem::class);
+    }
 }

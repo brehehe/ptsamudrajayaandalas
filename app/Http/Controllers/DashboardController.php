@@ -41,6 +41,10 @@ class DashboardController extends Controller
             'sandar' => $activePortCalls->where('status', 'berthed')->count(),
             'labuh' => $activePortCalls->where('status', 'anchored')->count(),
             'berangkat' => PortCall::query()->where('status', 'departed')->whereDate('departed_at', $today)->count(),
+            'selesai' => PortCall::query()
+                ->whereIn('status', ['departed', 'completed'])
+                ->whereDate('departed_at', $today)
+                ->count(),
         ];
 
         $requestsByStatus = [
@@ -58,7 +62,6 @@ class DashboardController extends Controller
                 'id' => (string) $shipRequest->id,
                 'request_number' => $shipRequest->request_number,
                 'date' => ($shipRequest->request_date ?? $shipRequest->created_at)->format('d M Y'),
-                'time' => $shipRequest->created_at->format('H:i'),
                 'ship_name' => $shipRequest->ship?->name ?? 'Kapal tidak tersedia',
                 'ship_imo' => $shipRequest->ship?->imo_number ?? '-',
                 'notes' => $shipRequest->notes ?? '-',
@@ -138,6 +141,34 @@ class DashboardController extends Controller
             'status' => $invoice->status,
         ])->values();
 
+        $receivablesByCompany = $rawInvoices
+            ->filter(fn (Invoice $invoice): bool => (float) $invoice->outstanding_amount > 0)
+            ->groupBy(fn (Invoice $invoice): string => (string) ($invoice->company?->id ?? $invoice->portCall?->ship?->company?->id ?? 'unassigned'))
+            ->map(function (Collection $companyInvoices): array {
+                /** @var Invoice $firstInvoice */
+                $firstInvoice = $companyInvoices->first();
+                $company = $firstInvoice->company ?? $firstInvoice->portCall?->ship?->company;
+                $overdueInvoices = $companyInvoices->filter(
+                    fn (Invoice $invoice): bool => $invoice->due_date?->lt(today()) ?? false,
+                );
+                $oldestDueInvoice = $companyInvoices
+                    ->filter(fn (Invoice $invoice): bool => $invoice->due_date !== null)
+                    ->sortBy(fn (Invoice $invoice): int => $invoice->due_date->timestamp)
+                    ->first();
+
+                return [
+                    'company_id' => $company?->id ? (string) $company->id : null,
+                    'company_name' => $company?->name ?? 'Perusahaan tidak tersedia',
+                    'invoice_count' => $companyInvoices->count(),
+                    'overdue_count' => $overdueInvoices->count(),
+                    'outstanding_amount' => (float) $companyInvoices->sum('outstanding_amount'),
+                    'overdue_amount' => (float) $overdueInvoices->sum('outstanding_amount'),
+                    'oldest_due_date' => $oldestDueInvoice?->due_date?->format('Y-m-d'),
+                ];
+            })
+            ->sortByDesc('outstanding_amount')
+            ->values();
+
         $todayShips = $activePortCalls
             ->filter(fn (PortCall $portCall): bool => $portCall->eta_at?->isToday() || in_array($portCall->status, ['anchored', 'berthed'], true))
             ->map(fn (PortCall $portCall): array => $this->portCallCard($portCall))
@@ -203,6 +234,7 @@ class DashboardController extends Controller
             'aging' => $aging,
             'chart' => $financialChart,
             'recent_invoices' => $recentInvoices,
+            'receivables_by_company' => $receivablesByCompany,
         ];
 
         $canViewFinancials = $user->isOperationalAdmin() || $user->isDirector() || $user->isOwner();
@@ -210,22 +242,6 @@ class DashboardController extends Controller
 
         $myRequests = ShipRequest::query()->where('created_by', $user->id);
         $pendingCount = (clone $myRequests)->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count();
-        $days = collect(range(6, 0))->map(fn (int $offset): Carbon => today()->subDays($offset));
-        $activityChart = [
-            'period' => '7 Hari Terakhir',
-            'days' => $days->map(fn (Carbon $day): string => $day->locale('id')->translatedFormat('d M'))->values(),
-            'data' => $days->map(function (Carbon $day): array {
-                $requests = ShipRequest::query()->whereDate('created_at', $day)->get();
-
-                return [
-                    'day' => $day->locale('id')->translatedFormat('d M'),
-                    'dibuat' => $requests->count(),
-                    'disetujui' => $requests->whereIn('status', ['Disetujui', 'Dalam Proses', 'Selesai'])->count(),
-                    'diproses' => $requests->whereIn('status', ['Dalam Proses', 'Diproses'])->count(),
-                    'selesai' => $requests->where('status', 'Selesai')->count(),
-                ];
-            })->values(),
-        ];
 
         return Inertia::render('Dashboard', [
             'kpi' => [
@@ -248,12 +264,11 @@ class DashboardController extends Controller
             'latest_requests' => $latestRequests,
             'attention_ships' => $activePortCalls->map(fn (PortCall $portCall): array => $this->portCallCard($portCall))->values(),
             'schedules' => $activePortCalls->map(fn (PortCall $portCall): array => [
-                'time' => $portCall->eta_at?->format('H:i') ?? '-',
+                'date' => $portCall->eta_at?->format('d M Y') ?? '-',
                 'ship_name' => $portCall->ship?->name ?? 'Kapal tidak tersedia',
                 'status' => $this->portCallStatusLabel($portCall->status),
             ])->values(),
             'notifications' => [],
-            'activity_chart' => $activityChart,
             'needs_today' => $needsToday,
             'my_requests_stats' => [
                 'total' => (clone $myRequests)->count(),
@@ -299,6 +314,7 @@ class DashboardController extends Controller
                 $activePortCalls,
                 $pendingApprovals,
                 $financialOverview,
+                $shipsByStatus,
             ),
         ]);
     }
@@ -310,6 +326,7 @@ class DashboardController extends Controller
      * @param  Collection<int, PortCall>  $activePortCalls
      * @param  Collection<int, array<string, mixed>>  $pendingApprovals
      * @param  array<string, mixed>  $financialOverview
+     * @param  array<string, int>  $shipsByStatus
      * @return array<string, mixed>
      */
     private function roleDashboard(
@@ -317,14 +334,19 @@ class DashboardController extends Controller
         Collection $activePortCalls,
         Collection $pendingApprovals,
         array $financialOverview,
+        array $shipsByStatus,
     ): array {
         $activeWorkOrders = WorkOrder::query()->whereNotIn('status', ['closed'])->count();
         $pendingNeeds = RequestItem::query()
             ->where('is_invoiced', false)
             ->whereNotIn('status', ['Selesai', 'Dibatalkan'])
             ->count();
-        $vendorInvoicesToVerify = CostDocument::query()->where('status', 'received')->count();
-        $vendorInvoicesWaitingBatch = CostDocument::query()
+        $vendorInvoicesToVerify = CostDocument::query()
+            ->where('document_type', 'vendor_invoice')
+            ->where('status', 'received')
+            ->count();
+        $vendorInvoicesReadyForPayment = CostDocument::query()
+            ->where('document_type', 'vendor_invoice')
             ->where('status', 'verified')
             ->whereIn('payment_status', ['unpaid', 'partially_paid'])
             ->count();
@@ -369,7 +391,8 @@ class DashboardController extends Controller
         if ($user->isStaff()) {
             return [
                 'role' => 'operasional',
-                'eyebrow' => 'Operasional Lapangan',
+                'is_read_only' => false,
+                'eyebrow' => 'Aktifitas Lapangan',
                 'title' => 'Kendali pekerjaan hari ini',
                 'subtitle' => 'Pantau kapal, catat aktivitas, dan selesaikan kebutuhan lapangan dari satu tempat.',
                 'primary_action' => ['label' => 'Catat Aktivitas', 'href' => '/operations'],
@@ -403,7 +426,7 @@ class DashboardController extends Controller
                             ['label' => 'Akan Datang', 'value' => $activePortCalls->where('status', 'scheduled')->count(), 'color' => '#0060F4'],
                             ['label' => 'Labuh', 'value' => $activePortCalls->where('status', 'anchored')->count(), 'color' => '#F59E0B'],
                             ['label' => 'Sandar', 'value' => $activePortCalls->where('status', 'berthed')->count(), 'color' => '#16A36A'],
-                            ['label' => 'Berangkat Hari Ini', 'value' => PortCall::query()->where('status', 'departed')->whereDate('departed_at', today())->count(), 'color' => '#7C3AED'],
+                            ['label' => 'Selesai', 'value' => $shipsByStatus['selesai'], 'color' => '#7C3AED'],
                         ],
                     ],
                     $this->operationalActivityChart($user),
@@ -415,6 +438,7 @@ class DashboardController extends Controller
         if ($user->isDirector()) {
             return [
                 'role' => 'direktur',
+                'is_read_only' => false,
                 'eyebrow' => 'Direktur',
                 'title' => 'Meja keputusan dan pengawasan',
                 'subtitle' => 'Prioritaskan persetujuan, kontrol pendanaan Kopra, dan pantau kesehatan arus kas.',
@@ -452,7 +476,7 @@ class DashboardController extends Controller
                         ],
                     ],
                     $this->financialTrendChart($financialOverview),
-                    $this->receivableAgingChart($financialOverview),
+                    $this->workflowChart($commonPipeline, 'director_pipeline', 'Alur Pengawasan Direktur', 'Posisi pekerjaan aktif yang perlu dipantau dari SPK hingga pembayaran klien.'),
                 ],
             ];
         }
@@ -460,9 +484,10 @@ class DashboardController extends Controller
         if ($user->isOwner()) {
             return [
                 'role' => 'owner',
+                'is_read_only' => true,
                 'eyebrow' => 'Owner',
                 'title' => 'Ringkasan strategis perusahaan',
-                'subtitle' => 'Pantau performa operasional, arus kas, piutang, dan tata kelola pengguna secara menyeluruh.',
+                'subtitle' => 'Pantau performa operasional, arus kas, piutang, dan tata kelola perusahaan dalam mode lihat saja.',
                 'primary_action' => ['label' => 'Lihat Laporan', 'href' => '/reports'],
                 'metrics' => [
                     ['key' => 'work_orders', 'label' => 'SPK Aktif', 'value' => $activeWorkOrders, 'format' => 'number', 'hint' => 'Kegiatan belum ditutup'],
@@ -471,15 +496,15 @@ class DashboardController extends Controller
                     ['key' => 'receivables', 'label' => 'Total Piutang', 'value' => $financialOverview['total_outstanding'], 'format' => 'currency', 'hint' => $unpaidClientInvoices.' invoice belum lunas'],
                 ],
                 'priorities' => [
-                    ['title' => 'Piutang klien', 'description' => 'Tagihan yang masih perlu ditagih.', 'count' => $unpaidClientInvoices, 'href' => '/receivables', 'tone' => 'red'],
-                    ['title' => 'Nota Rampung tertunda', 'description' => 'Dokumen belum selesai atau direkonsiliasi.', 'count' => $completionNotesPending, 'href' => '/completion-notes', 'tone' => 'amber'],
-                    ['title' => 'Pengguna aktif', 'description' => 'Akun aktif dalam sistem perusahaan.', 'count' => $activeUsers, 'href' => '/master/users', 'tone' => 'green'],
+                    ['title' => 'Piutang klien', 'description' => 'Saldo tagihan klien yang belum lunas.', 'count' => $unpaidClientInvoices, 'href' => '/receivables', 'tone' => 'red'],
+                    ['title' => 'Nota Rampung tertunda', 'description' => 'Dokumen yang belum selesai direkonsiliasi.', 'count' => $completionNotesPending, 'href' => '/completion-notes', 'tone' => 'amber'],
+                    ['title' => 'Pengguna aktif', 'description' => 'Ringkasan akun aktif dalam sistem.', 'count' => $activeUsers, 'href' => '/master/users', 'tone' => 'green'],
                 ],
                 'quick_actions' => [
                     ['label' => 'Laporan Perusahaan', 'description' => 'Tinjau operasional dan keuangan', 'href' => '/reports', 'icon' => 'report'],
                     ['label' => 'Monitoring Piutang', 'description' => 'Pantau umur dan status tagihan', 'href' => '/receivables', 'icon' => 'receivable'],
-                    ['label' => 'Manajemen Pengguna', 'description' => 'Kelola akun dan peran', 'href' => '/master/users', 'icon' => 'users'],
-                    ['label' => 'Audit Proses', 'description' => 'Pantau alur pekerjaan berjalan', 'href' => '/work-orders', 'icon' => 'audit'],
+                    ['label' => 'Daftar Pengguna', 'description' => 'Lihat akun dan pembagian peran', 'href' => '/master/users', 'icon' => 'users'],
+                    ['label' => 'Pemantauan Proses', 'description' => 'Lihat alur pekerjaan berjalan', 'href' => '/work-orders', 'icon' => 'audit'],
                 ],
                 'pipeline' => $commonPipeline,
                 'charts' => [
@@ -503,6 +528,7 @@ class DashboardController extends Controller
 
         return [
             'role' => 'admin',
+            'is_read_only' => false,
             'eyebrow' => 'Administrasi Operasional',
             'title' => 'Pusat kendali administrasi',
             'subtitle' => 'Kelola SPK, invoice vendor, pendanaan, Nota Rampung, dan penagihan dari satu alur kerja.',
@@ -510,18 +536,18 @@ class DashboardController extends Controller
             'metrics' => [
                 ['key' => 'work_orders', 'label' => 'SPK Aktif', 'value' => $activeWorkOrders, 'format' => 'number', 'hint' => 'Kegiatan belum ditutup'],
                 ['key' => 'needs', 'label' => 'Menunggu Invoice', 'value' => $pendingNeeds, 'format' => 'number', 'hint' => 'Kebutuhan belum berinvoice'],
-                ['key' => 'vendor_invoices', 'label' => 'Invoice Perlu Diproses', 'value' => $vendorInvoicesToVerify + $vendorInvoicesWaitingBatch, 'format' => 'number', 'hint' => 'Verifikasi atau masukkan batch'],
+                ['key' => 'vendor_invoices', 'label' => 'Invoice Perlu Diproses', 'value' => $vendorInvoicesToVerify + $vendorInvoicesReadyForPayment, 'format' => 'number', 'hint' => 'Verifikasi atau lanjutkan pembayaran'],
                 ['key' => 'receivables', 'label' => 'Total Piutang', 'value' => $financialOverview['total_outstanding'], 'format' => 'currency', 'hint' => $unpaidClientInvoices.' invoice belum lunas'],
             ],
             'priorities' => [
-                ['title' => 'Invoice vendor perlu verifikasi', 'description' => 'Periksa dokumen sebelum masuk pendanaan.', 'count' => $vendorInvoicesToVerify, 'href' => '/vendor-invoices', 'tone' => 'amber'],
+                ['title' => 'Invoice vendor perlu verifikasi', 'description' => 'Periksa dokumen sebelum invoice dapat dibayar.', 'count' => $vendorInvoicesToVerify, 'href' => '/vendor-invoices', 'tone' => 'amber'],
                 ['title' => 'Pengajuan perlu pemeriksaan Admin', 'description' => 'Teruskan pengajuan valid kepada Direktur.', 'count' => $adminFundingReviews, 'href' => '/funding', 'tone' => 'blue'],
                 ['title' => 'Nota Rampung melewati tenggat', 'description' => 'Tindak lanjuti dokumen Pelindo yang terlambat.', 'count' => $overdueCompletionNotes, 'href' => '/completion-notes', 'tone' => 'red'],
             ],
             'quick_actions' => [
                 ['label' => 'SPK & Kapal', 'description' => 'Kelola pekerjaan dan kunjungan', 'href' => '/work-orders', 'icon' => 'work_order'],
                 ['label' => 'Invoice Vendor', 'description' => 'Verifikasi dokumen vendor', 'href' => '/vendor-invoices', 'icon' => 'invoice'],
-                ['label' => 'Pendanaan & Kopra', 'description' => 'Susun batch dan pencairan', 'href' => '/funding', 'icon' => 'bank'],
+                ['label' => 'Pendanaan & Kopra', 'description' => 'Kelola dana operasional dan pencairan', 'href' => '/funding', 'icon' => 'bank'],
                 ['label' => 'Nota Rampung', 'description' => 'Unggah dan rekonsiliasi', 'href' => '/completion-notes', 'icon' => 'completion'],
             ],
             'pipeline' => $commonPipeline,
@@ -531,13 +557,13 @@ class DashboardController extends Controller
                     'key' => 'vendor_invoices',
                     'type' => 'donut',
                     'title' => 'Status Invoice Vendor',
-                    'subtitle' => 'Dokumen vendor yang diterima, siap masuk batch, dan sudah dibayar.',
+                    'subtitle' => 'Dokumen vendor yang perlu diperiksa, siap dibayar, dan sudah dibayar.',
                     'format' => 'number',
                     'center_label' => 'invoice',
                     'segments' => [
                         ['label' => 'Perlu Verifikasi', 'value' => $vendorInvoicesToVerify, 'color' => '#F59E0B'],
-                        ['label' => 'Menunggu Batch', 'value' => $vendorInvoicesWaitingBatch, 'color' => '#0060F4'],
-                        ['label' => 'Sudah Dibayar', 'value' => CostDocument::query()->where('payment_status', 'paid')->count(), 'color' => '#16A36A'],
+                        ['label' => 'Siap Dibayar', 'value' => $vendorInvoicesReadyForPayment, 'color' => '#0060F4'],
+                        ['label' => 'Sudah Dibayar', 'value' => CostDocument::query()->where('document_type', 'vendor_invoice')->where('payment_status', 'paid')->count(), 'color' => '#16A36A'],
                     ],
                 ],
                 $this->requestStatusChart(),
@@ -642,26 +668,6 @@ class DashboardController extends Controller
         ];
     }
 
-    /** @param  array<string, mixed>  $financialOverview
-     * @return array<string, mixed>
-     */
-    private function receivableAgingChart(array $financialOverview): array
-    {
-        return [
-            'key' => 'receivables_aging',
-            'type' => 'donut',
-            'title' => 'Umur Piutang Klien',
-            'subtitle' => 'Sebaran saldo piutang berdasarkan lama keterlambatan pembayaran.',
-            'format' => 'currency',
-            'center_label' => 'total piutang',
-            'segments' => [
-                ['label' => 'Belum Jatuh Tempo', 'value' => $financialOverview['aging']['current'], 'color' => '#16A36A'],
-                ['label' => 'Terlambat 1–30 Hari', 'value' => $financialOverview['aging']['overdue_30'], 'color' => '#F59E0B'],
-                ['label' => 'Terlambat >30 Hari', 'value' => $financialOverview['aging']['overdue_60'], 'color' => '#E5484D'],
-            ],
-        ];
-    }
-
     /**
      * @param  array<int, array<string, mixed>>  $items
      * @return array<string, mixed>
@@ -692,7 +698,7 @@ class DashboardController extends Controller
                 'scheduled' => 'waiting',
                 default => 'processing',
             },
-            'eta' => $portCall->eta_at?->format('d M Y H:i') ?? '-',
+            'eta' => $portCall->eta_at?->format('d M Y') ?? '-',
             'port' => $portCall->port?->name ?? '-',
             'company' => $portCall->ship?->company?->name ?? '-',
             'captain_name' => $portCall->ship?->captain_name,
@@ -710,7 +716,7 @@ class DashboardController extends Controller
             'scheduled' => 'Akan Datang',
             'anchored' => 'Labuh',
             'berthed' => 'Sandar',
-            'departed' => 'Berangkat',
+            'departed', 'completed' => 'Selesai',
             default => ucfirst($status),
         };
     }

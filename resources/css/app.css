@@ -4,6 +4,33 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  #app {
+    min-inline-size: 0;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  /*
+   * Keep operational identifiers, currency values, and table headings intact.
+   * Wide data sets scroll inside their own wrapper instead of breaking words or
+   * pushing the whole page beyond the viewport.
+   */
+  #app table {
+    min-inline-size: 100%;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
+  #app :where(.overflow-x-auto) > table {
+    min-inline-size: max(100%, 48rem);
+  }
+
+  #app table th,
+  #app table .tabular-nums,
+  #app table [data-nowrap='true'] {
+    white-space: nowrap;
+  }
+
   body {
     font-family: var(--sja-font-sans, "Inter", ui-sans-serif, system-ui, sans-serif);
     background-color: var(--sja-background, #F0F8FF);
@@ -41,6 +68,13 @@
 .shadow-sja-card { box-shadow: var(--sja-shadow-card, 0 2px 12px rgb(8 40 112 / 0.05)); }
 .radius-sja-card { border-radius: var(--sja-radius-card, 16px); }
 .radius-sja-control { border-radius: var(--sja-radius-control, 12px); }
+
+/* Keep mobile photography bright while preserving readable white copy. */
+.mobile-photo-copy {
+  text-shadow:
+    0 1px 2px rgb(0 20 51 / 0.95),
+    0 2px 8px rgb(0 20 51 / 0.72);
+}
 
 /* =========================================================================
    Corporate Maritime — Dark Mode Global Adaptation
@@ -141,4 +175,3 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   transform-origin: 70% 70%;
   animation: sja-wave 2s infinite ease-in-out;
 }
-

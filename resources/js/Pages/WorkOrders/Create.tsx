@@ -5,10 +5,12 @@ import {
     Building2,
     CalendarClock,
     Check,
+    CheckCircle2,
     ClipboardCheck,
     FileText,
     Info,
     MapPin,
+    Plus,
     Ship,
     Upload,
     UserRound,
@@ -16,13 +18,18 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import Input from '../../Components/forms/Input';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Textarea from '../../Components/forms/Textarea';
 import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
+import Modal from '../../Components/overlays/Modal';
+import Select from '../../Components/selects/Select';
 import SelectSearch from '../../Components/selects/SelectSearch';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import AppLayout from '../../Layouts/AppLayout';
+import { optimizeImageFile } from '../../lib/optimizeImageFile';
 import type { PageProps } from '../../types';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 
 interface OptionItem {
     id: string | number;
@@ -31,7 +38,20 @@ interface OptionItem {
     imo_number?: string | null;
     ship_type?: string | null;
     gross_tonnage?: string | null;
+    image?: string | null;
     city?: string | null;
+}
+
+interface ShipFormData {
+    name: string;
+    ship_company_id: string;
+    ship_type: string;
+    imo_number: string;
+    call_sign: string;
+    gross_tonnage: string;
+    length: string;
+    flag: string;
+    image: File | null;
 }
 
 interface Props {
@@ -113,6 +133,8 @@ const fileSize = (bytes: number) => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const allowedDocumentExtensions = new Set(['pdf', 'jpg', 'jpeg', 'png']);
+
 export default function WorkOrdersCreate({
     companies,
     ships,
@@ -130,6 +152,47 @@ export default function WorkOrdersCreate({
     const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
     const role = auth.user?.primary_role || 'Pengguna';
     const isFieldStaff = role === 'Lapangan';
+
+    // Dynamic lists to allow inline additions without losing SPK form progress
+    const [companyList, setCompanyList] = useState<OptionItem[]>(companies);
+    const [shipList, setShipList] = useState<OptionItem[]>(ships);
+    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+    // Modal state: Tambah Perusahaan
+    const [isAddCompanyOpen, setIsAddCompanyOpen] = useState(false);
+    const [companyFormData, setCompanyFormData] = useState({
+        name: '',
+        code: '',
+        phone: '',
+        email: '',
+        address: '',
+    });
+    const [companyErrors, setCompanyErrors] = useState<Record<string, string>>({});
+    const [isSubmittingCompany, setIsSubmittingCompany] = useState(false);
+
+    // Modal state: Tambah Kapal
+    const [isAddShipOpen, setIsAddShipOpen] = useState(false);
+    const [shipFormData, setShipFormData] = useState<ShipFormData>({
+        name: '',
+        ship_company_id: '',
+        ship_type: 'Tugboat',
+        imo_number: '',
+        call_sign: '',
+        gross_tonnage: '',
+        length: '',
+        flag: 'Indonesia',
+        image: null,
+    });
+    const [shipErrors, setShipErrors] = useState<Record<string, string>>({});
+    const [isSubmittingShip, setIsSubmittingShip] = useState(false);
+
+    useEffect(() => {
+        setCompanyList(companies);
+    }, [companies]);
+
+    useEffect(() => {
+        setShipList(ships);
+    }, [ships]);
 
     const form = useForm<WorkOrderForm>({
         client_number: '',
@@ -150,14 +213,167 @@ export default function WorkOrdersCreate({
     });
 
     const filteredShips = useMemo(
-        () => ships.filter((ship) => String(ship.ship_company_id) === form.data.company_id),
-        [ships, form.data.company_id],
+        () => shipList.filter((ship) => String(ship.ship_company_id) === form.data.company_id),
+        [shipList, form.data.company_id],
     );
-    const selectedCompany = companies.find((item) => String(item.id) === form.data.company_id);
-    const selectedShip = ships.find((item) => String(item.id) === form.data.ship_id);
+    const selectedCompany = companyList.find((item) => String(item.id) === form.data.company_id);
+    const selectedShip = shipList.find((item) => String(item.id) === form.data.ship_id);
     const selectedPort = ports.find((item) => String(item.id) === form.data.port_id);
     const selectedAssignee = assignees.find((item) => String(item.id) === form.data.assigned_to);
     const serverErrorCount = Object.keys(form.errors).length;
+
+    const handleOpenAddCompany = () => {
+        setCompanyFormData({
+            name: '',
+            code: '',
+            phone: '',
+            email: '',
+            address: '',
+        });
+        setCompanyErrors({});
+        setIsAddCompanyOpen(true);
+    };
+
+    const handleSaveCompany = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const errors: Record<string, string> = {};
+        if (!companyFormData.name.trim()) {
+            errors.name = 'Nama perusahaan wajib diisi.';
+        }
+        if (Object.keys(errors).length > 0) {
+            setCompanyErrors(errors);
+            return;
+        }
+
+        setIsSubmittingCompany(true);
+        setCompanyErrors({});
+
+        try {
+            const response = await window.axios.post('/master/companies', companyFormData, {
+                headers: { Accept: 'application/json' },
+            });
+            const created = response.data?.company;
+            if (created && created.id) {
+                const newOption: OptionItem = {
+                    id: created.id,
+                    name: created.name,
+                };
+                setCompanyList((prev) => {
+                    const exists = prev.some((c) => String(c.id) === String(created.id));
+                    return exists ? prev : [...prev, newOption].sort((a, b) => a.name.localeCompare(b.name));
+                });
+                updateCompany(created.id);
+                // Pre-fill ship modal company too if user creates ship next
+                setShipFormData((prev) => ({ ...prev, ship_company_id: String(created.id) }));
+                setIsAddCompanyOpen(false);
+                setNotification({
+                    type: 'success',
+                    message: `Perusahaan "${created.name}" berhasil ditambahkan dan dipilih.`,
+                });
+            }
+        } catch (err: any) {
+            if (err?.response?.data?.errors) {
+                setCompanyErrors(err.response.data.errors);
+            } else {
+                setCompanyErrors({
+                    general: err?.response?.data?.message || 'Gagal menyimpan perusahaan. Periksa koneksi dan coba lagi.',
+                });
+            }
+        } finally {
+            setIsSubmittingCompany(false);
+        }
+    };
+
+    const handleOpenAddShip = () => {
+        setShipFormData({
+            name: '',
+            ship_company_id: form.data.company_id || '',
+            ship_type: 'Tugboat',
+            imo_number: '',
+            call_sign: '',
+            gross_tonnage: '',
+            length: '',
+            flag: 'Indonesia',
+            image: null,
+        });
+        setShipErrors({});
+        setIsAddShipOpen(true);
+    };
+
+    const handleSaveShip = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const errors: Record<string, string> = {};
+        if (!shipFormData.ship_company_id) {
+            errors.ship_company_id = 'Pilih perusahaan pemilik kapal terlebih dahulu.';
+        }
+        if (!shipFormData.name.trim()) {
+            errors.name = 'Nama kapal wajib diisi.';
+        }
+        if (Object.keys(errors).length > 0) {
+            setShipErrors(errors);
+            return;
+        }
+
+        setIsSubmittingShip(true);
+        setShipErrors({});
+
+        try {
+            const payload = new FormData();
+
+            Object.entries(shipFormData).forEach(([key, value]) => {
+                if (value instanceof File) {
+                    payload.append(key, value);
+                } else if (value !== null) {
+                    payload.append(key, value);
+                }
+            });
+
+            const response = await window.axios.post('/master/vessels', payload, {
+                headers: { Accept: 'application/json' },
+            });
+            const created = response.data?.vessel;
+            if (created && created.id) {
+                const newOption: OptionItem = {
+                    id: created.id,
+                    name: created.name,
+                    ship_company_id: String(created.ship_company_id),
+                    imo_number: created.imo_number || null,
+                    ship_type: created.ship_type || null,
+                    gross_tonnage: created.gross_tonnage ? String(created.gross_tonnage) : null,
+                    image: created.image || null,
+                };
+                setShipList((prev) => {
+                    const exists = prev.some((s) => String(s.id) === String(created.id));
+                    return exists ? prev : [...prev, newOption].sort((a, b) => a.name.localeCompare(b.name));
+                });
+                // Ensure the main form company is set to this ship's company
+                if (form.data.company_id !== String(created.ship_company_id)) {
+                    form.setData((current) => ({
+                        ...current,
+                        company_id: String(created.ship_company_id),
+                        ship_id: String(created.id),
+                    }));
+                } else {
+                    updateField('ship_id', String(created.id));
+                }
+                setIsAddShipOpen(false);
+                setNotification({
+                    type: 'success',
+                    message: `Kapal "${created.name}" berhasil didaftarkan dan dipilih.`,
+                });
+            }
+        } catch (err: any) {
+            if (err?.response?.data?.errors) {
+                setShipErrors(err.response.data.errors);
+            } else {
+                setShipErrors({
+                    general: err?.response?.data?.message || 'Gagal menyimpan kapal. Periksa koneksi dan coba lagi.',
+                });
+            }
+        } finally {
+            setIsSubmittingShip(false);
+        }
+    };
 
     useEffect(() => {
         const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
@@ -212,15 +428,31 @@ export default function WorkOrdersCreate({
         });
     };
 
-    const validateStep = (step: number, activating = false) => {
+    const validateStep = (step: number) => {
         const errors: Partial<Record<FormField, string>> = {};
 
         if (step === 0) {
             if (!form.data.client_number.trim()) errors.client_number = 'Nomor SPK klien wajib diisi.';
+            if (form.data.client_number.trim().length > 100) errors.client_number = 'Nomor SPK klien maksimal 100 karakter.';
             if (!form.data.document_date) errors.document_date = 'Tanggal SPK wajib diisi.';
             if (!form.data.received_at) errors.received_at = 'Waktu dokumen diterima wajib diisi.';
-            if (form.data.document && form.data.document.size > 10 * 1024 * 1024) errors.document = 'Ukuran dokumen maksimal 10 MB.';
-            if (activating && !form.data.document) errors.document = 'Unggah dokumen SPK sebelum langsung mengaktifkan SPK.';
+            if (form.data.document_date && form.data.received_at && form.data.document_date > form.data.received_at.slice(0, 10)) {
+                errors.document_date = 'Tanggal SPK tidak boleh melewati waktu dokumen diterima.';
+            }
+            if (form.data.client_pic_name.length > 255) errors.client_pic_name = 'Nama PIC maksimal 255 karakter.';
+            if (form.data.client_pic_contact.length > 100) errors.client_pic_contact = 'Kontak PIC maksimal 100 karakter.';
+
+            if (!form.data.document) {
+                errors.document = 'Dokumen SPK wajib diunggah sebelum SPK disimpan.';
+            } else {
+                const extension = form.data.document.name.split('.').pop()?.toLowerCase() || '';
+
+                if (!allowedDocumentExtensions.has(extension)) {
+                    errors.document = 'Dokumen SPK harus berupa PDF, JPG, JPEG, atau PNG.';
+                } else if (form.data.document.size > 10 * 1024 * 1024) {
+                    errors.document = 'Ukuran dokumen SPK maksimal 10 MB.';
+                }
+            }
         }
 
         if (step === 1) {
@@ -235,10 +467,22 @@ export default function WorkOrdersCreate({
 
         if (step === 2) {
             if (!form.data.activity_name.trim()) errors.activity_name = 'Jenis kegiatan wajib diisi.';
+            if (form.data.activity_name.trim().length > 255) errors.activity_name = 'Jenis kegiatan maksimal 255 karakter.';
             if (!form.data.assigned_to) errors.assigned_to = 'Pilih penanggung jawab SPK.';
+            if (form.data.activity_description.length > 2000) errors.activity_description = 'Rincian kegiatan maksimal 2000 karakter.';
         }
 
-        setClientErrors((current) => ({ ...current, ...errors }));
+        setClientErrors((current) => {
+            const next = { ...current };
+
+            Object.entries(fieldSteps).forEach(([field, fieldStep]) => {
+                if (fieldStep === step) {
+                    delete next[field as FormField];
+                }
+            });
+
+            return { ...next, ...errors };
+        });
 
         const firstInvalidField = Object.keys(errors)[0] as FormField | undefined;
         if (firstInvalidField) {
@@ -274,7 +518,7 @@ export default function WorkOrdersCreate({
 
     const submit = (status: 'draft' | 'active') => {
         for (let step = 0; step <= 2; step += 1) {
-            if (!validateStep(step, status === 'active')) {
+            if (!validateStep(step)) {
                 setCurrentStep(step);
 
                 return;
@@ -386,7 +630,32 @@ export default function WorkOrdersCreate({
                     </div>
                 )}
 
+                {notification && (
+                    <div
+                        role="alert"
+                        aria-live="polite"
+                        className={`mb-5 flex items-center justify-between gap-3 rounded-2xl border p-4 text-sm transition-all ${notification.type === 'success'
+                            ? 'border-[#087443]/20 bg-[#DCF7E8] text-[#087443] dark:bg-[#087443]/15 dark:text-[#86EFAC]'
+                            : 'border-[#C62840]/20 bg-[#FFE7EC] text-[#9F1239] dark:bg-[#C62840]/15 dark:text-[#FCA5A5]'
+                            }`}
+                    >
+                        <div className="flex items-center gap-2.5">
+                            <CheckCircle2 className="size-5 shrink-0" />
+                            <p className="font-semibold">{notification.message}</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setNotification(null)}
+                            className="rounded-lg p-1 text-current opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]"
+                            aria-label="Tutup notifikasi"
+                        >
+                            <X className="size-4" />
+                        </button>
+                    </div>
+                )}
+
                 <form onSubmit={handleSubmit} noValidate>
+                    <FormErrorSummary errors={{ ...form.errors, ...clientErrors }} className="mb-4" />
                     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
                         <Card className="overflow-hidden">
                             <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] px-5 py-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
@@ -404,6 +673,7 @@ export default function WorkOrdersCreate({
                                             required
                                             autoComplete="off"
                                             label="Nomor SPK Klien"
+                                            maxLength={100}
                                             placeholder="Contoh: SPK/SJA/010/2026"
                                             value={form.data.client_number}
                                             onChange={(event) => updateField('client_number', event.target.value)}
@@ -436,6 +706,7 @@ export default function WorkOrdersCreate({
                                             name="client_pic_name"
                                             autoComplete="off"
                                             label="PIC Klien"
+                                            maxLength={255}
                                             placeholder="Nama PIC (opsional)"
                                             value={form.data.client_pic_name}
                                             onChange={(event) => updateField('client_pic_name', event.target.value)}
@@ -447,6 +718,7 @@ export default function WorkOrdersCreate({
                                             autoComplete="off"
                                             inputMode="tel"
                                             label="Kontak PIC"
+                                            maxLength={100}
                                             placeholder="Nomor telepon atau email (opsional)"
                                             value={form.data.client_pic_contact}
                                             onChange={(event) => updateField('client_pic_contact', event.target.value)}
@@ -454,7 +726,7 @@ export default function WorkOrdersCreate({
                                         />
 
                                         <div className="sm:col-span-2">
-                                            <p className="mb-1.5 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Dokumen SPK</p>
+                                            <p className="mb-1.5 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Dokumen SPK <span className="text-[#C62840] dark:text-[#F87171] ml-0.5">*</span></p>
                                             <label
                                                 htmlFor="spk-document"
                                                 className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center focus-within:ring-2 focus-within:ring-[#0060F4] ${errorFor('document') ? 'border-[#C62840] bg-[#FFE7EC]/40' : 'border-[#9FC7EF] bg-[#F8FBFF] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#285585] dark:bg-[#071322] dark:hover:bg-[#102642]'}`}
@@ -463,9 +735,23 @@ export default function WorkOrdersCreate({
                                                     id="spk-document"
                                                     name="document"
                                                     type="file"
+                                                    required
                                                     accept=".pdf,.jpg,.jpeg,.png"
+                                                    aria-invalid={Boolean(errorFor('document'))}
+                                                    aria-describedby={errorFor('document') ? 'document-error' : undefined}
                                                     className="sr-only"
-                                                    onChange={(event) => updateField('document', event.target.files?.[0] || null)}
+                                                    onChange={async (event) => {
+                                                        const selectedFile = event.target.files?.[0] || null;
+                                                        const preparedFile = selectedFile
+                                                            ? await optimizeImageFile(selectedFile, {
+                                                                maxWidth: 2560,
+                                                                maxHeight: 2560,
+                                                                quality: 0.92,
+                                                                maxSizeBytes: 10 * 1024 * 1024,
+                                                            })
+                                                            : null;
+                                                        updateField('document', preparedFile);
+                                                    }}
                                                 />
                                                 <span className="flex size-11 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#152E52]">
                                                     <Upload aria-hidden="true" className="size-5" />
@@ -504,7 +790,7 @@ export default function WorkOrdersCreate({
                                 {currentStep === 1 && (
                                     <fieldset className="grid gap-5 sm:grid-cols-2">
                                         <legend className="sr-only">Data kunjungan kapal</legend>
-                                        <div className="sm:col-span-2 rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
+                                        {/* <div className="sm:col-span-2 rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
                                             <div className="flex gap-3">
                                                 <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[#0060F4]" />
                                                 <div>
@@ -518,18 +804,29 @@ export default function WorkOrdersCreate({
                                                     )}
                                                 </div>
                                             </div>
-                                        </div>
+                                        </div> */}
                                         <SelectSearch
                                             id="company-id"
                                             name="company_id"
                                             required
                                             label="Perusahaan / Klien"
+                                            action={
+                                                <button
+                                                    type="button"
+                                                    onClick={handleOpenAddCompany}
+                                                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-bold text-[#0060F4] transition-colors hover:bg-[#E0F0FF] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:text-[#38BDF8] dark:hover:bg-[#1E3A5F] dark:hover:text-[#93C5FD]"
+                                                    title="Tambah Perusahaan Baru"
+                                                >
+                                                    <Plus aria-hidden="true" className="size-3.5" />
+                                                    <span>Tambah Perusahaan</span>
+                                                </button>
+                                            }
                                             value={form.data.company_id}
                                             onChange={updateCompany}
                                             placeholder="Pilih perusahaan…"
                                             searchPlaceholder="Cari nama perusahaan…"
                                             clearable={false}
-                                            options={companies.map((item) => ({
+                                            options={companyList.map((item) => ({
                                                 value: item.id,
                                                 label: item.name,
                                                 icon: <Building2 aria-hidden="true" className="size-4" />,
@@ -541,6 +838,17 @@ export default function WorkOrdersCreate({
                                             name="ship_id"
                                             required
                                             label="Kapal"
+                                            action={
+                                                <button
+                                                    type="button"
+                                                    onClick={handleOpenAddShip}
+                                                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-bold text-[#0060F4] transition-colors hover:bg-[#E0F0FF] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:text-[#38BDF8] dark:hover:bg-[#1E3A5F] dark:hover:text-[#93C5FD]"
+                                                    title="Tambah Kapal Baru"
+                                                >
+                                                    <Plus aria-hidden="true" className="size-3.5" />
+                                                    <span>Tambah Kapal</span>
+                                                </button>
+                                            }
                                             value={form.data.ship_id}
                                             onChange={(value) => updateField('ship_id', String(value))}
                                             placeholder={form.data.company_id ? 'Pilih kapal…' : 'Pilih perusahaan lebih dahulu'}
@@ -554,7 +862,11 @@ export default function WorkOrdersCreate({
                                                 icon: <Ship aria-hidden="true" className="size-4" />,
                                             }))}
                                             error={errorFor('ship_id')}
-                                            helperText={form.data.company_id && filteredShips.length === 0 ? 'Belum ada kapal aktif untuk perusahaan ini.' : undefined}
+                                            helperText={
+                                                form.data.company_id && filteredShips.length === 0
+                                                    ? 'Belum ada kapal aktif untuk perusahaan ini. Klik "+ Tambah Kapal" di atas untuk mendaftarkan armada kapal.'
+                                                    : undefined
+                                            }
                                         />
                                         <SelectSearch
                                             id="port-id"
@@ -617,6 +929,7 @@ export default function WorkOrdersCreate({
                                             required
                                             autoComplete="off"
                                             label="Jenis Kegiatan"
+                                            maxLength={255}
                                             placeholder="Contoh: Keagenan bongkar muat"
                                             value={form.data.activity_name}
                                             onChange={(event) => updateField('activity_name', event.target.value)}
@@ -743,10 +1056,10 @@ export default function WorkOrdersCreate({
                                 </dl>
                             </Card>
 
-                            <div className="rounded-2xl border border-[#9FC7EF] bg-[#F0F8FF] p-4 text-sm leading-6 text-[#285585] dark:border-[#285585] dark:bg-[#102642] dark:text-[#B5C8DC]">
+                            {/* <div className="rounded-2xl border border-[#9FC7EF] bg-[#F0F8FF] p-4 text-sm leading-6 text-[#285585] dark:border-[#285585] dark:bg-[#102642] dark:text-[#B5C8DC]">
                                 <p className="font-bold text-[#082870] dark:text-[#F1F5F9]">Nomor job dibuat otomatis</p>
                                 <p className="mt-1">Sistem membuat nomor SPK internal dan job kunjungan setelah data berhasil disimpan.</p>
-                            </div>
+                            </div> */}
                         </aside>
                     </div>
 
@@ -787,6 +1100,299 @@ export default function WorkOrdersCreate({
                 onClose={() => setShowCancelConfirmation(false)}
                 onConfirm={() => router.visit('/work-orders')}
             />
+
+            {/* Modal Tambah Perusahaan / Klien */}
+            <Modal
+                isOpen={isAddCompanyOpen}
+                onClose={() => !isSubmittingCompany && setIsAddCompanyOpen(false)}
+                title={
+                    <div className="flex items-center gap-2.5 text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                        <span className="flex size-9 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#152E52] dark:text-[#38BDF8]">
+                            <Building2 aria-hidden="true" className="size-5" />
+                        </span>
+                        <span>Tambah Perusahaan / Klien</span>
+                    </div>
+                }
+                subtitle="Daftarkan perusahaan pemilik atau agen kapal yang tercatat dalam SPK."
+                size="lg"
+                footer={
+                    <div className="flex w-full items-center justify-end gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isSubmittingCompany}
+                            onClick={() => setIsAddCompanyOpen(false)}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="primary"
+                            isLoading={isSubmittingCompany}
+                            onClick={() => handleSaveCompany()}
+                        >
+                            Simpan Perusahaan
+                        </Button>
+                    </div>
+                }
+            >
+                <form
+                    noValidate
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSaveCompany();
+                    }}
+                    className="space-y-4"
+                >
+                    <FormErrorSummary errors={companyErrors} />
+                    <Input
+                        id="company-modal-name"
+                        name="name"
+                        required
+                        autoFocus
+                        label="Nama Perusahaan"
+                        placeholder="Contoh: PT Pelayaran Bahari Mandiri"
+                        value={companyFormData.name}
+                        onChange={(e) => {
+                            setCompanyFormData((prev) => ({ ...prev, name: e.target.value }));
+                            if (companyErrors.name) setCompanyErrors((prev) => ({ ...prev, name: '' }));
+                        }}
+                        error={companyErrors.name}
+                    />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Input
+                            id="company-modal-code"
+                            name="code"
+                            label="Kode Singkatan (Opsional)"
+                            placeholder="Contoh: PBM (otomatis jika kosong)"
+                            value={companyFormData.code}
+                            onChange={(e) => setCompanyFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                            error={companyErrors.code}
+                            helperText="Maksimal 10 karakter"
+                        />
+                        <Input
+                            id="company-modal-phone"
+                            name="phone"
+                            label="Nomor Telepon (Opsional)"
+                            placeholder="Contoh: 021-5551234 / 0812..."
+                            value={companyFormData.phone}
+                            onChange={(e) => setCompanyFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                            error={companyErrors.phone}
+                        />
+                    </div>
+                    <Input
+                        id="company-modal-email"
+                        name="email"
+                        type="email"
+                        label="Email Perusahaan (Opsional)"
+                        placeholder="Contoh: agency@perusahaan.co.id"
+                        value={companyFormData.email}
+                        onChange={(e) => setCompanyFormData((prev) => ({ ...prev, email: e.target.value }))}
+                        error={companyErrors.email}
+                    />
+                    <Textarea
+                        id="company-modal-address"
+                        name="address"
+                        label="Alamat Kantor (Opsional)"
+                        placeholder="Alamat kantor atau domisili perusahaan..."
+                        rows={3}
+                        value={companyFormData.address}
+                        onChange={(e) => setCompanyFormData((prev) => ({ ...prev, address: e.target.value }))}
+                        error={companyErrors.address}
+                    />
+                </form>
+            </Modal>
+
+            {/* Modal Tambah Kapal */}
+            <Modal
+                isOpen={isAddShipOpen}
+                onClose={() => !isSubmittingShip && setIsAddShipOpen(false)}
+                title={
+                    <div className="flex items-center gap-2.5 text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                        <span className="flex size-9 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#152E52] dark:text-[#38BDF8]">
+                            <Ship aria-hidden="true" className="size-5" />
+                        </span>
+                        <span>Tambah Kapal Baru</span>
+                    </div>
+                }
+                subtitle="Daftarkan armada kapal ke dalam Master Kapal untuk kunjungan ini."
+                size="lg"
+                footer={
+                    <div className="flex w-full items-center justify-end gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isSubmittingShip}
+                            onClick={() => setIsAddShipOpen(false)}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="primary"
+                            isLoading={isSubmittingShip}
+                            onClick={() => handleSaveShip()}
+                        >
+                            Simpan Kapal
+                        </Button>
+                    </div>
+                }
+            >
+                <form
+                    noValidate
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSaveShip();
+                    }}
+                    className="space-y-4"
+                >
+                    <FormErrorSummary errors={shipErrors} />
+
+                    {/* Perusahaan Pemilik (Hierarchy: Perusahaan Terlebih Dahulu) */}
+                    <div className="rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <label htmlFor="ship-modal-company" className="text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Perusahaan Pemilik / Klien <span className="text-[#C62840] dark:text-[#F87171]">*</span>
+                            </label>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    handleOpenAddCompany();
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-[#0060F4] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:text-[#38BDF8]"
+                            >
+                                <Plus aria-hidden="true" className="size-3" />
+                                <span>Tambah Perusahaan Baru</span>
+                            </button>
+                        </div>
+                        <select
+                            id="ship-modal-company"
+                            required
+                            value={shipFormData.ship_company_id}
+                            onChange={(e) => {
+                                setShipFormData((prev) => ({ ...prev, ship_company_id: e.target.value }));
+                                if (shipErrors.ship_company_id) setShipErrors((prev) => ({ ...prev, ship_company_id: '' }));
+                            }}
+                            className={`w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm font-semibold text-[#0B1F63] focus:border-[#0060F4] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/20 dark:bg-[#0C1D36] dark:text-[#F1F5F9] ${shipErrors.ship_company_id
+                                ? 'border-[#C62840] ring-1 ring-[#C62840] dark:border-[#EF4444]'
+                                : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                }`}
+                        >
+                            <option value="">-- Pilih Perusahaan Terlebih Dahulu --</option>
+                            {companyList.map((comp) => (
+                                <option key={comp.id} value={comp.id}>
+                                    {comp.name}
+                                </option>
+                            ))}
+                        </select>
+                        {shipErrors.ship_company_id && (
+                            <p className="mt-1.5 text-xs font-semibold text-[#C62840] dark:text-[#F87171]">
+                                {shipErrors.ship_company_id}
+                            </p>
+                        )}
+                        <p className="mt-2 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                            Kapal wajib terdaftar di bawah perusahaan pemilik kapal/klien. Pastikan perusahaan dipilih atau ditambahkan terlebih dahulu.
+                        </p>
+                    </div>
+
+                    <Input
+                        id="ship-modal-name"
+                        name="name"
+                        required
+                        label="Nama Kapal"
+                        placeholder="Contoh: TB Samudra Jaya 01 / BG Andalas Perkasa"
+                        value={shipFormData.name}
+                        onChange={(e) => {
+                            setShipFormData((prev) => ({ ...prev, name: e.target.value }));
+                            if (shipErrors.name) setShipErrors((prev) => ({ ...prev, name: '' }));
+                        }}
+                        error={shipErrors.name}
+                    />
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label htmlFor="ship-modal-type" className="mb-1.5 block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Jenis Kapal
+                            </label>
+                            <select
+                                id="ship-modal-type"
+                                value={shipFormData.ship_type}
+                                onChange={(e) => setShipFormData((prev) => ({ ...prev, ship_type: e.target.value }))}
+                                className="w-full rounded-xl border border-[#DCEAF8] bg-white px-3.5 py-2.5 text-sm font-semibold text-[#0B1F63] focus:border-[#0060F4] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
+                            >
+                                <option value="Tugboat">Tugboat (Kapal Tunda)</option>
+                                <option value="Tongkang / Barge">Tongkang / Barge</option>
+                                <option value="General Cargo">General Cargo</option>
+                                <option value="Bulk Carrier">Bulk Carrier</option>
+                                <option value="Tanker">Tanker (Oil / Chemical / Gas)</option>
+                                <option value="Container">Container / Peti Kemas</option>
+                                <option value="SPOB">SPOB (Self Propelled Oil Barge)</option>
+                                <option value="LCT">LCT (Landing Craft Tank)</option>
+                                <option value="Supply Vessel">Supply Vessel / AHTS</option>
+                                <option value="Kapal Penumpang">Kapal Penumpang / Ferry</option>
+                                <option value="Lainnya">Lainnya</option>
+                            </select>
+                        </div>
+                        <Input
+                            id="ship-modal-imo"
+                            name="imo_number"
+                            label="Nomor IMO (Opsional)"
+                            placeholder="Contoh: 9876543"
+                            value={shipFormData.imo_number}
+                            onChange={(e) => setShipFormData((prev) => ({ ...prev, imo_number: e.target.value }))}
+                            error={shipErrors.imo_number}
+                        />
+                    </div>
+
+                    <Input
+                        id="ship-modal-callsign"
+                        name="call_sign"
+                        label="Call Sign (Opsional)"
+                        placeholder="Contoh: YDA123"
+                        value={shipFormData.call_sign}
+                        onChange={(e) => setShipFormData((prev) => ({ ...prev, call_sign: e.target.value }))}
+                        error={shipErrors.call_sign}
+                    />
+                    <Input
+                        id="ship-modal-gt"
+                        name="gross_tonnage"
+                        type="number"
+                        min="0"
+                        step="any"
+                        label="Gross Tonnage / GT (Opsional)"
+                        placeholder="Contoh: 3500"
+                        value={shipFormData.gross_tonnage}
+                        onChange={(e) => setShipFormData((prev) => ({ ...prev, gross_tonnage: e.target.value }))}
+                        error={shipErrors.gross_tonnage}
+                    />
+                    <Input
+                        id="ship-modal-flag"
+                        name="flag"
+                        label="Bendera Kapal"
+                        placeholder="Contoh: Indonesia"
+                        value={shipFormData.flag}
+                        onChange={(e) => setShipFormData((prev) => ({ ...prev, flag: e.target.value }))}
+                        error={shipErrors.flag}
+                    />
+
+                    <PhotoUploadPicker
+                        label="Foto Kapal (Opsional)"
+                        value={shipFormData.image}
+                        onChange={(file) => {
+                            setShipFormData((previous) => ({ ...previous, image: file }));
+                            if (shipErrors.image) {
+                                setShipErrors((previous) => ({ ...previous, image: '' }));
+                            }
+                        }}
+                        mode="both"
+                        accept="image/jpeg,image/png,image/webp"
+                        maxSizeMb={5}
+                        variant="compact"
+                        error={shipErrors.image}
+                        helperText="JPG, PNG, atau WebP. Maksimal 5 MB."
+                    />
+                </form>
+            </Modal>
         </AppLayout>
     );
 }

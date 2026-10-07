@@ -12,7 +12,7 @@ class StoreVendorInvoiceRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isOperationalAdmin() || $this->user()?->isOwner();
+        return $this->user()?->isOperationalAdmin() ?? false;
     }
 
     /**
@@ -33,8 +33,8 @@ class StoreVendorInvoiceRequest extends FormRequest
             'document_date' => ['required', 'date'],
             'received_date' => ['required', 'date', 'after_or_equal:document_date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:document_date'],
-            'description' => ['required', 'string', 'max:500'],
-            'amount' => ['required', 'numeric', 'min:1', 'max:9999999999999.99'],
+            'request_item_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'request_item_ids.*' => ['required', 'distinct:strict', 'uuid', 'exists:request_items,id'],
             'tax_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
             'notes' => ['nullable', 'string', 'max:2000'],

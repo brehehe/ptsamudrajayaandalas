@@ -4,6 +4,7 @@ import RadioGroup from '../forms/Radio';
 import Input from '../forms/Input';
 import type { AlertToastMessage } from '../feedback/AlertToast';
 import type { ClearancePortCall } from './types';
+import FormErrorSummary from '../forms/FormErrorSummary';
 
 interface VesselClearanceDialogProps {
     direction: 'in' | 'out';
@@ -28,12 +29,14 @@ export default function VesselClearanceDialog({
         portCalls[0];
     const isArrival = direction === 'in';
     const now = new Date();
-    const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-        .toISOString()
-        .slice(0, 16);
+    const localDate = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+    ].join('-');
     const form = useForm({
         status: isArrival ? '' : 'departed',
-        occurred_at: localNow,
+        occurred_at: localDate,
         expected_status: selected?.status ?? '',
     });
     const blockReason = !portCalls.length
@@ -51,7 +54,6 @@ export default function VesselClearanceDialog({
         form.transform((data) => ({
             ...data,
             expected_status: selected.status,
-            occurred_at: new Date(data.occurred_at).toISOString(),
         }));
         form.patch(selected.update_url, {
             preserveScroll: true,
@@ -103,8 +105,10 @@ export default function VesselClearanceDialog({
                 </p>
             ) : (
                 <div className="space-y-4">
+                    <FormErrorSummary errors={form.errors} />
                     {isArrival && (
                         <RadioGroup
+                            required
                             name="clearance-next-status"
                             label="Target status setelah pengajuan selesai"
                             value={form.data.status}
@@ -126,20 +130,19 @@ export default function VesselClearanceDialog({
                         />
                     )}
                     <Input
-                        type="datetime-local"
-                        label={isArrival ? 'Waktu kedatangan aktual' : 'Waktu keberangkatan aktual'}
+                        id={`clearance-${direction}-actual-date`}
+                        name="occurred_at"
+                        type="date"
+                        label={isArrival ? 'Tanggal kedatangan aktual' : 'Tanggal keberangkatan aktual'}
                         value={form.data.occurred_at}
+                        max={localDate}
                         onChange={(event) => form.setData('occurred_at', event.target.value)}
+                        autoComplete="off"
                         required
                         disabled={form.processing}
                         error={form.errors.occurred_at}
                     />
                 </div>
-            )}
-            {form.errors.status && (
-                <p role="alert" className="text-sm text-[var(--sja-status-danger-foreground)]">
-                    {form.errors.status}
-                </p>
             )}
         </ConfirmDialog>
     );

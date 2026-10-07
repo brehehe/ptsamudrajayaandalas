@@ -18,6 +18,8 @@ import RadioGroup from '../forms/Radio';
 import Modal from '../overlays/Modal';
 import type { MasterProduct, Ship } from './types';
 import { formatEtaDateTime } from './format';
+import ShipImage from './ShipImage';
+import FormErrorSummary from '../forms/FormErrorSummary';
 
 export type NeedFlowStep = 'none' | 'header' | 'items' | 'review' | 'success';
 
@@ -139,6 +141,7 @@ export default function VesselNeedFlow({
     const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
     const [submissionMessage, setSubmissionMessage] = useState('');
     const [submissionError, setSubmissionError] = useState('');
+    const [submissionErrors, setSubmissionErrors] = useState<Record<string, string>>({});
     const [submittedRequestNumber, setSubmittedRequestNumber] = useState('');
     const [submittedRequestId, setSubmittedRequestId] = useState('');
     const [photoError, setPhotoError] = useState('');
@@ -347,6 +350,7 @@ export default function VesselNeedFlow({
         }
         setIsSubmitting(true);
         setSubmissionError('');
+        setSubmissionErrors({});
 
         const formData = new FormData();
         formData.append('ship_id', vessel.id);
@@ -403,10 +407,15 @@ export default function VesselNeedFlow({
                     setSubmittedRequestId(flash.submitted_request_id);
                 }
                 setSubmissionMessage(flash?.success || 'Kebutuhan berhasil disimpan.');
+                setSubmissionErrors({});
                 onStepChange('success');
             },
             onError: (errors) => {
-                setSubmissionError(Object.values(errors).join(' '));
+                const validationErrors = errors as Record<string, string>;
+                const firstError = Object.values(validationErrors)[0];
+
+                setSubmissionErrors(validationErrors);
+                setSubmissionError(typeof firstError === 'string' ? firstError : 'Kebutuhan gagal disimpan.');
             },
             onFinish: () => setIsSubmitting(false),
         });
@@ -436,18 +445,16 @@ export default function VesselNeedFlow({
                             )}
                             <li
                                 aria-current={isCurrent ? 'step' : undefined}
-                                className={`flex items-center gap-2 text-xs font-bold ${
-                                    isCurrent || isComplete
-                                        ? 'text-[#0060F4] dark:text-[#60A5FA]'
-                                        : 'text-[#8C9BB9] dark:text-[#64748B]'
-                                }`}
+                                className={`flex items-center gap-2 text-xs font-bold ${isCurrent || isComplete
+                                    ? 'text-[#0060F4] dark:text-[#60A5FA]'
+                                    : 'text-[#8C9BB9] dark:text-[#64748B]'
+                                    }`}
                             >
                                 <span
-                                    className={`flex size-7 items-center justify-center rounded-full border ${
-                                        isCurrent || isComplete
-                                            ? 'border-[#0060F4] bg-[#0060F4] text-white'
-                                            : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#071322]'
-                                    }`}
+                                    className={`flex size-7 items-center justify-center rounded-full border ${isCurrent || isComplete
+                                        ? 'border-[#0060F4] bg-[#0060F4] text-white'
+                                        : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#071322]'
+                                        }`}
                                 >
                                     {isComplete ? (
                                         <CheckCircle2 aria-hidden="true" className="size-4" />
@@ -516,8 +523,8 @@ export default function VesselNeedFlow({
                                     'dark:bg-[#071322] md:p-4'
                                 }
                             >
-                                <img
-                                    src={vessel.image || '/images/vessel-sarana.jpg'}
+                                <ShipImage
+                                    src={vessel.image}
                                     alt={vessel.name}
                                     className={
                                         'h-20 w-20 shrink-0 rounded-xl border border-[#BCE0FD] ' +
@@ -539,7 +546,7 @@ export default function VesselNeedFlow({
                                         </span>
                                     </div>
                                     <p className="truncate text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                        {vessel.company?.name || 'PT. Intan Borneo Wisesa'}
+                                        {vessel.company?.name || 'Perusahaan belum diisi'}
                                     </p>
                                     <p className="flex items-center gap-1.5 text-[10px] text-[#52658E] dark:text-[#94A3B8]">
                                         <CalendarDays aria-hidden="true" className="size-3.5" />
@@ -551,14 +558,14 @@ export default function VesselNeedFlow({
 
                         {/* Section: Informasi Kapal (Otomatis) */}
                         <section className="space-y-3 px-4 md:px-0 lg:rounded-2xl lg:border lg:border-[#DCEAF8] lg:p-5 dark:lg:border-[#1E3A5F] dark:lg:bg-[#071322]/40">
-                            <h4 className="text-xs font-bold text-[#082870] dark:text-white">
+                            <h4 className="text-lg font-bold text-[#082870] dark:text-white">
                                 Informasi Kapal (Otomatis)
                             </h4>
                             <div className="space-y-3">
                                 <Input
                                     label="Perusahaan Pelayaran"
                                     value={
-                                        vessel.company?.name || 'PT. Intan Borneo Wisesa'
+                                        vessel.company?.name || 'Perusahaan belum diisi'
                                     }
                                     disabled
                                     aria-label="Perusahaan pelayaran otomatis"
@@ -574,7 +581,7 @@ export default function VesselNeedFlow({
                                 <Input
                                     label="Alamat Perusahaan"
                                     value={
-                                        vessel.company?.address || 'Jl. KH Kholil 18, Gresik'
+                                        vessel.company?.address || 'Alamat belum diisi'
                                     }
                                     disabled
                                     aria-label="Alamat perusahaan otomatis"
@@ -606,7 +613,7 @@ export default function VesselNeedFlow({
 
                         {/* Section: Informasi Form Kapal */}
                         <section className="space-y-3 px-4 md:px-0 lg:rounded-2xl lg:border lg:border-[#DCEAF8] lg:p-5 dark:lg:border-[#1E3A5F] dark:lg:bg-[#071322]/40">
-                            <h4 className="text-xs font-bold text-[#082870] dark:text-white">
+                            <h4 className="text-lg font-bold text-[#082870] dark:text-white">
                                 Informasi Form Kapal
                             </h4>
 
@@ -791,162 +798,162 @@ export default function VesselNeedFlow({
                                             key={idx}
                                             className="space-y-4 px-4 py-5 text-xs first:pt-0 last:pb-0 md:rounded-2xl md:border md:border-[#DCEAF8] md:bg-[#F8FAFD] md:p-5 dark:md:border-[#1E3A5F] dark:md:bg-[#071322]/40"
                                         >
-                                    <div
-                                        className={
-                                            'flex items-center justify-between pb-1 border-b ' +
-                                            'border-slate-100 dark:border-[#1E3A5F]'
-                                        }
-                                    >
-                                        <span className="font-extrabold text-xs text-[#082870] dark:text-white">
-                                            Item {idx + 1}
-                                        </span>
-                                        {itemsList.length > 1 && (
-                                            <button
-                                                type="button"
-                                                onClick={() => removeItem(idx)}
-                                                aria-label={`Hapus item ${idx + 1}`}
+                                            <div
                                                 className={
-                                                    'flex min-h-11 items-center gap-1.5 rounded-xl px-2 ' +
-                                                    'text-xs font-bold text-red-500 hover:bg-red-50 ' +
-                                                    'focus-visible:outline-2 focus-visible:outline-offset-2 ' +
-                                                    'focus-visible:outline-[#C62840] dark:hover:bg-red-950/30'
+                                                    'flex items-center justify-between pb-1 border-b ' +
+                                                    'border-slate-100 dark:border-[#1E3A5F]'
                                                 }
                                             >
-                                                <Trash2 aria-hidden="true" className="size-4" />
-                                                <span>Hapus</span>
-                                            </button>
-                                        )}
-                                    </div>
+                                                <span className="font-extrabold text-xs text-[#082870] dark:text-white">
+                                                    Item {idx + 1}
+                                                </span>
+                                                {itemsList.length > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeItem(idx)}
+                                                        aria-label={`Hapus item ${idx + 1}`}
+                                                        className={
+                                                            'flex min-h-11 items-center gap-1.5 rounded-xl px-2 ' +
+                                                            'text-xs font-bold text-red-500 hover:bg-red-50 ' +
+                                                            'focus-visible:outline-2 focus-visible:outline-offset-2 ' +
+                                                            'focus-visible:outline-[#C62840] dark:hover:bg-red-950/30'
+                                                        }
+                                                    >
+                                                        <Trash2 aria-hidden="true" className="size-4" />
+                                                        <span>Hapus</span>
+                                                    </button>
+                                                )}
+                                            </div>
 
-                                    <RadioGroup
-                                        name={`item-${idx}-urgency`}
-                                        label="Prioritas kebutuhan"
-                                        value={item.is_urgent ? 'urgent' : 'normal'}
-                                        onChange={(value) => {
-                                            updateItem(idx, 'is_urgent', value === 'urgent');
-                                            clearItemError(idx, 'urgency');
-                                        }}
-                                        error={itemErrors[idx]?.urgency}
-                                        layout="grid-2"
-                                        options={[
-                                            { value: 'normal', label: 'Normal' },
-                                            { value: 'urgent', label: 'Urgent' },
-                                        ]}
-                                    />
-
-                                    {/* Nama Barang / Item (Connected to Master Produk & Katalog Layanan) */}
-                                    <div>
-                                        <label
-                                            htmlFor={`item-${idx}-product`}
-                                            className="font-bold text-[#082870] dark:text-white block mb-1"
-                                        >
-                                            Nama Barang / Item{' '}
-                                            <span className="text-red-500">*</span>
-                                        </label>
-
-                                        {/* Dropdown / Selection from Master Produk */}
-                                        <Select
-                                            id={`item-${idx}-product`}
-                                            aria-label={`Pilih produk untuk item ${idx + 1}`}
-                                            value={
-                                                item.is_custom
-                                                    ? CUSTOM_PRODUCT_VALUE
-                                                    : item.product_id || ''
-                                            }
-                                            onChange={(e) => {
-                                                handleSelectProduct(idx, e.target.value);
-                                                clearItemError(idx, 'product');
-                                                clearItemError(idx, 'itemName');
-                                                clearItemError(idx, 'unit');
-                                            }}
-                                            options={[
-                                                ...products.map((product) => ({
-                                                    value: product.id,
-                                                    label: `${product.name} (${product.unit})`,
-                                                })),
-                                                {
-                                                    value: CUSTOM_PRODUCT_VALUE,
-                                                    label: 'Lainnya / Tulis Manual',
-                                                },
-                                            ]}
-                                            placeholder="-- Pilih dari Master Produk SJA --"
-                                            sizeVariant="sm"
-                                            className={item.is_custom ? 'mb-1.5' : ''}
-                                            error={itemErrors[idx]?.product}
-                                        />
-
-                                        {item.is_custom && (
-                                            <Input
-                                                id={`item-${idx}-name`}
-                                                type="text"
-                                                required
-                                                value={item.item_name}
-                                                onChange={(e) => {
-                                                    updateItem(idx, 'item_name', e.target.value);
-                                                    clearItemError(idx, 'itemName');
+                                            <RadioGroup
+                                                name={`item-${idx}-urgency`}
+                                                label="Prioritas kebutuhan"
+                                                value={item.is_urgent ? 'urgent' : 'normal'}
+                                                onChange={(value) => {
+                                                    updateItem(idx, 'is_urgent', value === 'urgent');
+                                                    clearItemError(idx, 'urgency');
                                                 }}
-                                                placeholder="Tulis nama barang atau kebutuhan lainnya"
-                                                aria-label={`Nama barang manual untuk item ${idx + 1}`}
-                                                sizeVariant="sm"
-                                                error={itemErrors[idx]?.itemName}
+                                                error={itemErrors[idx]?.urgency}
+                                                layout="grid-2"
+                                                options={[
+                                                    { value: 'normal', label: 'Normal' },
+                                                    { value: 'urgent', label: 'Urgent' },
+                                                ]}
                                             />
-                                        )}
-                                    </div>
 
-                                    {/* Jumlah & Satuan */}
-                                    <div className="grid grid-cols-2 gap-2.5">
-                                        <Input
-                                            id={`item-${idx}-quantity`}
-                                            label="Jumlah"
-                                            type="number"
-                                            required
-                                            value={item.quantity}
-                                            onChange={(e) => {
-                                                updateItem(idx, 'quantity', e.target.value);
-                                                clearItemError(idx, 'quantity');
-                                            }}
-                                            sizeVariant="sm"
-                                            error={itemErrors[idx]?.quantity}
-                                        />
-                                        <Input
-                                            id={`item-${idx}-unit`}
-                                            label="Satuan"
-                                            type="text"
-                                            required
-                                            value={item.unit}
-                                            onChange={(e) => {
-                                                updateItem(idx, 'unit', e.target.value);
-                                                clearItemError(idx, 'unit');
-                                            }}
-                                            placeholder="Ton, Lonjor, Liter, Pcs"
-                                            sizeVariant="sm"
-                                            error={itemErrors[idx]?.unit}
-                                        />
-                                    </div>
+                                            {/* Nama Barang / Item (Connected to Master Produk & Katalog Layanan) */}
+                                            <div>
+                                                <label
+                                                    htmlFor={`item-${idx}-product`}
+                                                    className="font-bold text-[#082870] dark:text-white block mb-1"
+                                                >
+                                                    Nama Barang / Item{' '}
+                                                    <span className="text-red-500">*</span>
+                                                </label>
 
-                                    {/* Keterangan */}
-                                    <Textarea
-                                        id={`item-${idx}-notes`}
-                                        label="Keterangan"
-                                        rows={2}
-                                        value={item.notes}
-                                        onChange={(e) => updateItem(idx, 'notes', e.target.value)}
-                                        placeholder="Untuk kebutuhan operasional kapal"
-                                    />
+                                                {/* Dropdown / Selection from Master Produk */}
+                                                <Select
+                                                    id={`item-${idx}-product`}
+                                                    aria-label={`Pilih produk untuk item ${idx + 1}`}
+                                                    value={
+                                                        item.is_custom
+                                                            ? CUSTOM_PRODUCT_VALUE
+                                                            : item.product_id || ''
+                                                    }
+                                                    onChange={(e) => {
+                                                        handleSelectProduct(idx, e.target.value);
+                                                        clearItemError(idx, 'product');
+                                                        clearItemError(idx, 'itemName');
+                                                        clearItemError(idx, 'unit');
+                                                    }}
+                                                    options={[
+                                                        ...products.map((product) => ({
+                                                            value: product.id,
+                                                            label: `${product.name} (${product.unit})`,
+                                                        })),
+                                                        {
+                                                            value: CUSTOM_PRODUCT_VALUE,
+                                                            label: 'Lainnya / Tulis Manual',
+                                                        },
+                                                    ]}
+                                                    placeholder="-- Pilih dari Master Produk SJA --"
+                                                    sizeVariant="sm"
+                                                    className={item.is_custom ? 'mb-1.5' : ''}
+                                                    error={itemErrors[idx]?.product}
+                                                />
 
-                                    <DateTimePicker
-                                        id={`item-${idx}-required-at`}
-                                        label="Jadwal Dibutuhkan (Per Item)"
-                                        dateValue={item.required_date}
-                                        timeValue={item.required_time}
-                                        onDateChange={(value) =>
-                                            updateItem(idx, 'required_date', value)
-                                        }
-                                        onTimeChange={(value) =>
-                                            updateItem(idx, 'required_time', value)
-                                        }
-                                        className="border-t border-slate-100 pt-2 dark:border-[#1E3A5F]"
-                                    />
+                                                {item.is_custom && (
+                                                    <Input
+                                                        id={`item-${idx}-name`}
+                                                        type="text"
+                                                        required
+                                                        value={item.item_name}
+                                                        onChange={(e) => {
+                                                            updateItem(idx, 'item_name', e.target.value);
+                                                            clearItemError(idx, 'itemName');
+                                                        }}
+                                                        placeholder="Tulis nama barang atau kebutuhan lainnya"
+                                                        aria-label={`Nama barang manual untuk item ${idx + 1}`}
+                                                        sizeVariant="sm"
+                                                        error={itemErrors[idx]?.itemName}
+                                                    />
+                                                )}
+                                            </div>
+
+                                            {/* Jumlah & Satuan */}
+                                            <div className="grid grid-cols-2 gap-2.5">
+                                                <Input
+                                                    id={`item-${idx}-quantity`}
+                                                    label="Jumlah"
+                                                    type="number"
+                                                    required
+                                                    value={item.quantity}
+                                                    onChange={(e) => {
+                                                        updateItem(idx, 'quantity', e.target.value);
+                                                        clearItemError(idx, 'quantity');
+                                                    }}
+                                                    sizeVariant="sm"
+                                                    error={itemErrors[idx]?.quantity}
+                                                />
+                                                <Input
+                                                    id={`item-${idx}-unit`}
+                                                    label="Satuan"
+                                                    type="text"
+                                                    required
+                                                    value={item.unit}
+                                                    onChange={(e) => {
+                                                        updateItem(idx, 'unit', e.target.value);
+                                                        clearItemError(idx, 'unit');
+                                                    }}
+                                                    placeholder="Ton, Lonjor, Liter, Pcs"
+                                                    sizeVariant="sm"
+                                                    error={itemErrors[idx]?.unit}
+                                                />
+                                            </div>
+
+                                            {/* Keterangan */}
+                                            <Textarea
+                                                id={`item-${idx}-notes`}
+                                                label="Keterangan"
+                                                rows={2}
+                                                value={item.notes}
+                                                onChange={(e) => updateItem(idx, 'notes', e.target.value)}
+                                                placeholder="Untuk kebutuhan operasional kapal"
+                                            />
+
+                                            <DateTimePicker
+                                                id={`item-${idx}-required-at`}
+                                                label="Jadwal Dibutuhkan (Per Item)"
+                                                dateValue={item.required_date}
+                                                timeValue={item.required_time}
+                                                onDateChange={(value) =>
+                                                    updateItem(idx, 'required_date', value)
+                                                }
+                                                onTimeChange={(value) =>
+                                                    updateItem(idx, 'required_time', value)
+                                                }
+                                                className="border-t border-slate-100 pt-2 dark:border-[#1E3A5F]"
+                                            />
                                         </div>
                                     ))}
                                 </div>
@@ -1065,6 +1072,9 @@ export default function VesselNeedFlow({
                     </div>
 
                     <div className="space-y-6 py-4 md:grid md:grid-cols-2 md:gap-6 md:space-y-0 md:p-6">
+                        <div className="px-4 md:col-span-2 md:px-0">
+                            <FormErrorSummary errors={submissionErrors} />
+                        </div>
                         {/* Ship Card with Card Container (Gambar 3) */}
                         <div className="px-4 md:col-span-2 md:px-0">
                             <div
@@ -1074,8 +1084,8 @@ export default function VesselNeedFlow({
                                     'dark:bg-[#0C1D36]'
                                 }
                             >
-                                <img
-                                    src={vessel.image || '/images/vessel-sarana.jpg'}
+                                <ShipImage
+                                    src={vessel.image}
                                     alt={vessel.name}
                                     className={
                                         'h-20 w-20 shrink-0 rounded-xl border border-[#BCE0FD] ' +
@@ -1097,7 +1107,7 @@ export default function VesselNeedFlow({
                                         </span>
                                     </div>
                                     <p className="truncate text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                        {vessel.company?.name || 'PT. Intan Borneo Wisesa'}
+                                        {vessel.company?.name || 'Perusahaan belum diisi'}
                                     </p>
                                     <p className="flex items-center gap-1.5 text-[10px] text-[#52658E] dark:text-[#94A3B8]">
                                         <CalendarDays aria-hidden="true" className="size-3.5" />
@@ -1202,7 +1212,7 @@ export default function VesselNeedFlow({
                                         )}
                                         {item.required_date && (
                                             <p className="text-[10px] text-[#0060F4]">
-                                                Jadwal item: {item.required_date}{' '}
+                                                Jadwal item: {formatIndonesianDate(item.required_date)}{' '}
                                                 {item.required_time}
                                             </p>
                                         )}
@@ -1252,7 +1262,7 @@ export default function VesselNeedFlow({
                         )}
 
                         {/* Actions */}
-                        {submissionError && (
+                        {submissionError && Object.keys(submissionErrors).length === 0 && (
                             <p
                                 role="alert"
                                 className="px-4 text-sm text-[var(--sja-status-danger-foreground)] md:col-span-2 md:px-0"
@@ -1409,7 +1419,7 @@ export default function VesselNeedFlow({
                             Pengajuan Berhasil!
                         </h2>
                         <p className="text-xs text-[#52658E] dark:text-[#94A3B8] max-w-xs mx-auto leading-relaxed">
-                            Data kebutuhan kapal telah berhasil diajukan ke Bu Titik.
+                            Data kebutuhan kapal telah berhasil diajukan dan tercatat di sistem.
                         </p>
                     </div>
 
@@ -1418,7 +1428,7 @@ export default function VesselNeedFlow({
                         <div className="flex items-center justify-between">
                             <span className="text-[#52658E] dark:text-[#94A3B8]">Nomor Pengajuan</span>
                             <span className="font-bold text-[#082870] dark:text-white">
-                                {submittedRequestNumber || 'REQ-20260112-001'}
+                                {submittedRequestNumber || '-'}
                             </span>
                         </div>
                         <div className="flex items-center justify-between">

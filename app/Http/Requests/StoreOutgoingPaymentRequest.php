@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreOutgoingPaymentRequest extends FormRequest
 {
@@ -12,7 +13,7 @@ class StoreOutgoingPaymentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->hasAnyRole(['Owner', 'Admin', 'Admin Sistem']) ?? false;
+        return $this->user()?->isOperationalAdmin() ?? false;
     }
 
     /**
@@ -23,10 +24,14 @@ class StoreOutgoingPaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'port_call_id' => ['required', 'uuid', 'exists:port_calls,id'],
-            'payment_type' => ['required', 'string', 'max:100'],
-            'recipient' => ['required', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:1'],
+            'cost_document_id' => [
+                'required',
+                'uuid',
+                Rule::exists('cost_documents', 'id')
+                    ->where('document_type', 'vendor_invoice')
+                    ->whereNull('deleted_at'),
+            ],
+            'amount' => ['required', 'numeric', 'min:1', 'max:9999999999999.99'],
             'payment_date' => ['required', 'date'],
             'reference_number' => ['required', 'string', 'max:100', 'unique:outgoing_payments,reference_number'],
             'notes' => ['nullable', 'string', 'max:2000'],

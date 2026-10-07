@@ -11,12 +11,13 @@ export interface RequestItemData {
     id?: string;
     product_id?: string;
     item_name: string;
-    quantity: number;
+    quantity: number | string;
     unit: string;
     notes?: string;
     required_date?: string;
     required_time?: string;
     is_urgent?: boolean;
+    director_status?: string | null;
 }
 
 export interface ShipRequest {
@@ -24,6 +25,10 @@ export interface ShipRequest {
     request_number: string;
     status: string;
     request_date: string;
+    port_call_id?: string | null;
+    service_type?: string | null;
+    requested_port_call_status?: string | null;
+    operational_occurred_at?: string | null;
     notes?: string;
     created_at: string;
     items?: RequestItemData[];
@@ -44,7 +49,7 @@ export interface Ship {
     status: string;
     agent_name?: string;
     is_active: boolean;
-    image?: string;
+    image?: string | null;
     created_at?: string;
     eta?: string;
     flag?: string;
@@ -111,11 +116,13 @@ export interface MasterProduct {
 
 export interface VesselShowProps {
     vessel: Ship;
+    needs?: ShipRequest[];
     products?: MasterProduct[];
     clearancePortCalls?: ClearancePortCall[];
     selectedPortCallId?: string | null;
     selectedVisit?: SelectedVisit | null;
     canManageClearance?: boolean;
+    canProcessRequests?: boolean;
 }
 
 export interface SelectedVisit {

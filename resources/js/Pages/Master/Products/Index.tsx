@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Building2, PackageOpen, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 import AppLayout from '../../../Layouts/AppLayout';
 import Card from '../../../Components/ui/Card';
 import Button from '../../../Components/ui/Button';
 import StatusBadge from '../../../Components/ui/StatusBadge';
 import Modal from '../../../Components/overlays/Modal';
-import Input from '../../../Components/forms/Input';
+import ConfirmDialog from '../../../Components/overlays/ConfirmDialog';
 import Select from '../../../Components/selects/Select';
+import { ResponsiveTable, type Column } from '../../../Components/tables/Table';
+import MobilePageHero from '../../../Components/navigation/MobilePageHero';
+import FilterBar from '../../../Components/filters/FilterBar';
+import Tabs from '../../../Components/ui/Tabs';
+import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
+import Input from '../../../Components/forms/Input';
+import MoneyInput from '../../../Components/forms/MoneyInput';
 import Textarea from '../../../Components/forms/Textarea';
-import { formatRupiahInput, normalizeRupiahInput } from '../../../Components/forms/MoneyInput';
 
 interface Vendor {
     id: string;
@@ -96,6 +103,7 @@ export default function MasterProductsIndex({
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
     const {
         data,
@@ -106,6 +114,7 @@ export default function MasterProductsIndex({
         processing,
         reset,
         errors,
+        clearErrors,
     } = useForm({
         code: '',
         name: '',
@@ -125,8 +134,7 @@ export default function MasterProductsIndex({
         }>,
     });
 
-    const handleSearchSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+    const applyFilters = () => {
         router.get(
             '/master/products',
             {
@@ -152,6 +160,7 @@ export default function MasterProductsIndex({
     };
 
     const openAddModal = () => {
+        clearErrors();
         setEditingProduct(null);
         reset();
         setData({
@@ -176,6 +185,7 @@ export default function MasterProductsIndex({
     };
 
     const openEditModal = (prod: Product) => {
+        clearErrors();
         setEditingProduct(prod);
         setData({
             code: prod.code,
@@ -218,21 +228,143 @@ export default function MasterProductsIndex({
         }
     };
 
-    const handleDeleteProduct = (prod: Product) => {
-        if (confirm(`Yakin ingin menonaktifkan produk master "${prod.name}"?`)) {
-            destroy(`/master/products/${prod.id}`);
+    const handleDeleteProduct = () => {
+        if (!productToDelete) {
+            return;
         }
+
+        destroy(`/master/products/${productToDelete.id}`, {
+            preserveScroll: true,
+            onFinish: () => setProductToDelete(null),
+        });
     };
 
+    const productActions = (product: Product) => (
+        <div className="flex items-center justify-end gap-1.5">
+            <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="size-9 !px-0"
+                onClick={() => openEditModal(product)}
+                aria-label={`Edit ${product.name}`}
+                title="Edit produk"
+            >
+                <Pencil aria-hidden="true" className="size-4" />
+            </Button>
+            <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="size-9 !px-0 !text-[#C62840] hover:!bg-[#FFE7EC] dark:hover:!bg-[#C62840]/15"
+                onClick={() => setProductToDelete(product)}
+                aria-label={`Nonaktifkan ${product.name}`}
+                title="Nonaktifkan produk"
+            >
+                <Trash2 aria-hidden="true" className="size-4" />
+            </Button>
+        </div>
+    );
+
+    const columns = useMemo<Column<Product>[]>(
+        () => [
+            {
+                key: 'product',
+                header: 'Produk',
+                width: '240px',
+                render: (product) => (
+                    <div className="min-w-0">
+                        <p className="font-bold text-[#0B1F63] dark:text-white">{product.name}</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-[#0060F4]">{product.code}</p>
+                    </div>
+                ),
+            },
+            {
+                key: 'category',
+                header: 'Kategori',
+                width: '140px',
+                render: (product) => (
+                    <span className="inline-flex rounded-lg border border-[#DCEAF8] bg-[#F0F8FF] px-2 py-1 text-[11px] font-semibold text-[#082870] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#E2E8F0]">
+                        {product.category}
+                    </span>
+                ),
+            },
+            {
+                key: 'type',
+                header: 'Tipe invoice',
+                width: '130px',
+                render: (product) => (
+                    <StatusBadge
+                        size="sm"
+                        status={product.item_type === 'jasa' ? 'info' : 'success'}
+                        label={product.item_type === 'jasa' ? 'Jasa (PPh 2%)' : 'Reimburse'}
+                        showDot
+                    />
+                ),
+            },
+            { key: 'unit', header: 'Satuan', width: '90px', wrap: 'nowrap' },
+            {
+                key: 'hpp',
+                header: 'HPP vendor',
+                width: '135px',
+                align: 'right',
+                render: (product) => <span className="tabular-nums text-[#52658E]">{formatRupiah(product.hpp_default)}</span>,
+            },
+            {
+                key: 'sandar',
+                header: 'Jual sandar',
+                width: '135px',
+                align: 'right',
+                render: (product) => <span className="font-bold tabular-nums">{formatRupiah(product.price_sandar || product.selling_price_default)}</span>,
+            },
+            {
+                key: 'labuh',
+                header: 'Jual labuh',
+                width: '135px',
+                align: 'right',
+                render: (product) => <span className="font-bold tabular-nums text-[#0060F4]">{formatRupiah(product.price_labuh || product.selling_price_default)}</span>,
+            },
+            {
+                key: 'vendor',
+                header: 'Vendor rekomendasi',
+                width: '190px',
+                render: (product) => product.vendor ? (
+                    <div>
+                        <p className="font-semibold">{product.vendor.name}</p>
+                        <p className="mt-0.5 text-[10px] text-[#52658E]">{product.vendor.phone || '-'}</p>
+                    </div>
+                ) : <span className="text-[#52658E]">Vendor bebas / internal</span>,
+            },
+            {
+                key: 'actions',
+                header: 'Aksi',
+                width: '90px',
+                align: 'right',
+                render: productActions,
+            },
+        ],
+        [],
+    );
+
     return (
-        <AppLayout title="Master Produk & Layanan">
+        <AppLayout
+            title="Master Produk & Layanan"
+            transparentMobileHeader
+            noPaddingMobile
+            mobileBackground="surface"
+        >
             <Head title="Master Produk — PT Samudra Jaya Andalas" />
 
-            <div className="space-y-6">
+            <MobilePageHero
+                title="Master Produk"
+                description="Kelola katalog layanan, harga, satuan, dan vendor rekomendasi."
+            />
+
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:space-y-6 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
                 {/* Header Banner */}
                 <div
                     className={
-                        'flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white ' +
+                        'hidden md:flex md:flex-row md:items-center justify-between gap-4 bg-white ' +
                         'p-5 md:p-6 rounded-[16px] border border-[#DCEAF8] ' +
                         'shadow-[0_2px_12px_rgba(8,40,112,0.04)]'
                     }
@@ -267,7 +399,8 @@ export default function MasterProductsIndex({
                                 'border-[#DCEAF8] text-xs font-bold transition-all'
                             }
                         >
-                            <span>⚙️ Tipe Kegiatan (Sandar/Labuh)</span>
+                            <Settings2 aria-hidden="true" className="size-4" />
+                            <span>Tipe Kegiatan</span>
                         </Link>
                         <Button
                             variant="primary"
@@ -278,23 +411,20 @@ export default function MasterProductsIndex({
                                 'font-semibold'
                             }
                         >
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2.5}
-                                    d="M12 4v16m8-8H4"
-                                />
-                            </svg>
+                            <Plus aria-hidden="true" className="size-4" />
                             Tambah Produk Baru
                         </Button>
                     </div>
                 </div>
+
+                <Button
+                    type="button"
+                    className="w-full md:hidden"
+                    onClick={openAddModal}
+                    leftIcon={<Plus aria-hidden="true" className="size-4" />}
+                >
+                    Tambah Produk
+                </Button>
 
                 {/* KPI Metrics */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -406,293 +536,95 @@ export default function MasterProductsIndex({
                     </Card>
                 </div>
 
-                {/* Filter Tabs & Search */}
-                <Card className="p-4 md:p-5 bg-white border border-[#DCEAF8] rounded-[16px]">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        {/* Tabs: Semua | Jasa | Non-Jasa */}
-                        <div
-                            className={
-                                'flex items-center gap-1 bg-[#F0F8FF] p-1 rounded-[12px] border ' +
-                                'border-[#DCEAF8] overflow-x-auto'
-                            }
-                        >
-                            <button
-                                onClick={() => handleTypeTabChange('all')}
-                                className={`px-4 py-2 rounded-[9px] text-xs font-bold transition-all whitespace-nowrap ${
-                                    selectedType === 'all'
-                                        ? 'bg-white text-[#0060F4] shadow-sm'
-                                        : 'text-[#52658E] hover:text-[#0B1F63]'
-                                }`}
-                            >
-                                Semua Produk ({stats.total})
-                            </button>
-                            <button
-                                onClick={() => handleTypeTabChange('jasa')}
-                                className={`px-4 py-2 rounded-[9px] text-xs font-bold transition-all whitespace-nowrap ${
-                                    selectedType === 'jasa'
-                                        ? 'bg-white text-[#0057D9] shadow-sm'
-                                        : 'text-[#52658E] hover:text-[#0B1F63]'
-                                }`}
-                            >
-                                Jasa & Keagenan ({stats.jasa})
-                            </button>
-                            <button
-                                onClick={() => handleTypeTabChange('non_jasa')}
-                                className={`px-4 py-2 rounded-[9px] text-xs font-bold transition-all whitespace-nowrap ${
-                                    selectedType === 'non_jasa'
-                                        ? 'bg-white text-[#087443] shadow-sm'
-                                        : 'text-[#52658E] hover:text-[#0B1F63]'
-                                }`}
-                            >
-                                Non-Jasa / Reimburse ({stats.non_jasa})
-                            </button>
-                        </div>
+                <div className="overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                    <Tabs
+                        items={[
+                            { id: 'all', label: 'Semua', count: stats.total },
+                            { id: 'jasa', label: 'Jasa & Keagenan', count: stats.jasa },
+                            { id: 'non_jasa', label: 'Reimburse', count: stats.non_jasa },
+                        ]}
+                        activeId={selectedType}
+                        onChange={handleTypeTabChange}
+                        ariaLabel="Tipe produk"
+                    />
+                    <FilterBar
+                        searchValue={search}
+                        onSearchChange={setSearch}
+                        onSearchSubmit={applyFilters}
+                        searchPlaceholder="Cari kode, nama, atau vendor…"
+                        searchAriaLabel="Cari produk"
+                        filterCountBadge={selectedCategory === 'all' ? 0 : 1}
+                        filterControls={(
+                            <Select
+                                aria-label="Filter kategori produk"
+                                value={selectedCategory}
+                                onChange={(event) => {
+                                    const category = event.target.value;
+                                    setSelectedCategory(category);
+                                    router.get('/master/products', { search, type: selectedType, category }, { preserveState: true });
+                                }}
+                                options={[
+                                    { value: 'all', label: 'Semua kategori' },
+                                    ...categories.map((category) => ({ value: category, label: category })),
+                                ]}
+                            />
+                        )}
+                        className="!rounded-none !border-0 !shadow-none"
+                    />
+                </div>
 
-                        {/* Search Bar */}
-                        <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
-                            <div className="relative w-full md:w-72">
-                                <span
-                                    className={
-                                        'absolute inset-y-0 left-0 pl-3 flex items-center ' +
-                                        'pointer-events-none text-[#52658E]'
-                                    }
-                                >
-                                    <svg
-                                        className="w-4 h-4"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                                        />
-                                    </svg>
-                                </span>
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Cari kode, nama, vendor..."
-                                    className={
-                                        'w-full pl-9 pr-3 py-2 text-xs md:text-sm bg-white ' +
-                                        'border border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                        'focus:outline-none focus:ring-2 focus:ring-[#0060F4]'
-                                    }
-                                />
-                            </div>
-                            <Button
-                                type="submit"
-                                variant="secondary"
-                                className="px-3 py-2 text-xs font-bold rounded-[10px]"
-                            >
-                                Filter
-                            </Button>
-                        </form>
-                    </div>
-                </Card>
-
-                {/* Table Data Produk */}
-                <Card
-                    className={
-                        'bg-white border border-[#DCEAF8] rounded-[16px] overflow-hidden ' +
-                        'shadow-[0_2px_12px_rgba(8,40,112,0.04)]'
-                    }
-                >
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs md:text-sm border-collapse">
-                            <thead>
-                                <tr className="bg-[#0D2945] text-[#E7F0FA] border-b border-[#173B5C]">
-                                    <th className="py-3.5 px-4 font-bold">KODE & PRODUK</th>
-                                    <th className="py-3.5 px-3 font-bold">KATEGORI</th>
-                                    <th className="py-3.5 px-3 font-bold">TIPE INVOICE</th>
-                                    <th className="py-3.5 px-3 font-bold">SATUAN</th>
-                                    <th className="py-3.5 px-3 font-bold text-right">HPP VENDOR</th>
-                                    <th className="py-3.5 px-3 font-bold text-right">
-                                        JUAL (SANDAR)
-                                    </th>
-                                    <th className="py-3.5 px-3 font-bold text-right">
-                                        JUAL (LABUH)
-                                    </th>
-                                    <th className="py-3.5 px-3 font-bold">VENDOR REKOMENDASI</th>
-                                    <th className="py-3.5 px-4 font-bold text-center">AKSI</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#DCEAF8]/60">
-                                {products.length === 0 ? (
-                                    <tr>
-                                        <td
-                                            colSpan={9}
-                                            className="py-12 text-center text-[#52658E]"
-                                        >
-                                            <p className="font-semibold text-sm">
-                                                Tidak ada data produk yang sesuai filter.
-                                            </p>
-                                            <p className="text-xs text-[#52658E]/70 mt-1">
-                                                Silakan sesuaikan kata kunci pencarian atau tambah
-                                                produk baru.
-                                            </p>
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    products.map((prod) => (
-                                        <tr
-                                            key={prod.id}
-                                            className="hover:bg-[#F0F8FF]/60 transition-colors"
-                                        >
-                                            <td className="py-3 px-4">
-                                                <div className="font-bold text-[#0B1F63]">
-                                                    {prod.name}
-                                                </div>
-                                                <div className="text-[11px] font-mono text-[#0060F4]">
-                                                    {prod.code}
-                                                </div>
-                                            </td>
-                                            <td className="py-3 px-3">
-                                                <span
-                                                    className={
-                                                        'px-2 py-0.5 rounded-[6px] text-[11px] ' +
-                                                        'font-semibold bg-[#F0F8FF] text-[#082870] ' +
-                                                        'border border-[#DCEAF8]'
-                                                    }
-                                                >
-                                                    {prod.category}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-3">
-                                                {prod.item_type === 'jasa' ? (
-                                                    <span
-                                                        className={
-                                                            'inline-flex items-center gap-1 px-2.5 ' +
-                                                            'py-0.5 rounded-full text-[11px] ' +
-                                                            'font-bold bg-[#E0F0FF] text-[#0057D9]'
-                                                        }
-                                                    >
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#0057D9]" />
-                                                        Jasa (PPh 2%)
-                                                    </span>
-                                                ) : (
-                                                    <span
-                                                        className={
-                                                            'inline-flex items-center gap-1 px-2.5 ' +
-                                                            'py-0.5 rounded-full text-[11px] ' +
-                                                            'font-bold bg-[#DCF7E8] text-[#087443]'
-                                                        }
-                                                    >
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#087443]" />
-                                                        Reimburse
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-3 font-medium text-[#52658E]">
-                                                {prod.unit}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono font-medium text-[#52658E]">
-                                                {formatRupiah(prod.hpp_default)}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono font-bold text-[#0B1F63]">
-                                                {formatRupiah(
-                                                    prod.price_sandar || prod.selling_price_default
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono font-bold text-[#0060F4]">
-                                                {formatRupiah(
-                                                    prod.price_labuh || prod.selling_price_default
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-3">
-                                                {prod.vendor ? (
-                                                    <div>
-                                                        <p className="font-semibold text-xs text-[#0B1F63]">
-                                                            {prod.vendor.name}
-                                                        </p>
-                                                        <p className="text-[10px] text-[#52658E]">
-                                                            {prod.vendor.phone || '-'}
-                                                        </p>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-[11px] italic text-[#52658E]/60">
-                                                        Vendor Bebas / Internal
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-4 text-center">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                    <button
-                                                        onClick={() => openEditModal(prod)}
-                                                        className={
-                                                            'p-1.5 rounded-[8px] ' +
-                                                            'text-[#0060F4] hover:bg-[#E0F0FF] ' +
-                                                            'transition-colors'
-                                                        }
-                                                        title="Edit Produk"
-                                                    >
-                                                        <svg
-                                                            className="w-4 h-4"
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            viewBox="0 0 24 24"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth={2}
-                                                                d={
-                                                                    'M11 5H6a2 2 0 00-2 2v11a2 2 ' +
-                                                                    '0 002 2h11a2 2 0 002-2v-5m-1' +
-                                                                    '.414-9.414a2 2 0 112.828 2.8' +
-                                                                    '28L11.828 15H9v-2.828l8.586-' +
-                                                                    '8.586z'
-                                                                }
-                                                            />
-                                                        </svg>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteProduct(prod)}
-                                                        className={
-                                                            'p-1.5 rounded-[8px] ' +
-                                                            'text-[#C62840] hover:bg-[#FFE7EC] ' +
-                                                            'transition-colors'
-                                                        }
-                                                        title="Hapus / Nonaktifkan"
-                                                    >
-                                                        <svg
-                                                            className="w-4 h-4"
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            viewBox="0 0 24 24"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth={2}
-                                                                d={
-                                                                    'M19 7l-.867 12.142A2 2 0 011' +
-                                                                    '6.138 21H7.862a2 2 0 01-1.99' +
-                                                                    '5-1.858L5 7m5 4v6m4-6v6m1-10' +
-                                                                    'V4a1 1 0 00-1-1h-4a1 1 0 00-' +
-                                                                    '1 1v3M4 7h16'
-                                                                }
-                                                            />
-                                                        </svg>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
+                <ResponsiveTable<Product>
+                    data={products}
+                    keyExtractor={(product) => product.id}
+                    desktop={{
+                        columns,
+                        compact: true,
+                        minWidth: '1180px',
+                        emptyMessage: 'Data Tidak Ditemukan',
+                        emptyIcon: <PackageOpen aria-hidden="true" className="mx-auto size-7" />,
+                    }}
+                    mobile={{
+                        titleRender: (product) => product.name,
+                        subtitleRender: (product) => product.code,
+                        statusRender: (product) => (
+                            <StatusBadge
+                                size="sm"
+                                status={product.item_type === 'jasa' ? 'info' : 'success'}
+                                label={product.item_type === 'jasa' ? 'Jasa' : 'Reimburse'}
+                            />
+                        ),
+                        imageRender: () => (
+                            <span className="flex size-11 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                <PackageOpen aria-hidden="true" className="size-5" />
+                            </span>
+                        ),
+                        fields: [
+                            { label: 'Kategori', fullWidth: true, render: (product) => product.category },
+                            { label: 'Satuan', render: (product) => product.unit },
+                            { label: 'HPP vendor', render: (product) => <span className="tabular-nums">{formatRupiah(product.hpp_default)}</span> },
+                            { label: 'Jual sandar', render: (product) => <span className="tabular-nums">{formatRupiah(product.price_sandar || product.selling_price_default)}</span> },
+                            { label: 'Jual labuh', render: (product) => <span className="tabular-nums text-[#0060F4]">{formatRupiah(product.price_labuh || product.selling_price_default)}</span> },
+                            {
+                                label: 'Vendor rekomendasi',
+                                fullWidth: true,
+                                icon: <Building2 aria-hidden="true" className="size-3" />,
+                                render: (product) => product.vendor?.name || 'Vendor bebas / internal',
+                            },
+                        ],
+                        actionsRender: productActions,
+                        emptyMessage: 'Data Tidak Ditemukan',
+                        emptyIcon: <PackageOpen aria-hidden="true" className="mx-auto size-7" />,
+                    }}
+                />
             </div>
 
             {/* Modal Tambah / Edit Produk */}
             <Modal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                onClose={() => {
+                    clearErrors();
+                    setIsModalOpen(false);
+                }}
                 title={
                     editingProduct
                         ? `Edit Master Produk: ${editingProduct.code}`
@@ -700,109 +632,17 @@ export default function MasterProductsIndex({
                 }
                 size="lg"
             >
-                <form onSubmit={handleSubmitProduct} className="space-y-4">
+                <form noValidate onSubmit={handleSubmitProduct} className="space-y-4">
+                    <FormErrorSummary errors={errors} />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Kode Produk / Layanan <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={data.code}
-                                onChange={(e) => setData('code', e.target.value.toUpperCase())}
-                                placeholder="Contoh: PRD-FW, PRD-MGO"
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm font-mono border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                                required
-                            />
-                            {errors.code && (
-                                <p className="text-[11px] text-red-500 mt-0.5">{errors.code}</p>
-                            )}
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Nama Produk / Layanan <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={data.name}
-                                onChange={(e) => setData('name', e.target.value)}
-                                placeholder="Contoh: Air Tawar (Fresh Water Supply)"
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                                required
-                            />
-                            {errors.name && (
-                                <p className="text-[11px] text-red-500 mt-0.5">{errors.name}</p>
-                            )}
-                        </div>
+                        <Input required name="code" autoComplete="off" label="Kode Produk / Layanan" value={data.code} onChange={(e) => setData('code', e.target.value.toUpperCase())} placeholder="Contoh: PRD-FW" className="font-mono" error={errors.code} />
+                        <Input required name="name" autoComplete="off" label="Nama Produk / Layanan" value={data.name} onChange={(e) => setData('name', e.target.value)} placeholder="Contoh: Air Tawar" error={errors.name} />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Tipe Invoice <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                value={data.item_type}
-                                onChange={(e) =>
-                                    setData('item_type', e.target.value as 'jasa' | 'non_jasa')
-                                }
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] bg-white ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                            >
-                                <option value="jasa">Jasa / Keagenan (PPh 2%)</option>
-                                <option value="non_jasa">
-                                    Non-Jasa / Reimburse (BBM, Air, Pelindo)
-                                </option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Kategori <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={data.category}
-                                onChange={(e) => setData('category', e.target.value)}
-                                placeholder="Air, BBM, Perahu, Clearance..."
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                                Satuan <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={data.unit}
-                                onChange={(e) => setData('unit', e.target.value)}
-                                placeholder="Ton, Liter, Trip, Orang, Paket..."
-                                className={
-                                    'w-full px-3 py-2 text-xs md:text-sm border ' +
-                                    'border-[#DCEAF8] rounded-[10px] text-[#0B1F63] ' +
-                                    'focus:ring-2 focus:ring-[#0060F4]'
-                                }
-                                required
-                            />
-                        </div>
+                        <Select required name="item_type" label="Tipe Invoice" value={data.item_type} onChange={(e) => setData('item_type', e.target.value as 'jasa' | 'non_jasa')} error={errors.item_type} options={[{ value: 'jasa', label: 'Jasa / Keagenan (PPh 2%)' }, { value: 'non_jasa', label: 'Non-Jasa / Reimburse' }]} />
+                        <Input required name="category" autoComplete="off" label="Kategori" value={data.category} onChange={(e) => setData('category', e.target.value)} placeholder="Air, BBM, Clearance…" error={errors.category} />
+                        <Input required name="unit" autoComplete="off" label="Satuan" value={data.unit} onChange={(e) => setData('unit', e.target.value)} placeholder="Ton, Liter, Paket…" error={errors.unit} />
                     </div>
 
                     {/* Harga Pokok & Harga Jual Default */}
@@ -812,116 +652,26 @@ export default function MasterProductsIndex({
                         </p>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                                <label className="block text-[11px] font-semibold text-[#52658E] mb-1">
-                                    HPP Vendor Default (Rp)
-                                </label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={formatRupiahInput(data.hpp_default)}
-                                    onChange={(e) =>
-                                        setData('hpp_default', Number(normalizeRupiahInput(e.target.value)))
-                                    }
-                                    className={
-                                        'w-full px-3 py-2 text-xs md:text-sm font-mono border ' +
-                                        'border-[#DCEAF8] rounded-[10px] bg-white ' +
-                                        'text-[#0B1F63]'
-                                    }
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-[11px] font-semibold text-[#52658E] mb-1">
-                                    Harga Jual Sandar (Rp)
-                                </label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={formatRupiahInput(data.price_sandar)}
-                                    onChange={(e) =>
-                                        setData('price_sandar', Number(normalizeRupiahInput(e.target.value)))
-                                    }
-                                    className={
-                                        'w-full px-3 py-2 text-xs md:text-sm font-mono border ' +
-                                        'border-[#DCEAF8] rounded-[10px] bg-white ' +
-                                        'text-[#0B1F63]'
-                                    }
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-[11px] font-semibold text-[#52658E] mb-1">
-                                    Harga Jual Labuh (Rp)
-                                </label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={formatRupiahInput(data.price_labuh)}
-                                    onChange={(e) =>
-                                        setData('price_labuh', Number(normalizeRupiahInput(e.target.value)))
-                                    }
-                                    className={
-                                        'w-full px-3 py-2 text-xs md:text-sm font-mono border ' +
-                                        'border-[#DCEAF8] rounded-[10px] bg-white ' +
-                                        'text-[#0B1F63]'
-                                    }
-                                />
-                            </div>
+                            <MoneyInput required name="hpp_default" label="HPP Vendor Default" value={data.hpp_default} onChange={(value) => setData('hpp_default', Number(value))} error={errors.hpp_default} />
+                            <MoneyInput name="price_sandar" label="Harga Jual Sandar" value={data.price_sandar} onChange={(value) => setData('price_sandar', Number(value))} error={errors.price_sandar} />
+                            <MoneyInput name="price_labuh" label="Harga Jual Labuh" value={data.price_labuh} onChange={(value) => setData('price_labuh', Number(value))} error={errors.price_labuh} />
                         </div>
                     </div>
 
                     {/* Vendor Terkait */}
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Vendor Penyedia Terkait (Opsional)
-                        </label>
-                        <select
-                            value={data.vendor_id || ''}
-                            onChange={(e) => setData('vendor_id', e.target.value)}
-                            className={
-                                'w-full px-3 py-2 text-xs md:text-sm border border-[#DCEAF8] ' +
-                                'rounded-[10px] text-[#0B1F63] bg-white'
-                            }
-                        >
-                            <option value="">
-                                -- Tanpa Vendor Khusus / Disediakan Langsung --
-                            </option>
-                            {vendors.map((v) => (
-                                <option key={v.id} value={v.id}>
-                                    {v.name} ({v.code})
-                                </option>
-                            ))}
-                        </select>
-                        <p className="text-[10px] text-[#52658E] mt-1">
-                            Informasi vendor ini memudahkan Admin mencocokkan kuotasi
-                            harga dan pesanan logistik ke vendor riil.
-                        </p>
-                    </div>
+                    <Select name="vendor_id" label="Vendor Penyedia Terkait (Opsional)" value={data.vendor_id || ''} onChange={(e) => setData('vendor_id', e.target.value)} error={errors.vendor_id} helperText="Memudahkan Admin mencocokkan harga dan pesanan ke vendor." options={[{ value: '', label: 'Tanpa vendor khusus / disediakan langsung' }, ...vendors.map((vendor) => ({ value: vendor.id, label: `${vendor.name} (${vendor.code})` }))]} />
 
                     {/* Deskripsi */}
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] mb-1">
-                            Keterangan / Spesifikasi Layanan
-                        </label>
-                        <textarea
-                            value={data.description}
-                            onChange={(e) => setData('description', e.target.value)}
-                            rows={2}
-                            placeholder="Catatan teknis kebutuhan armada atau izin..."
-                            className={
-                                'w-full px-3 py-2 text-xs md:text-sm border border-[#DCEAF8] ' +
-                                'rounded-[10px] text-[#0B1F63] focus:ring-2 ' +
-                                'focus:ring-[#0060F4]'
-                            }
-                        />
-                    </div>
+                    <Textarea name="description" label="Keterangan / Spesifikasi Layanan" value={data.description} onChange={(e) => setData('description', e.target.value)} rows={2} placeholder="Catatan teknis kebutuhan armada atau izin…" error={errors.description} />
 
                     <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#DCEAF8]">
                         <Button
                             type="button"
                             variant="secondary"
-                            onClick={() => setIsModalOpen(false)}
+                            onClick={() => {
+                                clearErrors();
+                                setIsModalOpen(false);
+                            }}
                             className="px-4 py-2 text-xs font-bold rounded-[10px]"
                         >
                             Batal
@@ -944,6 +694,16 @@ export default function MasterProductsIndex({
                     </div>
                 </form>
             </Modal>
+            <ConfirmDialog
+                isOpen={Boolean(productToDelete)}
+                title="Nonaktifkan produk?"
+                description={productToDelete ? `${productToDelete.name} tidak akan tersedia untuk transaksi baru.` : ''}
+                confirmLabel="Nonaktifkan"
+                confirmVariant="danger"
+                processing={processing}
+                onClose={() => setProductToDelete(null)}
+                onConfirm={handleDeleteProduct}
+            />
         </AppLayout>
     );
 }

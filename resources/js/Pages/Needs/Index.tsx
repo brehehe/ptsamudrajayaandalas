@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { ChevronRight, ClipboardList, Plus, Ship, UserRound } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
@@ -9,7 +9,10 @@ import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
-import type { PageProps } from '../../types';
+import Table from '../../Components/tables/Table';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import Input from '../../Components/forms/Input';
+import Textarea from '../../Components/forms/Textarea';
 
 interface Ship {
     id: string;
@@ -63,6 +66,10 @@ interface NeedsIndexProps {
     };
     activeStatus: string;
     search: string;
+    capabilities: {
+        can_create: boolean;
+        can_process: boolean;
+    };
 }
 
 const NEED_TYPES = [
@@ -83,16 +90,15 @@ export default function NeedsIndex({
     counts,
     activeStatus,
     search: initialSearch,
+    capabilities,
 }: NeedsIndexProps) {
-    const { auth } = usePage<PageProps>().props;
-    const role = auth.user.primary_role || 'Pengguna';
-    const canCreateNeeds = ['Admin', 'Owner', 'Lapangan'].includes(role);
-    const canProcessRequests = ['Admin', 'Owner'].includes(role);
+    const canCreateNeeds = capabilities.can_create;
+    const canProcessRequests = capabilities.can_process;
     const [search, setSearch] = useState(initialSearch);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedNeed, setSelectedNeed] = useState<NeedItem | null>(null);
 
-    const { data, setData, post, processing, reset, errors } = useForm({
+    const { data, setData, post, processing, reset, errors, clearErrors } = useForm({
         ship_id: portCalls[0]?.ship.id || ships[0]?.id || '',
         port_call_id: portCalls[0]?.id || '',
         need_type: 'Air Tawar',
@@ -222,7 +228,7 @@ export default function NeedsIndex({
                                 <ClipboardList aria-hidden="true" className="size-8" />
                             </div>
                             <h2 className="text-balance text-base font-bold text-[#082870] dark:text-[#F1F5F9]">
-                                Belum Ada Data Kebutuhan
+                                Data Tidak Ditemukan
                             </h2>
                             <p className="mx-auto mt-1 max-w-sm text-pretty text-xs text-[#52658E] dark:text-[#94A3B8]">
                                 Tidak ada catatan kebutuhan logistik kapal dengan kriteria filter
@@ -286,150 +292,66 @@ export default function NeedsIndex({
                                 ))}
                             </div>
 
-                            <Card className="hidden overflow-hidden border border-[#DCEAF8] shadow-xs md:block">
-                                <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                                <thead>
-                                    <tr
-                                        className={
-                                            'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
-                                            'font-semibold uppercase tracking-wider'
-                                        }
-                                    >
-                                        <th scope="col" className="py-3 px-4">No. Pengajuan</th>
-                                        <th className="py-3 px-4">Kapal & Pemilik</th>
-                                        <th className="py-3 px-4">Pelabuhan / Job</th>
-                                        <th className="py-3 px-4">Rincian Kebutuhan</th>
-                                        <th className="py-3 px-4">Pelapor</th>
-                                        <th className="py-3 px-4">Status</th>
-                                        <th className="py-3 px-4 text-right">Aksi</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                    {needs.map((item) => (
-                                        <tr
-                                            key={item.id}
-                                            className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                        >
-                                            <td className="py-3.5 px-4 font-mono font-medium text-[#0060F4]">
-                                                {item.request_number}
-                                                <div className="text-[10px] text-[#52658E] font-sans font-normal">
-                                                    {new Date(item.request_date).toLocaleDateString(
-                                                        'id-ID',
-                                                        {
-                                                            day: '2-digit',
-                                                            month: 'short',
-                                                            year: 'numeric',
-                                                        }
-                                                    )}
+                            <div className="hidden md:block">
+                                <Table<NeedItem>
+                                    data={needs}
+                                    keyExtractor={(item) => item.id}
+                                    compact
+                                    minWidth="1120px"
+                                    emptyMessage="Data Tidak Ditemukan"
+                                    columns={[
+                                        {
+                                            key: 'request',
+                                            header: 'Pengajuan',
+                                            width: '180px',
+                                            render: (item) => (
+                                                <div>
+                                                    <p className="font-bold text-[#0060F4]">{item.request_number}</p>
+                                                    <p className="mt-0.5 text-[10px] text-[#52658E]">{new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(new Date(item.request_date))}</p>
                                                 </div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <div className="font-semibold text-[#082870]">
-                                                    {item.ship?.name || 'Kapal Tidak Ditemukan'}
+                                            ),
+                                        },
+                                        {
+                                            key: 'ship',
+                                            header: 'Kapal & pemilik',
+                                            width: '220px',
+                                            render: (item) => (
+                                                <div>
+                                                    <p className="font-bold">{item.ship?.name || 'Kapal tidak ditemukan'}</p>
+                                                    <p className="mt-0.5 text-[11px] text-[#52658E]">IMO {item.ship?.imo_number || '-'} · {item.ship?.company?.name || 'Agen pribadi'}</p>
                                                 </div>
-                                                <div className="text-[11px] text-[#52658E]">
-                                                    IMO: {item.ship?.imo_number || '-'} •{' '}
-                                                    {item.ship?.company?.name || 'Agen Pribadi'}
+                                            ),
+                                        },
+                                        {
+                                            key: 'visit',
+                                            header: 'Pelabuhan / job',
+                                            width: '200px',
+                                            render: (item) => (
+                                                <div>
+                                                    <p className="font-semibold">{item.port_call?.port?.name || 'Pelabuhan belum diisi'}</p>
+                                                    <p className="mt-0.5 text-[10px] text-[#52658E]">{item.port_call?.job_number || 'Kunjungan langsung'}</p>
                                                 </div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <div className="font-medium text-[#0B1F63]">
-                                                    {item.port_call?.port?.name ||
-                                                        'Pelabuhan Gresik'}
-                                                </div>
-                                                <div className="text-[10px] text-[#52658E] font-mono">
-                                                    {item.port_call?.job_number ||
-                                                        'Kunjungan Langsung'}
-                                                </div>
-                                            </td>
-                                            <td className="py-3.5 px-4 max-w-xs">
-                                                <div className="text-xs font-normal line-clamp-2 text-neutral-800">
-                                                    {item.notes ||
-                                                        'Permintaan logistik operasional kapal'}
-                                                </div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <div className="font-medium">
-                                                    {item.creator?.name || 'Tidak tersedia'}
-                                                </div>
-                                                <div className="text-[10px] text-[#52658E]">
-                                                    Staf Lapangan
-                                                </div>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <StatusBadge
-                                                    status={item.status}
-                                                    label={item.status}
-                                                />
-                                            </td>
-                                            <td className="py-3.5 px-4 text-right">
+                                            ),
+                                        },
+                                        { key: 'notes', header: 'Kebutuhan', render: (item) => <span className="line-clamp-2 text-[#52658E]">{item.notes || 'Permintaan logistik operasional kapal'}</span> },
+                                        { key: 'creator', header: 'Pelapor', width: '150px', render: (item) => item.creator?.name || 'Tidak tersedia' },
+                                        { key: 'status', header: 'Status', width: '140px', render: (item) => <StatusBadge status={item.status} label={item.status} /> },
+                                        {
+                                            key: 'actions',
+                                            header: 'Aksi',
+                                            width: '190px',
+                                            align: 'right',
+                                            render: (item) => (
                                                 <div className="flex items-center justify-end gap-1.5">
-                                                    {canProcessRequests &&
-                                                        item.status === 'Disetujui' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleUpdateStatus(
-                                                                    item.id,
-                                                                    'Dalam Proses'
-                                                                )
-                                                            }
-                                                            className={
-                                                                'px-2 py-1 bg-[#19B5F7]/10 ' +
-                                                                'text-[#0060F4] ' +
-                                                                'hover:bg-[#0060F4] ' +
-                                                                'hover:text-white rounded-md ' +
-                                                                'text-[11px] font-semibold ' +
-                                                                'transition'
-                                                            }
-                                                        >
-                                                            Proses
-                                                        </button>
-                                                        )}
-                                                    {canProcessRequests &&
-                                                        ['Dalam Proses', 'Diproses'].includes(
-                                                            item.status
-                                                        ) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleUpdateStatus(
-                                                                    item.id,
-                                                                    'Selesai'
-                                                                )
-                                                            }
-                                                            className={
-                                                                'px-2 py-1 bg-emerald-50 ' +
-                                                                'text-emerald-700 ' +
-                                                                'hover:bg-emerald-600 ' +
-                                                                'hover:text-white rounded-md ' +
-                                                                'text-[11px] font-semibold ' +
-                                                                'transition'
-                                                            }
-                                                        >
-                                                            Selesai
-                                                        </button>
-                                                        )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedNeed(item)}
-                                                        className={
-                                                            'px-2 py-1 text-[#52658E] ' +
-                                                            'hover:text-[#0060F4] rounded-md ' +
-                                                            'text-[11px] transition'
-                                                        }
-                                                    >
-                                                        Detail
-                                                    </button>
+                                                    {canProcessRequests && item.status === 'Disetujui' && <Button size="sm" variant="secondary" onClick={() => handleUpdateStatus(item.id, 'Dalam Proses')}>Proses</Button>}
+                                                    {canProcessRequests && ['Dalam Proses', 'Diproses'].includes(item.status) && <Button size="sm" variant="secondary" onClick={() => handleUpdateStatus(item.id, 'Selesai')}>Selesai</Button>}
+                                                    <Button size="sm" variant="ghost" onClick={() => setSelectedNeed(item)}>Detail</Button>
                                                 </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                                </div>
-                            </Card>
+                                            ),
+                                        },
+                                    ]}
+                                />
+                            </div>
                         </>
                     )}
                 </div>
@@ -499,99 +421,30 @@ export default function NeedsIndex({
             {/* Modal Input Kebutuhan Baru */}
             <Modal
                 isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
+                onClose={() => { clearErrors(); setIsCreateModalOpen(false); }}
                 title="Catat Kebutuhan Logistik Kapal"
                 subtitle="Pilih kunjungan yang tepat agar kebutuhan tidak tercampur dengan job lain."
                 size="lg"
                 asBottomSheetOnMobile
             >
-                <form onSubmit={handleCreateSubmit} className="space-y-4">
-                    <div>
-                        <label htmlFor="need-ship" className="mb-1 block text-xs font-semibold text-[#082870] dark:text-[#F1F5F9]">
-                            Pilih Kapal
-                        </label>
-                        <select
-                            id="need-ship"
-                            name="ship_id"
-                            value={data.ship_id}
-                            onChange={(e) => {
-                                const shipId = e.target.value;
-                                const matchingVisit = portCalls.find((portCall) => portCall.ship.id === shipId);
-                                setData((current) => ({
-                                    ...current,
-                                    ship_id: shipId,
-                                    port_call_id: matchingVisit?.id ?? '',
-                                }));
-                            }}
-                            className={
-                                'min-h-11 w-full rounded-xl border border-[#DCEAF8] bg-white p-2.5 text-sm ' +
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]'
-                            }
-                            required
-                        >
-                            {ships.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                    {s.name} (IMO: {s.imo_number})
-                                </option>
-                            ))}
-                        </select>
-                        {errors.ship_id && <p role="alert" className="mt-1 text-xs font-semibold text-[#C62840]">{errors.ship_id}</p>}
-                    </div>
+                <form noValidate onSubmit={handleCreateSubmit} className="space-y-4">
+                    <FormErrorSummary errors={errors} />
+                    <Select required id="need-ship" name="ship_id" label="Pilih Kapal" value={data.ship_id} onChange={(e) => {
+                        const shipId = e.target.value;
+                        const matchingVisit = portCalls.find((portCall) => portCall.ship.id === shipId);
+                        setData((current) => ({ ...current, ship_id: shipId, port_call_id: matchingVisit?.id ?? '' }));
+                    }} error={errors.ship_id} options={ships.map((ship) => ({ value: ship.id, label: `${ship.name} (IMO: ${ship.imo_number})` }))} />
 
-                    <div>
-                        <label htmlFor="need-port-call" className="text-xs font-semibold text-[#082870] block mb-1">
-                            Kunjungan / Job
-                        </label>
-                        <select
-                            id="need-port-call"
-                            name="port_call_id"
-                            value={data.port_call_id}
-                            onChange={(event) => setData('port_call_id', event.target.value)}
-                            className="min-h-11 w-full rounded-xl border border-[#DCEAF8] bg-white p-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
-                            required
-                        >
-                            <option value="" disabled>Pilih kunjungan / job aktif</option>
-                            {portCalls
-                                .filter((portCall) => portCall.ship.id === data.ship_id)
-                                .map((portCall) => (
-                                    <option key={portCall.id} value={portCall.id}>
-                                        {portCall.job_number} · {portCall.port.name}
-                                    </option>
-                                ))}
-                        </select>
-                        <p className="mt-1 text-[11px] text-[#52658E]">Kebutuhan akan dicatat pada transaksi kunjungan ini.</p>
-                        {errors.port_call_id && <p role="alert" className="mt-1 text-xs font-semibold text-[#C62840]">{errors.port_call_id}</p>}
-                    </div>
+                    <Select required id="need-port-call" name="port_call_id" label="Kunjungan / Job" value={data.port_call_id} onChange={(event) => setData('port_call_id', event.target.value)} placeholder="Pilih kunjungan / job aktif" helperText="Kebutuhan akan dicatat pada transaksi kunjungan ini." error={errors.port_call_id} options={portCalls.filter((portCall) => portCall.ship.id === data.ship_id).map((portCall) => ({ value: portCall.id, label: `${portCall.job_number} · ${portCall.port.name}` }))} />
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                            <label htmlFor="need-type" className="mb-1 block text-xs font-semibold text-[#082870] dark:text-[#F1F5F9]">
-                                Jenis Kebutuhan
-                            </label>
-                            <select
-                                id="need-type"
-                                name="need_type"
-                                value={data.need_type}
-                                onChange={(e) => setData('need_type', e.target.value)}
-                                className={
-                                    'min-h-11 w-full rounded-xl border border-[#DCEAF8] bg-white p-2.5 text-sm ' +
-                                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]'
-                                }
-                            >
-                                {NEED_TYPES.map((nt) => (
-                                    <option key={nt.value} value={nt.value}>
-                                        {nt.label}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                        <Select required id="need-type" name="need_type" label="Jenis Kebutuhan" value={data.need_type} onChange={(e) => setData('need_type', e.target.value)} error={errors.need_type} options={NEED_TYPES} />
 
                         <div>
-                            <label htmlFor="need-quantity" className="mb-1 block text-xs font-semibold text-[#082870] dark:text-[#F1F5F9]">
-                                Jumlah & Satuan
-                            </label>
+                            <p className="mb-1.5 block text-xs font-bold text-[#082870] dark:text-[#F1F5F9]">Jumlah & Satuan <span className="text-[#C62840]">*</span></p>
                             <div className="flex gap-2">
-                                <input
+                                <Input
+                                    required
                                     id="need-quantity"
                                     name="quantity"
                                     type="number"
@@ -600,10 +453,11 @@ export default function NeedsIndex({
                                     value={data.quantity}
                                     onChange={(e) => setData('quantity', e.target.value)}
                                     placeholder="Jumlah…"
-                                    className="min-h-11 w-2/3 rounded-xl border border-[#DCEAF8] bg-white p-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
-                                    required
+                                    className="w-2/3"
+                                    error={errors.quantity}
                                 />
-                                <input
+                                <Input
+                                    required
                                     type="text"
                                     name="unit"
                                     autoComplete="off"
@@ -611,19 +465,15 @@ export default function NeedsIndex({
                                     onChange={(e) => setData('unit', e.target.value)}
                                     placeholder="Satuan…"
                                     aria-label="Satuan kebutuhan"
-                                    className="min-h-11 w-1/3 rounded-xl border border-[#DCEAF8] bg-white p-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
-                                    required
+                                    className="w-1/3"
+                                    error={errors.unit}
                                 />
                             </div>
-                            {(errors.quantity || errors.unit) && <p role="alert" className="mt-1 text-xs font-semibold text-[#C62840]">{errors.quantity || errors.unit}</p>}
                         </div>
                     </div>
 
-                    <div>
-                        <label htmlFor="need-required-at" className="mb-1 block text-xs font-semibold text-[#082870] dark:text-[#F1F5F9]">
-                            Target Waktu Kebutuhan
-                        </label>
-                        <input
+                    <Input
+                            required
                             id="need-required-at"
                             name="required_at"
                             type="text"
@@ -631,17 +481,11 @@ export default function NeedsIndex({
                             value={data.required_at}
                             onChange={(e) => setData('required_at', e.target.value)}
                             placeholder="Contoh: Saat kapal tiba di dermaga 2…"
-                            className="min-h-11 w-full rounded-xl border border-[#DCEAF8] bg-white p-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
-                            required
+                            label="Target Waktu Kebutuhan"
+                            error={errors.required_at}
                         />
-                        {errors.required_at && <p role="alert" className="mt-1 text-xs font-semibold text-[#C62840]">{errors.required_at}</p>}
-                    </div>
 
-                    <div>
-                        <label htmlFor="need-notes" className="mb-1 block text-xs font-semibold text-[#082870] dark:text-[#F1F5F9]">
-                            Catatan Tambahan
-                        </label>
-                        <textarea
+                    <Textarea
                             id="need-notes"
                             name="notes"
                             autoComplete="off"
@@ -649,16 +493,12 @@ export default function NeedsIndex({
                             onChange={(e) => setData('notes', e.target.value)}
                             rows={3}
                             placeholder="Keterangan spesifikasi atau instruksi khusus…"
-                            className={
-                                'w-full rounded-xl border border-[#DCEAF8] bg-white p-3 text-sm ' +
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]'
-                            }
+                            label="Catatan Tambahan"
+                            error={errors.notes}
                         />
-                        {errors.notes && <p role="alert" className="mt-1 text-xs font-semibold text-[#C62840]">{errors.notes}</p>}
-                    </div>
 
                     <div className="flex flex-col-reverse gap-2 border-t border-[#DCEAF8] pt-3 sm:flex-row sm:justify-end dark:border-[#1E3A5F]">
-                        <Button type="button" variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
+                        <Button type="button" variant="secondary" onClick={() => { clearErrors(); setIsCreateModalOpen(false); }}>
                             Batal
                         </Button>
                         <Button

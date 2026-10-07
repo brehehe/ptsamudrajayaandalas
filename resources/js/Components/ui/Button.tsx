@@ -21,8 +21,8 @@ export const Button: React.FC<ButtonProps> = ({
 }) => {
     const sizeClasses = {
         sm: 'h-9 px-3 text-xs gap-1.5 rounded-[10px]',
-        md: 'h-11 px-4 text-sm gap-2 rounded-[12px]',
-        lg: 'h-12 px-6 text-base gap-2.5 rounded-[12px]',
+        md: 'h-11 px-3.5 text-sm gap-2 rounded-[12px]',
+        lg: 'h-12 px-5 text-base gap-2.5 rounded-[12px]',
     };
 
     const variantClasses = {
@@ -47,7 +47,7 @@ export const Button: React.FC<ButtonProps> = ({
 
     return (
         <button
-            className={`inline-flex items-center justify-center select-none font-medium focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${sizeClasses[size]} ${variantClasses[variant]} ${className}`}
+            className={`inline-flex items-center justify-center whitespace-nowrap select-none font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${sizeClasses[size]} ${variantClasses[variant]} ${className}`}
             disabled={disabled || isLoading}
             {...props}
         >

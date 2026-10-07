@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ShipCompany;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -36,7 +37,7 @@ class MasterCompanyController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request): RedirectResponse|JsonResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -59,7 +60,27 @@ class MasterCompanyController extends Controller
             'is_active' => true,
         ]);
 
-        return redirect()->back()->with('success', "Perusahaan {$company->name} berhasil ditambahkan.");
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Perusahaan {$company->name} berhasil ditambahkan.",
+                'company' => [
+                    'id' => $company->id,
+                    'name' => $company->name,
+                    'code' => $company->code,
+                    'phone' => $company->phone,
+                    'email' => $company->email,
+                    'address' => $company->address,
+                ],
+            ], 201);
+        }
+
+        return redirect()->back()
+            ->with('success', "Perusahaan {$company->name} berhasil ditambahkan.")
+            ->with('created_company', [
+                'id' => $company->id,
+                'name' => $company->name,
+            ]);
     }
 
     public function update(Request $request, string $id): RedirectResponse

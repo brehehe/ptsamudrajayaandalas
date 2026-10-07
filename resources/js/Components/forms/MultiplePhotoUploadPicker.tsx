@@ -2,6 +2,7 @@ import React, { useId, useRef, useState } from 'react';
 import { Camera, CircleAlert, FolderOpen, ImagePlus, Plus, Trash2, X } from 'lucide-react';
 import Modal from '../overlays/Modal';
 import { LiveCameraModal } from './PhotoUploadPicker';
+import { optimizeImageFile } from '../../lib/optimizeImageFile';
 
 export interface MultiplePhotoUploadPickerProps {
     files: File[];
@@ -12,6 +13,9 @@ export interface MultiplePhotoUploadPickerProps {
     helperText?: string;
     maxFiles?: number;
     maxSizeMb?: number;
+    resizeImages?: boolean;
+    maxImageDimension?: number;
+    imageQuality?: number;
 }
 
 export default function MultiplePhotoUploadPicker({
@@ -23,6 +27,9 @@ export default function MultiplePhotoUploadPicker({
     helperText = 'Format: JPG, PNG (Maks. 5 MB)',
     maxFiles = 10,
     maxSizeMb = 5,
+    resizeImages = true,
+    maxImageDimension = 2560,
+    imageQuality = 0.92,
 }: MultiplePhotoUploadPickerProps) {
     const inputId = useId();
     const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -31,6 +38,7 @@ export default function MultiplePhotoUploadPicker({
     const [showCameraModal, setShowCameraModal] = useState(false);
     const [viewerIndex, setViewerIndex] = useState<number | null>(null);
     const [localError, setLocalError] = useState<string | null>(null);
+    const [isOptimizing, setIsOptimizing] = useState(false);
 
     // Cache of object URLs for previewing File objects
     const [previewUrls, setPreviewUrls] = useState<string[]>([]);
@@ -44,36 +52,51 @@ export default function MultiplePhotoUploadPicker({
         };
     }, [files]);
 
-    const handleFilesAdded = (newFiles: FileList | File[]) => {
+    const handleFilesAdded = async (newFiles: FileList | File[]): Promise<void> => {
         setLocalError(null);
         const validNewFiles: File[] = [];
+        const availableSlots = Math.max(0, maxFiles - files.length);
+        const candidateFiles = Array.from(newFiles).slice(0, availableSlots);
 
-        Array.from(newFiles).forEach((file) => {
+        if (Array.from(newFiles).length > availableSlots) {
+            setLocalError(`Maksimal ${maxFiles} foto diperbolehkan.`);
+        }
+
+        setIsOptimizing(resizeImages && candidateFiles.length > 0);
+
+        for (const file of candidateFiles) {
             if (!file.type.startsWith('image/')) {
                 setLocalError('File harus berupa gambar (JPG, PNG).');
-                return;
+                continue;
             }
-            if (file.size > maxSizeMb * 1024 * 1024) {
+
+            const processedFile = resizeImages
+                ? await optimizeImageFile(file, {
+                      maxWidth: maxImageDimension,
+                      maxHeight: maxImageDimension,
+                      quality: imageQuality,
+                      maxSizeBytes: maxSizeMb * 1024 * 1024,
+                  })
+                : file;
+
+            if (processedFile.size > maxSizeMb * 1024 * 1024) {
                 setLocalError(`Ukuran foto "${file.name}" melebihi ${maxSizeMb} MB.`);
-                return;
+                continue;
             }
-            validNewFiles.push(file);
-        });
+
+            validNewFiles.push(processedFile);
+        }
+
+        setIsOptimizing(false);
 
         if (validNewFiles.length === 0) return;
 
-        if (files.length + validNewFiles.length > maxFiles) {
-            setLocalError(`Maksimal ${maxFiles} foto diperbolehkan.`);
-            const allowed = validNewFiles.slice(0, maxFiles - files.length);
-            onFilesChange([...files, ...allowed]);
-        } else {
-            onFilesChange([...files, ...validNewFiles]);
-        }
+        onFilesChange([...files, ...validNewFiles]);
     };
 
     const handleCameraCapture = (file: File) => {
         setShowCameraModal(false);
-        handleFilesAdded([file]);
+        void handleFilesAdded([file]);
     };
 
     const removeFile = (index: number) => {
@@ -96,7 +119,7 @@ export default function MultiplePhotoUploadPicker({
                 className="hidden"
                 onChange={(e) => {
                     if (e.target.files && e.target.files.length > 0) {
-                        handleFilesAdded(e.target.files);
+                        void handleFilesAdded(e.target.files);
                     }
                     e.target.value = '';
                 }}
@@ -206,6 +229,13 @@ export default function MultiplePhotoUploadPicker({
             </div>
 
             {/* Error Message */}
+            {isOptimizing && (
+                <p aria-live="polite" className="flex items-center gap-1.5 text-[11px] font-semibold text-[#0060F4] dark:text-[#60A5FA]">
+                    <span className="size-3.5 animate-spin rounded-full border-2 border-[#0060F4]/25 border-t-[#0060F4]" />
+                    <span>Mengoptimalkan gambar tanpa mengubah rasio...</span>
+                </p>
+            )}
+
             {(error || localError) && (
                 <p role="alert" className="text-[11px] font-semibold text-[#C62840] dark:text-[#F87171] flex items-center gap-1">
                     <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />

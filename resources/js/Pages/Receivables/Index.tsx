@@ -5,7 +5,14 @@ import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
-import { formatRupiahInput, normalizeRupiahInput } from '../../Components/forms/MoneyInput';
+import MoneyInput from '../../Components/forms/MoneyInput';
+import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import Tabs from '../../Components/ui/Tabs';
+import { ResponsiveTable, type Column } from '../../Components/tables/Table';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import Input from '../../Components/forms/Input';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
+import Select from '../../Components/selects/Select';
 
 interface Invoice {
     id: string;
@@ -53,6 +60,7 @@ interface ReceivablesIndexProps {
     };
     companies: Array<{ id: string; name: string }>;
     search: string;
+    abilities: { manage: boolean };
 }
 
 export default function ReceivablesIndex({
@@ -61,12 +69,13 @@ export default function ReceivablesIndex({
     aging,
     companies,
     search: initialSearch,
+    abilities,
 }: ReceivablesIndexProps) {
     const [search, setSearch] = useState(initialSearch);
     const [activeTab, setActiveTab] = useState<'invoices' | 'receipts'>('invoices');
     const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
 
-    const { data, setData, post, processing, reset } = useForm({
+    const { data, setData, post, processing, reset, errors, clearErrors } = useForm({
         company_id: companies[0]?.id || '',
         invoice_id: unpaidInvoices[0]?.id || '',
         received_date: new Date().toISOString().split('T')[0],
@@ -102,86 +111,64 @@ export default function ReceivablesIndex({
         }).format(val);
     };
 
+    const formatDate = (value: string) => new Date(value).toLocaleDateString('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric',
+    });
+
+    const openReceiptForInvoice = (invoice: Invoice) => {
+        clearErrors();
+        setData({
+            ...data,
+            company_id: invoice.company?.id || data.company_id,
+            invoice_id: invoice.id,
+            amount: String(invoice.outstanding_amount),
+        });
+        setIsReceiptModalOpen(true);
+    };
+
+    const invoiceColumns: Column<Invoice>[] = [
+        { key: 'invoice_number', header: 'No. Invoice', wrap: 'normal', render: (invoice) => <span className="font-mono font-semibold text-[#0060F4]">{invoice.invoice_number}</span> },
+        { key: 'invoice_type', header: 'Kategori', render: (invoice) => <StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimburse'} /> },
+        { key: 'company', header: 'Perusahaan Klien', wrap: 'normal', render: (invoice) => invoice.company?.name || 'Klien' },
+        { key: 'ship', header: 'Kapal', wrap: 'normal', render: (invoice) => invoice.port_call?.ship?.name || '—' },
+        { key: 'due_date', header: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
+        { key: 'grand_total', header: 'Total Tagihan', align: 'right', render: (invoice) => formatRupiah(invoice.grand_total) },
+        { key: 'outstanding_amount', header: 'Sisa Piutang', align: 'right', render: (invoice) => <span className="font-bold text-rose-600">{formatRupiah(invoice.outstanding_amount)}</span> },
+        { key: 'actions', header: 'Aksi', align: 'right', render: (invoice) => abilities.manage ? <Button size="sm" onClick={() => openReceiptForInvoice(invoice)}>Catat Bayar</Button> : '—' },
+    ];
+
+    const receiptColumns: Column<ClientReceipt>[] = [
+        { key: 'bank_reference', header: 'Referensi Bank', wrap: 'normal', render: (receipt) => <div><p className="font-mono font-semibold text-[#0060F4]">{receipt.bank_reference}</p>{receipt.allocations?.[0]?.invoice && <p className="text-[10px] text-[#52658E]">{receipt.allocations[0].invoice.invoice_number}</p>}</div> },
+        { key: 'company', header: 'Perusahaan Klien', wrap: 'normal', render: (receipt) => receipt.company?.name || 'Klien' },
+        { key: 'destination_account', header: 'Rekening Tujuan', wrap: 'normal' },
+        { key: 'amount', header: 'Nominal Diterima', align: 'right', render: (receipt) => <span className="font-bold text-emerald-700">{formatRupiah(receipt.amount)}</span> },
+        { key: 'received_date', header: 'Tanggal Masuk', render: (receipt) => formatDate(receipt.received_date) },
+        { key: 'status', header: 'Status', render: () => <StatusBadge status="Selesai" label="Terkonfirmasi" /> },
+    ];
+
     return (
-        <AppLayout title="Piutang & Pelunasan Pembayaran Klien">
+        <AppLayout title="Piutang & Pelunasan Pembayaran Klien" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Piutang Klien - PT Samudra Jaya Andalas" />
 
-            <div className="space-y-4 max-w-7xl mx-auto pb-10">
-                {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
-                <div
-                    className={
-                        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
-                        'border-b border-[#DCEAF8]'
-                    }
-                >
-                    <div
-                        className={
-                            'flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border ' +
-                            'border-[#DCEAF8] self-start'
-                        }
-                    >
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('invoices')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                activeTab === 'invoices'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/50'
-                            }`}
-                        >
-                            <span>🧾</span>
-                            <span>Faktur Belum Lunas</span>
-                            <span
-                                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                    activeTab === 'invoices'
-                                        ? 'bg-white/20 text-white'
-                                        : 'bg-white text-[#0B1F63] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                {unpaidInvoices.length}
-                            </span>
-                        </button>
+            <MobilePageHero title="Monitoring Piutang" description="Pantau invoice belum lunas dan pembayaran yang sudah diterima." />
 
-                        <button
-                            type="button"
-                            onClick={() => setActiveTab('receipts')}
-                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
-                                activeTab === 'receipts'
-                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                    : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/50'
-                            }`}
-                        >
-                            <span>🏦</span>
-                            <span>Riwayat Pembayaran</span>
-                            <span
-                                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
-                                    activeTab === 'receipts'
-                                        ? 'bg-white/20 text-white'
-                                        : 'bg-white text-[#0B1F63] border border-[#DCEAF8]'
-                                }`}
-                            >
-                                {receipts.length}
-                            </span>
-                        </button>
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={() => setIsReceiptModalOpen(true)}
-                        className={
-                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
-                            'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
-                            'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
-                            'flex-shrink-0 cursor-pointer self-start sm:self-auto'
-                        }
-                    >
-                        <span className="text-base leading-none font-bold">+</span>
-                        <span>Catat Pembayaran Masuk</span>
-                    </button>
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+                <div className="flex flex-col gap-3 border-b border-[#DCEAF8] pb-3 sm:flex-row sm:items-end sm:justify-between dark:border-[#1E3A5F]">
+                    <Tabs
+                        className="min-w-0 flex-1"
+                        ariaLabel="Jenis data piutang"
+                        activeId={activeTab}
+                        onChange={(id) => setActiveTab(id as 'invoices' | 'receipts')}
+                        items={[
+                            { id: 'invoices', label: 'Belum Lunas', count: unpaidInvoices.length },
+                            { id: 'receipts', label: 'Riwayat Pembayaran', count: receipts.length },
+                        ]}
+                    />
+                    {abilities.manage && <Button onClick={() => { clearErrors(); setIsReceiptModalOpen(true); }}>+ Catat Pembayaran</Button>}
                 </div>
 
                 {/* ── Title Header ── */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="hidden flex-col sm:flex-row sm:items-center sm:justify-between gap-2 md:flex">
                     <div>
                         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
                             Piutang Klien & Penerimaan Kas
@@ -287,290 +274,69 @@ export default function ReceivablesIndex({
                     </button>
                 </form>
 
-                {/* Content Table */}
                 {activeTab === 'invoices' ? (
-                    <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                                <thead>
-                                    <tr
-                                        className={
-                                            'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
-                                            'font-semibold uppercase tracking-wider'
-                                        }
-                                    >
-                                        <th className="py-3 px-4">No. Invoice</th>
-                                        <th className="py-3 px-4">Kategori</th>
-                                        <th className="py-3 px-4">Perusahaan Klien</th>
-                                        <th className="py-3 px-4">Kapal</th>
-                                        <th className="py-3 px-4">Jatuh Tempo</th>
-                                        <th className="py-3 px-4">Total Tagihan</th>
-                                        <th className="py-3 px-4">Sisa Piutang</th>
-                                        <th className="py-3 px-4 text-right">Aksi</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                    {unpaidInvoices.map((inv) => (
-                                        <tr
-                                            key={inv.id}
-                                            className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                        >
-                                            <td className="py-3.5 px-4 font-mono font-medium text-[#0060F4]">
-                                                {inv.invoice_number}
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <span
-                                                    className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold ${
-                                                        inv.invoice_type === 'agency'
-                                                            ? 'bg-blue-50 text-[#0060F4]'
-                                                            : 'bg-emerald-50 text-emerald-700'
-                                                    }`}
-                                                >
-                                                    {inv.invoice_type === 'agency'
-                                                        ? 'Jasa Keagenan'
-                                                        : 'Reimburse'}
-                                                </span>
-                                            </td>
-                                            <td className="py-3.5 px-4 font-semibold text-[#082870]">
-                                                {inv.company?.name || 'Klien'}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-neutral-800">
-                                                {inv.port_call?.ship?.name || '-'}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-[#52658E]">
-                                                {new Date(inv.due_date).toLocaleDateString(
-                                                    'id-ID',
-                                                    {
-                                                        day: '2-digit',
-                                                        month: 'short',
-                                                        year: 'numeric',
-                                                    }
-                                                )}
-                                            </td>
-                                            <td className="py-3.5 px-4 font-mono text-neutral-700">
-                                                {formatRupiah(inv.grand_total)}
-                                            </td>
-                                            <td className="py-3.5 px-4 font-mono font-bold text-rose-600">
-                                                {formatRupiah(inv.outstanding_amount)}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-right">
-                                                <button
-                                                    onClick={() => {
-                                                        setData({
-                                                            ...data,
-                                                            company_id:
-                                                                inv.company?.id || data.company_id,
-                                                            invoice_id: inv.id,
-                                                            amount: String(inv.outstanding_amount),
-                                                        });
-                                                        setIsReceiptModalOpen(true);
-                                                    }}
-                                                    className={
-                                                        'px-2.5 py-1 bg-emerald-600 ' +
-                                                        'hover:bg-emerald-700 text-white ' +
-                                                        'rounded-md text-[11px] font-semibold ' +
-                                                        'transition shadow-xs'
-                                                    }
-                                                >
-                                                    Bayar Lunas
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                    <ResponsiveTable<Invoice>
+                        data={unpaidInvoices}
+                        keyExtractor={(invoice) => invoice.id}
+                        desktop={{ columns: invoiceColumns, compact: true, minWidth: '1040px' }}
+                        mobile={{
+                            titleRender: (invoice) => invoice.invoice_number,
+                            subtitleRender: (invoice) => `${invoice.company?.name || 'Klien'} · ${invoice.port_call?.ship?.name || '—'}`,
+                            statusRender: (invoice) => <StatusBadge status="Jatuh Tempo" label="Belum Lunas" />,
+                            fields: [
+                                { label: 'Kategori', render: (invoice) => invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimburse' },
+                                { label: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
+                                { label: 'Total', render: (invoice) => formatRupiah(invoice.grand_total) },
+                                { label: 'Sisa Piutang', render: (invoice) => <span className="text-rose-600">{formatRupiah(invoice.outstanding_amount)}</span> },
+                            ],
+                            actionsRender: (invoice) => abilities.manage ? <Button size="sm" onClick={() => openReceiptForInvoice(invoice)}>Catat Bayar</Button> : undefined,
+                        }}
+                    />
                 ) : (
-                    <Card className="overflow-hidden border border-[#DCEAF8] shadow-xs">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                                <thead>
-                                    <tr
-                                        className={
-                                            'bg-[#F0F8FF] border-b border-[#DCEAF8] text-[#082870] ' +
-                                            'font-semibold uppercase tracking-wider'
-                                        }
-                                    >
-                                        <th className="py-3 px-4">No. Ref Bank</th>
-                                        <th className="py-3 px-4">Perusahaan Klien</th>
-                                        <th className="py-3 px-4">Rekening Tujuan</th>
-                                        <th className="py-3 px-4">Nominal Diterima</th>
-                                        <th className="py-3 px-4">Tanggal Masuk</th>
-                                        <th className="py-3 px-4">Status Kas</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-[#DCEAF8]/60 text-[#0B1F63]">
-                                    {receipts.map((rc) => (
-                                        <tr
-                                            key={rc.id}
-                                            className="hover:bg-[#F0F8FF]/50 transition-colors"
-                                        >
-                                            <td className="py-3.5 px-4 font-mono font-medium text-[#0060F4]">
-                                                {rc.bank_reference}
-                                                {rc.allocations?.[0]?.invoice && <span className="mt-0.5 block font-sans text-[10px] text-[#52658E]">{rc.allocations[0].invoice.invoice_number}</span>}
-                                            </td>
-                                            <td className="py-3.5 px-4 font-semibold text-[#082870]">
-                                                {rc.company?.name || 'Klien'}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-[#52658E]">
-                                                {rc.destination_account}
-                                            </td>
-                                            <td className="py-3.5 px-4 font-mono font-bold text-emerald-700">
-                                                {formatRupiah(rc.amount)}
-                                            </td>
-                                            <td className="py-3.5 px-4 text-[#52658E]">
-                                                {new Date(rc.received_date).toLocaleDateString(
-                                                    'id-ID',
-                                                    {
-                                                        day: '2-digit',
-                                                        month: 'short',
-                                                        year: 'numeric',
-                                                    }
-                                                )}
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <StatusBadge
-                                                    status="Selesai"
-                                                    label="Terkonfirmasi"
-                                                />
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                    <ResponsiveTable<ClientReceipt>
+                        data={receipts}
+                        keyExtractor={(receipt) => receipt.id}
+                        desktop={{ columns: receiptColumns, compact: true, minWidth: '820px' }}
+                        mobile={{
+                            titleRender: (receipt) => receipt.bank_reference,
+                            subtitleRender: (receipt) => receipt.company?.name || 'Klien',
+                            statusRender: () => <StatusBadge status="Selesai" label="Terkonfirmasi" />,
+                            fields: [
+                                { label: 'Invoice', render: (receipt) => receipt.allocations?.[0]?.invoice?.invoice_number || '—' },
+                                { label: 'Tanggal Masuk', render: (receipt) => formatDate(receipt.received_date) },
+                                { label: 'Rekening Tujuan', render: (receipt) => receipt.destination_account },
+                                { label: 'Nominal', render: (receipt) => <span className="text-emerald-700">{formatRupiah(receipt.amount)}</span> },
+                            ],
+                        }}
+                    />
                 )}
             </div>
 
             {/* Modal Catat Pembayaran Masuk */}
             <Modal
-                isOpen={isReceiptModalOpen}
-                onClose={() => setIsReceiptModalOpen(false)}
+                isOpen={abilities.manage && isReceiptModalOpen}
+                onClose={() => { clearErrors(); setIsReceiptModalOpen(false); }}
                 title="Catat Penerimaan Pembayaran dari Klien"
             >
-                <form onSubmit={handleReceiptSubmit} className="space-y-4 text-xs">
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Perusahaan Klien
-                        </label>
-                        <select
-                            value={data.company_id}
-                            onChange={(e) => setData('company_id', e.target.value)}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        >
-                            {companies.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                    {c.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Alokasikan ke Invoice
-                        </label>
-                        <select
-                            value={data.invoice_id}
-                            onChange={(e) => {
-                                const selected = unpaidInvoices.find(
-                                    (inv) => inv.id === e.target.value
-                                );
-                                setData({
-                                    ...data,
-                                    invoice_id: e.target.value,
-                                    company_id: selected?.company?.id || data.company_id,
-                                    amount: selected
-                                        ? String(selected.outstanding_amount)
-                                        : data.amount,
-                                });
-                            }}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        >
-                            <option value="">-- Pilih invoice --</option>
-                            {unpaidInvoices.map((inv) => (
-                                <option key={inv.id} value={inv.id}>
-                                    {inv.invoice_number} — Sisa:{' '}
-                                    {formatRupiah(inv.outstanding_amount)} ({inv.company?.name})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
+                <form noValidate onSubmit={handleReceiptSubmit} className="space-y-4 text-xs">
+                    <FormErrorSummary errors={errors} />
+                    <Select required name="company_id" label="Perusahaan Klien" value={data.company_id} onChange={(event) => setData('company_id', event.target.value)} error={errors.company_id} options={companies.map((company) => ({ value: company.id, label: company.name }))} />
+                    <Select required name="invoice_id" label="Alokasikan ke Invoice" value={data.invoice_id} onChange={(event) => {
+                        const selected = unpaidInvoices.find((invoice) => invoice.id === event.target.value);
+                        setData({ ...data, invoice_id: event.target.value, company_id: selected?.company?.id || data.company_id, amount: selected ? String(selected.outstanding_amount) : data.amount });
+                    }} placeholder="Pilih invoice" error={errors.invoice_id} options={unpaidInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.invoice_number} — Sisa ${formatRupiah(invoice.outstanding_amount)} (${invoice.company?.name || '-'})` }))} />
 
                     <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Nominal Diterima (IDR)
-                            </label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={formatRupiahInput(data.amount)}
-                                onChange={(e) => setData('amount', normalizeRupiahInput(e.target.value))}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="font-semibold text-[#082870] block mb-1">
-                                Tanggal Masuk Rekening
-                            </label>
-                            <input
-                                type="date"
-                                value={data.received_date}
-                                onChange={(e) => setData('received_date', e.target.value)}
-                                className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                                required
-                            />
-                        </div>
+                        <MoneyInput required name="amount" label="Nominal Diterima" value={data.amount} onChange={(value) => setData('amount', value)} error={errors.amount} />
+                        <Input required name="received_date" label="Tanggal Masuk Rekening" type="date" value={data.received_date} onChange={(event) => setData('received_date', event.target.value)} error={errors.received_date} />
                     </div>
 
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            No. Referensi Bank / Kliring
-                        </label>
-                        <input
-                            type="text"
-                            value={data.bank_reference}
-                            onChange={(e) => setData('bank_reference', e.target.value)}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Bukti Pembayaran
-                        </label>
-                        <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            onChange={(e) => setData('proof', e.target.files?.[0] || null)}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
-
-                    <div>
-                        <label className="font-semibold text-[#082870] block mb-1">
-                            Rekening Tujuan Penerima
-                        </label>
-                        <input
-                            type="text"
-                            value={data.destination_account}
-                            onChange={(e) => setData('destination_account', e.target.value)}
-                            className="w-full text-xs rounded-xl border border-[#DCEAF8] p-2.5 bg-white"
-                            required
-                        />
-                    </div>
+                    <Input required name="bank_reference" autoComplete="off" spellCheck={false} label="No. Referensi Bank / Kliring" value={data.bank_reference} onChange={(event) => setData('bank_reference', event.target.value)} error={errors.bank_reference} />
+                    <PhotoUploadPicker required label="Bukti Pembayaran" value={data.proof} onChange={(file) => setData('proof', file)} mode="gallery" accept=".pdf,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={errors.proof} helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB." />
+                    <Input required name="destination_account" autoComplete="off" label="Rekening Tujuan Penerima" value={data.destination_account} onChange={(event) => setData('destination_account', event.target.value)} error={errors.destination_account} />
 
                     <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8]">
-                        <Button variant="secondary" onClick={() => setIsReceiptModalOpen(false)}>
+                        <Button type="button" variant="secondary" onClick={() => { clearErrors(); setIsReceiptModalOpen(false); }}>
                             Batal
                         </Button>
                         <Button

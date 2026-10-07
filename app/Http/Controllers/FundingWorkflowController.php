@@ -12,6 +12,7 @@ use App\Models\FundingReceipt;
 use App\Models\FundingRequest;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
+use App\Models\RequestItem;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,6 +39,10 @@ class FundingWorkflowController extends Controller
         $user = $request->user();
 
         $expenseRequests = ExpenseRequest::query()
+            ->whereDoesntHave(
+                'items.costDocumentItem.costDocument',
+                fn ($document) => $document->where('document_type', 'vendor_invoice'),
+            )
             ->with([
                 'portCall.ship',
                 'portCall.port',
@@ -75,16 +80,34 @@ class FundingWorkflowController extends Controller
             'portCalls' => PortCall::query()
                 ->with(['ship:id,name', 'port:id,name'])
                 ->whereIn('status', ['scheduled', 'anchored', 'berthed', 'departed'])
+                ->whereHas('requests.items', fn ($query) => $query
+                    ->where('director_status', 'approved')
+                    ->where('hpp_price', '>', 0)
+                    ->whereDoesntHave('costDocumentItem')
+                    ->whereDoesntHave('expenseRequestItem'))
                 ->latest('eta_at')
                 ->get(['id', 'job_number', 'ship_id', 'port_id']),
-            'availableVendorInvoices' => CostDocument::query()
-                ->where('document_type', 'vendor_invoice')
-                ->where('status', 'verified')
-                ->where('payment_status', 'unpaid')
-                ->whereDoesntHave('items.expenseRequestItem')
-                ->with(['vendor:id,name', 'portCall.ship:id,name'])
-                ->orderBy('received_date')
-                ->get(['id', 'port_call_id', 'vendor_id', 'document_number', 'received_date', 'verified_total']),
+            'availableOperationalItems' => RequestItem::query()
+                ->where('director_status', 'approved')
+                ->where('hpp_price', '>', 0)
+                ->whereDoesntHave('costDocumentItem')
+                ->whereDoesntHave('expenseRequestItem')
+                ->whereHas('request', fn ($query) => $query->whereNotNull('port_call_id'))
+                ->with([
+                    'request:id,request_number,port_call_id',
+                    'request.portCall:id,job_number,ship_id,port_id',
+                    'request.portCall.ship:id,name',
+                    'request.portCall.port:id,name',
+                ])
+                ->orderBy('required_date')
+                ->get([
+                    'id',
+                    'request_id',
+                    'item_name',
+                    'quantity',
+                    'unit',
+                    'hpp_price',
+                ]),
             'operationalUsers' => User::query()
                 ->where('is_active', true)
                 ->whereHas('roles', fn ($query) => $query->whereIn('name', ['Lapangan', 'Tim Lapangan', 'Staf Operasional']))
@@ -93,9 +116,9 @@ class FundingWorkflowController extends Controller
             'filters' => ['search' => $search ?? '', 'status' => $status],
             'abilities' => [
                 'create' => Gate::allows('create', ExpenseRequest::class),
-                'adminReview' => $user->isOperationalAdmin() || $user->isOwner(),
-                'directorApprove' => $user->isDirector() || $user->isOwner(),
-                'manageFunding' => $user->isOperationalAdmin() || $user->isOwner(),
+                'adminReview' => $user->isOperationalAdmin(),
+                'directorApprove' => $user->isDirector(),
+                'manageFunding' => $user->isOperationalAdmin(),
             ],
         ]);
     }
@@ -107,7 +130,39 @@ class FundingWorkflowController extends Controller
 
         $expenseRequest = DB::transaction(function () use ($request, $validated): ExpenseRequest {
             $documentPath = $request->file('document')?->store('sja/vendor-invoices', 'local');
-            $isAdmin = $request->user()->isOperationalAdmin() || $request->user()->isOwner();
+            $isAdmin = $request->user()->isOperationalAdmin();
+            $requestItems = RequestItem::query()
+                ->whereIn('id', $validated['request_item_ids'])
+                ->with([
+                    'request:id,port_call_id',
+                    'costDocumentItem:id,request_item_id',
+                    'expenseRequestItem:id,request_item_id',
+                ])
+                ->lockForUpdate()
+                ->get();
+
+            if ($requestItems->count() !== count($validated['request_item_ids'])) {
+                throw ValidationException::withMessages(['request_item_ids' => 'Satu atau beberapa item pengajuan tidak tersedia.']);
+            }
+
+            foreach ($requestItems as $requestItem) {
+                if ($requestItem->director_status !== 'approved') {
+                    throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} belum disetujui Direktur."]);
+                }
+                if ($requestItem->request?->port_call_id !== $validated['port_call_id']) {
+                    throw ValidationException::withMessages(['request_item_ids' => 'Semua item harus berasal dari Kunjungan/Job yang dipilih.']);
+                }
+                if ($requestItem->costDocumentItem || $requestItem->expenseRequestItem) {
+                    throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} sudah dipakai pada invoice atau pengajuan pendanaan lain."]);
+                }
+                if ((float) $requestItem->hpp_price <= 0) {
+                    throw ValidationException::withMessages(['request_item_ids' => "HPP item {$requestItem->item_name} belum valid."]);
+                }
+            }
+
+            $total = (float) $requestItems->sum(
+                fn (RequestItem $requestItem): float => (float) $requestItem->hpp_price * (float) $requestItem->quantity,
+            );
 
             $costDocument = CostDocument::create([
                 'port_call_id' => $validated['port_call_id'],
@@ -118,7 +173,8 @@ class FundingWorkflowController extends Controller
                 'document_date' => $validated['document_date'],
                 'received_date' => now()->toDateString(),
                 'currency' => 'IDR',
-                'verified_total' => $validated['amount'],
+                'estimated_total' => $total,
+                'verified_total' => $total,
                 'status' => $isAdmin ? 'verified' : 'received',
                 'payment_status' => 'unpaid',
                 'document_path' => $documentPath,
@@ -126,38 +182,46 @@ class FundingWorkflowController extends Controller
                 'verified_by' => $isAdmin ? $request->user()->id : null,
                 'verified_at' => $isAdmin ? now() : null,
             ]);
-            $costItem = $costDocument->items()->create([
-                'description' => $validated['description'],
-                'quantity' => 1,
-                'unit' => 'Paket',
-                'amount' => $validated['amount'],
-                'billable' => true,
-                'billing_classification' => 'reimburse',
-            ]);
-
             $expenseRequest = ExpenseRequest::create([
                 'request_number' => sprintf('FND-SJA-%s-%s', now()->format('ymd'), Str::upper(Str::random(6))),
                 'port_call_id' => $validated['port_call_id'],
                 'version' => 1,
                 'status' => $isAdmin ? 'waiting_director' : 'waiting_admin_review',
                 'currency' => 'IDR',
-                'total' => $validated['amount'],
+                'total' => $total,
                 'notes' => $validated['notes'] ?? null,
                 'created_by' => $request->user()->id,
                 'reviewed_by' => $isAdmin ? $request->user()->id : null,
                 'submitted_at' => now(),
                 'reviewed_at' => $isAdmin ? now() : null,
             ]);
-            $expenseRequest->items()->create([
-                'cost_document_item_id' => $costItem->id,
-                'description' => $validated['description'],
-                'amount' => $validated['amount'],
-            ]);
+            foreach ($requestItems as $requestItem) {
+                $amount = (float) $requestItem->hpp_price * (float) $requestItem->quantity;
+                $costItem = $costDocument->items()->create([
+                    'request_item_id' => $requestItem->id,
+                    'description' => $requestItem->item_name,
+                    'quantity' => $requestItem->quantity,
+                    'unit' => $requestItem->unit ?: 'Paket',
+                    'amount' => $amount,
+                    'billable' => true,
+                    'billing_classification' => 'reimburse',
+                ]);
+                $expenseRequest->items()->create([
+                    'cost_document_item_id' => $costItem->id,
+                    'request_item_id' => $requestItem->id,
+                    'description' => $requestItem->item_name,
+                    'amount' => $amount,
+                ]);
+            }
 
             activity('funding-workflow')
                 ->performedOn($expenseRequest)
                 ->causedBy($request->user())
-                ->withProperties(['source_type' => $validated['source_type'], 'amount' => (float) $validated['amount']])
+                ->withProperties([
+                    'source_type' => $validated['source_type'],
+                    'request_item_ids' => $requestItems->pluck('id')->all(),
+                    'amount' => $total,
+                ])
                 ->log('Pengajuan pendanaan dibuat');
 
             return $expenseRequest;
@@ -168,81 +232,21 @@ class FundingWorkflowController extends Controller
 
     public function storeBatch(StoreFundingBatchRequest $request): RedirectResponse
     {
-        $validated = $request->validated();
-
-        $batch = DB::transaction(function () use ($request, $validated): ExpenseRequest {
-            $documents = CostDocument::query()
-                ->whereIn('id', $validated['invoice_ids'])
-                ->where('document_type', 'vendor_invoice')
-                ->lockForUpdate()
-                ->with('items')
-                ->get();
-
-            if ($documents->count() !== count($validated['invoice_ids'])) {
-                throw ValidationException::withMessages(['invoice_ids' => 'Satu atau beberapa invoice vendor tidak tersedia.']);
-            }
-            if ($documents->pluck('port_call_id')->unique()->count() !== 1) {
-                throw ValidationException::withMessages(['invoice_ids' => 'Satu batch hanya boleh berisi invoice dari Kunjungan/Job yang sama.']);
-            }
-
-            foreach ($documents as $document) {
-                if ($document->status !== 'verified' || $document->payment_status !== 'unpaid') {
-                    throw ValidationException::withMessages(['invoice_ids' => "Invoice {$document->document_number} belum terverifikasi atau sudah dibayar."]);
-                }
-                if ($document->items()->whereHas('expenseRequestItem')->exists()) {
-                    throw ValidationException::withMessages(['invoice_ids' => "Invoice {$document->document_number} sudah masuk batch lain."]);
-                }
-            }
-
-            $total = (float) $documents->sum(fn (CostDocument $document) => (float) $document->verified_total);
-            $expense = ExpenseRequest::create([
-                'request_number' => sprintf('BATCH-SJA-%s-%s', now()->format('ymd'), Str::upper(Str::random(6))),
-                'port_call_id' => $documents->first()->port_call_id,
-                'version' => 1,
-                'status' => 'waiting_director',
-                'currency' => 'IDR',
-                'total' => $total,
-                'notes' => $validated['notes'] ?? null,
-                'created_by' => $request->user()->id,
-                'reviewed_by' => $request->user()->id,
-                'submitted_at' => now(),
-                'reviewed_at' => now(),
-            ]);
-
-            foreach ($documents as $document) {
-                $item = $document->items->first();
-                if (! $item) {
-                    throw ValidationException::withMessages(['invoice_ids' => "Invoice {$document->document_number} tidak mempunyai rincian biaya."]);
-                }
-                $expense->items()->create([
-                    'cost_document_item_id' => $item->id,
-                    'description' => "Invoice {$document->document_number} · {$document->issuer_name}",
-                    'amount' => $document->verified_total,
-                ]);
-            }
-
-            activity('funding-workflow')
-                ->performedOn($expense)
-                ->causedBy($request->user())
-                ->withProperties(['invoice_ids' => $documents->pluck('id')->all(), 'total' => $total])
-                ->log('Batch pengajuan invoice vendor dibuat');
-
-            return $expense;
-        });
-
-        return back()->with('success', "Batch {$batch->request_number} berhasil diajukan kepada Direktur.");
+        throw ValidationException::withMessages([
+            'invoice_ids' => 'Invoice vendor tidak lagi menggunakan batch pendanaan. Lanjutkan pembayaran melalui menu Pengeluaran.',
+        ]);
     }
 
     public function adminReview(ReviewExpenseRequest $request, ExpenseRequest $expenseRequest): RedirectResponse
     {
-        abort_unless($request->user()->isOperationalAdmin() || $request->user()->isOwner(), 403);
+        abort_unless($request->user()->isOperationalAdmin(), 403);
 
         return $this->reviewExpense($request, $expenseRequest, false);
     }
 
     public function directorReview(ReviewExpenseRequest $request, ExpenseRequest $expenseRequest): RedirectResponse
     {
-        abort_unless($request->user()->isDirector() || $request->user()->isOwner(), 403);
+        abort_unless($request->user()->isDirector(), 403);
 
         return $this->reviewExpense($request, $expenseRequest, true);
     }
@@ -276,8 +280,7 @@ class FundingWorkflowController extends Controller
             if ($validated['action'] === 'submit_usage') {
                 abort_unless(
                     $request->user()->id === $lockedPayment->beneficiary_user_id
-                    || $request->user()->isOperationalAdmin()
-                    || $request->user()->isOwner(),
+                    || $request->user()->isOperationalAdmin(),
                     403,
                 );
                 if ($lockedPayment->payment_destination !== 'operational' || $lockedPayment->verification_status !== 'waiting_usage_proof') {
@@ -296,7 +299,7 @@ class FundingWorkflowController extends Controller
                     'verification_status' => 'waiting_admin_verification',
                 ]);
             } elseif ($validated['action'] === 'verify_usage') {
-                abort_unless($request->user()->isOperationalAdmin() || $request->user()->isOwner(), 403);
+                abort_unless($request->user()->isOperationalAdmin(), 403);
                 if (! in_array($lockedPayment->verification_status, ['pending', 'waiting_admin_verification'], true)) {
                     throw ValidationException::withMessages(['action' => 'Pembayaran ini sudah diverifikasi atau belum mempunyai bukti yang lengkap.']);
                 }
@@ -336,7 +339,9 @@ class FundingWorkflowController extends Controller
         };
         abort_unless($path && Storage::disk($disk)->exists($path), 404);
 
-        return Storage::disk($disk)->download($path);
+        return $request->boolean('view')
+            ? Storage::disk($disk)->response($path)
+            : Storage::disk($disk)->download($path);
     }
 
     private function reviewExpense(ReviewExpenseRequest $request, ExpenseRequest $expenseRequest, bool $directorStage): RedirectResponse
@@ -391,7 +396,7 @@ class FundingWorkflowController extends Controller
     /** @param array<string, mixed> $validated */
     private function submitKopra(UpdateFundingWorkflowRequest $request, FundingRequest $funding, array $validated): void
     {
-        abort_unless($request->user()->isOperationalAdmin() || $request->user()->isOwner(), 403);
+        abort_unless($request->user()->isOperationalAdmin(), 403);
         if ($funding->status !== 'approved_director') {
             throw ValidationException::withMessages(['action' => 'Pengajuan belum disetujui Direktur atau sudah diajukan ke Kopra.']);
         }
@@ -411,7 +416,7 @@ class FundingWorkflowController extends Controller
     /** @param array<string, mixed> $validated */
     private function decideKopra(UpdateFundingWorkflowRequest $request, FundingRequest $funding, array $validated): void
     {
-        abort_unless($request->user()->isDirector() || $request->user()->isOwner(), 403);
+        abort_unless($request->user()->isDirector(), 403);
         if ($funding->status !== 'kopra_submitted') {
             throw ValidationException::withMessages(['action' => 'Pengajuan belum tercatat dikirim ke Kopra atau sudah diputuskan.']);
         }
@@ -438,7 +443,7 @@ class FundingWorkflowController extends Controller
     /** @param array<string, mixed> $validated */
     private function recordReceipt(UpdateFundingWorkflowRequest $request, FundingRequest $funding, array $validated): void
     {
-        abort_unless($request->user()->isOperationalAdmin() || $request->user()->isOwner(), 403);
+        abort_unless($request->user()->isOperationalAdmin(), 403);
         if (! in_array($funding->status, ['kopra_approved', 'funds_received_partial'], true)) {
             throw ValidationException::withMessages(['action' => 'Dana hanya dapat dicatat setelah persetujuan Kopra.']);
         }
@@ -471,7 +476,7 @@ class FundingWorkflowController extends Controller
     /** @param array<string, mixed> $validated */
     private function recordPayment(UpdateFundingWorkflowRequest $request, FundingRequest $funding, array $validated): void
     {
-        abort_unless($request->user()->isOperationalAdmin() || $request->user()->isOwner(), 403);
+        abort_unless($request->user()->isOperationalAdmin(), 403);
         if (! in_array($funding->status, ['funds_received', 'funds_received_partial', 'payment_in_progress'], true)) {
             throw ValidationException::withMessages(['action' => 'Pembayaran hanya dapat dicatat setelah dana diterima.']);
         }
@@ -486,39 +491,20 @@ class FundingWorkflowController extends Controller
 
         $payment = $funding->payments()->create([
             'port_call_id' => $funding->expenseRequest->port_call_id,
-            'payment_type' => $validated['payment_destination'] === 'vendor' ? 'Pembayaran Vendor' : 'Transfer Operasional',
+            'payment_type' => 'Transfer Operasional',
             'payment_date' => $validated['payment_date'],
             'amount' => $validated['amount'],
             'currency' => 'IDR',
             'recipient' => $validated['recipient'],
             'reference_number' => $validated['reference_number'],
             'proof_path' => $request->file('proof')->store('sja/outgoing-payments', 'local'),
-            'verification_status' => $validated['payment_destination'] === 'operational' ? 'waiting_usage_proof' : 'pending',
+            'verification_status' => 'waiting_usage_proof',
             'recorded_by' => $request->user()->id,
             'beneficiary_user_id' => $validated['beneficiary_user_id'] ?? null,
             'payment_destination' => $validated['payment_destination'],
             'notes' => $validated['notes'] ?? null,
         ]);
-        if ($validated['payment_destination'] === 'vendor') {
-            $costDocument = CostDocument::query()->lockForUpdate()->findOrFail($validated['cost_document_id']);
-            $belongsToBatch = $funding->expenseRequest->items()
-                ->whereHas('costDocumentItem', fn ($query) => $query->where('cost_document_id', $costDocument->id))
-                ->exists();
-            if (! $belongsToBatch) {
-                throw ValidationException::withMessages(['cost_document_id' => 'Invoice vendor tidak termasuk dalam batch pendanaan ini.']);
-            }
-            $outstanding = (float) $costDocument->verified_total - (float) $costDocument->paid_amount;
-            if ((float) $validated['amount'] > $outstanding) {
-                throw ValidationException::withMessages(['amount' => 'Nominal pembayaran melebihi sisa invoice vendor.']);
-            }
-            $payment->allocations()->create([
-                'cost_document_id' => $costDocument->id,
-                'amount' => $validated['amount'],
-            ]);
-        }
-        $funding->update([
-            'status' => $validated['payment_destination'] === 'operational' ? 'waiting_usage_proof' : 'payment_in_progress',
-        ]);
+        $funding->update(['status' => 'waiting_usage_proof']);
     }
 
     private function completeFundingWhenSettled(?FundingRequest $funding): void

@@ -736,7 +736,7 @@ Closed
 - Produk/jasa.
 - Satuan.
 - Harga HPP.
-- Harga jual.
+- Harga jual.`
 - Jenis dokumen.
 - Jenis biaya.
 

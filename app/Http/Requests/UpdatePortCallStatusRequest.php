@@ -36,8 +36,8 @@ class UpdatePortCallStatusRequest extends FormRequest
     {
         return [
             'status.in' => 'Status kunjungan tidak valid.',
-            'occurred_at.date' => 'Waktu kejadian harus berupa tanggal dan jam yang valid.',
-            'occurred_at.before_or_equal' => 'Waktu kejadian tidak boleh di masa depan.',
+            'occurred_at.date' => 'Tanggal kejadian harus valid.',
+            'occurred_at.before_or_equal' => 'Tanggal kejadian tidak boleh di masa depan.',
             'completion_note_due_at.required_if' => 'Tanggal target Nota Rampung wajib diisi untuk keberangkatan kapal.',
         ];
     }

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import { motion } from 'framer-motion';
+import Table, { type Column } from '../../Components/tables/Table';
+import Button from '../../Components/ui/Button';
 
 interface ExecutiveDashboardViewProps {
     isReadOnly?: boolean; // true for Owner, false for Direktur
@@ -82,6 +84,15 @@ export default function ExecutiveDashboardView({
     );
 
     const displayApprovals = pendingApprovals;
+    const approvalColumns: Column<any>[] = [
+        { key: 'request_number', header: 'No. Pengajuan', wrap: 'normal', render: (request) => <Link href="/approvals" className="font-bold text-[#0060F4] hover:underline">{request.request_number}</Link> },
+        { key: 'ship_name', header: 'Kapal', wrap: 'normal', render: (request) => <span className="font-semibold">{request.ship_name}</span> },
+        { key: 'notes', header: 'Uraian Kebutuhan', wrap: 'normal', render: (request) => <div><p>{request.notes}</p><p className="text-[10px] text-[#8C9BB9]">{request.date}</p></div> },
+        { key: 'creator_name', header: 'Pemohon', wrap: 'normal' },
+        { key: 'estimated_cost', header: 'Nilai Estimasi', align: 'right', render: (request) => <span className="font-bold">{formatRupiah(request.estimated_cost)}</span> },
+        { key: 'status', header: 'Status', align: 'center', render: () => <span className="rounded-full border border-[#FFE082] bg-[#FFF0CC] px-2.5 py-1 text-[10px] font-semibold text-[#A65300]">Menunggu Approval</span> },
+        { key: 'actions', header: isReadOnly ? 'Hak Akses' : 'Aksi', align: 'right', render: (request) => isReadOnly ? <span className="rounded-lg border border-dashed border-[#CBD5E1] bg-[#F1F5F9] px-2.5 py-1 text-[11px] font-medium text-[#64748B]">View Only</span> : <div className="flex justify-end gap-1.5"><Button size="sm" disabled={actionLoadingId === request.id} onClick={() => handleApprove(request.id)}>Setujui</Button><Button size="sm" variant="danger" disabled={actionLoadingId === request.id} onClick={() => handleReject(request.id)}>Tolak</Button></div> },
+    ];
 
     return (
         <div className="space-y-5">
@@ -158,7 +169,7 @@ export default function ExecutiveDashboardView({
                                 'text-white leading-none'
                             }
                         >
-                            {liveTime || '10:24'}
+                            {liveTime || '-'}
                         </p>
                         <div className="flex items-center gap-2 pt-1 text-xs text-[#E7F0FA]">
                             <span className="flex items-center gap-1">
@@ -179,8 +190,8 @@ export default function ExecutiveDashboardView({
                             </span>
                             <span className="text-white/40">•</span>
                             <span className="flex items-center gap-1">
-                                <span>{weatherData.icon || '⛅'}</span>
-                                <span className="font-semibold">{weatherData.temp || '28°C'}</span>
+                                <span>{weatherData.icon || '—'}</span>
+                                <span className="font-semibold">{weatherData.temp || 'Tidak tersedia'}</span>
                                 <span className="text-[#B5C8DC]">
                                     {weatherData.weather || 'Tidak tersedia'}
                                 </span>
@@ -235,7 +246,7 @@ export default function ExecutiveDashboardView({
                             {formatRupiah(totalPiutang)}
                         </div>
                         <span className="text-[10px] text-[#087443] font-bold">
-                            ↑ 12% vs bulan lalu
+                            Berdasarkan invoice klien tercatat
                         </span>
                     </div>
                     <div
@@ -355,123 +366,14 @@ export default function ExecutiveDashboardView({
                     </Link>
                 </div>
 
-                <div className="overflow-x-auto pt-2">
-                    <table className="w-full text-left text-xs">
-                        <thead
-                            className={
-                                'bg-[#F8FAFC] dark:bg-[#071322] text-[#52658E] dark:text-[#94A3B8] ' +
-                                'font-bold border-b border-[#DCEAF8] dark:border-[#1E3A5F]'
-                            }
-                        >
-                            <tr>
-                                <th className="py-2.5 px-3">No. Pengajuan</th>
-                                <th className="py-2.5 px-3">Kapal</th>
-                                <th className="py-2.5 px-3">Uraian Kebutuhan</th>
-                                <th className="py-2.5 px-3">Pemohon</th>
-                                <th className="py-2.5 px-3">Nilai Estimasi</th>
-                                <th className="py-2.5 px-3 text-center">Status</th>
-                                <th className="py-2.5 px-3 text-center">
-                                    {isReadOnly ? 'Hak Akses' : 'Aksi Keputusan Direktur'}
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#DCEAF8]/70 dark:divide-[#1E3A5F]/70">
-                            {displayApprovals.map((req) => (
-                                <tr
-                                    key={req.id}
-                                    className="hover:bg-[#F0F8FF]/50 dark:hover:bg-[#071322]/50 transition-colors"
-                                >
-                                    <td className="py-3 px-3 font-bold text-[#0060F4] whitespace-nowrap">
-                                        <Link href="/approvals" className="hover:underline">
-                                            {req.request_number}
-                                        </Link>
-                                    </td>
-                                    <td
-                                        className={
-                                            'py-3 px-3 font-semibold text-[#0B1F63] ' +
-                                            'dark:text-[#F1F5F9] whitespace-nowrap'
-                                        }
-                                    >
-                                        {req.ship_name}
-                                    </td>
-                                    <td className="py-3 px-3 text-[#52658E] dark:text-[#94A3B8]">
-                                        <div>{req.notes}</div>
-                                        <div className="text-[10px] text-[#8C9BB9]">{req.date}</div>
-                                    </td>
-                                    <td className="py-3 px-3 text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
-                                        {req.creator_name}
-                                    </td>
-                                    <td
-                                        className={
-                                            'py-3 px-3 font-bold text-[#0B1F63] ' +
-                                            'dark:text-[#F1F5F9] whitespace-nowrap'
-                                        }
-                                    >
-                                        {formatRupiah(req.estimated_cost)}
-                                    </td>
-                                    <td className="py-3 px-3 text-center whitespace-nowrap">
-                                        <span
-                                            className={
-                                                'px-2.5 py-0.5 rounded-full text-[10px] ' +
-                                                'font-semibold bg-[#FFF0CC] text-[#A65300] border ' +
-                                                'border-[#FFE082]'
-                                            }
-                                        >
-                                            Menunggu Approval
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-3 text-center whitespace-nowrap">
-                                        {isReadOnly ? (
-                                            <span
-                                                className={
-                                                    'px-2.5 py-1 rounded-lg text-[11px] ' +
-                                                    'font-medium bg-[#F1F5F9] dark:bg-[#1E293B] ' +
-                                                    'text-[#64748B] border border-dashed ' +
-                                                    'border-[#CBD5E1]'
-                                                }
-                                            >
-                                                View Only (Owner)
-                                            </span>
-                                        ) : (
-                                            <div className="flex items-center justify-center gap-1.5">
-                                                <button
-                                                    type="button"
-                                                    disabled={actionLoadingId === req.id}
-                                                    onClick={() => handleApprove(req.id)}
-                                                    className={
-                                                        'px-2.5 py-1 rounded-lg bg-[#087443] ' +
-                                                        'hover:bg-[#065F38] text-white ' +
-                                                        'text-[11px] font-bold shadow-xs ' +
-                                                        'transition-colors flex items-center ' +
-                                                        'gap-1'
-                                                    }
-                                                >
-                                                    <span>✓</span>
-                                                    <span>Setujui</span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={actionLoadingId === req.id}
-                                                    onClick={() => handleReject(req.id)}
-                                                    className={
-                                                        'px-2.5 py-1 rounded-lg bg-[#C62840] ' +
-                                                        'hover:bg-[#A32034] text-white ' +
-                                                        'text-[11px] font-bold shadow-xs ' +
-                                                        'transition-colors flex items-center ' +
-                                                        'gap-1'
-                                                    }
-                                                >
-                                                    <span>✕</span>
-                                                    <span>Tolak</span>
-                                                </button>
-                                            </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                <Table
+                    className="mt-2"
+                    columns={approvalColumns}
+                    data={displayApprovals}
+                    keyExtractor={(request) => request.id}
+                    compact
+                    minWidth="1040px"
+                />
             </div>
 
             {/* 4. FINANCIAL & FLEET OVERVIEW CHARTS */}

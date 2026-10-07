@@ -83,8 +83,7 @@ class StoreWorkOrderRequest extends FormRequest
             'client_pic_contact' => ['nullable', 'string', 'max:100'],
             'status' => ['required', Rule::in(['draft', 'active'])],
             'document' => [
-                Rule::requiredIf($this->input('status') === 'active'),
-                'nullable',
+                'required',
                 'file',
                 'mimes:pdf,jpg,jpeg,png',
                 'extensions:pdf,jpg,jpeg,png',
@@ -136,7 +135,7 @@ class StoreWorkOrderRequest extends FormRequest
             'client_number.unique' => 'Nomor SPK ini sudah tercatat untuk perusahaan yang dipilih.',
             'document_date.before_or_equal' => 'Tanggal SPK tidak boleh melewati waktu dokumen diterima.',
             'etd_at.after' => 'ETD harus setelah ETA.',
-            'document.required' => 'Dokumen SPK wajib diunggah sebelum SPK langsung diaktifkan.',
+            'document.required' => 'Dokumen SPK wajib diunggah sebelum SPK disimpan.',
             'document.mimes' => 'Dokumen SPK harus berupa PDF, JPG, JPEG, atau PNG.',
             'document.extensions' => 'Ekstensi dokumen SPK harus PDF, JPG, JPEG, atau PNG.',
             'document.max' => 'Ukuran dokumen SPK maksimal 10 MB.',
