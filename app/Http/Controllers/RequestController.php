@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\ShipRequestSubmitted;
 use App\Models\Invoice;
 use App\Models\Port;
 use App\Models\PortCall;
@@ -14,6 +13,8 @@ use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\Vendor;
+use App\Models\WorkOrder;
+use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -27,6 +28,8 @@ use Inertia\Response;
 
 class RequestController extends Controller
 {
+    public function __construct(private readonly WorkflowNotifier $workflowNotifier) {}
+
     public function index(Request $request): Response
     {
         $tab = $request->query('tab', 'semua');
@@ -179,6 +182,9 @@ class RequestController extends Controller
             'ship.company',
             'port',
             'workOrder',
+            'requests' => fn ($query) => $query
+                ->orderByDesc('created_at')
+                ->orderByDesc('id'),
             'requests.ship.company',
             'requests.company',
             'requests.port',
@@ -212,6 +218,9 @@ class RequestController extends Controller
                 'portCall.port',
                 'portCall.workOrder',
                 'portCall.ship.company',
+                'portCall.requests' => fn ($query) => $query
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id'),
                 'portCall.requests.creator',
                 'portCall.requests.invoices',
                 'portCall.requests.items.product.vendor',
@@ -247,6 +256,9 @@ class RequestController extends Controller
         $canReviewPrices = $request->user()?->isOperationalAdmin() ?? false;
         $canDecideItems = $request->user()?->isDirector() ?? false;
         $canViewHpp = $canReviewPrices || $canDecideItems || ($request->user()?->isOwner() ?? false);
+        $canCreateRequests = $request->user()?->can('create', ShipRequest::class) ?? false;
+        $canCreateRequestsForJob = $canCreateRequests
+            && (! $portCall || $portCall->acceptsNewRequests());
 
         if (! $canViewHpp) {
             if ($shipRequest) {
@@ -267,7 +279,7 @@ class RequestController extends Controller
                 'can_review_prices' => $canReviewPrices,
                 'can_decide_items' => $canDecideItems,
                 'can_view_hpp' => $canViewHpp,
-                'can_create_requests' => $request->user()?->can('create', ShipRequest::class) ?? false,
+                'can_create_requests' => $canCreateRequestsForJob,
                 'can_process_requests' => $request->user()?->isOperationalAdmin() ?? false,
             ],
         ]);
@@ -395,12 +407,18 @@ class RequestController extends Controller
 
             // 4. Create ShipRequest
             $portCall = ! empty($validated['port_call_id'])
-                ? PortCall::whereKey($validated['port_call_id'])->where('ship_id', $shipId)->first()
-                : PortCall::where('ship_id', $shipId)->latest()->first();
+                ? PortCall::whereKey($validated['port_call_id'])->where('ship_id', $shipId)->lockForUpdate()->first()
+                : PortCall::where('ship_id', $shipId)->latest()->lockForUpdate()->first();
 
             if (! empty($validated['port_call_id']) && ! $portCall) {
                 throw ValidationException::withMessages([
                     'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                ]);
+            }
+
+            if ($portCall && ! $portCall->acceptsNewRequests()) {
+                throw ValidationException::withMessages([
+                    'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
                 ]);
             }
             $newRequest = ShipRequest::create([
@@ -475,11 +493,7 @@ class RequestController extends Controller
                     ->log("Operasional mengajukan form kebutuhan {$reqNumber} (".count($validated['items']).' item)');
             }
 
-            try {
-                event(new ShipRequestSubmitted($newRequest));
-            } catch (\Throwable) {
-                // broadcast driver fallback
-            }
+            $this->workflowNotifier->notifySubmission($newRequest, $request->user());
 
             return redirect()->route('requests.index')->with('success', "Pengajuan {$reqNumber} berhasil diajukan.");
         });
@@ -556,6 +570,22 @@ class RequestController extends Controller
                     throw ValidationException::withMessages([
                         "ships.{$shipIndex}.port_call_id" => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
                     ]);
+                }
+
+                if (! $portCall->acceptsNewRequests()) {
+                    throw ValidationException::withMessages([
+                        "ships.{$shipIndex}.port_call_id" => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+                    ]);
+                }
+
+                if ($portCall->work_order_id) {
+                    WorkOrder::query()
+                        ->lockForUpdate()
+                        ->find($portCall->work_order_id)
+                        ?->fillMissingClientPic(
+                            $shipData['requester_name'] ?? null,
+                            $shipData['requester_phone'] ?? null,
+                        );
                 }
 
                 $ship = $portCall->ship;
@@ -709,10 +739,7 @@ class RequestController extends Controller
 
                 $createdRequests[] = $newRequest;
 
-                try {
-                    event(new ShipRequestSubmitted($newRequest));
-                } catch (\Throwable) {
-                }
+                $this->workflowNotifier->notifySubmission($newRequest, $request->user());
             }
 
             if (function_exists('activity')) {
@@ -778,10 +805,7 @@ class RequestController extends Controller
             'director_status' => 'pending',
         ]);
 
-        try {
-            event(new ShipRequestSubmitted($newRequest));
-        } catch (\Throwable) {
-        }
+        $this->workflowNotifier->notifySubmission($newRequest, $request->user());
 
         return redirect()->route('requests.detail', $newRequest)
             ->with('success', "Pengajuan {$reqNumber} berhasil diajukan dan sedang menunggu review.");
@@ -808,7 +832,7 @@ class RequestController extends Controller
         return DB::transaction(function () use ($id, $validated, $request) {
             $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
 
-            if (in_array($shipRequest->status, ['Dalam Proses', 'Selesai', 'Dibatalkan'], true)) {
+            if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 throw ValidationException::withMessages([
                     'selected_items' => "Pengajuan berstatus {$shipRequest->status} tidak dapat dikirim ulang ke Direktur.",
                 ]);
@@ -886,9 +910,13 @@ class RequestController extends Controller
                     'director_status' => 'pending',
                 ]));
 
+            $requestItems = $shipRequest->items()
+                ->get(['id', 'status', 'director_status']);
+
             $shipRequest->update([
-                'status' => 'Menunggu Approval Direktur',
+                'status' => $shipRequest->resolveWorkflowStatus($requestItems),
                 'forwarded_to_director_at' => now(),
+                'director_reviewed_at' => null,
                 'notes' => ! empty($validated['admin_notes'])
                     ? $shipRequest->notes."\n[Catatan Admin: {$validated['admin_notes']}]"
                     : $shipRequest->notes,
@@ -900,6 +928,8 @@ class RequestController extends Controller
                     ->causedBy($request->user())
                     ->log('Admin memfilter '.count($validated['selected_items'])." item dan mengajukan {$shipRequest->request_number}");
             }
+
+            $this->workflowNotifier->notifyForwardedToDirector($shipRequest, $request->user());
 
             return redirect()->back()->with('success', "Pengajuan {$shipRequest->request_number} (".count($validated['selected_items']).' item terpilih) berhasil diajukan.');
         });
@@ -951,13 +981,11 @@ class RequestController extends Controller
                 'director_notes' => "Revisi Admin: {$validated['reason']}",
             ]);
 
-            $hasOtherApprovedItems = $shipRequest->items()
-                ->where('id', '!=', $item->id)
-                ->where('director_status', 'approved')
-                ->exists();
+            $requestItems = $shipRequest->items()
+                ->get(['id', 'status', 'director_status']);
 
             $shipRequest->update([
-                'status' => $hasOtherApprovedItems ? 'Disetujui Sebagian' : 'Menunggu Approval',
+                'status' => $shipRequest->resolveWorkflowStatus($requestItems),
                 'director_reviewed_at' => null,
             ]);
 
@@ -1245,10 +1273,7 @@ class RequestController extends Controller
                     ->log("Menambahkan item kebutuhan susulan ({$validated['item_name']}) pada pengajuan {$shipRequest->request_number}");
             }
 
-            try {
-                event(new ShipRequestSubmitted($shipRequest));
-            } catch (\Throwable) {
-            }
+            $this->workflowNotifier->notifySubmission($shipRequest, $request->user());
 
             return redirect()->back()->with('success', "Item kebutuhan susulan '{$newItem->item_name}' berhasil ditambahkan ke {$shipRequest->request_number}.");
         });
@@ -1278,7 +1303,7 @@ class RequestController extends Controller
             foreach ($requestGroups as $requestId => $groupItems) {
                 $shipRequest = ShipRequest::lockForUpdate()->findOrFail($requestId);
 
-                if (in_array($shipRequest->status, ['Dalam Proses', 'Selesai', 'Dibatalkan'], true)) {
+                if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                     continue;
                 }
 
@@ -1310,9 +1335,13 @@ class RequestController extends Controller
                     ]);
                 }
 
+                $requestItems = $shipRequest->items()
+                    ->get(['id', 'status', 'director_status']);
+
                 $shipRequest->update([
-                    'status' => 'Menunggu Approval Direktur',
+                    'status' => $shipRequest->resolveWorkflowStatus($requestItems),
                     'forwarded_to_director_at' => now(),
+                    'director_reviewed_at' => null,
                     'notes' => ! empty($validated['admin_notes'])
                         ? $shipRequest->notes."\n[Catatan Batch Admin: {$validated['admin_notes']}]"
                         : $shipRequest->notes,
@@ -1328,6 +1357,8 @@ class RequestController extends Controller
                         ])
                         ->log("Admin mengajukan {$groupItems->count()} item ke Direktur secara batch");
                 }
+
+                $this->workflowNotifier->notifyForwardedToDirector($shipRequest, $request->user());
             }
 
             return redirect()->back()->with('success', count($selectedItemIds).' item kebutuhan berhasil diajukan ke Direktur.');

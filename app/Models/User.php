@@ -46,6 +46,16 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the browser devices registered for push notifications.
+     *
+     * @return HasMany<PushSubscription, $this>
+     */
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class);
+    }
+
+    /**
      * Check if user has staff role.
      */
     public function isStaff(): bool

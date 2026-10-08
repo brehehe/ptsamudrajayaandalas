@@ -23,12 +23,19 @@ class StoreCompletionNoteRequest extends FormRequest
     {
         return [
             'port_call_id' => ['required', 'uuid', 'exists:port_calls,id', 'unique:completion_notes,port_call_id'],
-            'document_number' => ['required', 'string', 'max:100', 'unique:completion_notes,document_number'],
-            'issued_at' => ['required', 'date'],
-            'downloaded_at' => ['nullable', 'date', 'after_or_equal:issued_at'],
-            'actual_amount' => ['required', 'numeric', 'min:0', 'max:9999999999999.99'],
             'document' => ['required', 'file', 'mimes:doc,docx,pdf,jpg,jpeg,png', 'extensions:doc,docx,pdf,jpg,jpeg,png', 'max:10240'],
-            'notes' => ['nullable', 'string', 'max:2000'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'port_call_id.required' => 'Pilih Job yang akan menerima Nota Rampung.',
+            'port_call_id.unique' => 'Nota Rampung untuk Job ini sudah pernah diunggah.',
+            'document.required' => 'Dokumen Nota Rampung wajib diunggah.',
+            'document.mimes' => 'Dokumen harus berupa Word, PDF, JPG, JPEG, atau PNG.',
+            'document.max' => 'Ukuran dokumen maksimal 10 MB.',
         ];
     }
 }

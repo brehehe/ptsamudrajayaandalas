@@ -288,7 +288,7 @@ class OperationController extends Controller
 
         return redirect()->back()->with(
             'success',
-            "Pengajuan {$label} {$portCall->job_number} berhasil dibuat. Status kapal baru berubah setelah disetujui Direktur dan diselesaikan Admin.",
+            "Pengajuan {$label} {$portCall->job_number} berhasil dibuat.",
         );
     }
 }

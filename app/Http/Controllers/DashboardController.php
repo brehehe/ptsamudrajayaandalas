@@ -63,13 +63,20 @@ class DashboardController extends Controller
                 'request_number' => $shipRequest->request_number,
                 'date' => ($shipRequest->request_date ?? $shipRequest->created_at)->format('d M Y'),
                 'ship_name' => $shipRequest->ship?->name ?? 'Kapal tidak tersedia',
+                'ship_image' => $shipRequest->ship?->image,
                 'ship_imo' => $shipRequest->ship?->imo_number ?? '-',
                 'notes' => $shipRequest->notes ?? '-',
                 'status' => $shipRequest->status,
+                'is_new' => $this->requestNeedsUserAction($shipRequest, $user),
+                'created_at' => $shipRequest->created_at->toIso8601String(),
                 'items_count' => $shipRequest->items->count(),
                 'estimated_cost' => (float) $shipRequest->items->sum(
                     fn ($item): float => (float) $item->selling_price * (float) $item->quantity,
                 ),
+            ])
+            ->sortBy([
+                ['is_new', 'desc'],
+                ['created_at', 'desc'],
             ])
             ->values();
 
@@ -268,7 +275,6 @@ class DashboardController extends Controller
                 'ship_name' => $portCall->ship?->name ?? 'Kapal tidak tersedia',
                 'status' => $this->portCallStatusLabel($portCall->status),
             ])->values(),
-            'notifications' => [],
             'needs_today' => $needsToday,
             'my_requests_stats' => [
                 'total' => (clone $myRequests)->count(),
@@ -719,6 +725,23 @@ class DashboardController extends Controller
             'departed', 'completed' => 'Selesai',
             default => ucfirst($status),
         };
+    }
+
+    private function requestNeedsUserAction(ShipRequest $shipRequest, User $user): bool
+    {
+        if ($user->isDirector()) {
+            return $shipRequest->status === 'Menunggu Approval Direktur';
+        }
+
+        if ($user->isOperationalAdmin()) {
+            return in_array($shipRequest->status, ['Menunggu Approval', 'Disetujui', 'Disetujui Sebagian', 'Ditolak'], true);
+        }
+
+        if ($user->isStaff()) {
+            return $shipRequest->created_by === $user->id && $shipRequest->status === 'Ditolak';
+        }
+
+        return false;
     }
 
     private function greeting(): string

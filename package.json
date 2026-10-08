@@ -29,8 +29,11 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
+        "@laravel/echo-react": "^2.5.0",
         "firebase": "^12.19.0",
         "framer-motion": "^13.4.0",
-        "lucide-react": "^1.47.0"
+        "laravel-echo": "^2.5.0",
+        "lucide-react": "^1.47.0",
+        "pusher-js": "^8.6.0"
     }
 }

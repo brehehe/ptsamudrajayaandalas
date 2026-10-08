@@ -56,7 +56,7 @@ class WorkOrderController extends Controller
         $workOrders = (clone $visibleWorkOrders)
             ->with([
                 'company:id,name',
-                'ship:id,name,ship_company_id,imo_number,ship_type',
+                'ship:id,name,ship_company_id,imo_number,ship_type,image',
                 'port:id,name',
                 'creator:id,name',
                 'assignee:id,name',
@@ -141,7 +141,6 @@ class WorkOrderController extends Controller
                 'portCall.outgoingPayments' => fn ($query) => $query->latest('payment_date'),
                 'portCall.invoices' => fn ($query) => $query->latest('invoice_date'),
                 'portCall.completionNote',
-                'portCall.costReconciliation',
             ];
         }
 
@@ -156,6 +155,8 @@ class WorkOrderController extends Controller
                 'id' => $workOrder->id,
                 'system_number' => $workOrder->system_number,
                 'client_number' => $workOrder->client_number,
+                'client_pic_name' => $workOrder->client_pic_name,
+                'client_pic_contact' => $workOrder->client_pic_contact,
                 'document_date' => $workOrder->document_date,
                 'received_at' => $workOrder->received_at,
                 'source' => $workOrder->source,
@@ -264,7 +265,6 @@ class WorkOrderController extends Controller
                     'outstanding_amount' => $invoice->outstanding_amount,
                 ])->values(),
                 'completion_note' => $portCall->completionNote,
-                'reconciliation' => $portCall->costReconciliation,
             ] : null,
             'counts' => [
                 'requests' => $shipRequests->count(),
@@ -315,7 +315,7 @@ class WorkOrderController extends Controller
                 ->get(['id', 'name', 'city']),
             'assignees' => $assignees,
             'defaultAssigneeId' => $user->isStaff() ? $user->id : null,
-            'canManageMasterVessels' => $user->isOperationalAdmin(),
+            'canCreateVessels' => Gate::allows('create', Ship::class),
         ]);
     }
 
@@ -377,9 +377,22 @@ class WorkOrderController extends Controller
             return $workOrder;
         });
 
+        $workOrder->loadMissing(['ship:id,name,image', 'portCall:id,work_order_id,job_number']);
+
         return redirect()
-            ->route('work-orders.index')
-            ->with('success', "SPK {$workOrder->system_number} berhasil dibuat.");
+            ->route('work-orders.create')
+            ->with('success', "SPK {$workOrder->system_number} berhasil dibuat.")
+            ->with('created_work_order', [
+                'id' => (string) $workOrder->id,
+                'system_number' => $workOrder->system_number,
+                'status' => $workOrder->status,
+                'received_at' => $workOrder->received_at?->toIso8601String(),
+                'ship_id' => (string) $workOrder->planned_ship_id,
+                'ship_name' => $workOrder->ship?->name ?? 'Kapal tidak tersedia',
+                'ship_image' => $workOrder->ship?->image,
+                'port_call_id' => $workOrder->portCall?->id ? (string) $workOrder->portCall->id : null,
+                'job_number' => $workOrder->portCall?->job_number,
+            ]);
     }
 
     public function updateStatus(UpdateWorkOrderStatusRequest $request, WorkOrder $workOrder): RedirectResponse
@@ -608,8 +621,8 @@ class WorkOrderController extends Controller
         if (! $portCall || $portCall->status !== 'departed') {
             throw ValidationException::withMessages(['status' => 'Kegiatan belum dapat ditutup karena kapal belum berangkat.']);
         }
-        if ($portCall->completionNote?->status !== 'reconciled' || ! $portCall->reconciled_at) {
-            throw ValidationException::withMessages(['status' => 'Nota Rampung belum diverifikasi dan direkonsiliasi.']);
+        if (! $portCall->completionNote) {
+            throw ValidationException::withMessages(['status' => 'Nota Rampung belum diunggah untuk Job ini.']);
         }
         if ($portCall->costDocuments()->where('document_type', 'vendor_invoice')->where('payment_status', '!=', 'paid')->exists()) {
             throw ValidationException::withMessages(['status' => 'Masih ada invoice vendor yang belum dibayar penuh.']);
@@ -638,9 +651,9 @@ class WorkOrderController extends Controller
     {
         $portCall = $workOrder->portCall()->with('completionNote')->first();
 
-        if (! $portCall || $portCall->completionNote?->status !== 'reconciled' || ! $portCall->reconciled_at) {
+        if (! $portCall || ! $portCall->completionNote) {
             throw ValidationException::withMessages([
-                'status' => 'Penagihan baru dapat dimulai setelah Nota Rampung diverifikasi dan biaya direkonsiliasi.',
+                'status' => 'Penagihan baru dapat dimulai setelah Nota Rampung diunggah.',
             ]);
         }
     }

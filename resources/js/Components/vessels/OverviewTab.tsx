@@ -7,6 +7,7 @@ interface OverviewTabProps {
     onStartNeed: () => void;
     onRecordActivity: () => void;
     canManageClearance: boolean;
+    canCreateRequests: boolean;
     onClearance: (direction: 'in' | 'out') => void;
 }
 
@@ -16,6 +17,7 @@ export default function OverviewTab({
     onStartNeed,
     onRecordActivity,
     canManageClearance,
+    canCreateRequests,
     onClearance,
 }: OverviewTabProps) {
     const etaDate = formatEtaDateTime(vessel.eta);
@@ -169,7 +171,7 @@ export default function OverviewTab({
             </div>
 
             {/* Aksi Cepat (2x2 Grid) */}
-            {canManageClearance && (
+            {(canManageClearance || canCreateRequests) && (
                 <div className="space-y-2.5 pt-1 pb-2">
                     <h3 className="text-sm font-extrabold text-[#082870] dark:text-white">
                         Aksi Cepat
@@ -177,17 +179,18 @@ export default function OverviewTab({
 
                     <div className="grid grid-cols-2 gap-3">
                         {/* 1. Clearance In (Blue) */}
-                        <button
-                            type="button"
-                            onClick={() => onClearance('in')}
-                            className={
-                                'p-3 rounded-2xl bg-[#0060F4] hover:bg-[#0050D0] text-white ' +
-                                'flex flex-col items-center justify-center gap-1.5 shadow-sm ' +
-                                'transition-colors cursor-pointer focus-visible:outline-2 ' +
-                                'focus-visible:outline-offset-2 ' +
-                                'focus-visible:outline-sja-primary'
-                            }
-                        >
+                        {canCreateRequests && (
+                            <button
+                                type="button"
+                                onClick={() => onClearance('in')}
+                                className={
+                                    'p-3 rounded-2xl bg-[#0060F4] hover:bg-[#0050D0] text-white ' +
+                                    'flex flex-col items-center justify-center gap-1.5 shadow-sm ' +
+                                    'transition-colors cursor-pointer focus-visible:outline-2 ' +
+                                    'focus-visible:outline-offset-2 ' +
+                                    'focus-visible:outline-sja-primary'
+                                }
+                            >
                             <svg
                                 className="w-5 h-5 text-white"
                                 fill="none"
@@ -200,20 +203,22 @@ export default function OverviewTab({
                                 <path d="M5 12H2a10 10 0 0 0 20 0h-3" />
                             </svg>
                             <span className="text-xs font-bold">Clearance In</span>
-                        </button>
+                            </button>
+                        )}
 
                         {/* 2. Buat Kebutuhan (Peach / Orange) -> Enters Tambah Kebutuhan Flow */}
-                        <button
-                            type="button"
-                            onClick={() => onStartNeed()}
-                            className={
-                                'p-3 rounded-2xl bg-[#FFF3E8] hover:bg-[#FFE8D6] ' +
-                                'dark:bg-[#78350F]/20 text-[#D97706] border border-[#FDE68A]/70 ' +
-                                'dark:border-[#78350F]/40 flex flex-col items-center ' +
-                                'justify-center gap-1.5 shadow-2xs active:scale-97 transition-all ' +
-                                'cursor-pointer'
-                            }
-                        >
+                        {canCreateRequests && (
+                            <button
+                                type="button"
+                                onClick={() => onStartNeed()}
+                                className={
+                                    'p-3 rounded-2xl bg-[#FFF3E8] hover:bg-[#FFE8D6] ' +
+                                    'dark:bg-[#78350F]/20 text-[#D97706] border border-[#FDE68A]/70 ' +
+                                    'dark:border-[#78350F]/40 flex flex-col items-center ' +
+                                    'justify-center gap-1.5 shadow-2xs active:scale-97 transition-all ' +
+                                    'cursor-pointer'
+                                }
+                            >
                             <svg
                                 className="w-5 h-5 text-[#D97706]"
                                 fill="none"
@@ -231,20 +236,22 @@ export default function OverviewTab({
                                 />
                             </svg>
                             <span className="text-xs font-bold">Buat Kebutuhan</span>
-                        </button>
+                            </button>
+                        )}
 
                         {/* 3. Tambah Aktivitas (Green) */}
-                        <button
-                            type="button"
-                            onClick={() => onRecordActivity()}
-                            className={
-                                'p-3 rounded-2xl bg-[#E8F8F0] hover:bg-[#D5F2E3] ' +
-                                'dark:bg-[#064E3B]/20 text-[#087443] dark:text-[#34D399] border ' +
-                                'border-[#A7F3D0]/70 dark:border-[#064E3B]/40 flex flex-col ' +
-                                'items-center justify-center gap-1.5 shadow-2xs active:scale-97 ' +
-                                'transition-all cursor-pointer'
-                            }
-                        >
+                        {canManageClearance && (
+                            <button
+                                type="button"
+                                onClick={() => onRecordActivity()}
+                                className={
+                                    'p-3 rounded-2xl bg-[#E8F8F0] hover:bg-[#D5F2E3] ' +
+                                    'dark:bg-[#064E3B]/20 text-[#087443] dark:text-[#34D399] border ' +
+                                    'border-[#A7F3D0]/70 dark:border-[#064E3B]/40 flex flex-col ' +
+                                    'items-center justify-center gap-1.5 shadow-2xs active:scale-97 ' +
+                                    'transition-all cursor-pointer'
+                                }
+                            >
                             <svg
                                 className="w-5 h-5 text-[#087443] dark:text-[#34D399]"
                                 fill="none"
@@ -262,22 +269,24 @@ export default function OverviewTab({
                                 />
                             </svg>
                             <span className="text-xs font-bold">Tambah Aktivitas</span>
-                        </button>
+                            </button>
+                        )}
 
                         {/* 4. Clearance Out (Purple) */}
-                        <button
-                            type="button"
-                            onClick={() => onClearance('out')}
-                            className={
-                                'p-3 rounded-2xl bg-[#F0EEFF] hover:bg-[#E5E0FF] ' +
-                                'dark:bg-[#4C1D95]/20 text-[#6B46C1] dark:text-[#C084FC] ' +
-                                'border border-[#DDD6FE]/70 dark:border-[#4C1D95]/40 flex ' +
-                                'flex-col items-center justify-center gap-1.5 shadow-2xs ' +
-                                'transition-colors cursor-pointer focus-visible:outline-2 ' +
-                                'focus-visible:outline-offset-2 ' +
-                                'focus-visible:outline-sja-primary'
-                            }
-                        >
+                        {canCreateRequests && (
+                            <button
+                                type="button"
+                                onClick={() => onClearance('out')}
+                                className={
+                                    'p-3 rounded-2xl bg-[#F0EEFF] hover:bg-[#E5E0FF] ' +
+                                    'dark:bg-[#4C1D95]/20 text-[#6B46C1] dark:text-[#C084FC] ' +
+                                    'border border-[#DDD6FE]/70 dark:border-[#4C1D95]/40 flex ' +
+                                    'flex-col items-center justify-center gap-1.5 shadow-2xs ' +
+                                    'transition-colors cursor-pointer focus-visible:outline-2 ' +
+                                    'focus-visible:outline-offset-2 ' +
+                                    'focus-visible:outline-sja-primary'
+                                }
+                            >
                             <svg
                                 className="w-5 h-5 text-[#6B46C1] dark:text-[#C084FC]"
                                 fill="none"
@@ -310,8 +319,15 @@ export default function OverviewTab({
                                 />
                             </svg>
                             <span className="text-xs font-bold">Clearance Out</span>
-                        </button>
+                            </button>
+                        )}
                     </div>
+
+                    {canManageClearance && !canCreateRequests && (
+                        <p role="status" className="rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] px-3 py-2.5 text-xs font-semibold text-[#52658E] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8]">
+                            Kunjungan telah selesai. Pengajuan baru tidak dapat dibuat.
+                        </p>
+                    )}
                 </div>
             )}
         </div>

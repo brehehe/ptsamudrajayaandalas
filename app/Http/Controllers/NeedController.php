@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UpdateRequestItemsStatusRequest;
 use App\Http\Requests\UpdateShipRequestStatusRequest;
 use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
+use App\Models\WorkOrder;
+use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +19,8 @@ use Inertia\Response;
 
 class NeedController extends Controller
 {
+    public function __construct(private readonly WorkflowNotifier $workflowNotifier) {}
+
     public function index(Request $request): Response
     {
         $status = $request->query('status', 'semua');
@@ -104,65 +109,88 @@ class NeedController extends Controller
                 'photo.max' => 'Ukuran foto form kapal maksimal 5 MB.',
             ]);
 
-            $dateSlug = date('Ymd');
-            $countToday = ShipRequest::withTrashed()->whereDate('created_at', now()->toDateString())->count() + 1;
-            $reqNumber = sprintf('REQ-%s-%03d', $dateSlug, $countToday);
+            return DB::transaction(function () use ($request, $validated): RedirectResponse {
+                $dateSlug = date('Ymd');
+                $countToday = ShipRequest::withTrashed()->whereDate('created_at', now()->toDateString())->count() + 1;
+                $reqNumber = sprintf('REQ-%s-%03d', $dateSlug, $countToday);
 
-            $photoPath = null;
-            if ($request->hasFile('photo')) {
-                $photoPath = $request->file('photo')->store('form_kapal', 'public');
-            }
+                $section = $validated['section'];
+                $orderedBy = $validated['ordered_by_name'];
+                $phone = $validated['ordered_by_phone'];
+                $status = $validated['status'] ?? 'Menunggu Approval';
 
-            $section = $validated['section'];
-            $orderedBy = $validated['ordered_by_name'];
-            $phone = $validated['ordered_by_phone'];
-            $status = $validated['status'] ?? 'Menunggu Approval';
+                $portCall = PortCall::query()
+                    ->whereKey($validated['port_call_id'])
+                    ->where('ship_id', $validated['ship_id'])
+                    ->lockForUpdate()
+                    ->first();
 
-            if (! PortCall::query()->whereKey($validated['port_call_id'])->where('ship_id', $validated['ship_id'])->exists()) {
-                throw ValidationException::withMessages([
-                    'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                if (! $portCall) {
+                    throw ValidationException::withMessages([
+                        'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                    ]);
+                }
+
+                if (! $portCall->acceptsNewRequests()) {
+                    throw ValidationException::withMessages([
+                        'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+                    ]);
+                }
+
+                $photoPath = null;
+                if ($request->hasFile('photo')) {
+                    $photoPath = $request->file('photo')->store('form_kapal', 'public');
+                }
+
+                if ($portCall->work_order_id) {
+                    WorkOrder::query()
+                        ->lockForUpdate()
+                        ->find($portCall->work_order_id)
+                        ?->fillMissingClientPic($orderedBy, $phone);
+                }
+
+                $notesText = "Bagian: {$section} | Pemesan: {$orderedBy} ({$phone})";
+                if (! empty($validated['required_at'])) {
+                    $notesText .= " | Dibutuhkan: {$validated['required_at']}";
+                }
+                if (! empty($validated['notes'])) {
+                    $notesText .= " | Catatan: {$validated['notes']}";
+                }
+
+                $shipRequest = ShipRequest::create([
+                    'request_number' => $reqNumber,
+                    'ship_id' => $validated['ship_id'],
+                    'port_call_id' => $validated['port_call_id'],
+                    'created_by' => $request->user()?->id,
+                    'status' => $status,
+                    'request_date' => $validated['request_date'],
+                    'notes' => $notesText,
                 ]);
-            }
 
-            $notesText = "Bagian: {$section} | Pemesan: {$orderedBy} ({$phone})";
-            if (! empty($validated['required_at'])) {
-                $notesText .= " | Dibutuhkan: {$validated['required_at']}";
-            }
-            if (! empty($validated['notes'])) {
-                $notesText .= " | Catatan: {$validated['notes']}";
-            }
+                foreach ($validated['items'] as $item) {
+                    RequestItem::create([
+                        'request_id' => $shipRequest->id,
+                        'product_id' => $item['product_id'] ?? null,
+                        'item_type' => 'product',
+                        'item_name' => $item['item_name'],
+                        'quantity' => $item['quantity'],
+                        'unit' => $item['unit'],
+                        'notes' => $item['notes'] ?? null,
+                        'is_urgent' => $item['is_urgent'],
+                        'required_date' => ! empty($item['required_date']) ? $item['required_date'] : null,
+                        'required_time' => ! empty($item['required_time']) ? $item['required_time'] : null,
+                        'attachment_path' => $photoPath,
+                        'status' => 'Pending',
+                    ]);
+                }
 
-            $shipRequest = ShipRequest::create([
-                'request_number' => $reqNumber,
-                'ship_id' => $validated['ship_id'],
-                'port_call_id' => $validated['port_call_id'],
-                'created_by' => $request->user()?->id,
-                'status' => $status,
-                'request_date' => $validated['request_date'],
-                'notes' => $notesText,
-            ]);
+                $this->workflowNotifier->notifySubmission($shipRequest, $request->user());
 
-            foreach ($validated['items'] as $item) {
-                RequestItem::create([
-                    'request_id' => $shipRequest->id,
-                    'product_id' => $item['product_id'] ?? null,
-                    'item_type' => 'product',
-                    'item_name' => $item['item_name'],
-                    'quantity' => $item['quantity'],
-                    'unit' => $item['unit'],
-                    'notes' => $item['notes'] ?? null,
-                    'is_urgent' => $item['is_urgent'],
-                    'required_date' => ! empty($item['required_date']) ? $item['required_date'] : null,
-                    'required_time' => ! empty($item['required_time']) ? $item['required_time'] : null,
-                    'attachment_path' => $photoPath,
-                    'status' => 'Pending',
-                ]);
-            }
-
-            return redirect()->back()
-                ->with('success', "Kebutuhan {$reqNumber} berhasil diajukan dan disimpan.")
-                ->with('submitted_request_number', $reqNumber)
-                ->with('submitted_request_id', $shipRequest->id);
+                return redirect()->back()
+                    ->with('success', "Kebutuhan {$reqNumber} berhasil diajukan dan disimpan.")
+                    ->with('submitted_request_number', $reqNumber)
+                    ->with('submitted_request_id', $shipRequest->id);
+            });
         }
 
         $validated = $request->validate([
@@ -175,14 +203,20 @@ class NeedController extends Controller
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $portCallMatchesShip = PortCall::query()
+        $portCall = PortCall::query()
             ->whereKey($validated['port_call_id'])
             ->where('ship_id', $validated['ship_id'])
-            ->exists();
+            ->first();
 
-        if (! $portCallMatchesShip) {
+        if (! $portCall) {
             throw ValidationException::withMessages([
                 'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+            ]);
+        }
+
+        if (! $portCall->acceptsNewRequests()) {
+            throw ValidationException::withMessages([
+                'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
             ]);
         }
 
@@ -202,6 +236,8 @@ class NeedController extends Controller
             'request_date' => now()->toDateString(),
             'notes' => "{$validated['need_type']} {$validated['quantity']} {$validated['unit']} - Dibutuhkan: {$validated['required_at']}. Catatan: ".($validated['notes'] ?? '-'),
         ]);
+
+        $this->workflowNotifier->notifySubmission($newRequest, $request->user());
 
         return redirect()->back()->with('success', "Kebutuhan {$reqNumber} berhasil dicatat dan siap ditinjau.");
     }
@@ -247,11 +283,25 @@ class NeedController extends Controller
                 $this->applyApprovedOperationalStatus($need, $request);
             }
 
+            if ($nextStatus === 'Dalam Proses') {
+                $need->items()
+                    ->where('director_status', 'approved')
+                    ->where('status', 'disetujui')
+                    ->update(['status' => 'dalam_proses']);
+            } elseif ($nextStatus === 'Selesai') {
+                $need->items()
+                    ->where('director_status', 'approved')
+                    ->whereIn('status', ['disetujui', 'dalam_proses'])
+                    ->update(['status' => 'selesai']);
+            }
+
             $need->update([
                 'status' => $nextStatus,
                 'completed_at' => $nextStatus === 'Selesai' ? now() : null,
                 'cancelled_at' => $nextStatus === 'Dibatalkan' ? now() : null,
             ]);
+
+            $this->workflowNotifier->notifyStatusUpdated($need, $request->user());
 
             activity('request-processing')
                 ->performedOn($need)
@@ -277,6 +327,94 @@ class NeedController extends Controller
         });
     }
 
+    public function updateItemStatuses(UpdateRequestItemsStatusRequest $request, string $id): RedirectResponse
+    {
+        $validated = $request->validated();
+
+        return DB::transaction(function () use ($id, $request, $validated): RedirectResponse {
+            $need = ShipRequest::query()->lockForUpdate()->findOrFail($id);
+            $nextItemStatus = $validated['status'];
+            $selectedItemIds = collect($validated['item_ids'])->values();
+            $items = $need->items()
+                ->whereIn('id', $selectedItemIds)
+                ->lockForUpdate()
+                ->get();
+
+            if ($items->count() !== $selectedItemIds->count()) {
+                throw ValidationException::withMessages([
+                    'item_ids' => 'Salah satu item tidak termasuk dalam pengajuan ini.',
+                ]);
+            }
+
+            $allowedRequestStatuses = $nextItemStatus === 'dalam_proses'
+                ? ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Diproses', 'Selesai']
+                : ['Disetujui Sebagian', 'Dalam Proses', 'Diproses'];
+
+            if (! in_array($need->status, $allowedRequestStatuses, true)) {
+                throw ValidationException::withMessages([
+                    'status' => "Item pada pengajuan berstatus {$need->status} belum dapat diperbarui ke tahap ini.",
+                ]);
+            }
+
+            $requiredCurrentStatus = $nextItemStatus === 'dalam_proses' ? 'disetujui' : 'dalam_proses';
+            $invalidItem = $items->first(fn (RequestItem $item): bool => $item->director_status !== 'approved'
+                || $item->status !== $requiredCurrentStatus);
+
+            if ($invalidItem) {
+                throw ValidationException::withMessages([
+                    'item_ids' => $nextItemStatus === 'dalam_proses'
+                        ? "Item {$invalidItem->item_name} belum disetujui atau sudah mulai diproses."
+                        : "Item {$invalidItem->item_name} belum berada pada tahap Dalam Proses.",
+                ]);
+            }
+
+            RequestItem::query()
+                ->whereIn('id', $selectedItemIds)
+                ->update(['status' => $nextItemStatus]);
+
+            $allItems = $need->items()
+                ->lockForUpdate()
+                ->get(['id', 'status', 'director_status']);
+            $previousRequestStatus = $need->status;
+            $nextRequestStatus = $need->resolveWorkflowStatus($allItems);
+            $allItemsCompleted = $nextRequestStatus === 'Selesai';
+
+            if ($allItemsCompleted) {
+                $this->applyApprovedOperationalStatus($need, $request);
+            }
+
+            $need->update([
+                'status' => $nextRequestStatus,
+                'completed_at' => $allItemsCompleted ? now() : null,
+                'cancelled_at' => null,
+            ]);
+
+            $this->workflowNotifier->notifyStatusUpdated($need, $request->user());
+
+            activity('request-item-processing')
+                ->performedOn($need)
+                ->causedBy($request->user())
+                ->withProperties([
+                    'from' => $previousRequestStatus,
+                    'to' => $nextRequestStatus,
+                    'item_status' => $nextItemStatus,
+                    'item_ids' => $selectedItemIds->all(),
+                    'item_count' => $selectedItemIds->count(),
+                    'service_type' => $need->service_type,
+                ])
+                ->log('Admin memperbarui tahap proses item pengajuan');
+
+            $itemCount = $selectedItemIds->count();
+            $message = $nextItemStatus === 'dalam_proses'
+                ? "{$itemCount} item pada {$need->request_number} mulai diproses."
+                : ($allItemsCompleted
+                    ? "Seluruh item pada {$need->request_number} telah selesai."
+                    : "{$itemCount} item pada {$need->request_number} telah ditandai selesai.");
+
+            return redirect()->back()->with('success', $message);
+        });
+    }
+
     private function applyApprovedOperationalStatus(ShipRequest $need, Request $request): void
     {
         if (! in_array($need->service_type, ['clearance_in', 'clearance_out'], true)) {
@@ -291,7 +429,17 @@ class NeedController extends Controller
             'berthed' => ['departed'],
         ];
 
-        if (! $targetStatus || ! in_array($targetStatus, $allowedTransitions[$portCall->status] ?? [], true)) {
+        if (! $targetStatus) {
+            throw ValidationException::withMessages([
+                'status' => 'Status kunjungan sudah berubah atau target operasional pengajuan tidak valid.',
+            ]);
+        }
+
+        if ($portCall->status === $targetStatus) {
+            return;
+        }
+
+        if (! in_array($targetStatus, $allowedTransitions[$portCall->status] ?? [], true)) {
             throw ValidationException::withMessages([
                 'status' => 'Status kunjungan sudah berubah atau target operasional pengajuan tidak valid.',
             ]);

@@ -360,31 +360,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ),
     };
 
-    const masterRoles = {
-        label: 'Data Role SJA',
-        href: '/master/roles',
-        active: url.startsWith('/master/roles'),
-        icon: (
-            <svg
-                className="w-3.5 h-3.5 text-[#688CAE]"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-            >
-                <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d={
-                        'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-' +
-                        '8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 ' +
-                        '9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'
-                    }
-                />
-            </svg>
-        ),
-    };
-
     const masterUsers = {
         label: 'Manajemen User',
         href: '/master/users',
@@ -431,11 +406,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             piutang,
             laporan,
         ];
-        masterNav = [];
+        masterNav = [masterUsers];
     } else if (role === 'Owner') {
         // Hendra Wijaya: Monitoring eksekutif pendapatan, piutang, pengeluaran, armada kapal, dan laporan
         mainNav = [beranda, spk, kapal, kebutuhan, pengajuan, operasional, vendorInvoices, completionNotes, pengeluaran, invoices, piutang, laporan];
-        masterNav = [masterVessels, masterCompanies, masterRoles, masterUsers];
+        masterNav = [masterVessels, masterCompanies, masterUsers];
     } else {
         // Admin (Bu Titik): Operational Control Center lengkap dengan seluruh alur operasional & master data
         mainNav = [
@@ -458,7 +433,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             masterCompanies,
             masterPorts,
             masterVendors,
-            masterRoles,
             masterUsers,
         ];
     }
@@ -536,8 +510,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         key={item.label}
                         href={item.href}
                         className={`flex items-center justify-between px-2.5 xl:px-3 py-1.5 rounded-[8px] text-[12px] font-medium transition-colors ${item.active
-                                ? 'bg-[#0060F4] text-white shadow-sm font-semibold'
-                                : 'text-[#B5C8DC] hover:text-white hover:bg-[#173B5C]'
+                            ? 'bg-[#0060F4] text-white shadow-sm font-semibold'
+                            : 'text-[#B5C8DC] hover:text-white hover:bg-[#173B5C]'
                             }`}
                     >
                         <div className="flex items-center gap-2">
@@ -587,8 +561,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 key={item.label}
                                 href={item.href}
                                 className={`flex items-center gap-2 px-2.5 xl:px-3 py-1 rounded-[7px] text-[11px] font-medium transition-colors ${item.active
-                                        ? 'bg-[#173B5C] text-white font-semibold'
-                                        : 'text-[#A2BDD8] hover:text-white hover:bg-[#173B5C]'
+                                    ? 'bg-[#173B5C] text-white font-semibold'
+                                    : 'text-[#A2BDD8] hover:text-white hover:bg-[#173B5C]'
                                     }`}
                             >
                                 <span>{item.icon}</span>

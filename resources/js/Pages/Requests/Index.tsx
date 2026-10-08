@@ -261,20 +261,23 @@ export default function RequestsIndex({
                 header: 'Job / Kapal',
                 width: '260px',
                 render: (row) => (
-                    <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-mono text-xs font-bold text-[#0060F4]">
-                                {row.jobNumber}
-                            </span>
-                            {row.isNew && (
-                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                    Baru
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        <ShipImage src={row.shipImage} alt={`Foto ${row.shipName}`} width={44} height={44} loading="lazy" className="size-11 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" />
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="break-all font-mono text-xs font-bold text-[#0060F4]">
+                                    {row.jobNumber}
                                 </span>
-                            )}
+                                {row.isNew && (
+                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                        Baru
+                                    </span>
+                                )}
+                            </div>
+                            <p className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {row.shipName}
+                            </p>
                         </div>
-                        <p className="mt-1 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                            {row.shipName}
-                        </p>
                     </div>
                 ),
             },

@@ -1,4 +1,5 @@
 import React, { ReactNode, useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 export interface ModalProps {
@@ -109,10 +110,14 @@ export default function Modal({
         }
     }, [isOpen]);
 
-    return (
+    if (typeof document === 'undefined') {
+        return null;
+    }
+
+    return createPortal(
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-50 overflow-y-auto">
+                <div className="fixed inset-0 z-60 overflow-hidden">
                     {/* Backdrop */}
                     <motion.div
                         initial={shouldReduceMotion ? false : { opacity: 0 }}
@@ -161,7 +166,7 @@ export default function Modal({
                                 asBottomSheetOnMobile
                                     ? 'rounded-t-[28px] sm:rounded-2xl'
                                     : 'rounded-2xl'
-                            } border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-[0_20px_60px_rgba(8,40,112,0.3)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] text-left cursor-default flex flex-col max-h-[90vh] sm:max-h-[85vh] overflow-hidden ${className}`}
+                            } border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-[0_20px_60px_rgba(8,40,112,0.3)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] text-left cursor-default flex flex-col max-h-[90dvh] sm:max-h-[85dvh] overflow-hidden ${className}`}
                         >
                             {/* Mobile Pull Bar for Bottom Sheet */}
                             {asBottomSheetOnMobile && (
@@ -215,7 +220,7 @@ export default function Modal({
                                             type="button"
                                             onClick={onClose}
                                             className={
-                                                'w-8 h-8 rounded-full flex items-center ' +
+                                                'size-11 rounded-full flex items-center ' +
                                                 'justify-center text-[#52658E] ' +
                                                 'dark:text-[#94A3B8] hover:text-[#C62840] ' +
                                                 'dark:hover:text-[#F87171] hover:bg-[#FFE7EC] ' +
@@ -245,9 +250,12 @@ export default function Modal({
                             {/* Body */}
                             <div
                                 className={
-                                    'px-5 py-4 overflow-y-auto flex-1 text-xs sm:text-sm ' +
+                                    'min-h-0 px-5 pt-4 overflow-y-auto flex-1 text-xs sm:text-sm ' +
                                     'overscroll-contain text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                    'bg-white dark:bg-[#0C1D36]'
+                                    'bg-white dark:bg-[#0C1D36] ' +
+                                    (asBottomSheetOnMobile && !footer
+                                        ? 'pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4'
+                                        : 'pb-4')
                                 }
                             >
                                 {children}
@@ -257,7 +265,7 @@ export default function Modal({
                             {footer && (
                                 <div
                                     className={
-                                        'px-5 py-3.5 border-t border-[#DCEAF8] ' +
+                                        'px-5 pt-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:py-3.5 border-t border-[#DCEAF8] ' +
                                         'dark:border-[#1E3A5F] bg-[#F0F8FF] dark:bg-[#071322] flex ' +
                                         'flex-col-reverse items-stretch gap-2 flex-shrink-0 ' +
                                         'sm:flex-row sm:items-center sm:justify-end'
@@ -270,6 +278,7 @@ export default function Modal({
                     </div>
                 </div>
             )}
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body,
     );
 }

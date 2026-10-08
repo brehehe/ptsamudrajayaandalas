@@ -29,6 +29,7 @@ import RequestWorkflowPanel from '../../Components/RequestWorkflowPanel';
 import Table from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import RequirementDate from '../../Components/ui/RequirementDate';
 
 interface RequestItem {
     id: string;
@@ -43,6 +44,7 @@ interface RequestItem {
     is_urgent: boolean;
     is_invoiced?: boolean;
     notes?: string;
+    required_date?: string | null;
     created_at?: string;
     updated_at?: string;
     vendor?: {
@@ -203,10 +205,27 @@ export default function ApprovalShow({
     summary,
 }: ApprovalShowProps) {
     const allRequests = useMemo(() => {
-        if (requests && requests.length > 0) return requests;
-        if (request) return [request];
-        return [];
+        const source = requests && requests.length > 0
+            ? requests
+            : request
+                ? [request]
+                : [];
+        const createdTimestamp = (shipRequest: ShipRequest): number => {
+            const value = shipRequest.created_at ?? shipRequest.request_date;
+
+            return value ? Date.parse(value) || 0 : 0;
+        };
+
+        return [...source].sort((first, second) => {
+            const createdOrder = createdTimestamp(second) - createdTimestamp(first);
+
+            return createdOrder !== 0
+                ? createdOrder
+                : second.id.localeCompare(first.id);
+        });
     }, [requests, request]);
+
+    const newestRequestId = allRequests[0]?.id ?? null;
 
     const activeJob = job ?? allRequests[0]?.port_call ?? null;
     const currentShip = activeJob?.ship ?? allRequests[0]?.ship ?? null;
@@ -321,8 +340,8 @@ export default function ApprovalShow({
         [pendingItemsAcrossJob]
     );
     const desktopRows = useMemo<DesktopApprovalItemRow[]>(() => {
-        const rows = allRequests.flatMap((req) =>
-            (req.items || []).map((item) => {
+        const rows = allRequests.flatMap((req) => {
+            const requestRows = (req.items || []).map((item) => {
                 const updatedAt = Math.max(
                     0,
                     ...[item.updated_at, item.created_at, req.updated_at, req.created_at]
@@ -337,17 +356,15 @@ export default function ApprovalShow({
                     isFirstForRequest: false,
                     updatedAt,
                 };
-            })
-        );
+            });
 
-        rows.sort((first, second) => {
-            const attentionOrder = Number(second.needsAttention) - Number(first.needsAttention);
+            return requestRows.sort((first, second) => {
+                const attentionOrder = Number(second.needsAttention) - Number(first.needsAttention);
 
-            if (attentionOrder !== 0) {
-                return attentionOrder;
-            }
-
-            return second.updatedAt - first.updatedAt;
+                return attentionOrder !== 0
+                    ? attentionOrder
+                    : second.updatedAt - first.updatedAt;
+            });
         });
 
         const visibleRequests = new Set<string>();
@@ -393,12 +410,12 @@ export default function ApprovalShow({
                 description={`${shipName} • HPP Kas Operasional`}
             />
 
-            <div className="relative z-10 mx-auto -mt-6 w-full max-w-full space-y-5 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] sm:px-6 lg:px-8 md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+            <div className="relative z-10 mx-auto -mt-6 w-full max-w-full space-y-4 rounded-t-[28px] bg-white px-4 pb-24 pt-4 dark:bg-[#0C1D36] sm:px-6 md:mt-0 md:space-y-5 md:rounded-none md:bg-transparent md:px-0 md:pb-10 md:pt-0 md:dark:bg-transparent lg:px-8">
                 {/* ── Top Navigation Bar ── */}
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="hidden flex-wrap items-center justify-between gap-3 md:flex">
                     <Link
                         href={route('approvals.index')}
-                        className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3.5 text-sm font-semibold text-[#52658E] shadow-sm ring-1 ring-[#DCEAF8] transition hover:bg-[#F0F8FF] hover:text-[#0060F4] focus:outline-none dark:bg-[#0C1D36] dark:text-[#94A3B8] dark:ring-[#1E3A5F] dark:hover:bg-[#132847]"
+                        className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3.5 text-sm font-semibold text-[#52658E] shadow-sm ring-1 ring-[#DCEAF8] transition hover:bg-[#F0F8FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#0C1D36] dark:text-[#94A3B8] dark:ring-[#1E3A5F] dark:hover:bg-[#132847]"
                     >
                         <ArrowLeft className="size-4" aria-hidden="true" />
                         <span>Kembali ke Daftar Approval</span>
@@ -424,7 +441,63 @@ export default function ApprovalShow({
                 </div>
 
                 {/* ── 1. Informasi Kapal & Nomor Job (Langsung di Atas) ── */}
-                <Card className="overflow-hidden border-[#DCEAF8] shadow-sm dark:border-[#1E3A5F]" padding="none">
+                <section className="overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white shadow-[0_2px_10px_rgba(8,40,112,0.05)] dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:hidden">
+                    <div className="flex items-start gap-3 p-3.5">
+                        <ShipImage
+                            src={shipImage}
+                            alt={shipName}
+                            className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
+                        />
+                        <div className="min-w-0 flex-1">
+                            <h2 className="break-words text-lg font-extrabold leading-tight text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {shipName}
+                            </h2>
+                            <p className="mt-1 break-words text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
+                                {companyName} {imoNumber !== '-' ? `• IMO ${imoNumber}` : ''}
+                            </p>
+                            {activeJob?.status && (
+                                <div className="mt-2">
+                                    <StatusBadge status={activeJob.status} label={activeJob.status} showDot size="sm" />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="border-t border-[#DCEAF8] bg-[#F8FBFF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <div className="flex min-h-11 items-center gap-2 rounded-xl border border-[#BCE0FD] bg-[#E0F0FF] px-3 text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]">
+                            <Layers className="size-4 shrink-0" aria-hidden="true" />
+                            <div className="min-w-0">
+                                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                    Nomor job
+                                </span>
+                                <span className="block break-all font-mono text-xs font-black" translate="no">
+                                    {jobNumber}
+                                </span>
+                            </div>
+                        </div>
+
+                        <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Pelabuhan</dt>
+                                <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">{portName}</dd>
+                            </div>
+                            <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">ETA</dt>
+                                <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {activeJob?.eta_at ? formatDateTime(activeJob.eta_at) : (allRequests[0] ? formatDateTime(allRequests[0].request_date) : '-')}
+                                </dd>
+                            </div>
+                            <div className="col-span-2 rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">SPK</dt>
+                                <dd className="mt-1 break-all font-mono font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
+                                    {activeJob?.work_order?.system_number || '-'}
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+
+                <Card className="hidden overflow-hidden border-[#DCEAF8] shadow-sm dark:border-[#1E3A5F] md:block" padding="none">
                     <div className="bg-[#F0F8FF] p-5 dark:bg-[#071322] sm:p-6 md:bg-gradient-to-r md:from-[#F0F8FF] md:via-white md:to-[#F0F8FF]/50 md:dark:from-[#071322] md:dark:via-[#0C1D36] md:dark:to-[#071322]">
                         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                             <div className="min-w-0 space-y-2.5">
@@ -531,8 +604,8 @@ export default function ApprovalShow({
                 </Card>
 
                 {/* ── 2. Anggaran HPP Executive Summary Card (Per flow.md) ── */}
-                <Card className="border-[#BCE0FD] bg-[#EAF4FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:bg-gradient-to-r md:from-[#EAF4FF] md:via-white md:to-[#EAF4FF]/60 md:dark:from-[#0C1D36] md:dark:via-[#0E223F] md:dark:to-[#0C1D36]">
-                    <div className="space-y-4">
+                {/* <Card className="border-[#BCE0FD] bg-[#EAF4FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:bg-gradient-to-r md:from-[#EAF4FF] md:via-white md:to-[#EAF4FF]/60 md:dark:from-[#0C1D36] md:dark:via-[#0E223F] md:dark:to-[#0C1D36]">
+                    <div className="space-y-3 p-3 md:space-y-4 md:p-5">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div className="flex items-center gap-2.5">
                                 <span className="flex size-9 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-xs">
@@ -551,14 +624,13 @@ export default function ApprovalShow({
                             <div className="flex flex-wrap items-center gap-2">
                                 {totalUrgentCount > 0 && (
                                     <span className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 shadow-2xs dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300">
-                                        <Flame className="size-3.5 fill-rose-600 text-rose-600 animate-pulse" />
+                                        <Flame className="size-3.5 animate-pulse fill-rose-600 text-rose-600 motion-reduce:animate-none" />
                                         <span>{totalUrgentCount} Item Mendesak / Urgent</span>
                                     </span>
                                 )}
                             </div>
                         </div>
 
-                        {/* Metric Tiles */}
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                             <div className="rounded-xl border border-[#DCEAF8] bg-white p-3.5 shadow-2xs dark:border-[#1E3A5F] dark:bg-[#071322]">
                                 <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">
@@ -611,10 +683,11 @@ export default function ApprovalShow({
 
                         <p className="flex items-center gap-2 border-l-2 border-[#0060F4] pl-3 text-xs text-[#52658E] dark:text-[#94A3B8]">
                             <Info className="size-4 shrink-0 text-[#0060F4]" />
-                            Item disetujui akan terkunci; item ditolak kembali ke Admin untuk direvisi.
+                            Item disetujui akan terkunci. Jika hanya sebagian item dalam satu pengajuan yang dipilih,
+                            item lainnya otomatis kembali ke Admin dan harus diajukan ulang.
                         </p>
                     </div>
-                </Card>
+                </Card> */}
 
                 {/* Banner Notifikasi Jika Ada Item Ditolak */}
                 {summary.rejected_items_count > 0 && (
@@ -626,7 +699,7 @@ export default function ApprovalShow({
 
                 {/* ── 3. Aksi keputusan Direktur ── */}
                 {capabilities.can_decide_items && pendingItemsAcrossJob.length > 0 && (
-                    <div className="sticky top-2 z-30 flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-white p-4 shadow-lg dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between">
+                    <div className="sticky top-20 z-30 flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-white p-3 shadow-lg dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between md:top-2 md:p-4">
                         <label className="flex min-h-11 cursor-pointer items-center gap-3">
                             <input
                                 type="checkbox"
@@ -652,7 +725,7 @@ export default function ApprovalShow({
                                     size="sm"
                                     variant="secondary"
                                     onClick={() => setSelectedItemIds([])}
-                                    className="col-span-2 sm:col-span-1"
+                                    className="col-span-2 min-h-11 sm:col-span-1"
                                 >
                                     Batal Pilihan
                                 </Button>
@@ -665,7 +738,7 @@ export default function ApprovalShow({
                                 leftIcon={<CircleX className="size-3.5" />}
                                 disabled={selectedItemIds.length === 0 || activeAction !== null}
                                 onClick={handleOpenBatchReject}
-                                className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                                className="min-h-11 border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
                             >
                                 Tolak ({selectedItemIds.length})
                             </Button>
@@ -678,7 +751,7 @@ export default function ApprovalShow({
                                 isLoading={activeAction === 'batch-selected'}
                                 disabled={selectedItemIds.length === 0 || activeAction !== null}
                                 onClick={handleBatchApproveSelected}
-                                className="bg-emerald-600 font-bold text-white hover:bg-emerald-700"
+                                className="min-h-11 bg-emerald-600 font-bold text-white hover:bg-emerald-700"
                             >
                                 Setujui ({selectedItemIds.length})
                             </Button>
@@ -703,6 +776,28 @@ export default function ApprovalShow({
 
                     <Table<DesktopApprovalItemRow>
                         columns={[
+                            ...(capabilities.can_decide_items
+                                ? [
+                                    {
+                                        key: 'select',
+                                        header: 'Pilih',
+                                        align: 'center' as const,
+                                        width: '64px',
+                                        render: ({ item }: DesktopApprovalItemRow) =>
+                                            isDecidableItem(item) ? (
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedItemIds.includes(item.id)}
+                                                    onChange={() => toggleSelectItem(item.id)}
+                                                    aria-label={`Pilih ${item.item_name}`}
+                                                    className="size-4 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
+                                                />
+                                            ) : (
+                                                <span aria-hidden="true" className="text-[#8C9BB9]">—</span>
+                                            ),
+                                    },
+                                ]
+                                : []),
                             {
                                 key: 'request_number',
                                 header: 'Nomor Pengajuan',
@@ -724,9 +819,9 @@ export default function ApprovalShow({
                                             )}
                                         </button>
                                         <div className="flex flex-wrap items-center gap-1.5">
-                                            {row.needsAttention && (
+                                            {row.isFirstForRequest && row.request.id === newestRequestId && (
                                                 <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">
-                                                    Baru
+                                                    Terbaru
                                                 </span>
                                             )}
                                             <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
@@ -745,6 +840,7 @@ export default function ApprovalShow({
                                         <p className="text-pretty font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                             {item.item_name}
                                         </p>
+                                        <RequirementDate value={item.required_date} />
                                         {item.is_urgent && (
                                             <span className="inline-flex rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                 Urgent
@@ -821,15 +917,15 @@ export default function ApprovalShow({
                                                 item.director_status === 'approved'
                                                     ? 'Disetujui'
                                                     : item.director_status === 'rejected'
-                                                      ? 'Ditolak'
-                                                      : 'Menunggu Approval'
+                                                        ? 'Ditolak'
+                                                        : 'Menunggu Approval'
                                             }
                                             label={
                                                 item.director_status === 'approved'
                                                     ? 'Disetujui'
                                                     : item.director_status === 'rejected'
-                                                      ? 'Ditolak'
-                                                      : 'Menunggu'
+                                                        ? 'Ditolak'
+                                                        : 'Menunggu'
                                             }
                                             size="sm"
                                             showDot
@@ -845,20 +941,8 @@ export default function ApprovalShow({
                                 header: 'Aksi',
                                 align: 'center',
                                 width: '205px',
-                                render: ({ request: req, item, isFirstForRequest }) => (
+                                render: ({ request: req, isFirstForRequest }) => (
                                     <div className="flex flex-wrap items-center justify-center gap-1.5">
-                                        {capabilities.can_decide_items && isDecidableItem(item) && (
-                                            <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#DCEAF8] bg-white px-2.5 text-xs font-semibold text-[#52658E] hover:border-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#94A3B8]">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedItemIds.includes(item.id)}
-                                                    onChange={() => toggleSelectItem(item.id)}
-                                                    className="size-4 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
-                                                />
-                                                Pilih
-                                            </label>
-                                        )}
-
                                         {isFirstForRequest && (
                                             <RequestWorkflowPanel
                                                 request={req}
@@ -875,31 +959,43 @@ export default function ApprovalShow({
                         compact
                         minWidth="1495px"
                         emptyMessage="Data Tidak Ditemukan"
-                        rowClassName={(row) =>
-                            row.needsAttention
-                                ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]'
-                                : row.item.is_urgent
-                                  ? '!bg-rose-50/70 dark:!bg-rose-950/30'
-                                  : ''
-                        }
+                        rowClassName={(row) => {
+                            if (row.needsAttention) {
+                                return '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]';
+                            }
+                            if (row.item.director_status === 'approved') {
+                                return '!bg-[#F3FCF7] dark:!bg-[#123526] border-l-4 border-l-[#087443]';
+                            }
+                            if (row.item.director_status === 'rejected') {
+                                return '!bg-[#FFF5F7] dark:!bg-[#351522] border-l-4 border-l-[#C62840]';
+                            }
+
+                            return row.item.is_urgent ? '!bg-rose-50/70 dark:!bg-rose-950/30' : '';
+                        }}
                     />
                 </div>
 
                 {/* ── 4. Stacked Pengajuan Cards (mobile) ── */}
-                <div className="space-y-6 pt-1 md:hidden">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="flex size-7 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                <FileText className="size-4" />
+                <div className="space-y-4 pt-1 md:hidden">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                <FileText className="size-4" aria-hidden="true" />
                             </span>
-                            <h2 className="text-lg font-black tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">
-                                Daftar Pengajuan Kebutuhan & Evaluasi HPP
+                            <h2 className="text-base font-black leading-tight text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Pengajuan &amp; Evaluasi HPP
                             </h2>
                         </div>
-                        <span className="rounded-xl border border-[#DCEAF8] bg-white px-3 py-1 font-mono text-xs font-bold text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]">
-                            {allRequests.length} Pengajuan
+                        <span className="shrink-0 rounded-lg border border-[#DCEAF8] bg-white px-2.5 py-1 text-xs font-bold text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]">
+                            {allRequests.length}
                         </span>
                     </div>
+
+                    {allRequests.length === 0 && (
+                        <Card className="p-8 text-center text-sm font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                            Data Tidak Ditemukan
+                        </Card>
+                    )}
 
                     {allRequests.map((req, reqIndex) => {
                         const reqItems = req.items || [];
@@ -924,73 +1020,75 @@ export default function ApprovalShow({
                             (sum, it) => sum + Number(it.selling_price ?? 0) * Number(it.quantity),
                             0
                         );
-                        const sortedReqItems = [...reqItems].sort((first, second) => {
-                            const firstIsNew = capabilities.can_decide_items && isDecidableItem(first);
-                            const secondIsNew = capabilities.can_decide_items && isDecidableItem(second);
+                        const itemPriority = (item: RequestItem): number => {
+                            if (capabilities.can_decide_items && isDecidableItem(item)) return 4;
+                            if (item.director_status === 'approved') return 3;
+                            if (item.director_status === 'rejected') return 2;
 
-                            return Number(secondIsNew) - Number(firstIsNew);
+                            return 0;
+                        };
+                        const itemTimestamp = (item: RequestItem): number => {
+                            const value = item.updated_at ?? item.created_at;
+
+                            return value ? Date.parse(value) || 0 : 0;
+                        };
+                        const sortedReqItems = [...reqItems].sort((first, second) => {
+                            const priorityOrder = itemPriority(second) - itemPriority(first);
+
+                            return priorityOrder !== 0
+                                ? priorityOrder
+                                : itemTimestamp(second) - itemTimestamp(first);
                         });
 
                         return (
                             <section
                                 key={req.id}
-                                className="space-y-3 border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]"
+                                className="overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white shadow-[0_2px_10px_rgba(8,40,112,0.05)] dark:border-[#1E3A5F] dark:bg-[#0C1D36]"
                             >
-                                {/* Header Card Pengajuan */}
-                                <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] p-4.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:p-5 md:bg-gradient-to-r md:from-[#F8FBFF] md:via-white md:to-[#F8FBFF] md:dark:from-[#0C1D36] md:dark:via-[#0E223F] md:dark:to-[#0C1D36]">
-                                    <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
-                                        <div className="min-w-0 space-y-1.5">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <span className="flex size-6 items-center justify-center rounded-md bg-[#0060F4] text-xs font-black text-white">
-                                                    {reqIndex + 1}
-                                                </span>
+                                <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] p-3.5 dark:border-[#1E3A5F] dark:bg-[#0E223F]">
+                                    <div className="flex items-start gap-2">
+                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#0060F4] text-xs font-black text-white">
+                                            {reqIndex + 1}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopy(req.request_number)}
+                                            title="Salin nomor pengajuan"
+                                            className="group inline-flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-xl border border-[#BCE0FD] bg-[#E0F0FF] px-3 py-2 text-left font-mono text-xs font-black text-[#0060F4] transition hover:bg-[#BCE0FD] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
+                                        >
+                                            <Tag className="size-3.5 shrink-0" aria-hidden="true" />
+                                            <span className="min-w-0 break-all" translate="no">{req.request_number}</span>
+                                            {copiedNumber === req.request_number ? (
+                                                <Check className="size-3.5 shrink-0 text-[#087443]" aria-hidden="true" />
+                                            ) : (
+                                                <Copy className="size-3.5 shrink-0 opacity-70 group-hover:opacity-100" aria-hidden="true" />
+                                            )}
+                                        </button>
+                                    </div>
 
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleCopy(req.request_number)}
-                                                    title="Klik untuk menyalin nomor pengajuan"
-                                                    className="group inline-flex items-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#E0F0FF] px-2.5 py-1 font-mono text-xs font-black text-[#0060F4] transition hover:bg-[#BCE0FD] focus:outline-none dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
-                                                >
-                                                    <Tag className="size-3 text-[#0060F4] dark:text-[#60A5FA]" />
-                                                    <span>{req.request_number}</span>
-                                                    {copiedNumber === req.request_number ? (
-                                                        <Check className="size-3 text-emerald-600" />
-                                                    ) : (
-                                                        <Copy className="size-3 text-[#52658E] opacity-70 group-hover:opacity-100" />
-                                                    )}
-                                                    {copiedNumber === req.request_number && (
-                                                        <span className="text-[10px] font-bold text-emerald-600">Tersalin!</span>
-                                                    )}
-                                                </button>
+                                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                        {req.id === newestRequestId && (
+                                            <span className="inline-flex items-center rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                                Terbaru
+                                            </span>
+                                        )}
+                                        <StatusBadge status={req.status} label={req.status} showDot size="sm" />
+                                        {hasUrgent && (
+                                            <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[11px] font-black uppercase text-white">
+                                                <Flame className="size-3 fill-white" aria-hidden="true" />
+                                                Urgent
+                                            </span>
+                                        )}
+                                    </div>
 
-                                                <StatusBadge
-                                                    status={req.status}
-                                                    label={req.status}
-                                                    showDot
-                                                    size="sm"
-                                                />
-
-                                                {hasUrgent && (
-                                                    <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[11px] font-black uppercase text-white shadow-2xs">
-                                                        <Flame className="size-3 fill-white" />
-                                                        Urgent
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div className="flex flex-wrap items-center gap-x-2 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                                <span>Diajukan oleh: <strong>{req.creator?.name || 'Pengguna tidak tersedia'}</strong></span>
-                                                <span>•</span>
-                                                <span>{formatDateTime(req.request_date)}</span>
-                                                {req.notes && (
-                                                    <>
-                                                        <span>•</span>
-                                                        <span className="italic">"{req.notes}"</span>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-
+                                    <div className="mt-2 grid gap-1 text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
+                                        <span>
+                                            <strong className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                {req.creator?.name || 'Pengguna tidak tersedia'}
+                                            </strong>{' '}
+                                            • {formatDateTime(req.request_date)}
+                                        </span>
+                                        {req.notes && <span className="break-words italic">“{req.notes}”</span>}
                                     </div>
                                 </div>
 
@@ -1000,157 +1098,139 @@ export default function ApprovalShow({
                                     className="border-b border-[#DCEAF8] dark:border-[#1E3A5F]"
                                 />
 
-                                <Table<RequestItem>
-                                    columns={[
-                                        ...(capabilities.can_decide_items
-                                            ? [
-                                                  {
-                                                      key: 'select',
-                                                      header: (
-                                                          <input
-                                                              type="checkbox"
-                                                              checked={isAllReqSelected}
-                                                              disabled={decidableReqItems.length === 0}
-                                                              onChange={() => toggleSelectAllForReq(req)}
-                                                              aria-label="Pilih semua item"
-                                                              className="size-4 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
-                                                          />
-                                                      ),
-                                                      align: 'center' as const,
-                                                      width: '52px',
-                                                      render: (item: RequestItem) => (
-                                                          <input
-                                                              type="checkbox"
-                                                              checked={selectedItemIds.includes(item.id)}
-                                                              disabled={!isDecidableItem(item)}
-                                                              onChange={() => toggleSelectItem(item.id)}
-                                                              aria-label={`Pilih ${item.item_name}`}
-                                                              className="size-4 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
-                                                          />
-                                                      ),
-                                                  },
-                                              ]
-                                            : []),
-                                        {
-                                            key: 'item',
-                                            header: 'Item / Vendor',
-                                            width: '280px',
-                                            render: (item) => {
-                                                const isNew = capabilities.can_decide_items && isDecidableItem(item);
-                                                return (
-                                                    <div className="space-y-1">
+                                <div className="space-y-2.5 p-3">
+                                    {capabilities.can_decide_items && decidableReqItems.length > 0 && (
+                                        <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] px-3 py-2 text-xs font-bold text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#132847]/50 dark:text-[#F1F5F9]">
+                                            <span className="inline-flex min-w-0 items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isAllReqSelected}
+                                                    onChange={() => toggleSelectAllForReq(req)}
+                                                    aria-label={`Pilih semua item ${req.request_number}`}
+                                                    className="size-5 shrink-0 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
+                                                />
+                                                <span>Pilih semua item</span>
+                                            </span>
+                                            <span className="shrink-0 font-normal text-[#52658E] dark:text-[#94A3B8]">
+                                                {decidableReqItems.filter((item) => selectedItemIds.includes(item.id)).length}/{decidableReqItems.length}
+                                            </span>
+                                        </label>
+                                    )}
+
+                                    {sortedReqItems.length === 0 && (
+                                        <div className="rounded-xl border border-dashed border-[#B7C9DF] p-6 text-center text-sm font-semibold text-[#52658E] dark:border-[#334B6D] dark:text-[#94A3B8]">
+                                            Data Tidak Ditemukan
+                                        </div>
+                                    )}
+
+                                    {sortedReqItems.map((item) => {
+                                        const isNew = capabilities.can_decide_items && isDecidableItem(item);
+                                        const isSelected = selectedItemIds.includes(item.id);
+                                        const itemSubtotal = Number(item.selling_price || 0) * Number(item.quantity);
+                                        const cardTone = isSelected
+                                            ? 'border-[#0060F4] bg-[#EAF4FF] ring-1 ring-[#0060F4] dark:bg-[#102B4A]'
+                                            : isNew
+                                                ? 'border-[#0060F4] bg-[#EAF4FF] dark:bg-[#102B4A]'
+                                                : item.director_status === 'approved'
+                                                    ? 'border-[#BCE9D2] bg-[#F3FCF7] dark:border-[#1D6848] dark:bg-[#123526]'
+                                                    : item.director_status === 'rejected'
+                                                        ? 'border-[#F4B8C3] bg-[#FFF5F7] dark:border-[#6B2232] dark:bg-[#351522]'
+                                                        : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#0C1D36]';
+
+                                        return (
+                                            <article key={item.id} className={`rounded-xl border p-3 ${cardTone}`}>
+                                                <div className="flex items-start gap-2.5">
+                                                    {capabilities.can_decide_items && (
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isSelected}
+                                                            disabled={!isDecidableItem(item)}
+                                                            onChange={() => toggleSelectItem(item.id)}
+                                                            aria-label={`Pilih ${item.item_name}`}
+                                                            className="mt-0.5 size-5 shrink-0 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
+                                                        />
+                                                    )}
+                                                    <div className="min-w-0 flex-1">
                                                         <div className="flex flex-wrap items-center gap-1.5">
-                                                            <strong>{item.item_name}</strong>
+                                                            <h3 className="break-words text-sm font-extrabold leading-5 text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                {item.item_name}
+                                                            </h3>
                                                             {isNew && (
                                                                 <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
                                                                     Baru
                                                                 </span>
                                                             )}
                                                             {item.is_urgent && (
-                                                                <span className="rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840]">
+                                                                <span className="rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                                     Urgent
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <p className="text-[#52658E]">
+                                                        <p className="mt-1 flex items-start gap-1.5 break-words text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
+                                                            <Building2 className="mt-0.5 size-3.5 shrink-0 text-[#0060F4]" aria-hidden="true" />
                                                             {item.vendor?.name || 'Vendor belum ditentukan'}
                                                         </p>
+                                                        <RequirementDate value={item.required_date} />
                                                         {item.notes && (
-                                                            <p className="text-[11px] text-[#52658E]">{item.notes}</p>
+                                                            <p className="mt-1 break-words text-xs italic leading-5 text-[#52658E] dark:text-[#94A3B8]">
+                                                                “{item.notes}”
+                                                            </p>
                                                         )}
                                                     </div>
-                                                );
-                                            },
-                                        },
-                                        {
-                                            key: 'quantity',
-                                            header: 'Qty',
-                                            align: 'right' as const,
-                                            width: '100px',
-                                            render: (item) => (
-                                                <span className="whitespace-nowrap font-mono font-bold">
-                                                    {item.quantity} {item.unit || 'Dokumen'}
-                                                </span>
-                                            ),
-                                        },
-                                        {
-                                            key: 'hpp',
-                                            header: 'HPP',
-                                            align: 'right' as const,
-                                            width: '170px',
-                                            render: (item) => (
-                                                <div className="whitespace-nowrap font-mono tabular-nums">
-                                                    <p>{formatRupiah(item.hpp_price)}</p>
-                                                    <strong className="text-[#0060F4]">
-                                                        {formatRupiah(
-                                                            Number(item.hpp_price || 0) *
-                                                                Number(item.quantity)
-                                                        )}
-                                                    </strong>
                                                 </div>
-                                            ),
-                                        },
-                                        {
-                                            key: 'selling',
-                                            header: 'Harga Jual',
-                                            align: 'right' as const,
-                                            width: '170px',
-                                            render: (item) => (
-                                                <span className="whitespace-nowrap font-mono font-bold tabular-nums">
-                                                    {formatRupiah(
-                                                        Number(item.selling_price || 0) *
-                                                            Number(item.quantity)
-                                                    )}
-                                                </span>
-                                            ),
-                                        },
-                                        {
-                                            key: 'status',
-                                            header: 'Status',
-                                            align: 'center' as const,
-                                            width: '140px',
-                                            render: (item) => (
-                                                <StatusBadge
-                                                    status={
-                                                        item.director_status === 'approved'
-                                                            ? 'Disetujui'
-                                                            : item.director_status === 'rejected'
-                                                              ? 'Ditolak'
-                                                              : 'Menunggu Approval'
-                                                    }
-                                                    label={
-                                                        item.director_status === 'approved'
-                                                            ? 'Disetujui'
-                                                            : item.director_status === 'rejected'
-                                                              ? 'Ditolak'
-                                                              : 'Menunggu'
-                                                    }
-                                                    size="sm"
-                                                    showDot
-                                                />
-                                            ),
-                                        },
-                                    ]}
-                                    data={sortedReqItems}
-                                    keyExtractor={(item) => item.id}
-                                    compact
-                                    minWidth="850px"
-                                    emptyMessage="Data Tidak Ditemukan"
-                                    rowClassName={(item) => {
-                                        const isNew = capabilities.can_decide_items && isDecidableItem(item);
-                                        if (isNew) {
-                                            return '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]';
-                                        }
-                                        return item.is_urgent
-                                            ? '!bg-rose-50/70 dark:!bg-rose-950/30'
-                                            : '';
-                                    }}
-                                />
 
-                                <div className="flex flex-wrap justify-end gap-x-5 gap-y-1 text-xs text-[#52658E]">
-                                    <span>HPP: <strong>{formatRupiah(reqTotalHpp)}</strong></span>
-                                    <span>Jual: <strong>{formatRupiah(reqTotalSelling)}</strong></span>
-                                    <span>ACC: <strong>{formatRupiah(reqTotalApprovedHpp)}</strong></span>
+                                                <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#DCEAF8]/80 pt-2.5 dark:border-[#1E3A5F]/80">
+                                                    <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">Status</span>
+                                                    <StatusBadge
+                                                        status={item.director_status === 'approved' ? 'Disetujui' : item.director_status === 'rejected' ? 'Ditolak' : 'Menunggu Approval'}
+                                                        label={item.director_status === 'approved' ? 'Disetujui' : item.director_status === 'rejected' ? 'Ditolak' : 'Menunggu'}
+                                                        size="sm"
+                                                        showDot
+                                                    />
+                                                </div>
+
+                                                {item.director_notes && (
+                                                    <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs leading-5 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                                                        <strong>Catatan Direktur:</strong> {item.director_notes}
+                                                    </p>
+                                                )}
+
+                                                <dl className="mt-2.5 grid grid-cols-2 gap-2 rounded-xl border border-[#DCEAF8] bg-white/80 p-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]/70">
+                                                    <div>
+                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Qty</dt>
+                                                        <dd className="mt-0.5 break-words font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{item.quantity} {item.unit || 'Dokumen'}</dd>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP</dt>
+                                                        <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(item.hpp_price)}</dd>
+                                                    </div>
+                                                    <div>
+                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Harga Jual</dt>
+                                                        <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0060F4] dark:text-[#60A5FA]">{formatRupiah(item.selling_price)}</dd>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Subtotal</dt>
+                                                        <dd className="mt-0.5 break-words font-mono font-black tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(itemSubtotal)}</dd>
+                                                    </div>
+                                                </dl>
+                                            </article>
+                                        );
+                                    })}
+
+                                    <dl className="grid grid-cols-3 gap-2 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                        <div>
+                                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP</dt>
+                                            <dd className="mt-1 break-words font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(reqTotalHpp)}</dd>
+                                        </div>
+                                        <div>
+                                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Jual</dt>
+                                            <dd className="mt-1 break-words font-mono font-bold text-[#0060F4] dark:text-[#60A5FA]">{formatRupiah(reqTotalSelling)}</dd>
+                                        </div>
+                                        <div>
+                                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">ACC</dt>
+                                            <dd className="mt-1 break-words font-mono font-bold text-[#087443] dark:text-emerald-300">{formatRupiah(reqTotalApprovedHpp)}</dd>
+                                        </div>
+                                    </dl>
                                 </div>
                             </section>
                         );
@@ -1172,6 +1252,7 @@ export default function ApprovalShow({
                     <FormErrorSummary errors={rejectionErrors} />
                     <p className="text-sm text-[#0B1F63] dark:text-[#F1F5F9]">
                         <strong>{selectedItemIds.length} item</strong> akan dikembalikan ke Admin untuk direvisi.
+                        Item lain yang tidak dipilih dari pengajuan yang sama juga dikembalikan ke Admin untuk diajukan ulang.
                     </p>
 
                     <div>

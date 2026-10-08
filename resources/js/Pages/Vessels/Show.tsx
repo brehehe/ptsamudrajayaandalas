@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
-import { motion, type Variants } from 'framer-motion';
-import { Camera, FileText, MapPin, RefreshCw, Ship as ShipIcon } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ArrowLeft, CircleAlert, MapPin, Plus, RefreshCw, Ship as ShipIcon } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
@@ -25,26 +25,6 @@ import { formatEtaDateTime } from '../../Components/vessels/format';
 import ShipImage from '../../Components/vessels/ShipImage';
 export { formatEtaDateTime } from '../../Components/vessels/format';
 
-const containerVariants: Variants = {
-    hidden: { opacity: 0 },
-    visible: {
-        opacity: 1,
-        transition: {
-            staggerChildren: 0.05,
-            delayChildren: 0.02,
-        },
-    },
-};
-
-const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 10 },
-    visible: {
-        opacity: 1,
-        y: 0,
-        transition: { duration: 0.22, ease: 'easeOut' },
-    },
-};
-
 const mobileTabs = [
     { key: 'overview', label: 'Overview' },
     { key: 'aktivitas', label: 'Aktivitas' },
@@ -60,6 +40,7 @@ export default function VesselShow({
     selectedPortCallId = null,
     selectedVisit = null,
     canManageClearance = false,
+    canCreateRequests = false,
     canProcessRequests = false,
 }: VesselShowProps) {
     const requests = vessel.requests || [];
@@ -253,7 +234,7 @@ export default function VesselShow({
                    ───────────────────────────────────────────────────────────── */}
                 {needFlowStep === 'none' && (
                     <div>
-                        {/* Ship Hero Photo sits behind the shared transparent mobile navbar. */}
+                        {/* Ship Hero Photo starts below the shared mobile header. */}
                         <div className="relative h-52 w-full overflow-hidden bg-[#DCEAF8]">
                             <ShipImage
                                 src={vessel.image}
@@ -316,7 +297,7 @@ export default function VesselShow({
                                 </p>
 
                                 {/* 4 Tabs: Overview | Aktivitas | Kebutuhan | Pengajuan */}
-                                <div className="flex items-center gap-6 mt-4 text-xs font-semibold">
+                                <div className="mt-4 grid grid-cols-4 gap-1 text-xs font-semibold">
                                     {mobileTabs.map((t) => {
                                         const isActive = mobileTab === t.key;
                                         return (
@@ -324,7 +305,8 @@ export default function VesselShow({
                                                 key={t.key}
                                                 type="button"
                                                 onClick={() => setMobileTab(t.key)}
-                                                className={`pb-2.5 relative transition-colors cursor-pointer ${
+                                                aria-pressed={isActive}
+                                                className={`relative flex min-h-11 items-center justify-center rounded-t-lg pb-2.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
                                                     isActive
                                                         ? 'text-[#0060F4] font-bold dark:text-[#38BDF8]'
                                                         : 'text-[#52658E] dark:text-[#94A3B8] hover:text-[#0060F4]'
@@ -354,6 +336,7 @@ export default function VesselShow({
                                     onStartNeed={() => setNeedFlowStep('header')}
                                     onRecordActivity={() => setShowActivityModal(true)}
                                     canManageClearance={canManageClearance}
+                                    canCreateRequests={canCreateRequests}
                                     onClearance={(direction) => {
                                         setClearanceToast(null);
                                         setClearanceDirection(direction);
@@ -377,7 +360,7 @@ export default function VesselShow({
                                     onStartNeed={() => setNeedFlowStep('header')}
                                     filterTab={kebutuhanFilterTab}
                                     onFilterChange={setKebutuhanFilterTab}
-                                    canCreate={canManageClearance}
+                                    canCreate={canCreateRequests}
                                 />
                             )}
 
@@ -399,6 +382,8 @@ export default function VesselShow({
                     vessel={vessel}
                     products={products}
                     portCallId={selectedVisit?.id}
+                    clientPicName={selectedVisit?.client_pic_name}
+                    clientPicContact={selectedVisit?.client_pic_contact}
                     step={needFlowStep}
                     section={selectedSection}
                     onSectionChange={setSelectedSection}
@@ -411,26 +396,23 @@ export default function VesselShow({
                 DESKTOP VIEW (>= md): COMPLETE CORPORATE MARITIME MASTER VIEW
                ═══════════════════════════════════════════════════════════════ */}
             <div className={needFlowStep === 'none' ? 'hidden md:block' : 'hidden'}>
-                <motion.div
-                    variants={containerVariants}
-                    initial="hidden"
-                    animate="visible"
-                    className="space-y-6 max-w-7xl mx-auto pb-12"
-                >
+                <div className="mx-auto max-w-7xl space-y-5 pb-12">
                     {/* Header */}
-                    <div className="flex items-center justify-between gap-4">
-                        <div className="space-y-1">
+                    <div className="flex items-end justify-between gap-4 border-b border-[#DCEAF8] pb-4 dark:border-[#1E3A5F]">
+                        <div className="min-w-0 space-y-1">
                             <Link
                                 href="/vessels"
                                 className={
-                                    'inline-flex items-center gap-1.5 text-xs font-bold ' +
-                                    'text-[#0060F4] dark:text-[#38BDF8] hover:underline mb-1'
+                                    'mb-1 inline-flex min-h-9 items-center gap-1.5 rounded-lg pr-2 text-xs ' +
+                                    'font-bold text-[#0060F4] hover:text-[#0050D0] focus-visible:outline-2 ' +
+                                    'focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#38BDF8]'
                                 }
                             >
-                                &larr; Kembali ke Menu Kapal
+                                <ArrowLeft aria-hidden="true" className="size-4" />
+                                Kembali ke menu Kapal
                             </Link>
-                            <div className="flex items-center gap-3">
-                                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                                <h1 className="text-balance text-2xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] sm:text-3xl">
                                     {vessel.name}
                                 </h1>
                                 <StatusBadge
@@ -440,9 +422,9 @@ export default function VesselShow({
                                     size="md"
                                 />
                             </div>
-                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                            <p className="text-pretty text-xs text-[#52658E] dark:text-[#94A3B8]">
                                 IMO:{' '}
-                                <span className="font-mono font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                <span className="font-mono font-semibold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
                                     {vessel.imo_number || '-'}
                                 </span>{' '}
                                 • Tipe: {vessel.ship_type || '-'} • Agen:{' '}
@@ -450,51 +432,45 @@ export default function VesselShow({
                             </p>
                         </div>
 
-                        {canManageClearance && (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setNeedFlowStep('header')}
-                                    className={
-                                        'px-4 py-2.5 rounded-xl bg-[#0060F4] hover:bg-[#0052D4] ' +
-                                        'text-white text-xs font-bold shadow-sm'
-                                    }
-                                >
-                                    + Buat Kebutuhan
-                                </button>
-                            </div>
+                        {canCreateRequests && (
+                            <Button
+                                type="button"
+                                className="shrink-0"
+                                leftIcon={<Plus aria-hidden="true" className="size-4" />}
+                                onClick={() => setNeedFlowStep('header')}
+                            >
+                                Buat kebutuhan
+                            </Button>
                         )}
                     </div>
 
                     {/* Vessel Hero Image Banner */}
                     <div
                         className={
-                            'relative h-56 rounded-2xl overflow-hidden border border-[#DCEAF8] ' +
-                            'dark:border-[#1E3A5F] shadow-sm'
+                            'relative h-48 overflow-hidden rounded-2xl border border-[#DCEAF8] ' +
+                            'bg-[#E0F0FF] shadow-sm dark:border-[#1E3A5F] dark:bg-[#132847] lg:h-52'
                         }
                     >
                         <ShipImage
                             src={vessel.image}
                             alt={vessel.name}
-                            className="w-full h-full object-cover"
+                            width={1600}
+                            height={520}
+                            fetchPriority="high"
+                            className="size-full object-cover"
                         />
-                        <div
-                            className={
-                                'absolute inset-0 bg-gradient-to-t from-[#082870]/90 ' +
-                                'via-[#082870]/30 to-transparent flex items-end p-5'
-                            }
-                        >
-                            <div className="text-white space-y-1">
+                        <div className="absolute inset-x-0 bottom-0 flex items-end bg-[#082870]/90 p-4 sm:p-5">
+                            <div className="min-w-0 space-y-1 text-white">
                                 <span
                                     className={
-                                        'inline-block text-xs font-bold px-2.5 py-0.5 rounded-full ' +
-                                        'bg-white/20 backdrop-blur-xs'
+                                        'inline-block rounded-full border border-white/20 bg-white/15 px-2.5 py-0.5 ' +
+                                        'text-xs font-bold'
                                     }
                                 >
                                     {vessel.ship_type || 'Tipe belum diisi'}
                                 </span>
-                                <h2 className="text-2xl font-black">{vessel.name}</h2>
-                                <p className="text-xs text-white/80">
+                                <h2 className="truncate text-xl font-black sm:text-2xl">{vessel.name}</h2>
+                                <p className="truncate text-xs text-white/80">
                                     Perusahaan: {vessel.company?.name || 'Belum diisi'}{' '}
                                     • Pelabuhan: {vessel.port?.name || 'Belum diisi'}
                                 </p>
@@ -503,139 +479,113 @@ export default function VesselShow({
                     </div>
 
                     {/* Details Grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] lg:col-span-2 space-y-4">
-                            <h3
-                                className={
-                                    'text-base font-bold text-[#0B1F63] dark:text-[#F1F5F9] pb-2 ' +
-                                    'border-b border-[#DCEAF8]'
-                                }
-                            >
-                                Spesifikasi Teknis Kapal
-                            </h3>
-                            <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
+                    <div className="grid items-start gap-5 lg:grid-cols-3">
+                        <Card title="Spesifikasi teknis kapal" titleLevel={2} padding="none" className="lg:col-span-2" overflow="hidden">
+                            <dl className="grid gap-x-6 px-4 pb-2 text-xs sm:grid-cols-2 sm:px-5">
+                                <div className="min-w-0 border-b border-[#DCEAF8] py-3 dark:border-[#1E3A5F]">
+                                    <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                         Perusahaan Pemilik
-                                    </span>
-                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                    </dt>
+                                    <dd className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {vessel.company?.name || 'Belum diisi'}
-                                    </span>
+                                    </dd>
                                 </div>
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
+                                <div className="min-w-0 border-b border-[#DCEAF8] py-3 dark:border-[#1E3A5F]">
+                                    <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                         Alamat Kantor
-                                    </span>
-                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                    </dt>
+                                    <dd className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {vessel.company?.address || 'Belum diisi'}
-                                    </span>
+                                    </dd>
                                 </div>
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
+                                <div className="min-w-0 border-b border-[#DCEAF8] py-3 dark:border-[#1E3A5F]">
+                                    <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                         Bendera Negara
-                                    </span>
-                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                    </dt>
+                                    <dd className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {vessel.flag || 'Belum diisi'}
-                                    </span>
+                                    </dd>
                                 </div>
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
+                                <div className="min-w-0 border-b border-[#DCEAF8] py-3 dark:border-[#1E3A5F]">
+                                    <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                         GT / Panjang
-                                    </span>
-                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                    </dt>
+                                    <dd className="mt-1 font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {vessel.gross_tonnage ? `GT ${vessel.gross_tonnage}` : 'GT -'} /{' '}
                                         {vessel.length ? `${vessel.length} M` : '-'}
-                                    </span>
+                                    </dd>
                                 </div>
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
+                                <div className="min-w-0 border-b border-[#DCEAF8] py-3 dark:border-[#1E3A5F]">
+                                    <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                         Call Sign
-                                    </span>
-                                    <span className="font-mono font-bold text-[#0B1F63] block mt-0.5">
+                                    </dt>
+                                    <dd className="mt-1 font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
                                         {vessel.call_sign || 'Belum diisi'}
-                                    </span>
+                                    </dd>
                                 </div>
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
+                                <div className="min-w-0 border-b border-[#DCEAF8] py-3 dark:border-[#1E3A5F]">
+                                    <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                         Nakhoda / Captain
-                                    </span>
-                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
+                                    </dt>
+                                    <dd className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {vessel.captain_name || 'Belum diisi'}
-                                    </span>
+                                    </dd>
                                 </div>
-                            </div>
+                            </dl>
                         </Card>
 
                         {/* Jadwal & Quick Action */}
-                        <Card className="p-5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-4">
-                            <h3
-                                className={
-                                    'text-base font-bold text-[#0B1F63] dark:text-[#F1F5F9] pb-2 ' +
-                                    'border-b border-[#DCEAF8]'
-                                }
-                            >
-                                Jadwal Kedatangan (ETA)
-                            </h3>
-                            {canManageClearance && (
-                                <div className="flex flex-wrap gap-2">
-                                    <Button
-                                        type="button"
-                                        onClick={() => {
-                                            setClearanceToast(null);
-                                            setClearanceDirection('in');
-                                        }}
-                                    >
-                                        Clearance In
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={() => {
-                                            setClearanceToast(null);
-                                            setClearanceDirection('out');
-                                        }}
-                                        className="focus-visible:ring-2"
-                                    >
-                                        Clearance Out
-                                    </Button>
-                                </div>
-                            )}
-                            <div className="space-y-2 text-xs">
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
-                                        Waktu ETA
-                                    </span>
-                                    <span className="font-bold text-sm text-[#0060F4] block mt-0.5">
-                                        {formatEtaDateTime(vessel.eta)}
-                                    </span>
-                                </div>
-                                <div className="p-3 rounded-xl bg-[#F0F8FF] border border-[#DCEAF8]">
-                                    <span className="text-[#52658E] block text-[11px]">
-                                        Pelabuhan Labuh / Sandar
-                                    </span>
-                                    <span className="font-bold text-[#0B1F63] block mt-0.5">
-                                        {vessel.port?.name || 'Belum diisi'}
-                                    </span>
-                                </div>
+                        <Card title="Jadwal kedatangan (ETA)" titleLevel={2} padding="none" overflow="hidden">
+                            <div className="space-y-4 p-4 sm:p-5">
+                                {canCreateRequests && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <Button
+                                            type="button"
+                                            className="w-full"
+                                            onClick={() => {
+                                                setClearanceToast(null);
+                                                setClearanceDirection('in');
+                                            }}
+                                        >
+                                            Clearance In
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="w-full"
+                                            onClick={() => {
+                                                setClearanceToast(null);
+                                                setClearanceDirection('out');
+                                            }}
+                                        >
+                                            Clearance Out
+                                        </Button>
+                                    </div>
+                                )}
+                                <dl className="divide-y divide-[#DCEAF8] text-xs dark:divide-[#1E3A5F]">
+                                    <div className="py-3 first:pt-0">
+                                        <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                            Waktu ETA
+                                        </dt>
+                                        <dd className="mt-1 text-sm font-bold tabular-nums text-[#0060F4] dark:text-[#60A5FA]">
+                                            {formatEtaDateTime(vessel.eta)}
+                                        </dd>
+                                    </div>
+                                    <div className="py-3 last:pb-0">
+                                        <dt className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                            Pelabuhan Labuh / Sandar
+                                        </dt>
+                                        <dd className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {vessel.port?.name || 'Belum diisi'}
+                                        </dd>
+                                    </div>
+                                </dl>
                             </div>
-
-                            {canManageClearance && (
-                                <button
-                                    type="button"
-                                    onClick={() => setNeedFlowStep('header')}
-                                    className={
-                                        'w-full py-2.5 rounded-xl bg-[#0060F4] text-white text-xs ' +
-                                        'font-bold shadow-xs hover:bg-[#0052D4]'
-                                    }
-                                >
-                                    Buat Kebutuhan Kapal &rarr;
-                                </button>
-                            )}
                         </Card>
                     </div>
 
-                    <RequestsTab requests={visitRequests} canProcess={canProcessRequests} />
-                </motion.div>
+                    <RequestsTab requests={visitRequests} canProcess={canProcessRequests} headingLevel={2} />
+                </div>
             </div>
 
             {/* Modal Catat Aktivitas Lapangan */}
@@ -680,7 +630,7 @@ export default function VesselShow({
                     <FormErrorSummary errors={activityErrors} />
                     {activityError && Object.keys(activityErrors).length === 0 && (
                         <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-1.5">
-                            <span>⚠</span>
+                            <CircleAlert aria-hidden="true" className="size-4 shrink-0" />
                             <span>{activityError}</span>
                         </div>
                     )}
@@ -705,32 +655,33 @@ export default function VesselShow({
                     {/* 2. Lokasi / Area (Auto-detected via GPS, editable) */}
                     <div>
                         <div className="flex items-center justify-between mb-1">
-                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            <label htmlFor="vessel-activity-location" className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                 Lokasi / Area <span className="text-[#C62840]">*</span>
                             </label>
                             <button
                                 type="button"
                                 onClick={geo.refresh}
-                                className="text-[11px] font-semibold text-[#0060F4] dark:text-[#38BDF8] flex items-center gap-1 hover:underline cursor-pointer"
+                                className="flex min-h-9 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-[#0060F4] hover:bg-[#F0F8FF] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#38BDF8] dark:hover:bg-[#132847]"
                                 title="Deteksi lokasi saat ini"
                             >
-                                <RefreshCw className={`w-3 h-3 ${geo.loading ? 'animate-spin' : ''}`} />
-                                <span>{geo.loading ? 'Mendeteksi...' : 'GPS Auto'}</span>
+                                <RefreshCw aria-hidden="true" className={`size-3 ${geo.loading ? 'animate-spin' : ''}`} />
+                                <span>{geo.loading ? 'Mendeteksi…' : 'GPS Auto'}</span>
                             </button>
                         </div>
                         <div className="relative">
-                            <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-[#52658E] dark:text-[#94A3B8]" />
+                            <MapPin aria-hidden="true" className="absolute left-3 top-2.5 size-4 text-[#52658E] dark:text-[#94A3B8]" />
                             <input
                                 id="vessel-activity-location"
                                 name="location_name"
                                 type="text"
+                                autoComplete="off"
                                 required
                                 value={activityLocation}
                                 onChange={(e) => setActivityLocation(e.target.value)}
                                 placeholder="Contoh: Dermaga A, Area Bongkar Muat, Gate, dll"
                                 aria-invalid={activityErrors.location_name ? true : undefined}
                                 aria-describedby={activityErrors.location_name ? 'vessel-activity-location-error' : undefined}
-                                className={`w-full rounded-xl border bg-white py-2 pl-9 pr-3 text-xs text-[#082870] outline-none transition-all focus:ring-2 dark:bg-[#0C1D36] dark:text-white ${
+                                className={`w-full rounded-xl border bg-white py-2 pl-9 pr-3 text-xs text-[#082870] outline-none transition-[border-color,box-shadow] focus:ring-2 dark:bg-[#0C1D36] dark:text-white ${
                                     activityErrors.location_name
                                         ? 'border-[#C62840] focus:ring-[#C62840]/20 dark:border-[#EF4444]'
                                         : 'border-[#DCEAF8] focus:border-[#0060F4] focus:ring-[#0060F4]/20 dark:border-[#1E3A5F]'
@@ -747,7 +698,7 @@ export default function VesselShow({
                     {/* 3. Terkait Kapal (Job) */}
                     <div className="p-3 rounded-2xl bg-[#F0F8FF]/80 dark:bg-[#071322] border border-[#BCE0FD] dark:border-[#1E3A5F] space-y-2">
                         <div className="flex items-center gap-2">
-                            <ShipIcon className="w-4 h-4 text-[#0060F4] dark:text-[#38BDF8]" />
+                            <ShipIcon aria-hidden="true" className="size-4 text-[#0060F4] dark:text-[#38BDF8]" />
                             <span className="font-bold text-xs text-[#082870] dark:text-white">
                                 {vessel.name}
                             </span>
@@ -764,10 +715,10 @@ export default function VesselShow({
                     </div>
 
                     {/* 4. Kategori / Jenis Aktivitas */}
-                    <div className="space-y-2">
-                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                    <fieldset className="space-y-2">
+                        <legend className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                             Kategori Aktivitas
-                        </label>
+                        </legend>
                         <div className="flex flex-wrap gap-1.5">
                             {[
                                 'Bongkar Muat',
@@ -779,13 +730,14 @@ export default function VesselShow({
                                 <button
                                     key={cat}
                                     type="button"
+                                    aria-pressed={activityCategory === cat}
                                     onClick={() => {
                                         setActivityCategory(cat);
                                         if (cat !== 'Lainnya') {
                                             setActivityCategoryOther('');
                                         }
                                     }}
-                                    className={`px-3 py-1 rounded-xl font-bold text-[11px] transition-all cursor-pointer ${
+                                    className={`min-h-9 rounded-xl px-3 py-1 text-[11px] font-bold transition-[background-color,border-color,color,box-shadow] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
                                         activityCategory === cat
                                             ? 'bg-[#0060F4] text-white shadow-xs'
                                             : 'bg-[#F0F8FF] dark:bg-[#071322] text-[#082870] dark:text-[#94A3B8] border border-[#DCEAF8] dark:border-[#1E3A5F]'
@@ -802,7 +754,6 @@ export default function VesselShow({
                                 name="category_other"
                                 type="text"
                                 autoComplete="off"
-                                autoFocus
                                 value={activityCategoryOther}
                                 onChange={(event) => setActivityCategoryOther(event.target.value)}
                                 placeholder="Contoh: Koordinasi pandu atau pengisian air tawar"
@@ -812,7 +763,7 @@ export default function VesselShow({
                                 error={activityErrors.category_other}
                             />
                         )}
-                    </div>
+                    </fieldset>
 
                     {/* 5. Judul / Jenis Aktivitas */}
                     <Input
@@ -829,7 +780,7 @@ export default function VesselShow({
                     {/* 6. Detail Aktivitas */}
                     <div>
                         <div className="flex items-center justify-between mb-1">
-                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            <label htmlFor="vessel-activity-detail" className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                 Detail Aktivitas <span className="text-[#C62840]">*</span>
                             </label>
                             <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">
@@ -839,15 +790,16 @@ export default function VesselShow({
                         <textarea
                             id="vessel-activity-detail"
                             name="detail"
+                            autoComplete="off"
                             rows={3}
                             maxLength={500}
                             required
                             value={activityDetail}
                             onChange={(e) => setActivityDetail(e.target.value)}
-                            placeholder="Jelaskan kondisi atau kegiatan yang terjadi di lapangan..."
+                            placeholder="Jelaskan kondisi atau kegiatan yang terjadi di lapangan…"
                             aria-invalid={activityErrors.detail ? true : undefined}
                             aria-describedby={activityErrors.detail ? 'vessel-activity-detail-error' : undefined}
-                            className={`w-full resize-none rounded-xl border bg-white p-2.5 text-xs text-[#082870] outline-none transition-all focus:ring-2 dark:bg-[#0C1D36] dark:text-white ${
+                            className={`w-full resize-none rounded-xl border bg-white p-2.5 text-xs text-[#082870] outline-none transition-[border-color,box-shadow] focus:ring-2 dark:bg-[#0C1D36] dark:text-white ${
                                 activityErrors.detail
                                     ? 'border-[#C62840] focus:ring-[#C62840]/20 dark:border-[#EF4444]'
                                     : 'border-[#DCEAF8] focus:border-[#0060F4] focus:ring-[#0060F4]/20 dark:border-[#1E3A5F]'

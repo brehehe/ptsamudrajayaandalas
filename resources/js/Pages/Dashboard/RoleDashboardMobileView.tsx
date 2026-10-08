@@ -536,11 +536,13 @@ function RequestList({ requests }: { requests: any[] }) {
                 <Link
                     key={requestItem.id}
                     href={`/requests/${requestItem.id}`}
-                    className="grid min-h-16 touch-manipulation grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[#DCEAF8] bg-white px-3 py-2.5 shadow-sm hover:border-[#8EC5F5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#10243E]"
+                    className={`grid min-h-[72px] touch-manipulation grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl border px-2.5 py-2 shadow-sm hover:border-[#8EC5F5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${requestItem.is_new ? 'border-[#0060F4] bg-[#EAF4FF] dark:border-[#38BDF8] dark:bg-[#102B4A]' : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#10243E]'}`}
                 >
+                    <ShipImage src={requestItem.ship_image} alt={`Foto ${requestItem.ship_name}`} width={48} height={48} loading="lazy" className="size-12 rounded-lg object-cover" placeholderIconClassName="size-4" />
                     <span className="min-w-0">
-                        <span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">
-                            {requestItem.request_number} · {requestItem.ship_name}
+                        <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-extrabold text-[#0B1F63] dark:text-white">
+                            <span className="truncate">{requestItem.request_number} · {requestItem.ship_name}</span>
+                            {requestItem.is_new && <span className="shrink-0 rounded-full bg-[#0060F4] px-1.5 py-0.5 text-[8px] font-bold text-white">Baru</span>}
                         </span>
                         <span className="mt-1 block truncate text-[9px] text-[#52658E] dark:text-[#9FB0C6]">
                             {requestItem.items_count} kebutuhan · {requestItem.date}

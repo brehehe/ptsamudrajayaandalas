@@ -156,7 +156,7 @@ class VesselController extends Controller
             ->get();
 
         $portCalls = $vessel->portCalls()
-            ->with(['port', 'clearanceInRequests:id,port_call_id'])
+            ->with(['port', 'workOrder:id,client_pic_name,client_pic_contact', 'clearanceInRequests:id,port_call_id'])
             ->orderByDesc('eta_at')
             ->get();
 
@@ -240,11 +240,15 @@ class VesselController extends Controller
                 'id' => $selectedVisit->id,
                 'job_number' => $selectedVisit->job_number,
                 'status' => $selectedVisit->status,
+                'client_pic_name' => $selectedVisit->workOrder?->client_pic_name,
+                'client_pic_contact' => $selectedVisit->workOrder?->client_pic_contact,
                 'eta_at' => $selectedVisit->eta_at?->toISOString(),
                 'etd_at' => $selectedVisit->etd_at?->toISOString(),
                 'port' => $selectedVisit->port?->only(['id', 'name', 'code', 'city']),
             ] : null,
             'canManageClearance' => $request->user()->isStaff() || $request->user()->isOperationalAdmin(),
+            'canCreateRequests' => ($request->user()->can('create', ShipRequest::class))
+                && ($selectedVisit?->acceptsNewRequests() ?? false),
             'canProcessRequests' => $request->user()->isOperationalAdmin(),
         ]);
     }

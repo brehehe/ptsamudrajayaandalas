@@ -74,6 +74,22 @@ class WorkOrder extends Model
         return self::STATUS_TRANSITIONS[$this->status] ?? null;
     }
 
+    public function fillMissingClientPic(?string $name, ?string $contact): void
+    {
+        $attributes = [];
+
+        if (blank($this->client_pic_name) && filled($name)) {
+            $attributes['client_pic_name'] = trim($name);
+        }
+        if (blank($this->client_pic_contact) && filled($contact)) {
+            $attributes['client_pic_contact'] = trim($contact);
+        }
+
+        if ($attributes !== []) {
+            $this->update($attributes);
+        }
+    }
+
     public function company(): BelongsTo
     {
         return $this->belongsTo(ShipCompany::class, 'company_id');

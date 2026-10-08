@@ -145,7 +145,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                                     required
                                     aria-invalid={Boolean(errors.email)}
                                     aria-describedby={errors.email ? 'email-error' : undefined}
-                                    placeholder="nama@samudrajaya.co.id"
+                                    placeholder="nama@gmail.com"
                                     onChange={(event) => setData('email', event.target.value)}
                                     className="mt-2 block min-h-12 w-full rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] px-4 text-sm text-[#0B1F63] placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#29496D] dark:bg-[#091A2E] dark:text-[#F1F5F9] dark:placeholder:text-[#71849D] dark:focus-visible:border-[#38BDF8] dark:focus-visible:ring-[#38BDF8]/25"
                                 />

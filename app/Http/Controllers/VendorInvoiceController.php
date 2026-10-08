@@ -7,6 +7,7 @@ use App\Http\Requests\VerifyVendorInvoiceRequest;
 use App\Models\CostDocument;
 use App\Models\PortCall;
 use App\Models\RequestItem;
+use App\Models\ShipCompany;
 use App\Models\Vendor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -60,27 +61,58 @@ class VendorInvoiceController extends Controller
 
         return Inertia::render('VendorInvoices/Index', [
             'invoices' => $invoices,
-            'portCalls' => PortCall::query()
-                ->with(['ship:id,name', 'port:id,name'])
-                ->whereIn('status', ['scheduled', 'anchored', 'berthed', 'departed'])
-                ->whereHas('requests.items', fn ($query) => $query
-                    ->where('director_status', 'approved')
-                    ->where('hpp_price', '>', 0)
-                    ->whereDoesntHave('costDocumentItem')
-                    ->whereDoesntHave('expenseRequestItem'))
-                ->latest('eta_at')
-                ->get(['id', 'job_number', 'ship_id', 'port_id']),
+            'filters' => ['search' => $search ?? '', 'status' => $status],
+            'abilities' => [
+                'create' => Gate::allows('create', CostDocument::class),
+                'verify' => $request->user()->isOperationalAdmin(),
+            ],
+        ]);
+    }
+
+    public function create(Request $request): Response
+    {
+        Gate::authorize('create', CostDocument::class);
+
+        $portCalls = PortCall::query()
+            ->with([
+                'ship:id,name,ship_company_id',
+                'ship.company:id,name',
+                'port:id,name',
+                'workOrder:id,company_id,client_number',
+                'workOrder.company:id,name',
+            ])
+            ->whereIn('status', ['scheduled', 'anchored', 'berthed', 'departed'])
+            ->whereHas('requests.items', fn ($query) => $query
+                ->where('director_status', 'approved')
+                ->where('hpp_price', '>', 0)
+                ->whereDoesntHave('costDocumentItem')
+                ->whereDoesntHave('expenseRequestItem'))
+            ->latest('eta_at')
+            ->get(['id', 'job_number', 'work_order_id', 'ship_id', 'port_id'])
+            ->map(fn (PortCall $portCall): array => [
+                'id' => $portCall->id,
+                'job_number' => $portCall->job_number,
+                'client_spk_number' => $portCall->workOrder?->client_number,
+                'company_id' => $portCall->workOrder?->company_id ?? $portCall->ship?->ship_company_id,
+                'company' => ($portCall->workOrder?->company ?? $portCall->ship?->company)?->only(['id', 'name']),
+                'ship' => $portCall->ship?->only(['id', 'name']),
+                'port' => $portCall->port?->only(['id', 'name']),
+            ]);
+
+        return Inertia::render('VendorInvoices/Create', [
+            'companies' => ShipCompany::query()
+                ->whereIn('id', $portCalls->pluck('company_id')->filter()->unique())
+                ->orderBy('name')
+                ->get(['id', 'name']),
+            'portCalls' => $portCalls,
             'availableRequestItems' => RequestItem::query()
                 ->where('director_status', 'approved')
                 ->where('hpp_price', '>', 0)
                 ->whereDoesntHave('costDocumentItem')
                 ->whereDoesntHave('expenseRequestItem')
-                ->whereHas('request', fn ($query) => $query->whereNotNull('port_call_id'))
+                ->whereHas('request', fn ($query) => $query->whereIn('port_call_id', $portCalls->pluck('id')))
                 ->with([
                     'request:id,request_number,port_call_id',
-                    'request.portCall:id,job_number,ship_id,port_id',
-                    'request.portCall.ship:id,name',
-                    'request.portCall.port:id,name',
                     'vendor:id,name',
                 ])
                 ->orderBy('required_date')
@@ -94,11 +126,6 @@ class VendorInvoiceController extends Controller
                     'vendor_id',
                 ]),
             'vendors' => Vendor::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']),
-            'filters' => ['search' => $search ?? '', 'status' => $status],
-            'abilities' => [
-                'create' => Gate::allows('create', CostDocument::class),
-                'verify' => $request->user()->isOperationalAdmin(),
-            ],
         ]);
     }
 
@@ -135,6 +162,9 @@ class VendorInvoiceController extends Controller
                 }
                 if ((float) $requestItem->hpp_price <= 0) {
                     throw ValidationException::withMessages(['request_item_ids' => "HPP item {$requestItem->item_name} belum valid."]);
+                }
+                if ($requestItem->vendor_id && $requestItem->vendor_id !== $vendor->id) {
+                    throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} terhubung ke vendor lain."]);
                 }
             }
 
@@ -186,7 +216,8 @@ class VendorInvoiceController extends Controller
             return $invoice;
         });
 
-        return back()->with('success', "Invoice vendor {$invoice->document_number} berhasil dicatat dan menunggu verifikasi.");
+        return redirect()->route('vendor-invoices.index')
+            ->with('success', "Invoice vendor {$invoice->document_number} berhasil dicatat dan menunggu verifikasi.");
     }
 
     public function verify(VerifyVendorInvoiceRequest $request, CostDocument $costDocument): RedirectResponse

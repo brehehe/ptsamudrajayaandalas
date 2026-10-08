@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreInvoiceRequest;
+use App\Http\Requests\UpdateInvoiceRequest;
 use App\Http\Requests\UpdateInvoiceWorkflowRequest;
 use App\Models\Invoice;
 use App\Models\PortCall;
@@ -71,84 +72,8 @@ class InvoiceController extends Controller
             'reimburse_count' => Invoice::where('invoice_type', 'reimburse')->count(),
         ];
 
-        $companies = ShipCompany::query()
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name']);
-        $portCalls = PortCall::query()
-            ->with([
-                'ship:id,name',
-                'port:id,name',
-                'workOrder:id,company_id',
-                'workOrder.company:id,name',
-            ])
-            ->whereNotNull('reconciled_at')
-            ->whereHas('costReconciliation')
-            ->whereHas('requests.items')
-            ->latest('reconciled_at')
-            ->get(['id', 'job_number', 'work_order_id', 'ship_id', 'port_id'])
-            ->map(fn (PortCall $portCall): array => [
-                'id' => $portCall->id,
-                'job_number' => $portCall->job_number,
-                'ship' => $portCall->ship ? ['name' => $portCall->ship->name] : null,
-                'port' => $portCall->port ? ['name' => $portCall->port->name] : null,
-                'company_id' => $portCall->workOrder?->company_id,
-                'company' => $portCall->workOrder?->company ? [
-                    'id' => $portCall->workOrder->company->id,
-                    'name' => $portCall->workOrder->company->name,
-                ] : null,
-            ]);
-        $shipRequests = ShipRequest::query()
-            ->whereIn('port_call_id', $portCalls->pluck('id'))
-            ->whereHas('items')
-            ->with([
-                'ship:id,name',
-                'items.product:id,item_type',
-                'items.vendor:id,name',
-                'items.invoiceItem:id,invoice_id,request_item_id',
-                'items.invoiceItem.invoice:id,invoice_number,status',
-            ])
-            ->latest('request_date')
-            ->get(['id', 'request_number', 'port_call_id', 'ship_id', 'company_id', 'status'])
-            ->map(fn (ShipRequest $shipRequest): array => [
-                'id' => $shipRequest->id,
-                'request_number' => $shipRequest->request_number,
-                'port_call_id' => $shipRequest->port_call_id,
-                'company_id' => $shipRequest->company_id,
-                'status' => $shipRequest->status,
-                'ship' => $shipRequest->ship ? ['name' => $shipRequest->ship->name] : null,
-                'items' => $shipRequest->items->map(function (RequestItem $item): array {
-                    $billingType = $item->isJasa() ? 'agency' : 'reimburse';
-                    $usedInvoice = $item->invoiceItem?->invoice;
-                    $unavailableReason = match (true) {
-                        $usedInvoice !== null => "Sudah masuk invoice {$usedInvoice->invoice_number}",
-                        $item->is_invoiced => 'Sudah ditagihkan',
-                        $item->director_status !== 'approved' => 'Belum disetujui Direktur',
-                        BigDecimal::of((string) ($item->selling_price ?? '0'))->isLessThanOrEqualTo(BigDecimal::zero()) => 'Harga jual belum tersedia',
-                        default => null,
-                    };
-
-                    return [
-                        'id' => $item->id,
-                        'item_name' => $item->item_name,
-                        'vendor_name' => $item->vendor?->name,
-                        'quantity' => (string) $item->quantity,
-                        'unit' => $item->unit ?: 'Paket',
-                        'selling_price' => (string) ($item->selling_price ?? '0'),
-                        'director_status' => $item->director_status,
-                        'billing_type' => $billingType,
-                        'is_invoiced' => (bool) $item->is_invoiced,
-                        'used_invoice_number' => $usedInvoice?->invoice_number,
-                        'unavailable_reason' => $unavailableReason,
-                    ];
-                })->values(),
-            ]);
-
         return Inertia::render('Invoices/Index', [
             'invoices' => $invoices,
-            'companies' => $companies,
-            'portCalls' => $portCalls,
-            'shipRequests' => $shipRequests,
             'stats' => $stats,
             'filters' => [
                 'type' => $type,
@@ -169,128 +94,10 @@ class InvoiceController extends Controller
             : null;
 
         try {
-            $invoice = DB::transaction(function () use ($request, $validated, $supportingDocumentPath): Invoice {
-                $portCall = PortCall::query()
-                    ->with(['workOrder:id,company_id', 'costReconciliation:id,port_call_id'])
-                    ->lockForUpdate()
-                    ->findOrFail($validated['port_call_id']);
-
-                if (! $portCall->reconciled_at || ! $portCall->costReconciliation) {
-                    throw ValidationException::withMessages(['port_call_id' => 'Invoice klien hanya dapat dibuat setelah rekonsiliasi biaya selesai.']);
-                }
-                if ($portCall->workOrder?->company_id !== $validated['company_id']) {
-                    throw ValidationException::withMessages(['company_id' => 'Perusahaan harus mengikuti SPK/Kunjungan yang dipilih.']);
-                }
-
-                $shipRequest = ShipRequest::query()->lockForUpdate()->findOrFail($validated['request_id']);
-                if ($shipRequest->port_call_id !== $portCall->id) {
-                    throw ValidationException::withMessages(['request_id' => 'Pengajuan tidak terhubung ke Kunjungan/Job yang dipilih.']);
-                }
-                if ($shipRequest->company_id && $shipRequest->company_id !== $validated['company_id']) {
-                    throw ValidationException::withMessages(['request_id' => 'Perusahaan pada pengajuan tidak sesuai dengan SPK/Kunjungan yang dipilih.']);
-                }
-
-                $selectedIds = collect($validated['request_item_ids'])->unique()->values();
-                $requestItems = RequestItem::query()
-                    ->where('request_id', $shipRequest->id)
-                    ->whereIn('id', $selectedIds)
-                    ->with(['product:id,item_type', 'vendor:id,name', 'invoiceItem:id,invoice_id,request_item_id'])
-                    ->lockForUpdate()
-                    ->get();
-
-                if ($requestItems->count() !== $selectedIds->count()) {
-                    throw ValidationException::withMessages(['request_item_ids' => 'Satu atau beberapa item tidak berasal dari pengajuan yang dipilih.']);
-                }
-
-                $subtotal = BigDecimal::zero();
-                $lineSnapshots = [];
-
-                foreach ($requestItems as $item) {
-                    if ($item->director_status !== 'approved') {
-                        throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} belum disetujui Direktur."]);
-                    }
-                    if ($item->is_invoiced || $item->invoiceItem) {
-                        throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} sudah dipakai pada invoice lain."]);
-                    }
-
-                    $billingType = $item->isJasa() ? 'agency' : 'reimburse';
-                    if ($billingType !== $validated['invoice_type']) {
-                        $typeLabel = $billingType === 'agency' ? 'Jasa Keagenan' : 'Reimburse';
-                        throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} hanya dapat masuk invoice {$typeLabel}."]);
-                    }
-
-                    $unitPrice = BigDecimal::of((string) ($item->selling_price ?? '0'))->toScale(2, RoundingMode::HalfUp);
-                    if ($unitPrice->isLessThanOrEqualTo(BigDecimal::zero())) {
-                        throw ValidationException::withMessages(['request_item_ids' => "Harga jual item {$item->item_name} belum valid."]);
-                    }
-                    $lineSubtotal = $unitPrice
-                        ->multipliedBy((string) $item->quantity)
-                        ->toScale(2, RoundingMode::HalfUp);
-                    $subtotal = $subtotal->plus($lineSubtotal);
-                    $lineSnapshots[] = [
-                        'request_item' => $item,
-                        'unit_price' => (string) $unitPrice,
-                        'subtotal' => (string) $lineSubtotal,
-                    ];
-                }
-
-                $addon = BigDecimal::of((string) ($validated['addon_total'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
-                $tax = BigDecimal::of((string) ($validated['tax'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
-                $grandTotal = $subtotal->plus($addon)->plus($tax)->toScale(2, RoundingMode::HalfUp);
-                $prefix = $validated['invoice_type'] === 'agency' ? 'INV-AGY' : 'INV-RMB';
-                $invoiceNumber = sprintf('%s-%s-%s', $prefix, now()->format('ymd'), Str::upper(Str::random(6)));
-
-                $invoice = Invoice::create([
-                    'invoice_number' => $invoiceNumber,
-                    'port_call_id' => $portCall->id,
-                    'company_id' => $validated['company_id'],
-                    'request_id' => $shipRequest->id,
-                    'invoice_type' => $validated['invoice_type'],
-                    'invoice_date' => now()->toDateString(),
-                    'due_date' => $validated['due_date'],
-                    'subtotal' => (string) $subtotal->toScale(2, RoundingMode::HalfUp),
-                    'addon_total' => (string) $addon,
-                    'discount' => '0.00',
-                    'tax' => (string) $tax,
-                    'grand_total' => (string) $grandTotal,
-                    'paid_amount' => '0.00',
-                    'outstanding_amount' => (string) $grandTotal,
-                    'currency' => 'IDR',
-                    'status' => 'draft',
-                    'delivery_status' => 'pending',
-                    'supporting_document_path' => $supportingDocumentPath,
-                    'notes' => $validated['notes'] ?? null,
-                    'version' => 1,
-                ]);
-
-                foreach ($lineSnapshots as $lineSnapshot) {
-                    /** @var RequestItem $requestItem */
-                    $requestItem = $lineSnapshot['request_item'];
-                    $invoice->items()->create([
-                        'request_item_id' => $requestItem->id,
-                        'description' => $requestItem->item_name,
-                        'vendor_name' => $requestItem->vendor?->name,
-                        'quantity' => $requestItem->quantity,
-                        'unit' => $requestItem->unit ?: 'Paket',
-                        'unit_price' => $lineSnapshot['unit_price'],
-                        'subtotal' => $lineSnapshot['subtotal'],
-                    ]);
-                    $requestItem->update(['is_invoiced' => true]);
-                }
-
-                activity('client-invoice')
-                    ->performedOn($invoice)
-                    ->causedBy($request->user())
-                    ->withProperties([
-                        'port_call_id' => $portCall->id,
-                        'type' => $validated['invoice_type'],
-                        'request_item_ids' => $selectedIds->all(),
-                        'grand_total' => (string) $grandTotal,
-                    ])
-                    ->log('Invoice klien dibuat dari item kebutuhan');
-
-                return $invoice;
-            }, attempts: 3);
+            $invoice = DB::transaction(
+                fn (): Invoice => $this->persistInvoice($request, $validated, null, $supportingDocumentPath),
+                attempts: 3,
+            );
         } catch (Throwable $exception) {
             if ($supportingDocumentPath) {
                 Storage::disk('local')->delete($supportingDocumentPath);
@@ -299,7 +106,329 @@ class InvoiceController extends Controller
             throw $exception;
         }
 
-        return redirect()->back()->with('success', "Invoice {$invoice->invoice_number} berhasil dibuat dari item terpilih.");
+        return redirect()->route('invoices.index')
+            ->with('success', "Invoice {$invoice->invoice_number} berhasil dibuat dari item terpilih.");
+    }
+
+    public function create(): Response
+    {
+        Gate::authorize('create', Invoice::class);
+
+        return Inertia::render('Invoices/Form', $this->formData());
+    }
+
+    public function edit(Invoice $invoice): Response
+    {
+        Gate::authorize('update', $invoice);
+        $invoice->load('items:id,invoice_id,request_item_id,unit_price');
+
+        return Inertia::render('Invoices/Form', $this->formData($invoice));
+    }
+
+    public function update(UpdateInvoiceRequest $request, Invoice $invoice): RedirectResponse
+    {
+        Gate::authorize('update', $invoice);
+        $validated = $request->validated();
+        $newSupportingDocumentPath = $request->hasFile('supporting_document')
+            ? $request->file('supporting_document')->store('sja/client-invoices/supporting-documents', 'local')
+            : null;
+        $oldSupportingDocumentPath = $invoice->supporting_document_path;
+
+        try {
+            $invoice = DB::transaction(
+                fn (): Invoice => $this->persistInvoice($request, $validated, $invoice, $newSupportingDocumentPath),
+                attempts: 3,
+            );
+        } catch (Throwable $exception) {
+            if ($newSupportingDocumentPath) {
+                Storage::disk('local')->delete($newSupportingDocumentPath);
+            }
+
+            throw $exception;
+        }
+
+        if ($newSupportingDocumentPath && $oldSupportingDocumentPath) {
+            Storage::disk('local')->delete($oldSupportingDocumentPath);
+        }
+
+        return redirect()->route('invoices.index')
+            ->with('success', "Invoice {$invoice->invoice_number} berhasil diperbarui.");
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formData(?Invoice $editingInvoice = null): array
+    {
+        $editingInvoiceId = $editingInvoice?->id;
+        $editingPortCallId = $editingInvoice?->port_call_id;
+        $editingItemPrices = $editingInvoice?->items
+            ->mapWithKeys(fn ($item): array => [$item->request_item_id => (string) $item->unit_price])
+            ->all() ?? [];
+
+        $portCalls = PortCall::query()
+            ->with([
+                'ship:id,name,ship_company_id',
+                'ship.company:id,name',
+                'port:id,name',
+                'workOrder:id,company_id,client_number',
+                'workOrder.company:id,name',
+            ])
+            ->where(function ($query) use ($editingPortCallId): void {
+                $query->whereHas('completionNote');
+                if ($editingPortCallId) {
+                    $query->orWhereKey($editingPortCallId);
+                }
+            })
+            ->whereHas('requests.items')
+            ->latest('departed_at')
+            ->get(['id', 'job_number', 'work_order_id', 'ship_id', 'port_id', 'departed_at'])
+            ->map(fn (PortCall $portCall): array => [
+                'id' => $portCall->id,
+                'job_number' => $portCall->job_number,
+                'client_spk_number' => $portCall->workOrder?->client_number,
+                'company_id' => $portCall->workOrder?->company_id ?? $portCall->ship?->ship_company_id,
+                'company' => ($portCall->workOrder?->company ?? $portCall->ship?->company)?->only(['id', 'name']),
+                'ship' => $portCall->ship?->only(['id', 'name']),
+                'port' => $portCall->port?->only(['id', 'name']),
+            ]);
+
+        $shipRequests = ShipRequest::query()
+            ->whereIn('port_call_id', $portCalls->pluck('id'))
+            ->whereHas('items')
+            ->with([
+                'items.product:id,item_type',
+                'items.vendor:id,name',
+                'items.invoiceItem:id,invoice_id,request_item_id',
+                'items.invoiceItem.invoice:id,invoice_number,status',
+            ])
+            ->latest('request_date')
+            ->latest('created_at')
+            ->get(['id', 'request_number', 'port_call_id', 'company_id', 'status'])
+            ->map(fn (ShipRequest $shipRequest): array => [
+                'id' => $shipRequest->id,
+                'request_number' => $shipRequest->request_number,
+                'port_call_id' => $shipRequest->port_call_id,
+                'items' => $shipRequest->items->map(function (RequestItem $item) use ($editingInvoiceId, $editingItemPrices, $shipRequest): array {
+                    $usedInvoice = $item->invoiceItem?->invoice;
+                    $belongsToEditingInvoice = $item->invoiceItem?->invoice_id === $editingInvoiceId;
+                    $unavailableReason = match (true) {
+                        $usedInvoice !== null && ! $belongsToEditingInvoice => "Sudah masuk invoice {$usedInvoice->invoice_number}",
+                        $item->is_invoiced && ! $belongsToEditingInvoice => 'Sudah ditagihkan',
+                        $item->director_status !== 'approved' => 'Belum disetujui Direktur',
+                        default => null,
+                    };
+
+                    return [
+                        'id' => $item->id,
+                        'request_id' => $item->request_id,
+                        'request_number' => $shipRequest->request_number,
+                        'item_name' => $item->item_name,
+                        'vendor_name' => $item->vendor?->name,
+                        'quantity' => (string) $item->quantity,
+                        'unit' => $item->unit ?: 'Paket',
+                        'selling_price' => $editingItemPrices[$item->id] ?? (string) ($item->selling_price ?? '0'),
+                        'billing_type' => $item->isJasa() ? 'agency' : 'reimburse',
+                        'unavailable_reason' => $unavailableReason,
+                    ];
+                })->values(),
+            ]);
+
+        return [
+            'companies' => ShipCompany::query()
+                ->whereIn('id', $portCalls->pluck('company_id')->filter()->unique())
+                ->orderBy('name')
+                ->get(['id', 'name']),
+            'portCalls' => $portCalls,
+            'shipRequests' => $shipRequests,
+            'invoice' => $editingInvoice ? [
+                'id' => $editingInvoice->id,
+                'invoice_number' => $editingInvoice->invoice_number,
+                'port_call_id' => $editingInvoice->port_call_id,
+                'company_id' => $editingInvoice->company_id,
+                'invoice_type' => $editingInvoice->invoice_type,
+                'due_date' => $editingInvoice->due_date?->toDateString(),
+                'addon_total' => (string) $editingInvoice->addon_total,
+                'tax' => (string) $editingInvoice->tax,
+                'notes' => $editingInvoice->notes,
+                'supporting_document_path' => $editingInvoice->supporting_document_path,
+                'request_item_ids' => array_keys($editingItemPrices),
+                'item_prices' => $editingItemPrices,
+            ] : null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function persistInvoice(
+        Request $request,
+        array $validated,
+        ?Invoice $existingInvoice,
+        ?string $supportingDocumentPath,
+    ): Invoice {
+        $invoice = $existingInvoice
+            ? Invoice::query()->lockForUpdate()->findOrFail($existingInvoice->id)
+            : null;
+
+        if ($invoice) {
+            Gate::authorize('update', $invoice);
+            if ($invoice->status !== 'draft') {
+                throw ValidationException::withMessages(['invoice' => 'Hanya invoice draft yang dapat diperbarui.']);
+            }
+        }
+
+        $portCall = PortCall::query()
+            ->with(['workOrder:id,company_id', 'ship:id,ship_company_id', 'completionNote:id,port_call_id'])
+            ->lockForUpdate()
+            ->findOrFail($validated['port_call_id']);
+
+        if (! $portCall->completionNote && $invoice?->port_call_id !== $portCall->id) {
+            throw ValidationException::withMessages(['port_call_id' => 'Unggah Nota Rampung Job sebelum membuat invoice klien.']);
+        }
+        $jobCompanyId = $portCall->workOrder?->company_id ?? $portCall->ship?->ship_company_id;
+        if ($jobCompanyId !== $validated['company_id']) {
+            throw ValidationException::withMessages(['company_id' => 'Perusahaan harus mengikuti SPK/Job yang dipilih.']);
+        }
+
+        $selectedIds = collect($validated['request_item_ids'])->unique()->values();
+        $currentItemIds = $invoice?->items()->pluck('request_item_id') ?? collect();
+        $lockedItems = RequestItem::query()
+            ->whereIn('id', $selectedIds->merge($currentItemIds)->unique())
+            ->with([
+                'request:id,request_number,port_call_id,company_id',
+                'product:id,item_type',
+                'vendor:id,name',
+                'invoiceItem:id,invoice_id,request_item_id',
+            ])
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+        $requestItems = $selectedIds->map(fn (string $id) => $lockedItems->get($id))->filter();
+
+        if ($requestItems->count() !== $selectedIds->count()) {
+            throw ValidationException::withMessages(['request_item_ids' => 'Satu atau beberapa item pengajuan tidak tersedia.']);
+        }
+
+        $subtotal = BigDecimal::zero();
+        $lineSnapshots = [];
+
+        foreach ($requestItems as $item) {
+            if ($item->request?->port_call_id !== $portCall->id) {
+                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} tidak berasal dari Job yang dipilih."]);
+            }
+            if ($item->request?->company_id && $item->request->company_id !== $validated['company_id']) {
+                throw ValidationException::withMessages(['request_item_ids' => "Perusahaan pada item {$item->item_name} tidak sesuai dengan SPK."]);
+            }
+            if ($item->director_status !== 'approved') {
+                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} belum disetujui Direktur."]);
+            }
+            if ($item->invoiceItem && $item->invoiceItem->invoice_id !== $invoice?->id) {
+                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} sudah dipakai pada invoice lain."]);
+            }
+            if ($item->is_invoiced && ! $currentItemIds->contains($item->id)) {
+                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} sudah ditagihkan."]);
+            }
+
+            $billingType = $item->isJasa() ? 'agency' : 'reimburse';
+            if ($billingType !== $validated['invoice_type']) {
+                $typeLabel = $billingType === 'agency' ? 'Jasa Keagenan' : 'Reimburse';
+                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} hanya dapat masuk invoice {$typeLabel}."]);
+            }
+
+            $rawPrice = $validated['item_prices'][$item->id] ?? null;
+            if ($rawPrice === null) {
+                throw ValidationException::withMessages(["item_prices.{$item->id}" => "Harga jual item {$item->item_name} wajib diisi."]);
+            }
+            $unitPrice = BigDecimal::of((string) $rawPrice)->toScale(2, RoundingMode::HalfUp);
+            if ($unitPrice->isLessThanOrEqualTo(BigDecimal::zero())) {
+                throw ValidationException::withMessages(["item_prices.{$item->id}" => "Harga jual item {$item->item_name} harus lebih dari nol."]);
+            }
+            $lineSubtotal = $unitPrice
+                ->multipliedBy((string) $item->quantity)
+                ->toScale(2, RoundingMode::HalfUp);
+            $subtotal = $subtotal->plus($lineSubtotal);
+            $lineSnapshots[] = [
+                'request_item' => $item,
+                'unit_price' => (string) $unitPrice,
+                'subtotal' => (string) $lineSubtotal,
+            ];
+        }
+
+        $addon = BigDecimal::of((string) ($validated['addon_total'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $tax = BigDecimal::of((string) ($validated['tax'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $grandTotal = $subtotal->plus($addon)->plus($tax)->toScale(2, RoundingMode::HalfUp);
+        $paidAmount = BigDecimal::of((string) ($invoice?->paid_amount ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $outstandingAmount = $grandTotal->minus($paidAmount)->toScale(2, RoundingMode::HalfUp);
+        if ($outstandingAmount->isLessThan(BigDecimal::zero())) {
+            $outstandingAmount = BigDecimal::zero()->toScale(2);
+        }
+
+        $invoiceAttributes = [
+            'port_call_id' => $portCall->id,
+            'company_id' => $validated['company_id'],
+            'request_id' => $requestItems->first()?->request_id,
+            'invoice_type' => $validated['invoice_type'],
+            'due_date' => $validated['due_date'],
+            'subtotal' => (string) $subtotal->toScale(2, RoundingMode::HalfUp),
+            'addon_total' => (string) $addon,
+            'tax' => (string) $tax,
+            'grand_total' => (string) $grandTotal,
+            'outstanding_amount' => (string) $outstandingAmount,
+            'supporting_document_path' => $supportingDocumentPath ?? $invoice?->supporting_document_path,
+            'notes' => $validated['notes'] ?? null,
+        ];
+
+        if ($invoice) {
+            $invoice->update([
+                ...$invoiceAttributes,
+                'version' => $invoice->version + 1,
+            ]);
+        } else {
+            $prefix = $validated['invoice_type'] === 'agency' ? 'INV-AGY' : 'INV-RMB';
+            $invoice = Invoice::create([
+                ...$invoiceAttributes,
+                'invoice_number' => sprintf('%s-%s-%s', $prefix, now()->format('ymd'), Str::upper(Str::random(6))),
+                'invoice_date' => now()->toDateString(),
+                'discount' => '0.00',
+                'paid_amount' => '0.00',
+                'currency' => 'IDR',
+                'status' => 'draft',
+                'delivery_status' => 'pending',
+                'version' => 1,
+            ]);
+        }
+
+        RequestItem::query()->whereIn('id', $currentItemIds)->update(['is_invoiced' => false]);
+        $invoice->items()->delete();
+
+        foreach ($lineSnapshots as $lineSnapshot) {
+            /** @var RequestItem $requestItem */
+            $requestItem = $lineSnapshot['request_item'];
+            $invoice->items()->create([
+                'request_item_id' => $requestItem->id,
+                'description' => $requestItem->item_name,
+                'vendor_name' => $requestItem->vendor?->name,
+                'quantity' => $requestItem->quantity,
+                'unit' => $requestItem->unit ?: 'Paket',
+                'unit_price' => $lineSnapshot['unit_price'],
+                'subtotal' => $lineSnapshot['subtotal'],
+            ]);
+            $requestItem->update(['is_invoiced' => true]);
+        }
+
+        activity('client-invoice')
+            ->performedOn($invoice)
+            ->causedBy($request->user())
+            ->withProperties([
+                'port_call_id' => $portCall->id,
+                'type' => $validated['invoice_type'],
+                'request_item_ids' => $selectedIds->all(),
+                'grand_total' => (string) $grandTotal,
+            ])
+            ->log($existingInvoice ? 'Invoice klien diperbarui' : 'Invoice klien dibuat dari item kebutuhan');
+
+        return $invoice;
     }
 
     public function release(

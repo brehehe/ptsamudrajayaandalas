@@ -23,7 +23,6 @@ import {
     MapPin,
     PackagePlus,
     Plus,
-    RotateCcw,
     Save,
     Send,
     Ship as ShipIcon,
@@ -38,7 +37,9 @@ import StatusBadge from '../../Components/ui/StatusBadge';
 import { playSjaChime } from '../../Components/feedback/AudioNotification';
 import Modal from '../../Components/overlays/Modal';
 import { formatRupiahInput, normalizeRupiahInput } from '../../Components/forms/MoneyInput';
-import RequestWorkflowPanel from '../../Components/RequestWorkflowPanel';
+import RequestWorkflowPanel, {
+    RequestItemWorkflowAction,
+} from '../../Components/RequestWorkflowPanel';
 import Table from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
 import type { PageProps } from '../../types';
@@ -47,6 +48,7 @@ import Input from '../../Components/forms/Input';
 import Textarea from '../../Components/forms/Textarea';
 import Checkbox from '../../Components/forms/Checkbox';
 import Select from '../../Components/selects/Select';
+import RequirementDate from '../../Components/ui/RequirementDate';
 
 interface ProductOption {
     id: string;
@@ -71,6 +73,7 @@ interface RequestItem {
     is_urgent: boolean;
     is_invoiced?: boolean;
     notes?: string;
+    required_date?: string | null;
     created_at?: string;
     updated_at?: string;
     vendor?: {
@@ -307,6 +310,24 @@ function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: 
     const normalized = status === 'approved' || status === 'rejected' ? status : 'pending';
 
     if (normalized === 'approved') {
+        if (itemStatus === 'dalam_proses') {
+            return (
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-violet-200 bg-[#EEE5FF] px-2.5 py-1 text-xs font-bold text-[#6D3CCB] dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300">
+                    <span className="size-1.5 rounded-full bg-violet-500" />
+                    Dalam Proses
+                </span>
+            );
+        }
+
+        if (itemStatus === 'selesai') {
+            return (
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-[#DCF7E8] px-2.5 py-1 text-xs font-bold text-[#087443] dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                    Terpenuhi
+                </span>
+            );
+        }
+
         return (
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-[#DCF7E8] px-2.5 py-1 text-xs font-bold text-[#087443] dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -328,7 +349,7 @@ function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: 
 
     return (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-[#FFF0CC] px-2.5 py-1 text-xs font-bold text-[#A65300] dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-            <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="size-1.5 animate-pulse rounded-full bg-amber-500 motion-reduce:animate-none" />
             {label}
         </span>
     );
@@ -364,10 +385,27 @@ export default function RequestShow({
     const { auth, errors } = usePage<PageProps>().props;
 
     const allRequests = useMemo(() => {
-        if (requests && requests.length > 0) return requests;
-        if (initialRequest) return [initialRequest];
-        return [];
+        const source = requests && requests.length > 0
+            ? requests
+            : initialRequest
+                ? [initialRequest]
+                : [];
+        const createdTimestamp = (shipRequest: ShipRequest): number => {
+            const value = shipRequest.created_at ?? shipRequest.request_date;
+
+            return value ? Date.parse(value) || 0 : 0;
+        };
+
+        return [...source].sort((first, second) => {
+            const createdOrder = createdTimestamp(second) - createdTimestamp(first);
+
+            return createdOrder !== 0
+                ? createdOrder
+                : second.id.localeCompare(first.id);
+        });
     }, [requests, initialRequest]);
+
+    const newestRequestId = allRequests[0]?.id ?? null;
 
     const currentJob = job || allRequests[0]?.port_call;
     const currentShip = currentJob?.ship || allRequests[0]?.ship;
@@ -398,8 +436,6 @@ export default function RequestShow({
 
     // Modals
     const [addItemTargetReqId, setAddItemTargetReqId] = useState<string | null>(null);
-    const [revisionTarget, setRevisionTarget] = useState<{ requestId: string; item: RequestItem } | null>(null);
-    const [revisionReason, setRevisionReason] = useState('');
     const [copiedNumber, setCopiedNumber] = useState<string | null>(null);
 
     // Initialize drafts from items
@@ -409,7 +445,7 @@ export default function RequestShow({
         const selected: Record<string, string[]> = {};
 
         allRequests.forEach((req) => {
-            const isReqActive = !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status);
+            const isReqActive = !['Selesai', 'Dibatalkan'].includes(req.status);
             const editableIds: string[] = [];
             (req.items || []).forEach((item) => {
                 drafts[item.id] = {
@@ -516,7 +552,7 @@ export default function RequestShow({
     const allEditableItemsAcrossJob = useMemo(() => {
         const list: { requestId: string; item: RequestItem }[] = [];
         allRequests.forEach((req) => {
-            if (!['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status)) {
+            if (!['Selesai', 'Dibatalkan'].includes(req.status)) {
                 (req.items || []).forEach((it) => {
                     if (it.director_status !== 'approved' && it.status !== 'diajukan_ke_direktur' && !it.is_invoiced) {
                         list.push({ requestId: req.id, item: it });
@@ -537,9 +573,9 @@ export default function RequestShow({
 
     const desktopRows = useMemo<DesktopRequestItemRow[]>(() => {
         const rows = allRequests.flatMap((req) => {
-            const requestIsActive = !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status);
+            const requestIsActive = !['Selesai', 'Dibatalkan'].includes(req.status);
 
-            return (req.items || []).map((item) => {
+            const requestRows = (req.items || []).map((item) => {
                 const isEditable =
                     requestIsActive &&
                     item.director_status !== 'approved' &&
@@ -548,11 +584,11 @@ export default function RequestShow({
                 const needsAttention = capabilities.can_decide_items
                     ? item.status === 'diajukan_ke_direktur' && item.director_status === 'pending'
                     : canUseAdminActions
-                      ? isEditable ||
+                        ? isEditable ||
                         (item.director_status === 'approved' &&
                             ['Disetujui', 'Disetujui Sebagian'].includes(req.status)) ||
                         item.director_status === 'rejected'
-                      : capabilities.can_create_requests && item.director_status === 'rejected';
+                        : capabilities.can_create_requests && item.director_status === 'rejected';
                 const updatedAt = Math.max(
                     0,
                     ...[item.updated_at, item.created_at, req.updated_at, req.created_at]
@@ -568,16 +604,21 @@ export default function RequestShow({
                     updatedAt,
                 };
             });
-        });
 
-        rows.sort((first, second) => {
-            const attentionOrder = Number(second.needsAttention) - Number(first.needsAttention);
+            return requestRows.sort((first, second) => {
+                const priority = (row: DesktopRequestItemRow): number => {
+                    if (canUseAdminActions && row.item.director_status === 'approved') return 4;
+                    if (row.item.director_status === 'rejected') return 3;
+                    if (row.needsAttention) return 2;
 
-            if (attentionOrder !== 0) {
-                return attentionOrder;
-            }
+                    return 0;
+                };
+                const attentionOrder = priority(second) - priority(first);
 
-            return second.updatedAt - first.updatedAt;
+                return attentionOrder !== 0
+                    ? attentionOrder
+                    : second.updatedAt - first.updatedAt;
+            });
         });
 
         const visibleRequests = new Set<string>();
@@ -756,25 +797,6 @@ export default function RequestShow({
         );
     };
 
-    const submitRevision = () => {
-        if (!revisionTarget || !revisionReason.trim()) return;
-
-        router.post(
-            route('requests.items.revision', [revisionTarget.requestId, revisionTarget.item.id]),
-            { reason: revisionReason },
-            {
-                preserveScroll: true,
-                onStart: () => setActiveAction('revision'),
-                onSuccess: () => {
-                    setRevisionTarget(null);
-                    setRevisionReason('');
-                    playSjaChime('success');
-                },
-                onFinish: () => setActiveAction(null),
-            }
-        );
-    };
-
     const handleCopy = (numberStr: string) => {
         navigator.clipboard.writeText(numberStr);
         setCopiedNumber(numberStr);
@@ -802,15 +824,15 @@ export default function RequestShow({
             {/* ═══════════════════════════════════════════════════════════════
                 MOBILE VIEW (< md): EXACT MATCH TO Vessels/Show.tsx
                ═══════════════════════════════════════════════════════════════ */}
-            {/* Ship Hero Photo sits behind the shared transparent mobile navbar */}
-            <div className="relative h-52 w-full overflow-hidden bg-[#DCEAF8] md:hidden">
+            {/* Ship Hero Photo starts below the shared mobile header. */}
+            <div className="relative h-40 w-full overflow-hidden bg-[#DCEAF8] sm:h-44 md:hidden">
                 <ShipImage
                     src={shipImage}
                     alt={shipName}
                     width={1280}
                     height={720}
                     fetchPriority="high"
-                    className="size-full object-cover"
+                    className="size-full object-cover object-center"
                 />
                 <div className="absolute bottom-3 right-3 z-10">
                     {renderVesselStatusBadge(currentJob?.status || 'Labuh')}
@@ -846,7 +868,7 @@ export default function RequestShow({
                     </svg>
                 </Link>
 
-                <h1 className="text-center text-sm font-bold text-[#082870] dark:text-white truncate px-2 flex-1">
+                <h1 className="min-w-0 flex-1 break-words px-2 text-center text-sm font-bold leading-tight text-[#082870] dark:text-white">
                     {shipName}
                 </h1>
 
@@ -856,7 +878,7 @@ export default function RequestShow({
                             href={route('work-orders.detail', currentJob.work_order.id)}
                             prefetch
                             aria-label={`Buka SPK ${currentJob.work_order.system_number}`}
-                            className="flex size-9 items-center justify-center rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] text-[#0060F4] hover:bg-[#E0F0FF] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
+                            className="flex size-11 items-center justify-center rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] text-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
                         >
                             <FileText aria-hidden="true" className="size-4" />
                         </Link>
@@ -866,7 +888,7 @@ export default function RequestShow({
                             href={route('requests.create')}
                             prefetch
                             aria-label="Buat pengajuan baru"
-                            className="flex size-9 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-xs hover:bg-[#082870]"
+                            className="flex size-11 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-xs hover:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
                         >
                             <Plus aria-hidden="true" className="size-4" />
                         </Link>
@@ -877,58 +899,61 @@ export default function RequestShow({
             {/* Mobile Continuous Seamless Content Surface */}
             <div className="bg-white dark:bg-[#0C1D36] pb-3 md:hidden">
                 {/* Ship Name & Subtitle Card */}
-                <div className="px-4 pt-4 pb-3 border-b border-[#E2EEF9] dark:border-[#1E3A5F]">
-                    <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                            <h2 className="text-xl font-extrabold text-[#082870] dark:text-white leading-tight break-words">
-                                {shipName}
-                            </h2>
-                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5 break-words">
-                                {companyName || 'Perusahaan belum diisi'} {imoNumber ? `• IMO ${imoNumber}` : ''}
-                            </p>
-                        </div>
-                        <span className="font-mono text-xs font-black text-[#0060F4] bg-[#E0F0FF] dark:bg-[#132847] dark:text-[#60A5FA] px-2.5 py-1 rounded-lg shrink-0">
-                            {jobNumber}
-                        </span>
+                <div className="border-b border-[#E2EEF9] px-4 pb-3 pt-3 dark:border-[#1E3A5F]">
+                    <div className="min-w-0">
+                        <h2 className="break-words text-lg font-extrabold leading-tight text-[#082870] dark:text-white">
+                            {shipName}
+                        </h2>
+                        <p className="mt-1 break-words text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
+                            {companyName || 'Perusahaan belum diisi'} {imoNumber ? `• IMO ${imoNumber}` : ''}
+                        </p>
                     </div>
 
-                    {/* 3 Pills: ETA | PELABUHAN | SPK */}
-                    <div className="grid grid-cols-3 gap-2 text-center text-xs mt-3.5">
+                    <div className="mt-3 flex min-h-11 items-center gap-2 rounded-xl border border-[#BCE0FD] bg-[#E0F0FF] px-3 text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]">
+                        <Layers className="size-4 shrink-0" aria-hidden="true" />
+                        <div className="min-w-0">
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                Nomor job
+                            </span>
+                            <span className="block break-all font-mono text-xs font-black" translate="no">
+                                {jobNumber}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Informasi inti kunjungan */}
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                         {(() => {
                             const etaParts = getEtaParts(currentJob?.eta_at || allRequests[0]?.request_date);
                             return (
                                 <>
-                                    <div className="p-2.5 rounded-xl bg-[#F0F8FF] dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center">
-                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8] font-bold uppercase block tracking-wider">
+                                    <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
                                             ETA
                                         </span>
-                                        <span className="font-bold text-[#082870] dark:text-white block mt-1 leading-tight text-[11px] break-words">
-                                            {etaParts.date}
-                                        </span>
-                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8] block mt-0.5 font-medium">
-                                            {etaParts.time || '-'}
+                                        <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
+                                            {etaParts.date}{etaParts.time ? ` • ${etaParts.time}` : ''}
                                         </span>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-[#F0F8FF] dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center">
-                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8] font-bold uppercase block tracking-wider">
-                                            PELABUHAN
+                                    <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                            Pelabuhan
                                         </span>
-                                        <span className="font-bold text-[#082870] dark:text-white block mt-1 leading-tight text-[10.5px] break-words">
+                                        <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
                                             {portName}
                                         </span>
-                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8] block mt-0.5 font-medium">
-                                            {currentPort?.code ? `Kode: ${currentPort.code}` : 'Kode belum tersedia'}
-                                        </span>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-[#F0F8FF] dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] flex flex-col justify-center">
-                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8] font-bold uppercase block tracking-wider">
-                                            SPK
-                                        </span>
-                                        <span className="block break-words font-mono text-[9.5px] font-bold leading-tight text-[#082870] dark:text-white">
-                                            {currentJob?.work_order?.system_number || '-'}
-                                        </span>
-                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8] block mt-0.5 font-medium">
-                                            {currentShip?.call_sign ? `Call: ${currentShip.call_sign}` : 'Call sign belum tersedia'}
+                                    <div className="col-span-2 flex min-h-14 items-center justify-between gap-3 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                        <div className="min-w-0">
+                                            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                                SPK
+                                            </span>
+                                            <span className="mt-0.5 block break-all font-mono text-xs font-bold text-[#082870] dark:text-white" translate="no">
+                                                {currentJob?.work_order?.system_number || '-'}
+                                            </span>
+                                        </div>
+                                        <span className="shrink-0 text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                            {currentShip?.call_sign ? `Call ${currentShip.call_sign}` : currentPort?.code || ''}
                                         </span>
                                     </div>
                                 </>
@@ -938,7 +963,7 @@ export default function RequestShow({
                 </div>
             </div>
 
-            <div className="mx-auto w-full max-w-full space-y-5 bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] sm:px-6 md:bg-transparent md:pt-6 md:dark:bg-transparent lg:px-8">
+            <div className="mx-auto w-full max-w-full space-y-4 bg-white px-4 pb-24 pt-4 dark:bg-[#0C1D36] sm:px-6 md:space-y-5 md:bg-transparent md:pb-10 md:pt-6 md:dark:bg-transparent lg:px-8">
                 {/* Desktop Navigation and Top Action Bar (hidden md:flex) */}
                 <div className="hidden md:flex flex-wrap items-center justify-between gap-3">
                     <Link
@@ -1081,7 +1106,7 @@ export default function RequestShow({
                 </Card>
 
                 {/* 2. DAFTAR LANGSUNG SEMUA PENGAJUAN & ITEM-ITEMNYA */}
-                <div className="space-y-6 pt-2">
+                <div className="space-y-4 pt-1 md:space-y-6 md:pt-2">
                     <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 min-w-0">
                             <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
@@ -1149,7 +1174,7 @@ export default function RequestShow({
 
                                 {totalUrgentCount > 0 && (
                                     <span className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100 px-2.5 py-0.5 text-xs font-black text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300">
-                                        <Flame className="size-3.5 fill-rose-600 text-rose-600 animate-pulse" />
+                                        <Flame className="size-3.5 animate-pulse fill-rose-600 text-rose-600 motion-reduce:animate-none" />
                                         {totalUrgentCount} Item Mendesak
                                     </span>
                                 )}
@@ -1186,6 +1211,51 @@ export default function RequestShow({
                     <Table<DesktopRequestItemRow>
                         className="hidden md:block"
                         columns={[
+                            ...(canUseAdminActions
+                                ? [
+                                    {
+                                        key: 'select',
+                                        header: 'Pilih',
+                                        align: 'center' as const,
+                                        width: '64px',
+                                        render: ({ request: req, item }: DesktopRequestItemRow) => {
+                                            const isEditable =
+                                                !['Selesai', 'Dibatalkan'].includes(req.status) &&
+                                                item.director_status !== 'approved' &&
+                                                item.status !== 'diajukan_ke_direktur' &&
+                                                !item.is_invoiced;
+
+                                            if (!isEditable) {
+                                                return <span aria-hidden="true" className="text-[#8C9BB9]">—</span>;
+                                            }
+
+                                            const selectedIds = selectedItemIdsByReq[req.id] || [];
+
+                                            return (
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.includes(item.id)}
+                                                    onChange={(event) => {
+                                                        const checked = event.target.checked;
+                                                        setSelectedItemIdsByReq((current) => {
+                                                            const previous = current[req.id] || [];
+
+                                                            return {
+                                                                ...current,
+                                                                [req.id]: checked
+                                                                    ? Array.from(new Set([...previous, item.id]))
+                                                                    : previous.filter((id) => id !== item.id),
+                                                            };
+                                                        });
+                                                    }}
+                                                    aria-label={`Pilih ${item.item_name}`}
+                                                    className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
+                                                />
+                                            );
+                                        },
+                                    },
+                                ]
+                                : []),
                             {
                                 key: 'request_number',
                                 header: 'Nomor Pengajuan',
@@ -1207,9 +1277,9 @@ export default function RequestShow({
                                             )}
                                         </button>
                                         <div className="flex flex-wrap items-center gap-1.5">
-                                            {row.needsAttention && (
+                                            {row.isFirstForRequest && row.request.id === newestRequestId && (
                                                 <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">
-                                                    Baru
+                                                    Terbaru
                                                 </span>
                                             )}
                                             <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
@@ -1228,6 +1298,7 @@ export default function RequestShow({
                                         <p className="text-pretty font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                             {item.item_name}
                                         </p>
+                                        <RequirementDate value={item.required_date} />
                                         {item.is_urgent && (
                                             <span className="inline-flex rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                 Urgent
@@ -1264,7 +1335,7 @@ export default function RequestShow({
                                 width: '160px',
                                 render: ({ request: req, item }) => {
                                     const isEditable =
-                                        !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status) &&
+                                        !['Selesai', 'Dibatalkan'].includes(req.status) &&
                                         item.director_status !== 'approved' &&
                                         item.status !== 'diajukan_ke_direktur' &&
                                         !item.is_invoiced;
@@ -1315,7 +1386,7 @@ export default function RequestShow({
                                 width: '160px',
                                 render: ({ request: req, item }) => {
                                     const isEditable =
-                                        !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status) &&
+                                        !['Selesai', 'Dibatalkan'].includes(req.status) &&
                                         item.director_status !== 'approved' &&
                                         item.status !== 'diajukan_ke_direktur' &&
                                         !item.is_invoiced;
@@ -1364,7 +1435,7 @@ export default function RequestShow({
                                     <span className="whitespace-nowrap font-mono font-bold tabular-nums">
                                         {formatRupiah(
                                             Number(priceDrafts[item.id]?.selling_price ?? item.selling_price ?? 0) *
-                                                Number(item.quantity)
+                                            Number(item.quantity)
                                         )}
                                     </span>
                                 ),
@@ -1393,11 +1464,10 @@ export default function RequestShow({
                                 width: '230px',
                                 render: ({ request: req, item, isFirstForRequest }) => {
                                     const isEditable =
-                                        !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status) &&
+                                        !['Selesai', 'Dibatalkan'].includes(req.status) &&
                                         item.director_status !== 'approved' &&
                                         item.status !== 'diajukan_ke_direktur' &&
                                         !item.is_invoiced;
-                                    const selectedIds = selectedItemIdsByReq[req.id] || [];
                                     const canAddItem =
                                         capabilities.can_create_requests &&
                                         !['Selesai', 'Dibatalkan'].includes(req.status);
@@ -1412,29 +1482,14 @@ export default function RequestShow({
 
                                     return (
                                         <div className="flex flex-wrap items-center justify-center gap-1.5">
-                                            {canUseAdminActions && isEditable && (
-                                                <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#DCEAF8] bg-white px-2 text-xs font-semibold text-[#52658E] hover:border-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#94A3B8]">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedIds.includes(item.id)}
-                                                        onChange={(event) => {
-                                                            const checked = event.target.checked;
-                                                            setSelectedItemIdsByReq((current) => {
-                                                                const previous = current[req.id] || [];
-
-                                                                return {
-                                                                    ...current,
-                                                                    [req.id]: checked
-                                                                        ? Array.from(new Set([...previous, item.id]))
-                                                                        : previous.filter((id) => id !== item.id),
-                                                                };
-                                                            });
-                                                        }}
-                                                        className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
-                                                    />
-                                                    Pilih
-                                                </label>
-                                            )}
+                                            <RequestItemWorkflowAction
+                                                requestId={req.id}
+                                                requestNumber={req.request_number}
+                                                serviceType={req.service_type}
+                                                item={item}
+                                                canProcess={capabilities.can_process_requests}
+                                                compact
+                                            />
 
                                             {canUseAdminActions && isEditable && (
                                                 <button
@@ -1448,22 +1503,7 @@ export default function RequestShow({
                                                 </button>
                                             )}
 
-                                            {canUseAdminActions &&
-                                                item.director_status === 'approved' &&
-                                                !item.is_invoiced && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            setRevisionTarget({ requestId: req.id, item })
-                                                        }
-                                                        className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:bg-[#132847]"
-                                                    >
-                                                        <RotateCcw className="size-3" aria-hidden="true" />
-                                                        Revisi
-                                                    </button>
-                                                )}
-
-                                            {isFirstForRequest && canAddItem && (
+                                            {/* {isFirstForRequest && canAddItem && (
                                                 <button
                                                     type="button"
                                                     onClick={() => setAddItemTargetReqId(req.id)}
@@ -1472,7 +1512,7 @@ export default function RequestShow({
                                                     <Plus className="size-3" aria-hidden="true" />
                                                     Tambah
                                                 </button>
-                                            )}
+                                            )} */}
 
                                             {isFirstForRequest && canCreateClearanceInvoice && (
                                                 <button
@@ -1491,13 +1531,6 @@ export default function RequestShow({
                                                 </button>
                                             )}
 
-                                            {isFirstForRequest && (
-                                                <RequestWorkflowPanel
-                                                    request={req}
-                                                    canProcess={capabilities.can_process_requests}
-                                                    compact
-                                                />
-                                            )}
                                         </div>
                                     );
                                 },
@@ -1508,136 +1541,154 @@ export default function RequestShow({
                         compact
                         minWidth="1545px"
                         emptyMessage="Data Tidak Ditemukan"
-                        rowClassName={(row) =>
-                            row.needsAttention
-                                ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]'
-                                : row.item.is_urgent
-                                  ? '!bg-rose-50/70 dark:!bg-rose-950/30'
-                                  : ''
-                        }
+                        rowClassName={(row) => {
+                            if (canUseAdminActions && row.item.director_status === 'approved') {
+                                return '!bg-[#F3FCF7] dark:!bg-[#123526] border-l-4 border-l-[#087443]';
+                            }
+                            if (row.item.director_status === 'rejected') {
+                                return '!bg-[#FFF5F7] dark:!bg-[#351522] border-l-4 border-l-[#C62840]';
+                            }
+                            if (row.needsAttention) {
+                                return '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]';
+                            }
+
+                            return row.item.is_urgent ? '!bg-rose-50/70 dark:!bg-rose-950/30' : '';
+                        }}
                     />
 
                     <div className="md:hidden">
                         {allRequests.length > 0 ? (
                             allRequests.map((req, reqIndex) => {
-                            const reqItems = req.items || [];
-                            const editableItems = reqItems.filter(
-                                (it) => it.director_status !== 'approved' && it.status !== 'diajukan_ke_direktur' && !it.is_invoiced
-                            );
-                            const forwardedItems = reqItems.filter(
-                                (it) => it.status === 'diajukan_ke_direktur' && it.director_status === 'pending'
-                            );
-                            const selectedIds = selectedItemIdsByReq[req.id] || [];
-                            const canForwardThisReq =
-                                canUseAdminActions &&
-                                editableItems.length > 0 &&
-                                !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status);
-                            const canAddItemToReq =
-                                capabilities.can_create_requests &&
-                                !['Selesai', 'Dibatalkan'].includes(req.status);
-                            const hasApprovedUninvoicedItem = reqItems.some(
-                                (it) => it.director_status === 'approved' && !it.is_invoiced
-                            );
-                            const hasUrgentItem = reqItems.some((it) => it.is_urgent);
+                                const reqItems = req.items || [];
+                                const editableItems = reqItems.filter(
+                                    (it) => it.director_status !== 'approved' && it.status !== 'diajukan_ke_direktur' && !it.is_invoiced
+                                );
+                                const forwardedItems = reqItems.filter(
+                                    (it) => it.status === 'diajukan_ke_direktur' && it.director_status === 'pending'
+                                );
+                                const selectedIds = selectedItemIdsByReq[req.id] || [];
+                                const canForwardThisReq =
+                                    canUseAdminActions &&
+                                    editableItems.length > 0 &&
+                                    !['Selesai', 'Dibatalkan'].includes(req.status);
+                                const canAddItemToReq =
+                                    capabilities.can_create_requests &&
+                                    !['Selesai', 'Dibatalkan'].includes(req.status);
+                                const hasApprovedUninvoicedItem = reqItems.some(
+                                    (it) => it.director_status === 'approved' && !it.is_invoiced
+                                );
+                                const hasUrgentItem = reqItems.some((it) => it.is_urgent);
 
-                            const reqTotalHpp = reqItems.reduce(
-                                (sum, it) => sum + Number(it.hpp_price ?? 0) * Number(it.quantity),
-                                0
-                            );
-                            const reqTotalSelling = reqItems.reduce(
-                                (sum, it) => sum + Number(it.selling_price ?? 0) * Number(it.quantity),
-                                0
-                            );
-                            const itemNeedsAction = (item: RequestItem): boolean => {
-                                if (capabilities.can_decide_items) {
-                                    return (
-                                        item.status === 'diajukan_ke_direktur' &&
-                                        item.director_status === 'pending'
-                                    );
-                                }
+                                const reqTotalHpp = reqItems.reduce(
+                                    (sum, it) => sum + Number(it.hpp_price ?? 0) * Number(it.quantity),
+                                    0
+                                );
+                                const reqTotalSelling = reqItems.reduce(
+                                    (sum, it) => sum + Number(it.selling_price ?? 0) * Number(it.quantity),
+                                    0
+                                );
+                                const itemNeedsAction = (item: RequestItem): boolean => {
+                                    if (capabilities.can_decide_items) {
+                                        return (
+                                            item.status === 'diajukan_ke_direktur' &&
+                                            item.director_status === 'pending'
+                                        );
+                                    }
 
-                                if (canUseAdminActions) {
+                                    if (canUseAdminActions) {
+                                        return (
+                                            editableItems.some((editable) => editable.id === item.id) ||
+                                            (item.director_status === 'approved' &&
+                                                ['Disetujui', 'Disetujui Sebagian'].includes(req.status)) ||
+                                            item.director_status === 'rejected'
+                                        );
+                                    }
+
                                     return (
-                                        editableItems.some((editable) => editable.id === item.id) ||
-                                        (item.director_status === 'approved' &&
-                                            ['Disetujui', 'Disetujui Sebagian'].includes(req.status)) ||
+                                        capabilities.can_create_requests &&
                                         item.director_status === 'rejected'
                                     );
-                                }
+                                };
+                                const itemPriority = (item: RequestItem): number => {
+                                    if (canUseAdminActions && item.director_status === 'approved') return 4;
+                                    if (item.director_status === 'rejected') return 3;
+                                    if (itemNeedsAction(item)) return 2;
+
+                                    return 0;
+                                };
+                                const itemTimestamp = (item: RequestItem): number => {
+                                    const value = item.updated_at ?? item.created_at;
+
+                                    return value ? Date.parse(value) || 0 : 0;
+                                };
+                                const sortedReqItems = [...reqItems].sort((first, second) => {
+                                    const priorityOrder = itemPriority(second) - itemPriority(first);
+
+                                    return priorityOrder !== 0
+                                        ? priorityOrder
+                                        : itemTimestamp(second) - itemTimestamp(first);
+                                });
 
                                 return (
-                                    capabilities.can_create_requests &&
-                                    item.director_status === 'rejected'
-                                );
-                            };
-                            const sortedReqItems = [...reqItems].sort(
-                                (first, second) =>
-                                    Number(itemNeedsAction(second)) - Number(itemNeedsAction(first))
-                            );
-
-                            return (
-                                <section
-                                    key={req.id}
-                                    className="space-y-3 border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]"
-                                >
-                                    {/* Header Pengajuan */}
-                                    <div className="border-b border-[#DCEAF8] bg-white py-4 dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:rounded-t-2xl md:bg-[#F8FBFF] md:px-5 md:dark:bg-[#0E223F]">
-                                        <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
-                                            <div className="min-w-0 space-y-1.5">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <span className="flex size-6 items-center justify-center rounded-md bg-[#0060F4] text-xs font-black text-white">
-                                                        {reqIndex + 1}
-                                                    </span>
-
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleCopy(req.request_number)}
-                                                        title="Klik untuk menyalin nomor pengajuan"
-                                                        className="group inline-flex items-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#E0F0FF] px-2.5 py-1 font-mono text-xs font-black text-[#0060F4] transition hover:bg-[#BCE0FD] focus:outline-none dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
-                                                    >
-                                                        <Tag className="size-3 text-[#0060F4] dark:text-[#60A5FA]" />
-                                                        <span>{req.request_number}</span>
-                                                        {copiedNumber === req.request_number ? (
-                                                            <Check className="size-3 text-emerald-600" />
-                                                        ) : (
-                                                            <Copy className="size-3 text-[#52658E] opacity-70 group-hover:opacity-100" />
-                                                        )}
-                                                        {copiedNumber === req.request_number && (
-                                                            <span className="text-[10px] font-bold text-emerald-600">Tersalin!</span>
-                                                        )}
-                                                    </button>
-
-                                                    <StatusBadge
-                                                        status={req.status}
-                                                        label={req.status}
-                                                        showDot
-                                                        size="sm"
-                                                    />
-
-                                                    {hasUrgentItem && (
-                                                        <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[11px] font-black uppercase text-white shadow-2xs">
-                                                            <Flame className="size-3 fill-white" />
-                                                            Urgent
+                                    <section
+                                        key={req.id}
+                                        className="overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white shadow-[0_2px_10px_rgba(8,40,112,0.05)] dark:border-[#1E3A5F] dark:bg-[#0C1D36]"
+                                    >
+                                        {/* Header Pengajuan */}
+                                        <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] p-3.5 dark:border-[#1E3A5F] dark:bg-[#0E223F]">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="min-w-0 space-y-2">
+                                                    <div className="flex items-start gap-2">
+                                                        <span className="flex size-6 items-center justify-center rounded-md bg-[#0060F4] text-xs font-black text-white">
+                                                            {reqIndex + 1}
                                                         </span>
-                                                    )}
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleCopy(req.request_number)}
+                                                            title="Klik untuk menyalin nomor pengajuan"
+                                                            className="group inline-flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-xl border border-[#BCE0FD] bg-[#E0F0FF] px-3 py-2 text-left font-mono text-xs font-black text-[#0060F4] transition hover:bg-[#BCE0FD] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                        >
+                                                            <Tag className="size-3.5 shrink-0 text-[#0060F4] dark:text-[#60A5FA]" />
+                                                            <span className="min-w-0 break-all" translate="no">{req.request_number}</span>
+                                                            {copiedNumber === req.request_number ? (
+                                                                <Check className="size-3 text-emerald-600" />
+                                                            ) : (
+                                                                <Copy className="size-3 text-[#52658E] opacity-70 group-hover:opacity-100" />
+                                                            )}
+                                                            {copiedNumber === req.request_number && (
+                                                                <span className="text-[10px] font-bold text-emerald-600">Tersalin!</span>
+                                                            )}
+                                                        </button>
+
+                                                    </div>
+
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        {req.id === newestRequestId && (
+                                                            <span className="inline-flex items-center rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                                                Terbaru
+                                                            </span>
+                                                        )}
+                                                        <StatusBadge status={req.status} label={req.status} showDot size="sm" />
+                                                        {hasUrgentItem && (
+                                                            <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[11px] font-black uppercase text-white shadow-2xs">
+                                                                <Flame className="size-3 fill-white" />
+                                                                Urgent
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid gap-1 text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
+                                                        <span><strong className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{req.creator?.name || 'Staff'}</strong> • {formatDateTime(req.request_date)}</span>
+                                                        {req.notes && !req.notes.toLowerCase().includes('pengajuan clearance in untuk kapal') && (
+                                                            <span className="break-words italic">“{req.notes}”</span>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                <div className="flex flex-wrap items-center gap-x-2 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                                    <span>{req.creator?.name || 'Staff'}</span>
-                                                    <span>•</span>
-                                                    <span>{formatDateTime(req.request_date)}</span>
-                                                    {req.notes && !req.notes.toLowerCase().includes('pengajuan clearance in untuk kapal') && (
-                                                        <>
-                                                            <span>•</span>
-                                                            <span className="italic">"{req.notes}"</span>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Action Buttons for this Pengajuan */}
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                {/* {canUseAdminActions && editableItems.length > 0 && (
+                                                {/* Action Buttons for this Pengajuan */}
+                                                <div className="grid grid-cols-1 gap-2 min-[390px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center">
+                                                    {/* {canUseAdminActions && editableItems.length > 0 && (
                                                     <Button
                                                         type="button"
                                                         size="sm"
@@ -1666,877 +1717,871 @@ export default function RequestShow({
                                                     </Button>
                                                 )} */}
 
-                                                {canAddItemToReq && (
-                                                    <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="outline"
-                                                        leftIcon={<Plus className="size-3" />}
-                                                        onClick={() => setAddItemTargetReqId(req.id)}
-                                                    >
-                                                        Tambah Item
-                                                    </Button>
-                                                )}
+                                                    {/* {canAddItemToReq && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            leftIcon={<Plus className="size-3" />}
+                                                            onClick={() => setAddItemTargetReqId(req.id)}
+                                                            className="min-h-11 w-full sm:w-auto"
+                                                        >
+                                                            Tambah Item
+                                                        </Button>
+                                                    )} */}
 
-                                                {canUseAdminActions && req.service_type === 'clearance_in' && hasApprovedUninvoicedItem && (
-                                                    <Button
-                                                        type="button"
-                                                        size="sm"
-                                                        variant="primary"
-                                                        leftIcon={<FileText className="size-3" />}
-                                                        isLoading={activeAction === `clearance-invoice-${req.id}`}
-                                                        onClick={() => runAction(`clearance-invoice-${req.id}`, route('requests.clearance-in-invoice', req.id))}
-                                                    >
-                                                        Terbitkan Invoice
-                                                    </Button>
-                                                )}
+                                                    {canUseAdminActions && req.service_type === 'clearance_in' && hasApprovedUninvoicedItem && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="primary"
+                                                            leftIcon={<FileText className="size-3" />}
+                                                            isLoading={activeAction === `clearance-invoice-${req.id}`}
+                                                            onClick={() => runAction(`clearance-invoice-${req.id}`, route('requests.clearance-in-invoice', req.id))}
+                                                            className="min-h-11 w-full sm:w-auto"
+                                                        >
+                                                            Terbitkan Invoice
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    <RequestWorkflowPanel
-                                        request={req}
-                                        canProcess={capabilities.can_process_requests}
-                                        className="border-b border-[#DCEAF8] dark:border-[#1E3A5F]"
-                                    />
+                                        <RequestWorkflowPanel
+                                            request={req}
+                                            canProcess={capabilities.can_process_requests}
+                                            inlineItemActions
+                                            className="border-b border-[#DCEAF8] dark:border-[#1E3A5F]"
+                                        />
 
-                                    {/* Catatan ringkas jika terdapat item ditolak Direktur */}
-                                    {reqItems.some((it) => it.director_status === 'rejected') && (
-                                        <p className="flex items-center gap-2 border-l-2 border-rose-500 pl-3 text-xs text-rose-700 dark:text-rose-300">
-                                            <CircleX className="size-4 shrink-0" />
-                                            Ada item ditolak. Periksa catatan, revisi, lalu ajukan ulang.
-                                        </p>
-                                    )}
+                                        {/* Catatan ringkas jika terdapat item ditolak Direktur */}
+                                        {reqItems.some((it) => it.director_status === 'rejected') && (
+                                            <p className="flex items-center gap-2 border-l-2 border-rose-500 pl-3 text-xs text-rose-700 dark:text-rose-300">
+                                                <CircleX className="size-4 shrink-0" />
+                                                Ada item ditolak. Periksa catatan, revisi, lalu ajukan ulang.
+                                            </p>
+                                        )}
 
-                                    {/* Tabel & Kartu Item Kebutuhan */}
-                                    {reqItems.length > 0 ? (
-                                        <>
-                                            <Table<RequestItem>
-                                                className="hidden md:block"
-                                                columns={[
-                                                    ...(canUseAdminActions
-                                                        ? [
-                                                            {
-                                                                key: 'select',
-                                                                header: (
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={
-                                                                            editableItems.length > 0 &&
-                                                                            editableItems.every((item) =>
-                                                                                selectedIds.includes(item.id)
-                                                                            )
-                                                                        }
-                                                                        disabled={editableItems.length === 0}
-                                                                        onChange={(event) => {
-                                                                            const checked = event.target.checked;
-                                                                            setSelectedItemIdsByReq((current) => ({
-                                                                                ...current,
-                                                                                [req.id]: checked
-                                                                                    ? editableItems.map(
-                                                                                        (item) => item.id
-                                                                                    )
-                                                                                    : [],
-                                                                            }));
-                                                                        }}
-                                                                        aria-label={`Pilih semua item ${req.request_number}`}
-                                                                        className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
-                                                                    />
-                                                                ),
-                                                                align: 'center' as const,
-                                                                width: '52px',
-                                                                render: (item: RequestItem) => {
-                                                                    const isEditable = editableItems.some(
-                                                                        (editable) =>
-                                                                            editable.id === item.id
-                                                                    );
-                                                                    return (
+                                        {/* Tabel & Kartu Item Kebutuhan */}
+                                        {reqItems.length > 0 ? (
+                                            <>
+                                                <Table<RequestItem>
+                                                    className="hidden md:block"
+                                                    columns={[
+                                                        ...(canUseAdminActions
+                                                            ? [
+                                                                {
+                                                                    key: 'select',
+                                                                    header: (
                                                                         <input
                                                                             type="checkbox"
-                                                                            checked={selectedIds.includes(
-                                                                                item.id
-                                                                            )}
-                                                                            disabled={!isEditable}
-                                                                            onChange={(event) => {
-                                                                                const checked =
-                                                                                    event.target.checked;
-                                                                                setSelectedItemIdsByReq(
-                                                                                    (current) => {
-                                                                                        const previous =
-                                                                                            current[req.id] || [];
-                                                                                        return {
-                                                                                            ...current,
-                                                                                            [req.id]: checked
-                                                                                                ? [
-                                                                                                    ...previous,
-                                                                                                    item.id,
-                                                                                                ]
-                                                                                                : previous.filter(
-                                                                                                    (id) =>
-                                                                                                        id !==
-                                                                                                        item.id
-                                                                                                ),
-                                                                                        };
-                                                                                    }
-                                                                                );
-                                                                            }}
-                                                                            aria-label={`Pilih ${item.item_name}`}
-                                                                            className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
-                                                                        />
-                                                                    );
-                                                                },
-                                                            },
-                                                        ]
-                                                        : []),
-                                                    {
-                                                        key: 'item',
-                                                        header: 'Item / Vendor',
-                                                        width: '280px',
-                                                        render: (item) => (
-                                                            <div className="space-y-1">
-                                                                <div className="flex flex-wrap items-center gap-1.5">
-                                                                    <strong>{item.item_name}</strong>
-                                                                    {itemNeedsAction(item) && (
-                                                                        <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
-                                                                            Baru
-                                                                        </span>
-                                                                    )}
-                                                                    {item.is_urgent && (
-                                                                        <span className="rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840]">
-                                                                            Urgent
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <p className="text-[#52658E]">
-                                                                    {item.vendor?.name ||
-                                                                        'Vendor belum ditentukan'}
-                                                                </p>
-                                                                {item.notes && (
-                                                                    <p className="text-[11px] text-[#52658E]">
-                                                                        {item.notes}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        ),
-                                                    },
-                                                    {
-                                                        key: 'quantity',
-                                                        header: 'Qty',
-                                                        align: 'right' as const,
-                                                        width: '100px',
-                                                        render: (item) => (
-                                                            <span className="whitespace-nowrap font-mono font-bold">
-                                                                {item.quantity} {item.unit || 'Dokumen'}
-                                                            </span>
-                                                        ),
-                                                    },
-                                                    ...(capabilities.can_view_hpp
-                                                        ? [
-                                                            {
-                                                                key: 'hpp',
-                                                                header: 'HPP',
-                                                                align: 'right' as const,
-                                                                width: '180px',
-                                                                render: (item: RequestItem) => {
-                                                                    const isEditable = editableItems.some(
-                                                                        (editable) =>
-                                                                            editable.id === item.id
-                                                                    );
-                                                                    if (
-                                                                        canUseAdminActions &&
-                                                                        isEditable
-                                                                    ) {
-                                                                        return (
-                                                                            <label className="block">
-                                                                                <span className="sr-only">
-                                                                                    HPP {item.item_name}
-                                                                                </span>
-                                                                                <div className="flex h-9 min-w-[150px] items-center rounded-[10px] border border-[#DCEAF8] bg-white px-2.5 focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                                                    <span className="mr-1 text-[11px] font-bold text-[#52658E]">
-                                                                                        Rp
-                                                                                    </span>
-                                                                                    <input
-                                                                                        type="text"
-                                                                                        name={`hpp_${item.id}`}
-                                                                                        autoComplete="off"
-                                                                                        inputMode="numeric"
-                                                                                        value={formatRupiahInput(
-                                                                                            priceDrafts[
-                                                                                                item.id
-                                                                                            ]?.hpp_price ??
-                                                                                            '0'
-                                                                                        )}
-                                                                                        onChange={(event) =>
-                                                                                            setPriceDrafts(
-                                                                                                (current) => ({
-                                                                                                    ...current,
-                                                                                                    [item.id]: {
-                                                                                                        ...current[
-                                                                                                        item.id
-                                                                                                        ],
-                                                                                                        hpp_price:
-                                                                                                            normalizeRupiahInput(
-                                                                                                                event
-                                                                                                                    .target
-                                                                                                                    .value
-                                                                                                            ),
-                                                                                                    },
-                                                                                                })
-                                                                                            )
-                                                                                        }
-                                                                                        className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold focus:ring-0"
-                                                                                    />
-                                                                                </div>
-                                                                            </label>
-                                                                        );
-                                                                    }
-                                                                    return (
-                                                                        <span className="whitespace-nowrap font-mono font-bold">
-                                                                            {formatRupiah(
-                                                                                item.hpp_price
-                                                                            )}
-                                                                        </span>
-                                                                    );
-                                                                },
-                                                            },
-                                                        ]
-                                                        : []),
-                                                    {
-                                                        key: 'selling',
-                                                        header: 'Harga Jual',
-                                                        align: 'right' as const,
-                                                        width: '180px',
-                                                        render: (item) => {
-                                                            const isEditable = editableItems.some(
-                                                                (editable) => editable.id === item.id
-                                                            );
-                                                            if (canUseAdminActions && isEditable) {
-                                                                return (
-                                                                    <label className="block">
-                                                                        <span className="sr-only">
-                                                                            Harga jual {item.item_name}
-                                                                        </span>
-                                                                        <div className="flex h-9 min-w-[150px] items-center rounded-[10px] border border-[#BCE0FD] bg-white px-2.5 focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                                            <span className="mr-1 text-[11px] font-bold text-[#0060F4]">
-                                                                                Rp
-                                                                            </span>
-                                                                            <input
-                                                                                type="text"
-                                                                                name={`selling_price_${item.id}`}
-                                                                                autoComplete="off"
-                                                                                inputMode="numeric"
-                                                                                value={formatRupiahInput(
-                                                                                    priceDrafts[item.id]
-                                                                                        ?.selling_price ?? '0'
-                                                                                )}
-                                                                                onChange={(event) =>
-                                                                                    setPriceDrafts(
-                                                                                        (current) => ({
-                                                                                            ...current,
-                                                                                            [item.id]: {
-                                                                                                ...current[
-                                                                                                item.id
-                                                                                                ],
-                                                                                                selling_price:
-                                                                                                    normalizeRupiahInput(
-                                                                                                        event
-                                                                                                            .target
-                                                                                                            .value
-                                                                                                    ),
-                                                                                            },
-                                                                                        })
-                                                                                    )
-                                                                                }
-                                                                                className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold text-[#0060F4] focus:ring-0"
-                                                                            />
-                                                                        </div>
-                                                                    </label>
-                                                                );
-                                                            }
-                                                            return (
-                                                                <span className="whitespace-nowrap font-mono font-bold text-[#0060F4]">
-                                                                    {formatRupiah(item.selling_price)}
-                                                                </span>
-                                                            );
-                                                        },
-                                                    },
-                                                    {
-                                                        key: 'subtotal',
-                                                        header: 'Subtotal',
-                                                        align: 'right' as const,
-                                                        width: '170px',
-                                                        render: (item) => (
-                                                            <span className="whitespace-nowrap font-mono font-bold">
-                                                                {formatRupiah(
-                                                                    Number(
-                                                                        priceDrafts[item.id]
-                                                                            ?.selling_price ??
-                                                                        item.selling_price ??
-                                                                        0
-                                                                    ) * Number(item.quantity)
-                                                                )}
-                                                            </span>
-                                                        ),
-                                                    },
-                                                    {
-                                                        key: 'status',
-                                                        header: 'Status',
-                                                        align: 'center' as const,
-                                                        width: '170px',
-                                                        render: (item) => (
-                                                            <div>
-                                                                <DirectorStatus
-                                                                    status={item.director_status}
-                                                                    itemStatus={item.status}
-                                                                />
-                                                                {item.director_notes && (
-                                                                    <p className="mt-1 text-[11px] text-[#52658E]">
-                                                                        {item.director_notes}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        ),
-                                                    },
-                                                    {
-                                                        key: 'action',
-                                                        header: 'Aksi',
-                                                        align: 'center' as const,
-                                                        width: '120px',
-                                                        render: (item) => {
-                                                            const isEditable = editableItems.some(
-                                                                (editable) => editable.id === item.id
-                                                            );
-                                                            return (
-                                                                <div className="flex flex-col items-center gap-1">
-                                                                    {canUseAdminActions && isEditable && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() =>
-                                                                                handleSaveItemPrice(
-                                                                                    req.id,
-                                                                                    item.id
+                                                                            checked={
+                                                                                editableItems.length > 0 &&
+                                                                                editableItems.every((item) =>
+                                                                                    selectedIds.includes(item.id)
                                                                                 )
                                                                             }
-                                                                            disabled={
-                                                                                savingItemId === item.id
-                                                                            }
-                                                                            className="inline-flex min-h-9 items-center gap-1 rounded-[10px] bg-[#E0F0FF] px-3 font-bold text-[#0060F4] hover:bg-[#BCE0FD] disabled:opacity-50"
-                                                                        >
-                                                                            <Save className="size-3" />
-                                                                            Simpan
-                                                                        </button>
+                                                                            disabled={editableItems.length === 0}
+                                                                            onChange={(event) => {
+                                                                                const checked = event.target.checked;
+                                                                                setSelectedItemIdsByReq((current) => ({
+                                                                                    ...current,
+                                                                                    [req.id]: checked
+                                                                                        ? editableItems.map(
+                                                                                            (item) => item.id
+                                                                                        )
+                                                                                        : [],
+                                                                                }));
+                                                                            }}
+                                                                            aria-label={`Pilih semua item ${req.request_number}`}
+                                                                            className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
+                                                                        />
+                                                                    ),
+                                                                    align: 'center' as const,
+                                                                    width: '52px',
+                                                                    render: (item: RequestItem) => {
+                                                                        const isEditable = editableItems.some(
+                                                                            (editable) =>
+                                                                                editable.id === item.id
+                                                                        );
+                                                                        return (
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={selectedIds.includes(
+                                                                                    item.id
+                                                                                )}
+                                                                                disabled={!isEditable}
+                                                                                onChange={(event) => {
+                                                                                    const checked =
+                                                                                        event.target.checked;
+                                                                                    setSelectedItemIdsByReq(
+                                                                                        (current) => {
+                                                                                            const previous =
+                                                                                                current[req.id] || [];
+                                                                                            return {
+                                                                                                ...current,
+                                                                                                [req.id]: checked
+                                                                                                    ? [
+                                                                                                        ...previous,
+                                                                                                        item.id,
+                                                                                                    ]
+                                                                                                    : previous.filter(
+                                                                                                        (id) =>
+                                                                                                            id !==
+                                                                                                            item.id
+                                                                                                    ),
+                                                                                            };
+                                                                                        }
+                                                                                    );
+                                                                                }}
+                                                                                aria-label={`Pilih ${item.item_name}`}
+                                                                                className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
+                                                                            />
+                                                                        );
+                                                                    },
+                                                                },
+                                                            ]
+                                                            : []),
+                                                        {
+                                                            key: 'item',
+                                                            header: 'Item / Vendor',
+                                                            width: '280px',
+                                                            render: (item) => (
+                                                                <div className="space-y-1">
+                                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                                        <strong>{item.item_name}</strong>
+                                                                        {itemNeedsAction(item) && (
+                                                                            <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                                                                                Baru
+                                                                            </span>
+                                                                        )}
+                                                                        {item.is_urgent && (
+                                                                            <span className="rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840]">
+                                                                                Urgent
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <p className="text-[#52658E]">
+                                                                        {item.vendor?.name ||
+                                                                            'Vendor belum ditentukan'}
+                                                                    </p>
+                                                                    {item.notes && (
+                                                                        <p className="text-[11px] text-[#52658E]">
+                                                                            {item.notes}
+                                                                        </p>
                                                                     )}
-                                                                    {canUseAdminActions &&
-                                                                        item.director_status ===
-                                                                        'approved' &&
-                                                                        !item.is_invoiced && (
+                                                                </div>
+                                                            ),
+                                                        },
+                                                        {
+                                                            key: 'quantity',
+                                                            header: 'Qty',
+                                                            align: 'right' as const,
+                                                            width: '100px',
+                                                            render: (item) => (
+                                                                <span className="whitespace-nowrap font-mono font-bold">
+                                                                    {item.quantity} {item.unit || 'Dokumen'}
+                                                                </span>
+                                                            ),
+                                                        },
+                                                        ...(capabilities.can_view_hpp
+                                                            ? [
+                                                                {
+                                                                    key: 'hpp',
+                                                                    header: 'HPP',
+                                                                    align: 'right' as const,
+                                                                    width: '180px',
+                                                                    render: (item: RequestItem) => {
+                                                                        const isEditable = editableItems.some(
+                                                                            (editable) =>
+                                                                                editable.id === item.id
+                                                                        );
+                                                                        if (
+                                                                            canUseAdminActions &&
+                                                                            isEditable
+                                                                        ) {
+                                                                            return (
+                                                                                <label className="block">
+                                                                                    <span className="sr-only">
+                                                                                        HPP {item.item_name}
+                                                                                    </span>
+                                                                                    <div className="flex h-9 min-w-[150px] items-center rounded-[10px] border border-[#DCEAF8] bg-white px-2.5 focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                                                        <span className="mr-1 text-[11px] font-bold text-[#52658E]">
+                                                                                            Rp
+                                                                                        </span>
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            name={`hpp_${item.id}`}
+                                                                                            autoComplete="off"
+                                                                                            inputMode="numeric"
+                                                                                            value={formatRupiahInput(
+                                                                                                priceDrafts[
+                                                                                                    item.id
+                                                                                                ]?.hpp_price ??
+                                                                                                '0'
+                                                                                            )}
+                                                                                            onChange={(event) =>
+                                                                                                setPriceDrafts(
+                                                                                                    (current) => ({
+                                                                                                        ...current,
+                                                                                                        [item.id]: {
+                                                                                                            ...current[
+                                                                                                            item.id
+                                                                                                            ],
+                                                                                                            hpp_price:
+                                                                                                                normalizeRupiahInput(
+                                                                                                                    event
+                                                                                                                        .target
+                                                                                                                        .value
+                                                                                                                ),
+                                                                                                        },
+                                                                                                    })
+                                                                                                )
+                                                                                            }
+                                                                                            className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold focus:ring-0"
+                                                                                        />
+                                                                                    </div>
+                                                                                </label>
+                                                                            );
+                                                                        }
+                                                                        return (
+                                                                            <span className="whitespace-nowrap font-mono font-bold">
+                                                                                {formatRupiah(
+                                                                                    item.hpp_price
+                                                                                )}
+                                                                            </span>
+                                                                        );
+                                                                    },
+                                                                },
+                                                            ]
+                                                            : []),
+                                                        {
+                                                            key: 'selling',
+                                                            header: 'Harga Jual',
+                                                            align: 'right' as const,
+                                                            width: '180px',
+                                                            render: (item) => {
+                                                                const isEditable = editableItems.some(
+                                                                    (editable) => editable.id === item.id
+                                                                );
+                                                                if (canUseAdminActions && isEditable) {
+                                                                    return (
+                                                                        <label className="block">
+                                                                            <span className="sr-only">
+                                                                                Harga jual {item.item_name}
+                                                                            </span>
+                                                                            <div className="flex h-9 min-w-[150px] items-center rounded-[10px] border border-[#BCE0FD] bg-white px-2.5 focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                                                <span className="mr-1 text-[11px] font-bold text-[#0060F4]">
+                                                                                    Rp
+                                                                                </span>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    name={`selling_price_${item.id}`}
+                                                                                    autoComplete="off"
+                                                                                    inputMode="numeric"
+                                                                                    value={formatRupiahInput(
+                                                                                        priceDrafts[item.id]
+                                                                                            ?.selling_price ?? '0'
+                                                                                    )}
+                                                                                    onChange={(event) =>
+                                                                                        setPriceDrafts(
+                                                                                            (current) => ({
+                                                                                                ...current,
+                                                                                                [item.id]: {
+                                                                                                    ...current[
+                                                                                                    item.id
+                                                                                                    ],
+                                                                                                    selling_price:
+                                                                                                        normalizeRupiahInput(
+                                                                                                            event
+                                                                                                                .target
+                                                                                                                .value
+                                                                                                        ),
+                                                                                                },
+                                                                                            })
+                                                                                        )
+                                                                                    }
+                                                                                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold text-[#0060F4] focus:ring-0"
+                                                                                />
+                                                                            </div>
+                                                                        </label>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <span className="whitespace-nowrap font-mono font-bold text-[#0060F4]">
+                                                                        {formatRupiah(item.selling_price)}
+                                                                    </span>
+                                                                );
+                                                            },
+                                                        },
+                                                        {
+                                                            key: 'subtotal',
+                                                            header: 'Subtotal',
+                                                            align: 'right' as const,
+                                                            width: '170px',
+                                                            render: (item) => (
+                                                                <span className="whitespace-nowrap font-mono font-bold">
+                                                                    {formatRupiah(
+                                                                        Number(
+                                                                            priceDrafts[item.id]
+                                                                                ?.selling_price ??
+                                                                            item.selling_price ??
+                                                                            0
+                                                                        ) * Number(item.quantity)
+                                                                    )}
+                                                                </span>
+                                                            ),
+                                                        },
+                                                        {
+                                                            key: 'status',
+                                                            header: 'Status',
+                                                            align: 'center' as const,
+                                                            width: '170px',
+                                                            render: (item) => (
+                                                                <div>
+                                                                    <DirectorStatus
+                                                                        status={item.director_status}
+                                                                        itemStatus={item.status}
+                                                                    />
+                                                                    {item.director_notes && (
+                                                                        <p className="mt-1 text-[11px] text-[#52658E]">
+                                                                            {item.director_notes}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            ),
+                                                        },
+                                                        {
+                                                            key: 'action',
+                                                            header: 'Aksi',
+                                                            align: 'center' as const,
+                                                            width: '120px',
+                                                            render: (item) => {
+                                                                const isEditable = editableItems.some(
+                                                                    (editable) => editable.id === item.id
+                                                                );
+                                                                return (
+                                                                    <div className="flex flex-col items-center gap-1">
+                                                                        {canUseAdminActions && isEditable && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() =>
-                                                                                    setRevisionTarget({
-                                                                                        requestId: req.id,
-                                                                                        item,
-                                                                                    })
+                                                                                    handleSaveItemPrice(
+                                                                                        req.id,
+                                                                                        item.id
+                                                                                    )
                                                                                 }
-                                                                                className="inline-flex min-h-9 items-center gap-1 rounded-[10px] px-3 font-semibold text-[#0060F4] hover:bg-[#E0F0FF]"
+                                                                                disabled={
+                                                                                    savingItemId === item.id
+                                                                                }
+                                                                                className="inline-flex min-h-9 items-center gap-1 rounded-[10px] bg-[#E0F0FF] px-3 font-bold text-[#0060F4] hover:bg-[#BCE0FD] disabled:opacity-50"
                                                                             >
-                                                                                <RotateCcw className="size-3" />
-                                                                                Revisi
+                                                                                <Save className="size-3" />
+                                                                                Simpan
                                                                             </button>
                                                                         )}
-                                                                </div>
-                                                            );
+                                                                    </div>
+                                                                );
+                                                            },
                                                         },
-                                                    },
-                                                ]}
-                                                data={sortedReqItems}
-                                                keyExtractor={(item) => item.id}
-                                                compact
-                                                minWidth="1210px"
-                                                emptyMessage="Data Tidak Ditemukan"
-                                                rowClassName={(item) => {
-                                                    if (itemNeedsAction(item)) {
-                                                        return '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]';
-                                                    }
-                                                    return item.is_urgent
-                                                        ? '!bg-rose-50/70 dark:!bg-rose-950/30'
-                                                        : '';
-                                                }}
-                                            />
+                                                    ]}
+                                                    data={sortedReqItems}
+                                                    keyExtractor={(item) => item.id}
+                                                    compact
+                                                    minWidth="1210px"
+                                                    emptyMessage="Data Tidak Ditemukan"
+                                                    rowClassName={(item) => {
+                                                        if (canUseAdminActions && item.director_status === 'approved') {
+                                                            return '!bg-[#F3FCF7] dark:!bg-[#123526] border-l-4 border-l-[#087443]';
+                                                        }
+                                                        if (item.director_status === 'rejected') {
+                                                            return '!bg-[#FFF5F7] dark:!bg-[#351522] border-l-4 border-l-[#C62840]';
+                                                        }
+                                                        if (itemNeedsAction(item)) {
+                                                            return '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]';
+                                                        }
 
-                                            <div className="hidden flex-wrap justify-end gap-x-5 gap-y-1 text-xs text-[#52658E] md:flex">
-                                                {capabilities.can_view_hpp && (
-                                                    <span>
-                                                        HPP: <strong>{formatRupiah(reqTotalHpp)}</strong>
-                                                    </span>
-                                                )}
-                                                <span>
-                                                    Jual:{' '}
-                                                    <strong>{formatRupiah(reqTotalSelling)}</strong>
-                                                </span>
-                                                {capabilities.can_view_hpp && (
-                                                    <span>
-                                                        Margin:{' '}
-                                                        <strong>
-                                                            {formatRupiah(
-                                                                reqTotalSelling - reqTotalHpp
-                                                            )}
-                                                        </strong>
-                                                    </span>
-                                                )}
-                                            </div>
+                                                        return item.is_urgent ? '!bg-rose-50/70 dark:!bg-rose-950/30' : '';
+                                                    }}
+                                                />
 
-                                            {/* Mobile Item Cards View (< md) */}
-                                            <div className="space-y-3 md:hidden">
-                                                {/* Per-Request Select All Bar for Mobile */}
-                                                {canUseAdminActions && editableItems.length > 0 && !['Dalam Proses', 'Selesai', 'Dibatalkan'].includes(req.status) && (
-                                                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#F0F8FF] dark:bg-[#132847]/50 border border-[#BCE0FD] dark:border-[#1E3A5F]">
-                                                        <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={editableItems.length > 0 && editableItems.every((it) => selectedIds.includes(it.id))}
-                                                                onChange={(event) => {
-                                                                    const checked = event.target.checked;
-                                                                    setSelectedItemIdsByReq((current) => ({
-                                                                        ...current,
-                                                                        [req.id]: checked ? editableItems.map((it) => it.id) : [],
-                                                                    }));
-                                                                }}
-                                                                className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
-                                                            />
-                                                            <span>Pilih Semua Item ({editableItems.filter((it) => selectedIds.includes(it.id)).length}/{editableItems.length})</span>
-                                                        </label>
-                                                        <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                            {selectedIds.length} dipilih
+                                                <div className="hidden flex-wrap justify-end gap-x-5 gap-y-1 text-xs text-[#52658E] md:flex">
+                                                    {capabilities.can_view_hpp && (
+                                                        <span>
+                                                            HPP: <strong>{formatRupiah(reqTotalHpp)}</strong>
                                                         </span>
-                                                    </div>
-                                                )}
+                                                    )}
+                                                    <span>
+                                                        Jual:{' '}
+                                                        <strong>{formatRupiah(reqTotalSelling)}</strong>
+                                                    </span>
+                                                    {capabilities.can_view_hpp && (
+                                                        <span>
+                                                            Margin:{' '}
+                                                            <strong>
+                                                                {formatRupiah(
+                                                                    reqTotalSelling - reqTotalHpp
+                                                                )}
+                                                            </strong>
+                                                        </span>
+                                                    )}
+                                                </div>
 
-                                                {reqItems.map((item) => {
-                                                    const isEditable = editableItems.some((ed) => ed.id === item.id);
-                                                    const isSelected = selectedIds.includes(item.id);
-                                                    const isLocked = item.director_status === 'approved';
-                                                    const isUrgent = Boolean(item.is_urgent);
-                                                    const itemHpp = parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price ?? 0)) || 0;
-                                                    const itemSelling = parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price ?? 0)) || 0;
-                                                    const itemSubtotal = itemSelling * Number(item.quantity);
-                                                    const hasZeroPriceWarning = isSelected && (itemHpp <= 0 || itemSelling <= 0);
+                                                {/* Mobile Item Cards View (< md) */}
+                                                <div className="space-y-2.5 p-3 md:hidden">
+                                                    {/* Per-Request Select All Bar for Mobile */}
+                                                    {canUseAdminActions && editableItems.length > 0 && !['Selesai', 'Dibatalkan'].includes(req.status) && (
+                                                        <div className="flex min-h-11 items-center justify-between gap-2 rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] px-3 py-2 dark:border-[#1E3A5F] dark:bg-[#132847]/50">
+                                                            <label className="inline-flex min-w-0 cursor-pointer select-none items-center gap-2 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={editableItems.length > 0 && editableItems.every((it) => selectedIds.includes(it.id))}
+                                                                    onChange={(event) => {
+                                                                        const checked = event.target.checked;
+                                                                        setSelectedItemIdsByReq((current) => ({
+                                                                            ...current,
+                                                                            [req.id]: checked ? editableItems.map((it) => it.id) : [],
+                                                                        }));
+                                                                    }}
+                                                                    className="size-5 shrink-0 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
+                                                                />
+                                                                <span>Pilih Semua Item ({editableItems.filter((it) => selectedIds.includes(it.id)).length}/{editableItems.length})</span>
+                                                            </label>
+                                                            <span className="shrink-0 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                {selectedIds.length} dipilih
+                                                            </span>
+                                                        </div>
+                                                    )}
 
-                                                    return (
-                                                        <div
-                                                            key={item.id}
-                                                            className={`space-y-2.5 rounded-2xl border p-3.5 shadow-2xs transition-[background-color,border-color,box-shadow] ${isUrgent
+                                                    {sortedReqItems.map((item) => {
+                                                        const isEditable = editableItems.some((ed) => ed.id === item.id);
+                                                        const isSelected = selectedIds.includes(item.id);
+                                                        const isUrgent = Boolean(item.is_urgent);
+                                                        const itemHpp = parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price ?? 0)) || 0;
+                                                        const itemSelling = parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price ?? 0)) || 0;
+                                                        const itemSubtotal = itemSelling * Number(item.quantity);
+                                                        const hasZeroPriceWarning = isSelected && (itemHpp <= 0 || itemSelling <= 0);
+
+                                                        return (
+                                                            <div
+                                                                key={item.id}
+                                                                className={`space-y-2.5 rounded-xl border p-3 shadow-2xs transition-[background-color,border-color,box-shadow] ${isUrgent
                                                                     ? isSelected
                                                                         ? 'bg-rose-100/90 dark:bg-rose-950/70 border-rose-500 ring-1 ring-rose-500'
                                                                         : 'bg-rose-50/90 dark:bg-rose-950/40 border-rose-400'
                                                                     : isSelected
                                                                         ? 'bg-[#F0F8FF] dark:bg-[#132847]/70 border-[#0060F4] ring-1 ring-[#0060F4]'
-                                                                        : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                                                }`}
-                                                        >
-                                                            {/* Item Card Header */}
-                                                            <div className="flex items-start justify-between gap-2">
-                                                                <div className="flex items-start gap-2.5 min-w-0">
-                                                                    {canUseAdminActions && (
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={isSelected}
-                                                                            disabled={!isEditable}
-                                                                            aria-label={`Pilih ${item.item_name}`}
-                                                                            onChange={(event) => {
-                                                                                const checked = event.target.checked;
-                                                                                setSelectedItemIdsByReq((current) => {
-                                                                                    const prev = current[req.id] || [];
-                                                                                    return {
-                                                                                        ...current,
-                                                                                        [req.id]: checked
-                                                                                            ? [...prev, item.id]
-                                                                                            : prev.filter((id) => id !== item.id),
-                                                                                    };
-                                                                                });
-                                                                            }}
-                                                                            className="size-4.5 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4] mt-0.5 disabled:opacity-40"
-                                                                        />
-                                                                    )}
-                                                                    <div className="min-w-0 space-y-1">
-                                                                        <div className="flex flex-wrap items-center gap-1.5">
-                                                                            {isUrgent && (
-                                                                                <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-1.5 py-0.5 text-[9.5px] font-black uppercase text-white shadow-2xs">
-                                                                                    <Flame aria-hidden="true" className="size-2.5 fill-white" />
-                                                                                    Mendesak
-                                                                                </span>
-                                                                            )}
-                                                                            <h4 className="font-black text-xs text-[#0B1F63] dark:text-[#F1F5F9] break-words">
-                                                                                {item.item_name}
-                                                                            </h4>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                            <Building2 aria-hidden="true" className="size-3 shrink-0 text-[#0060F4]" />
-                                                                            <span className="break-words">{item.vendor?.name || 'Vendor: Belum ditentukan'}</span>
-                                                                        </div>
-                                                                        {item.notes && (
-                                                                            <p className="text-[11px] italic text-[#52658E] dark:text-[#94A3B8]">
-                                                                                "{item.notes}"
-                                                                            </p>
+                                                                        : item.director_status === 'approved'
+                                                                            ? 'bg-[#F3FCF7] dark:bg-[#123526] border-[#BCE9D2] dark:border-[#1D6848]'
+                                                                            : item.director_status === 'rejected'
+                                                                                ? 'bg-[#FFF5F7] dark:bg-[#351522] border-[#F4B8C3] dark:border-[#6B2232]'
+                                                                                : itemNeedsAction(item)
+                                                                                    ? 'bg-[#EAF4FF] dark:bg-[#102B4A] border-[#0060F4]'
+                                                                                    : 'bg-white dark:bg-[#0C1D36] border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                                                    }`}
+                                                            >
+                                                                {/* Item Card Header */}
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="flex items-start gap-2.5 min-w-0">
+                                                                        {canUseAdminActions && (
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isSelected}
+                                                                                disabled={!isEditable}
+                                                                                aria-label={`Pilih ${item.item_name}`}
+                                                                                onChange={(event) => {
+                                                                                    const checked = event.target.checked;
+                                                                                    setSelectedItemIdsByReq((current) => {
+                                                                                        const prev = current[req.id] || [];
+                                                                                        return {
+                                                                                            ...current,
+                                                                                            [req.id]: checked
+                                                                                                ? [...prev, item.id]
+                                                                                                : prev.filter((id) => id !== item.id),
+                                                                                        };
+                                                                                    });
+                                                                                }}
+                                                                                className="mt-0.5 size-5 shrink-0 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4] disabled:opacity-40"
+                                                                            />
                                                                         )}
+                                                                        <div className="min-w-0 space-y-1">
+                                                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                                                {isUrgent && (
+                                                                                    <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-1.5 py-0.5 text-[9.5px] font-black uppercase text-white shadow-2xs">
+                                                                                        <Flame aria-hidden="true" className="size-2.5 fill-white" />
+                                                                                        Mendesak
+                                                                                    </span>
+                                                                                )}
+                                                                                <h4 className="break-words text-sm font-extrabold leading-5 text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                                    {item.item_name}
+                                                                                </h4>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                                <Building2 aria-hidden="true" className="size-3 shrink-0 text-[#0060F4]" />
+                                                                                <span className="break-words">{item.vendor?.name || 'Vendor: Belum ditentukan'}</span>
+                                                                            </div>
+                                                                            <RequirementDate value={item.required_date} />
+                                                                            {item.notes && (
+                                                                                <p className="text-[11px] italic text-[#52658E] dark:text-[#94A3B8]">
+                                                                                    "{item.notes}"
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Qty Badge */}
+                                                                    <div className="shrink-0 text-right">
+                                                                        <span className="inline-flex items-center gap-1 rounded-lg border border-[#BCE0FD] bg-[#E0F0FF] px-2 py-1 font-mono text-xs font-black text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#F1F5F9]">
+                                                                            {item.quantity} {item.unit || 'Dokumen'}
+                                                                        </span>
                                                                     </div>
                                                                 </div>
 
-                                                                {/* Qty Badge */}
-                                                                <div className="shrink-0 text-right">
-                                                                    <span className="inline-flex items-center gap-1 font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9] bg-[#E0F0FF] dark:bg-[#132847] px-2 py-0.5 rounded-lg border border-[#BCE0FD] dark:border-[#1E3A5F]">
-                                                                        {item.quantity} {item.unit || 'Dokumen'}
-                                                                    </span>
+                                                                {/* Status Approval & Director Notes */}
+                                                                <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60 text-xs">
+                                                                    <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8] font-medium">Status:</span>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <DirectorStatus status={item.director_status} itemStatus={item.status} />
+                                                                    </div>
                                                                 </div>
-                                                            </div>
+                                                                {item.director_notes && (
+                                                                    <p className="text-[10.5px] italic text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-1.5 rounded-lg border border-rose-200 dark:border-rose-900">
+                                                                        Catatan Direktur: "{item.director_notes}"
+                                                                    </p>
+                                                                )}
 
-                                                            {/* Status Approval & Director Notes */}
-                                                            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60 text-xs">
-                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8] font-medium">Status:</span>
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <DirectorStatus status={item.director_status} itemStatus={item.status} />
-                                                                </div>
-                                                            </div>
-                                                            {item.director_notes && (
-                                                                <p className="text-[10.5px] italic text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-1.5 rounded-lg border border-rose-200 dark:border-rose-900">
-                                                                    Catatan Direktur: "{item.director_notes}"
-                                                                </p>
-                                                            )}
+                                                                {/* Warning Banner if selected and Rp 0 */}
+                                                                {hasZeroPriceWarning && (
+                                                                    <div className="flex items-center gap-1.5 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-[11px] font-bold text-amber-900 dark:text-amber-200">
+                                                                        <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0 text-amber-600" />
+                                                                        <span>Harga masih Rp 0! Harap isi HPP &amp; Harga Jual (&gt; Rp 0) sebelum diajukan.</span>
+                                                                    </div>
+                                                                )}
 
-                                                            {/* Warning Banner if selected and Rp 0 */}
-                                                            {hasZeroPriceWarning && (
-                                                                <div className="flex items-center gap-1.5 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-[11px] font-bold text-amber-900 dark:text-amber-200">
-                                                                    <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0 text-amber-600" />
-                                                                    <span>Harga masih Rp 0! Harap isi HPP &amp; Harga Jual (&gt; Rp 0) sebelum diajukan.</span>
-                                                                </div>
-                                                            )}
+                                                                {/* Pricing Inputs / Details */}
+                                                                <div className="rounded-xl bg-[#F8FBFF] dark:bg-[#071322]/60 p-2.5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-2">
+                                                                    {canUseAdminActions && isEditable ? (
+                                                                        <div className="space-y-2">
+                                                                            {capabilities.can_view_hpp && (
+                                                                                <div className="flex items-center justify-between gap-2 text-xs">
+                                                                                    <label
+                                                                                        htmlFor={`mobile-hpp-${item.id}`}
+                                                                                        className="shrink-0 text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]"
+                                                                                    >
+                                                                                        HPP:
+                                                                                    </label>
+                                                                                    <div className={`flex min-h-11 w-44 max-w-[68%] items-center rounded-lg border bg-white px-2.5 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemHpp <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                                                                        }`}>
+                                                                                        <span className="text-[10.5px] font-bold text-[#52658E] mr-1">Rp</span>
+                                                                                        <input
+                                                                                            id={`mobile-hpp-${item.id}`}
+                                                                                            name={`mobile_hpp_${item.id}`}
+                                                                                            type="text"
+                                                                                            inputMode="numeric"
+                                                                                            autoComplete="off"
+                                                                                            value={formatRupiahInput(priceDrafts[item.id]?.hpp_price ?? '0')}
+                                                                                            onChange={(e) =>
+                                                                                                setPriceDrafts((cur) => ({
+                                                                                                    ...cur,
+                                                                                                    [item.id]: {
+                                                                                                        ...cur[item.id],
+                                                                                                        hpp_price: normalizeRupiahInput(e.target.value),
+                                                                                                    },
+                                                                                                }))
+                                                                                            }
+                                                                                            className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold tabular-nums text-[#0B1F63] focus:ring-0 dark:text-[#F1F5F9]"
+                                                                                        />
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
 
-                                                            {/* Pricing Inputs / Details */}
-                                                            <div className="rounded-xl bg-[#F8FBFF] dark:bg-[#071322]/60 p-2.5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-2">
-                                                                {canUseAdminActions && isEditable ? (
-                                                                    <div className="space-y-2">
-                                                                        {capabilities.can_view_hpp && (
                                                                             <div className="flex items-center justify-between gap-2 text-xs">
                                                                                 <label
-                                                                                    htmlFor={`mobile-hpp-${item.id}`}
-                                                                                    className="shrink-0 text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]"
+                                                                                    htmlFor={`mobile-selling-${item.id}`}
+                                                                                    className="shrink-0 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]"
                                                                                 >
-                                                                                    HPP:
+                                                                                    Harga Jual:
                                                                                 </label>
-                                                                                <div className={`flex min-h-8 w-36 items-center rounded-lg border bg-white px-2 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemHpp <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                                                                <div className={`flex min-h-11 w-44 max-w-[68%] items-center rounded-lg border bg-white px-2.5 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemSelling <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#BCE0FD] dark:border-[#1E3A5F]'
                                                                                     }`}>
-                                                                                    <span className="text-[10.5px] font-bold text-[#52658E] mr-1">Rp</span>
+                                                                                    <span className="text-[10.5px] font-bold text-[#0060F4] mr-1">Rp</span>
                                                                                     <input
-                                                                                        id={`mobile-hpp-${item.id}`}
-                                                                                        name={`mobile_hpp_${item.id}`}
+                                                                                        id={`mobile-selling-${item.id}`}
+                                                                                        name={`mobile_selling_${item.id}`}
                                                                                         type="text"
                                                                                         inputMode="numeric"
                                                                                         autoComplete="off"
-                                                                                        value={formatRupiahInput(priceDrafts[item.id]?.hpp_price ?? '0')}
+                                                                                        value={formatRupiahInput(priceDrafts[item.id]?.selling_price ?? '0')}
                                                                                         onChange={(e) =>
                                                                                             setPriceDrafts((cur) => ({
                                                                                                 ...cur,
                                                                                                 [item.id]: {
                                                                                                     ...cur[item.id],
-                                                                                                    hpp_price: normalizeRupiahInput(e.target.value),
+                                                                                                    selling_price: normalizeRupiahInput(e.target.value),
                                                                                                 },
                                                                                             }))
                                                                                         }
-                                                                                        className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold tabular-nums text-[#0B1F63] focus:ring-0 dark:text-[#F1F5F9]"
+                                                                                        className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-black tabular-nums text-[#0060F4] focus:ring-0 dark:text-[#60A5FA]"
                                                                                     />
                                                                                 </div>
                                                                             </div>
-                                                                        )}
 
-                                                                        <div className="flex items-center justify-between gap-2 text-xs">
-                                                                            <label
-                                                                                htmlFor={`mobile-selling-${item.id}`}
-                                                                                className="shrink-0 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]"
-                                                                            >
-                                                                                Harga Jual:
-                                                                            </label>
-                                                                            <div className={`flex min-h-8 w-36 items-center rounded-lg border bg-white px-2 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemSelling <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#BCE0FD] dark:border-[#1E3A5F]'
-                                                                                }`}>
-                                                                                <span className="text-[10.5px] font-bold text-[#0060F4] mr-1">Rp</span>
-                                                                                <input
-                                                                                    id={`mobile-selling-${item.id}`}
-                                                                                    name={`mobile_selling_${item.id}`}
-                                                                                    type="text"
-                                                                                    inputMode="numeric"
-                                                                                    autoComplete="off"
-                                                                                    value={formatRupiahInput(priceDrafts[item.id]?.selling_price ?? '0')}
-                                                                                    onChange={(e) =>
-                                                                                        setPriceDrafts((cur) => ({
-                                                                                            ...cur,
-                                                                                            [item.id]: {
-                                                                                                ...cur[item.id],
-                                                                                                selling_price: normalizeRupiahInput(e.target.value),
-                                                                                            },
-                                                                                        }))
-                                                                                    }
-                                                                                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-black tabular-nums text-[#0060F4] focus:ring-0 dark:text-[#60A5FA]"
-                                                                                />
-                                                                            </div>
-                                                                        </div>
-
-                                                                        <div className="flex items-center justify-between pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                                                                            <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Subtotal:</span>
-                                                                            <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                                {formatRupiah(itemSubtotal)}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="space-y-1 text-xs">
-                                                                        {capabilities.can_view_hpp && (
-                                                                            <div className="flex items-center justify-between">
-                                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">HPP:</span>
-                                                                                <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                                    {formatRupiah(item.hpp_price)}
+                                                                            <div className="flex items-center justify-between pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
+                                                                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Subtotal:</span>
+                                                                                <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                                    {formatRupiah(itemSubtotal)}
                                                                                 </span>
                                                                             </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="space-y-1 text-xs">
+                                                                            {capabilities.can_view_hpp && (
+                                                                                <div className="flex items-center justify-between">
+                                                                                    <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">HPP:</span>
+                                                                                    <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                                        {formatRupiah(item.hpp_price)}
+                                                                                    </span>
+                                                                                </div>
+                                                                            )}
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">Harga Jual:</span>
+                                                                                <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                                                    {formatRupiah(item.selling_price)}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex items-center justify-between pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
+                                                                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Subtotal:</span>
+                                                                                <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                                    {formatRupiah(itemSubtotal)}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Aksi langsung per item */}
+                                                                {(canUseAdminActions || capabilities.can_process_requests) && (
+                                                                    <div className="flex flex-col items-stretch gap-2 pt-1 min-[390px]:flex-row min-[390px]:flex-wrap min-[390px]:items-center min-[390px]:justify-end">
+                                                                        <RequestItemWorkflowAction
+                                                                            requestId={req.id}
+                                                                            requestNumber={req.request_number}
+                                                                            serviceType={req.service_type}
+                                                                            item={item}
+                                                                            canProcess={capabilities.can_process_requests}
+                                                                            className="w-full min-[390px]:w-auto"
+                                                                        />
+                                                                        {isEditable && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleSaveItemPrice(req.id, item.id)}
+                                                                                disabled={savingItemId === item.id}
+                                                                                className="inline-flex min-h-11 touch-manipulation items-center gap-1 rounded-lg bg-[#E0F0FF] px-3 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-60 dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                                            >
+                                                                                <Save aria-hidden="true" className="size-3" />
+                                                                                <span>{savingItemId === item.id ? 'Menyimpan…' : 'Simpan Harga'}</span>
+                                                                            </button>
                                                                         )}
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">Harga Jual:</span>
-                                                                            <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#60A5FA]">
-                                                                                {formatRupiah(item.selling_price)}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="flex items-center justify-between pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                                                                            <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Subtotal:</span>
-                                                                            <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                                {formatRupiah(itemSubtotal)}
-                                                                            </span>
-                                                                        </div>
                                                                     </div>
                                                                 )}
                                                             </div>
+                                                        );
+                                                    })}
 
-                                                            {/* Action Button for item (Simpan / Revisi) */}
-                                                            {canUseAdminActions && (
-                                                                <div className="flex items-center justify-end gap-2 pt-1">
-                                                                    {isEditable && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleSaveItemPrice(req.id, item.id)}
-                                                                            disabled={savingItemId === item.id}
-                                                                            className="inline-flex min-h-11 touch-manipulation items-center gap-1 rounded-lg bg-[#E0F0FF] px-3 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-60 dark:bg-[#132847] dark:text-[#60A5FA]"
-                                                                        >
-                                                                            <Save aria-hidden="true" className="size-3" />
-                                                                            <span>{savingItemId === item.id ? 'Menyimpan…' : 'Simpan Harga'}</span>
-                                                                        </button>
-                                                                    )}
-                                                                    {isLocked && !item.is_invoiced && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setRevisionTarget({ requestId: req.id, item })}
-                                                                            className="inline-flex min-h-11 touch-manipulation items-center gap-1 rounded-lg px-3 text-xs font-semibold text-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:bg-[#152E52]"
-                                                                        >
-                                                                            <RotateCcw aria-hidden="true" className="size-3" />
-                                                                            <span>Revisi</span>
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-
-                                                {/* Mobile Subtotal Card Summary */}
-                                                <div className="rounded-xl bg-[#F8FBFF] dark:bg-[#071322] p-3 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-1.5 text-xs">
-                                                    <div className="flex items-center justify-between font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                                        <span>Subtotal ({reqItems.length} Item):</span>
-                                                        <span className="font-mono text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                            {formatRupiah(reqTotalSelling)}
-                                                        </span>
-                                                    </div>
-                                                    {capabilities.can_view_hpp && (
-                                                        <div className="flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                            <span>Total HPP:</span>
-                                                            <span className="font-mono font-medium">{formatRupiah(reqTotalHpp)}</span>
-                                                        </div>
-                                                    )}
-                                                    {capabilities.can_view_hpp && (
-                                                        <div className="flex items-center justify-between text-[11px] font-bold text-emerald-700 dark:text-emerald-300 pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                                                            <span>Margin:</span>
-                                                            <span className="font-mono">{formatRupiah(reqTotalSelling - reqTotalHpp)}</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-
-
-                                            {/* Panel Keputusan Direktur per Pengajuan (Jika ada item menunggu keputusan) */}
-                                            {capabilities.can_decide_items && forwardedItems.length > 0 && (
-                                                <div className="border-t border-[#BCE0FD] bg-[#F0F8FF]/70 p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                        <div>
-                                                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#0060F4] dark:text-[#60A5FA]">
-                                                                <CheckCircle2 className="size-3.5" />
-                                                                Review Direktur Diperlukan ({forwardedItems.length} Item)
+                                                    {/* Mobile Subtotal Card Summary */}
+                                                    <div className="space-y-1.5 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                        <div className="flex items-center justify-between font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                                            <span>Subtotal ({reqItems.length} Item):</span>
+                                                            <span className="font-mono text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                {formatRupiah(reqTotalSelling)}
                                                             </span>
-                                                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                                                Tentukan keputusan persetujuan untuk item yang diajukan oleh Admin Operasional.
-                                                            </p>
                                                         </div>
-
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <Button
-                                                                type="button"
-                                                                size="sm"
-                                                                variant="secondary"
-                                                                onClick={() =>
-                                                                    setDecisionDrafts((cur) => {
-                                                                        const next = { ...cur };
-                                                                        forwardedItems.forEach((it) => {
-                                                                            next[it.id] = { ...next[it.id], status: 'approved' };
-                                                                        });
-                                                                        return next;
-                                                                    })
-                                                                }
-                                                            >
-                                                                Setujui Semua
-                                                            </Button>
-                                                            <Button
-                                                                type="button"
-                                                                size="sm"
-                                                                isLoading={activeAction === `director-${req.id}`}
-                                                                onClick={() => submitDirectorDecisions(req.id, forwardedItems)}
-                                                            >
-                                                                Simpan Keputusan Direktur
-                                                            </Button>
-                                                        </div>
+                                                        {capabilities.can_view_hpp && (
+                                                            <div className="flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                <span>Total HPP:</span>
+                                                                <span className="font-mono font-medium">{formatRupiah(reqTotalHpp)}</span>
+                                                            </div>
+                                                        )}
+                                                        {capabilities.can_view_hpp && (
+                                                            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-700 dark:text-emerald-300 pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
+                                                                <span>Margin:</span>
+                                                                <span className="font-mono">{formatRupiah(reqTotalSelling - reqTotalHpp)}</span>
+                                                            </div>
+                                                        )}
                                                     </div>
+                                                </div>
 
-                                                    <div className="mt-3 space-y-2">
-                                                        {forwardedItems.map((item) => {
-                                                            const decision = decisionDrafts[item.id] ?? {
-                                                                status: 'pending' as DirectorDecision,
-                                                                director_notes: '',
-                                                            };
 
-                                                            return (
-                                                                <div
-                                                                    key={item.id}
-                                                                    className="flex flex-col gap-2 rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between"
+                                                {/* Panel Keputusan Direktur per Pengajuan (Jika ada item menunggu keputusan) */}
+                                                {capabilities.can_decide_items && forwardedItems.length > 0 && (
+                                                    <div className="border-t border-[#BCE0FD] bg-[#F0F8FF]/70 p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                            <div>
+                                                                <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    <CheckCircle2 className="size-3.5" />
+                                                                    Review Direktur Diperlukan ({forwardedItems.length} Item)
+                                                                </span>
+                                                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                                    Tentukan keputusan persetujuan untuk item yang diajukan oleh Admin Operasional.
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <Button
+                                                                    type="button"
+                                                                    size="sm"
+                                                                    variant="secondary"
+                                                                    onClick={() =>
+                                                                        setDecisionDrafts((cur) => {
+                                                                            const next = { ...cur };
+                                                                            forwardedItems.forEach((it) => {
+                                                                                next[it.id] = { ...next[it.id], status: 'approved' };
+                                                                            });
+                                                                            return next;
+                                                                        })
+                                                                    }
                                                                 >
-                                                                    <div className="min-w-0">
-                                                                        <p className="text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                            {item.item_name} ({item.quantity} {item.unit})
-                                                                        </p>
-                                                                        <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                            HPP: {formatRupiah(item.hpp_price)} • Jual: {formatRupiah(item.selling_price)}
-                                                                        </p>
-                                                                    </div>
+                                                                    Setujui Semua
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
+                                                                    size="sm"
+                                                                    isLoading={activeAction === `director-${req.id}`}
+                                                                    onClick={() => submitDirectorDecisions(req.id, forwardedItems)}
+                                                                >
+                                                                    Simpan Keputusan Direktur
+                                                                </Button>
+                                                            </div>
+                                                        </div>
 
-                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                        {([
-                                                                            { val: 'approved', label: 'Setujui', icon: CheckCircle2, cls: 'bg-emerald-600 text-white' },
-                                                                            { val: 'pending', label: 'Pending', icon: CirclePause, cls: 'bg-amber-500 text-white' },
-                                                                            { val: 'rejected', label: 'Tolak', icon: CircleX, cls: 'bg-rose-600 text-white' },
-                                                                        ] as const).map(({ val, label, icon: Icon, cls }) => (
-                                                                            <button
-                                                                                key={val}
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    setDecisionDrafts((cur) => ({
-                                                                                        ...cur,
-                                                                                        [item.id]: { ...decision, status: val },
-                                                                                    }))
-                                                                                }
-                                                                                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${decision.status === val
+                                                        <div className="mt-3 space-y-2">
+                                                            {forwardedItems.map((item) => {
+                                                                const decision = decisionDrafts[item.id] ?? {
+                                                                    status: 'pending' as DirectorDecision,
+                                                                    director_notes: '',
+                                                                };
+
+                                                                return (
+                                                                    <div
+                                                                        key={item.id}
+                                                                        className="flex flex-col gap-2 rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between"
+                                                                    >
+                                                                        <div className="min-w-0">
+                                                                            <p className="text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                                {item.item_name} ({item.quantity} {item.unit})
+                                                                            </p>
+                                                                            <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                                HPP: {formatRupiah(item.hpp_price)} • Jual: {formatRupiah(item.selling_price)}
+                                                                            </p>
+                                                                        </div>
+
+                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                            {([
+                                                                                { val: 'approved', label: 'Setujui', icon: CheckCircle2, cls: 'bg-emerald-600 text-white' },
+                                                                                { val: 'pending', label: 'Pending', icon: CirclePause, cls: 'bg-amber-500 text-white' },
+                                                                                { val: 'rejected', label: 'Tolak', icon: CircleX, cls: 'bg-rose-600 text-white' },
+                                                                            ] as const).map(({ val, label, icon: Icon, cls }) => (
+                                                                                <button
+                                                                                    key={val}
+                                                                                    type="button"
+                                                                                    onClick={() =>
+                                                                                        setDecisionDrafts((cur) => ({
+                                                                                            ...cur,
+                                                                                            [item.id]: { ...decision, status: val },
+                                                                                        }))
+                                                                                    }
+                                                                                    className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-bold transition ${decision.status === val
                                                                                         ? cls
                                                                                         : 'border-[#DCEAF8] bg-white text-[#52658E] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36]'
-                                                                                    }`}
-                                                                            >
-                                                                                <Icon className="size-3" />
-                                                                                <span>{label}</span>
-                                                                            </button>
-                                                                        ))}
+                                                                                        }`}
+                                                                                >
+                                                                                    <Icon className="size-3" />
+                                                                                    <span>{label}</span>
+                                                                                </button>
+                                                                            ))}
 
-                                                                        <input
-                                                                            type="text"
-                                                                            placeholder="Catatan Direktur..."
-                                                                            value={decision.director_notes}
-                                                                            onChange={(e) =>
-                                                                                setDecisionDrafts((cur) => ({
-                                                                                    ...cur,
-                                                                                    [item.id]: { ...decision, director_notes: e.target.value },
-                                                                                }))
-                                                                            }
-                                                                            className="min-h-8 rounded-lg border border-[#DCEAF8] px-2 py-0.5 text-xs text-[#0B1F63] focus:border-[#0060F4] focus:ring-0 dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
-                                                                        />
+                                                                            <input
+                                                                                type="text"
+                                                                                placeholder="Catatan Direktur..."
+                                                                                value={decision.director_notes}
+                                                                                onChange={(e) =>
+                                                                                    setDecisionDrafts((cur) => ({
+                                                                                        ...cur,
+                                                                                        [item.id]: { ...decision, director_notes: e.target.value },
+                                                                                    }))
+                                                                                }
+                                                                                className="min-h-8 rounded-lg border border-[#DCEAF8] px-2 py-0.5 text-xs text-[#0B1F63] focus:border-[#0060F4] focus:ring-0 dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
+                                                                            />
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                            );
-                                                        })}
+                                                                );
+                                                            })}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            )}
+                                                )}
 
-                                            {/* Invoices Terkait Pengajuan Ini */}
-                                            {req.invoices && req.invoices.length > 0 && (
-                                                <div className="flex flex-wrap items-center gap-2 border-t border-[#DCEAF8] bg-[#F8FBFF] px-4 py-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                    <span className="font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                                        Invoice Terbit:
-                                                    </span>
-                                                    {req.invoices.map((inv) => (
-                                                        <span
-                                                            key={inv.id}
-                                                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-white px-2.5 py-1 font-mono text-xs font-bold text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#60A5FA]"
-                                                        >
-                                                            <FileText className="size-3" />
-                                                            <span>{inv.invoice_number}</span>
-                                                            <span className="text-[10px] text-[#52658E]">({formatRupiah(inv.grand_total)})</span>
-                                                            <StatusBadge status={inv.status} label={inv.status} size="sm" showDot={false} />
+                                                {/* Invoices Terkait Pengajuan Ini */}
+                                                {req.invoices && req.invoices.length > 0 && (
+                                                    <div className="flex flex-wrap items-center gap-2 border-t border-[#DCEAF8] bg-[#F8FBFF] px-4 py-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                        <span className="font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                                            Invoice Terbit:
                                                         </span>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <div className="p-8 text-center text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                            <p className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                Data Tidak Ditemukan
-                                            </p>
-                                            {canAddItemToReq && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setAddItemTargetReqId(req.id);
-                                                    }}
-                                                    className="mt-2.5 inline-flex items-center gap-1 font-bold text-[#0060F4] hover:underline"
-                                                >
-                                                    <Plus className="size-3.5" />
-                                                    Tambah item sekarang
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-                                </section>
-                            );
-                        })
-                    ) : (
-                        <Card className="p-12 text-center rounded-2xl border-[#DCEAF8] dark:border-[#1E3A5F]">
-                            <div className="text-4xl mb-3">📋</div>
-                            <h3 className="text-base font-bold text-[#0B1F63] dark:text-white">
-                                Belum ada surat pengajuan untuk kegiatan kapal ini
-                            </h3>
-                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1 max-w-md mx-auto">
-                                {capabilities.can_create_requests
-                                    ? 'Silakan buat surat pengajuan baru untuk menambahkan rincian kebutuhan logistik kapal.'
-                                    : 'Belum ada surat pengajuan yang dapat ditampilkan untuk kegiatan kapal ini.'}
-                            </p>
-                            {capabilities.can_create_requests && (
-                                <Link
-                                    href={route('requests.create')}
-                                    className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-[#0060F4] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#082870]"
-                                >
-                                    <Plus className="size-3.5" />
-                                    <span>Buat Pengajuan Baru</span>
-                                </Link>
-                            )}
-                        </Card>
+                                                        {req.invoices.map((inv) => (
+                                                            <span
+                                                                key={inv.id}
+                                                                className="inline-flex items-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-white px-2.5 py-1 font-mono text-xs font-bold text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#60A5FA]"
+                                                            >
+                                                                <FileText className="size-3" />
+                                                                <span>{inv.invoice_number}</span>
+                                                                <span className="text-[10px] text-[#52658E]">({formatRupiah(inv.grand_total)})</span>
+                                                                <StatusBadge status={inv.status} label={inv.status} size="sm" showDot={false} />
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <div className="p-8 text-center text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                <p className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                    Data Tidak Ditemukan
+                                                </p>
+                                                {canAddItemToReq && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setAddItemTargetReqId(req.id);
+                                                        }}
+                                                        className="mt-2.5 inline-flex items-center gap-1 font-bold text-[#0060F4] hover:underline"
+                                                    >
+                                                        <Plus className="size-3.5" />
+                                                        Tambah item sekarang
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </section>
+                                );
+                            })
+                        ) : (
+                            <Card className="p-12 text-center rounded-2xl border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                <div className="text-4xl mb-3">📋</div>
+                                <h3 className="text-base font-bold text-[#0B1F63] dark:text-white">
+                                    Belum ada surat pengajuan untuk kegiatan kapal ini
+                                </h3>
+                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1 max-w-md mx-auto">
+                                    {capabilities.can_create_requests
+                                        ? 'Silakan buat surat pengajuan baru untuk menambahkan rincian kebutuhan logistik kapal.'
+                                        : 'Belum ada surat pengajuan yang dapat ditampilkan untuk kegiatan kapal ini.'}
+                                </p>
+                                {capabilities.can_create_requests && (
+                                    <Link
+                                        href={route('requests.create')}
+                                        className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-[#0060F4] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#082870]"
+                                    >
+                                        <Plus className="size-3.5" />
+                                        <span>Buat Pengajuan Baru</span>
+                                    </Link>
+                                )}
+                            </Card>
                         )}
                     </div>
                 </div>
@@ -2593,56 +2638,6 @@ export default function RequestShow({
                 </form>
             </Modal>
 
-            {/* Modal Revisi Harga */}
-            <Modal
-                isOpen={revisionTarget !== null}
-                onClose={() => {
-                    if (activeAction !== 'revision') {
-                        setRevisionTarget(null);
-                        setRevisionReason('');
-                    }
-                }}
-                title="Ajukan Revisi Harga Item"
-                subtitle={`Buka kembali persetujuan harga untuk ${revisionTarget?.item.item_name ?? 'item ini'}.`}
-                size="md"
-            >
-                <div className="space-y-4">
-                    <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
-                        Alasan Revisi Harga *
-                        <textarea
-                            rows={3}
-                            value={revisionReason}
-                            onChange={(e) => setRevisionReason(e.target.value)}
-                            placeholder="Contoh: Ada koreksi penawaran dari vendor atau perubahan margin..."
-                            className="mt-1.5 w-full rounded-xl border-[#DCEAF8] text-xs text-[#0B1F63] focus:border-[#0060F4] focus:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
-                        />
-                    </label>
-
-                    <div className="flex justify-end gap-2 pt-2 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={activeAction === 'revision'}
-                            onClick={() => {
-                                setRevisionTarget(null);
-                                setRevisionReason('');
-                            }}
-                        >
-                            Batal
-                        </Button>
-                        <Button
-                            type="button"
-                            size="sm"
-                            disabled={!revisionReason.trim()}
-                            isLoading={activeAction === 'revision'}
-                            onClick={submitRevision}
-                        >
-                            Ajukan Revisi
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
         </AppLayout>
     );
 }

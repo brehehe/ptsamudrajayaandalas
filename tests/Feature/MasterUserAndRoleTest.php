@@ -19,10 +19,10 @@ test('login page is accessible and contains demo account references', function (
 
 test('can authenticate and load dashboard with correct Spatie primary_role for all 4 roles', function () {
     $rolesMap = [
-        ['name' => 'Bu Titik', 'email' => 'titik@samudrajaya.co.id', 'role' => 'Admin'],
-        ['name' => 'Pak Prima', 'email' => 'prima@samudrajaya.co.id', 'role' => 'Lapangan'],
-        ['name' => 'Pak Ryan', 'email' => 'ryan@samudrajaya.co.id', 'role' => 'Direktur'],
-        ['name' => 'Hendra Wijaya', 'email' => 'owner@samudrajaya.co.id', 'role' => 'Owner'],
+        ['name' => 'Bu Titik', 'email' => 'titik@gmail.com', 'role' => 'Admin'],
+        ['name' => 'Pak Prima', 'email' => 'prima@gmail.com', 'role' => 'Lapangan'],
+        ['name' => 'Pak Ryan', 'email' => 'ryan@gmail.com', 'role' => 'Direktur'],
+        ['name' => 'Hendra Wijaya', 'email' => 'owner@gmail.com', 'role' => 'Owner'],
     ];
 
     foreach ($rolesMap as $account) {
@@ -83,28 +83,28 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
     'owner' => ['Owner', 'owner', '/reports', ['financial_trend', 'collection_mix', 'business_pipeline']],
 ]);
 
-test('admin master users index lists every account and master role', function () {
+test('admin master users index exposes only admin and operational role management', function () {
     $admin = User::firstOrCreate(
-        ['email' => 'titik@samudrajaya.co.id'],
+        ['email' => 'titik@gmail.com'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
     );
     $admin->syncRoles(['Admin']);
 
     $fieldUser = User::factory()->create([
         'name' => 'Pak Prima',
-        'email' => 'field-only@samudrajaya.co.id',
+        'email' => 'field-only@gmail.com',
     ]);
     $fieldUser->syncRoles(['Lapangan']);
 
     $director = User::factory()->create([
         'name' => 'Pak Ryan',
-        'email' => 'director-visible@samudrajaya.co.id',
+        'email' => 'director-visible@gmail.com',
     ]);
     $director->syncRoles(['Direktur']);
 
     $owner = User::factory()->create([
         'name' => 'Hendra Wijaya',
-        'email' => 'owner-visible@samudrajaya.co.id',
+        'email' => 'owner-visible@gmail.com',
     ]);
     $owner->syncRoles(['Owner']);
 
@@ -118,51 +118,68 @@ test('admin master users index lists every account and master role', function ()
         ->where('users.1.email', $owner->email)
         ->where('users.2.email', $fieldUser->email)
         ->where('users.3.email', $director->email)
-        ->where('roles', ['Owner', 'Direktur', 'Admin', 'Lapangan'])
+        ->where('users.0.can_update', true)
+        ->where('users.0.can_delete', false)
+        ->where('users.1.can_update', false)
+        ->where('users.1.can_delete', false)
+        ->where('users.2.can_update', true)
+        ->where('users.2.can_delete', true)
+        ->where('users.3.can_update', false)
+        ->where('users.3.can_delete', false)
+        ->where('roles', ['Admin', 'Lapangan'])
         ->where('can_manage', true)
     );
 });
 
-test('admin can create a new user with any master role', function () {
+test('admin can create admin users but cannot create director users', function () {
     $admin = User::firstOrCreate(
-        ['email' => 'titik@samudrajaya.co.id'],
+        ['email' => 'titik@gmail.com'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
     );
     $admin->syncRoles(['Admin']);
 
     $payload = [
-        'name' => 'Direktur Baru',
-        'email' => 'direkturbaru@samudrajaya.co.id',
+        'name' => 'Admin Baru',
+        'email' => 'adminbaru@gmail.com',
         'password' => 'password123',
-        'role' => 'Direktur',
+        'role' => 'Admin',
     ];
 
     $response = $this->actingAs($admin)->post('/master/users', $payload);
 
     $response->assertRedirect();
-    $newUser = User::where('email', 'direkturbaru@samudrajaya.co.id')->first();
+    $newUser = User::where('email', 'adminbaru@gmail.com')->first();
     expect($newUser)->not->toBeNull();
-    expect($newUser->hasRole('Direktur'))->toBeTrue();
+    expect($newUser->hasRole('Admin'))->toBeTrue();
+
+    $this->actingAs($admin)->post('/master/users', [
+        ...$payload,
+        'name' => 'Direktur Tidak Sah',
+        'email' => 'direkturtidaksah@gmail.com',
+        'role' => 'Direktur',
+    ])->assertSessionHasErrors('role');
+
+    expect(User::where('email', 'direkturtidaksah@gmail.com')->exists())->toBeFalse();
 });
 
-test('admin can update an account and assign another master role', function () {
+test('admin can update operational users to admin', function () {
     $admin = User::firstOrCreate(
-        ['email' => 'titik@samudrajaya.co.id'],
+        ['email' => 'titik@gmail.com'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
     );
     $admin->syncRoles(['Admin']);
 
     $targetUser = User::create([
         'name' => 'Staff To Update',
-        'email' => 'stafftoupdate@samudrajaya.co.id',
+        'email' => 'stafftoupdate@gmail.com',
         'password' => Hash::make('oldpassword'),
     ]);
     $targetUser->syncRoles(['Lapangan']);
 
     $updatePayload = [
         'name' => 'Staff Updated Name',
-        'email' => 'stafftoupdate@samudrajaya.co.id',
-        'role' => 'Direktur',
+        'email' => 'stafftoupdate@gmail.com',
+        'role' => 'Admin',
         'password' => 'newsecretpassword',
     ];
 
@@ -171,20 +188,48 @@ test('admin can update an account and assign another master role', function () {
     $response->assertRedirect();
     $targetUser->refresh();
     expect($targetUser->name)->toBe('Staff Updated Name');
-    expect($targetUser->hasRole('Direktur'))->toBeTrue();
+    expect($targetUser->hasRole('Admin'))->toBeTrue();
     expect(Hash::check('newsecretpassword', $targetUser->password))->toBeTrue();
 });
 
-test('owner can view all users and roles but cannot mutate accounts', function () {
-    $owner = User::factory()->create();
+test('director can manage director admin and operational users but not owners', function () {
+    $director = User::factory()->create(['name' => 'Direktur Utama']);
+    $director->syncRoles(['Direktur']);
+
+    $owner = User::factory()->create(['name' => 'Owner Utama']);
     $owner->syncRoles(['Owner']);
 
-    $targetUser = User::factory()->create([
-        'name' => 'Staff To Update',
-        'email' => 'owner-managed-staff@samudrajaya.co.id',
-        'password' => Hash::make('oldpassword'),
-    ]);
-    $targetUser->syncRoles(['Lapangan']);
+    $admin = User::factory()->create(['name' => 'Admin Lama']);
+    $admin->syncRoles(['Admin']);
+
+    $this->actingAs($director)
+        ->get('/master/users')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Master/Users/Index')
+            ->where('roles', ['Direktur', 'Admin', 'Lapangan'])
+            ->where('can_manage', true)
+        );
+
+    $this->actingAs($director)->put("/master/users/{$admin->id}", [
+        'name' => 'Admin Baru',
+        'email' => $admin->email,
+        'role' => 'Admin',
+    ])->assertRedirect();
+
+    $this->actingAs($director)->put("/master/users/{$owner->id}", [
+        'name' => 'Owner Diubah',
+        'email' => $owner->email,
+        'role' => 'Direktur',
+    ])->assertForbidden();
+
+    expect($admin->fresh()->name)->toBe('Admin Baru')
+        ->and($owner->fresh()->name)->toBe('Owner Utama');
+});
+
+test('owner can create update and delete every managed role', function () {
+    $owner = User::factory()->create();
+    $owner->syncRoles(['Owner']);
 
     $this->actingAs($owner)
         ->get('/master/users')
@@ -192,40 +237,66 @@ test('owner can view all users and roles but cannot mutate accounts', function (
         ->assertInertia(fn ($page) => $page
             ->component('Master/Users/Index')
             ->where('roles', ['Owner', 'Direktur', 'Admin', 'Lapangan'])
-            ->where('can_manage', false)
-            ->has('users', 2)
+            ->where('can_manage', true)
+            ->has('users', 1)
         );
 
-    $response = $this->actingAs($owner)->put("/master/users/{$targetUser->id}", [
-        'name' => 'Staff Updated Name',
-        'email' => $targetUser->email,
-        'role' => 'Lapangan',
-        'password' => 'newsecretpassword',
-    ]);
+    $this->actingAs($owner)->post('/master/users', [
+        'name' => 'Owner Kedua',
+        'email' => 'owner-kedua@gmail.com',
+        'password' => 'password123',
+        'role' => 'Owner',
+    ])->assertRedirect();
 
-    $response->assertForbidden();
-    $targetUser->refresh();
-    expect($targetUser->name)->toBe('Staff To Update');
-    expect($targetUser->hasRole('Lapangan'))->toBeTrue();
-    expect(Hash::check('oldpassword', $targetUser->password))->toBeTrue();
+    $targetUser = User::where('email', 'owner-kedua@gmail.com')->firstOrFail();
+
+    $this->actingAs($owner)->put("/master/users/{$targetUser->id}", [
+        'name' => 'Direktur Baru',
+        'email' => $targetUser->email,
+        'role' => 'Direktur',
+    ])->assertRedirect();
+
+    expect($targetUser->fresh()->name)->toBe('Direktur Baru')
+        ->and($targetUser->hasRole('Direktur'))->toBeTrue();
+
+    $this->actingAs($owner)
+        ->delete("/master/users/{$targetUser->id}")
+        ->assertRedirect();
+
+    $this->assertDatabaseMissing('users', ['id' => $targetUser->id]);
 });
 
-test('cannot delete own user account in master users', function () {
-    $admin = User::firstOrCreate(
-        ['email' => 'titik@samudrajaya.co.id'],
-        ['name' => 'Bu Titik', 'password' => Hash::make('password')]
-    );
-    $admin->syncRoles(['Admin']);
+test('management roles cannot delete their own account', function (string $role) {
+    $user = User::factory()->create();
+    $user->syncRoles([$role]);
 
-    $response = $this->actingAs($admin)->delete("/master/users/{$admin->id}");
+    $response = $this->actingAs($user)->delete("/master/users/{$user->id}");
 
-    $response->assertRedirect();
-    expect(User::find($admin->id))->not->toBeNull();
+    $response->assertRedirect()->assertSessionHas('error', 'Anda tidak dapat menghapus akun Anda sendiri.');
+    $this->assertModelExists($user);
+})->with(['Owner', 'Direktur', 'Admin']);
+
+test('operational users cannot access or mutate master users', function () {
+    $operational = User::factory()->create();
+    $operational->syncRoles(['Lapangan']);
+
+    $this->actingAs($operational)
+        ->get('/master/users')
+        ->assertForbidden();
+
+    $this->actingAs($operational)->post('/master/users', [
+        'name' => 'Akun Tidak Sah',
+        'email' => 'akun-tidak-sah@gmail.com',
+        'password' => 'password123',
+        'role' => 'Lapangan',
+    ])->assertForbidden();
+
+    expect(User::where('email', 'akun-tidak-sah@gmail.com')->exists())->toBeFalse();
 });
 
 test('master roles index lists 4 roles with permissions and user counts', function () {
     $admin = User::firstOrCreate(
-        ['email' => 'titik@samudrajaya.co.id'],
+        ['email' => 'titik@gmail.com'],
         ['name' => 'Bu Titik', 'password' => Hash::make('password')]
     );
     $admin->syncRoles(['Admin']);
@@ -243,7 +314,7 @@ test('master roles index lists 4 roles with permissions and user counts', functi
 
 test('sidebar receives correct primary_role in shared auth across all routes', function () {
     $fieldUser = User::firstOrCreate(
-        ['email' => 'prima@samudrajaya.co.id'],
+        ['email' => 'prima@gmail.com'],
         ['name' => 'Pak Prima', 'password' => Hash::make('password')]
     );
     $fieldUser->syncRoles(['Lapangan']);

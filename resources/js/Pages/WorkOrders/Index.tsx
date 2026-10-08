@@ -22,6 +22,7 @@ import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Table from '../../Components/tables/Table';
+import ShipImage from '../../Components/vessels/ShipImage';
 import AppLayout from '../../Layouts/AppLayout';
 import type { PageProps } from '../../types';
 
@@ -38,7 +39,7 @@ interface WorkOrder {
     next_status?: string | null;
     can_transition: boolean;
     company?: { name: string };
-    ship?: { id: string; name: string; imo_number?: string | null; ship_type?: string | null };
+    ship?: { id: string; name: string; imo_number?: string | null; ship_type?: string | null; image?: string | null };
     port?: { name: string };
     assignee?: { name: string };
     items?: Array<{ name: string; description?: string | null }>;
@@ -355,9 +356,13 @@ export default function WorkOrdersIndex({ workOrders, stats, filters, canCreate 
                                 return (
                                     <Card key={item.id} className="space-y-4 p-4">
                                         <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="truncate text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">{item.system_number}</p>
-                                                <p className="mt-0.5 truncate text-xs text-[#52658E] dark:text-[#94A3B8]" translate="no">{item.client_number}</p>
+                                            <div className="flex min-w-0 items-start gap-3">
+                                                <ShipImage src={item.ship?.image} alt={`Foto ${item.ship?.name || 'kapal'}`} width={56} height={56} loading="lazy" className="size-14 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]" placeholderIconClassName="size-5" />
+                                                <div className="min-w-0">
+                                                    <p className="break-words text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">{item.system_number}</p>
+                                                    <p className="mt-0.5 truncate text-xs text-[#52658E] dark:text-[#94A3B8]" translate="no">{item.client_number}</p>
+                                                    <p className="mt-1 line-clamp-1 text-xs font-semibold text-[#0B1F63] dark:text-white">{item.ship?.name || 'Kapal belum tersedia'}</p>
+                                                </div>
                                             </div>
                                             <StatusBadge status={statusLabels[item.status] || item.status} />
                                         </div>
@@ -425,7 +430,7 @@ export default function WorkOrdersIndex({ workOrders, stats, filters, canCreate 
                                         key: 'ship',
                                         header: 'Kapal & perusahaan',
                                         width: '210px',
-                                        render: (item) => <div><p className="font-semibold">{item.ship?.name || '-'}</p><p className="mt-0.5 text-xs text-[#52658E]">{item.company?.name || '-'}</p></div>,
+                                        render: (item) => <div className="flex min-w-0 items-center gap-2.5"><ShipImage src={item.ship?.image} alt={`Foto ${item.ship?.name || 'kapal'}`} width={40} height={40} loading="lazy" className="size-10 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" /><div className="min-w-0"><p className="break-words font-semibold">{item.ship?.name || '-'}</p><p className="mt-0.5 break-words text-xs text-[#52658E]">{item.company?.name || '-'}</p></div></div>,
                                     },
                                     {
                                         key: 'visit',

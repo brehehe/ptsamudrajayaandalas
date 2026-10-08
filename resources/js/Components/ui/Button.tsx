@@ -8,17 +8,17 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
     rightIcon?: React.ReactNode;
 }
 
-export const Button: React.FC<ButtonProps> = ({
-    children,
+interface ButtonClassNameOptions {
+    variant?: NonNullable<ButtonProps['variant']>;
+    size?: NonNullable<ButtonProps['size']>;
+    className?: string;
+}
+
+export const getButtonClassName = ({
     variant = 'primary',
     size = 'md',
-    isLoading = false,
-    leftIcon,
-    rightIcon,
     className = '',
-    disabled,
-    ...props
-}) => {
+}: ButtonClassNameOptions = {}): string => {
     const sizeClasses = {
         sm: 'h-9 px-3 text-xs gap-1.5 rounded-[10px]',
         md: 'h-11 px-3.5 text-sm gap-2 rounded-[12px]',
@@ -45,14 +45,30 @@ export const Button: React.FC<ButtonProps> = ({
         danger: 'bg-[#C62840] hover:bg-[#B01F35] text-white font-medium shadow-sm transition-colors',
     };
 
+    return `inline-flex items-center justify-center whitespace-nowrap select-none font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${sizeClasses[size]} ${variantClasses[variant]} ${className}`;
+};
+
+export const Button: React.FC<ButtonProps> = ({
+    children,
+    variant = 'primary',
+    size = 'md',
+    isLoading = false,
+    leftIcon,
+    rightIcon,
+    className = '',
+    disabled,
+    ...props
+}) => {
     return (
         <button
-            className={`inline-flex items-center justify-center whitespace-nowrap select-none font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${sizeClasses[size]} ${variantClasses[variant]} ${className}`}
+            className={getButtonClassName({ variant, size, className })}
             disabled={disabled || isLoading}
+            aria-busy={isLoading || undefined}
             {...props}
         >
             {isLoading ? (
                 <svg
+                    aria-hidden="true"
                     className="size-4 animate-spin text-current motion-reduce:animate-none"
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"

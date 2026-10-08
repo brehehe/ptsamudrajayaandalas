@@ -2,17 +2,20 @@
 
 namespace App\Http\Requests;
 
+use App\Models\User;
+use App\Support\UserRoleHierarchy;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateMasterUserRequest extends FormRequest
 {
-    private const ASSIGNABLE_ROLES = ['Owner', 'Direktur', 'Admin', 'Lapangan'];
-
     public function authorize(): bool
     {
-        return $this->user()?->isOperationalAdmin() ?? false;
+        $targetUser = User::query()->find($this->route('id'));
+
+        return $targetUser !== null
+            && ($this->user()?->can('update', $targetUser) ?? false);
     }
 
     /**
@@ -22,6 +25,11 @@ class UpdateMasterUserRequest extends FormRequest
      */
     public function rules(): array
     {
+        $actor = $this->user();
+        $assignableRoles = $actor instanceof User
+            ? UserRoleHierarchy::assignableRoles($actor)
+            : [];
+
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => [
@@ -35,7 +43,7 @@ class UpdateMasterUserRequest extends FormRequest
             'role' => [
                 'required',
                 'string',
-                Rule::in(self::ASSIGNABLE_ROLES),
+                Rule::in($assignableRoles),
                 Rule::exists('roles', 'name')->where('guard_name', 'web'),
             ],
             'password' => ['nullable', 'string', 'min:8'],

@@ -7,9 +7,11 @@ use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\Ship;
+use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Models\WorkOrder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -23,13 +25,25 @@ function vendorWorkflowUser(string $role): User
     return $user;
 }
 
-function vendorWorkflowPortCall(string $suffix): PortCall
+function vendorWorkflowPortCall(string $suffix, User $creator): PortCall
 {
-    $ship = Ship::create(['name' => "KM Vendor {$suffix}", 'is_active' => true]);
+    $company = ShipCompany::create(['name' => "PT Klien Vendor {$suffix}", 'is_active' => true]);
+    $ship = Ship::create(['name' => "KM Vendor {$suffix}", 'ship_company_id' => $company->id, 'is_active' => true]);
     $port = Port::create(['code' => "V{$suffix}", 'name' => "Pelabuhan {$suffix}", 'city' => 'Gresik', 'is_active' => true]);
+    $workOrder = WorkOrder::create([
+        'system_number' => "SPK-VENDOR-{$suffix}",
+        'client_number' => "SPK/KLIEN/VENDOR/{$suffix}",
+        'company_id' => $company->id,
+        'status' => 'in_progress',
+        'created_by' => $creator->id,
+        'assigned_to' => $creator->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+    ]);
 
     return PortCall::create([
         'job_number' => "JOB-VENDOR-{$suffix}",
+        'work_order_id' => $workOrder->id,
         'ship_id' => $ship->id,
         'port_id' => $port->id,
         'status' => 'berthed',
@@ -63,9 +77,19 @@ function vendorWorkflowRequestItem(PortCall $portCall, User $creator, string $su
 test('vendor invoice is created from an approved request item and becomes payable after verification without a funding batch', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
-    $portCall = vendorWorkflowPortCall('01');
+    $portCall = vendorWorkflowPortCall('01', $admin);
     $vendor = Vendor::create(['code' => 'VDA-01', 'name' => 'PT Vendor Air', 'is_active' => true]);
     $requestItem = vendorWorkflowRequestItem($portCall, $admin, 'INV-AIR-01', 1200000);
+
+    $this->actingAs($admin)
+        ->get(route('vendor-invoices.create'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('VendorInvoices/Create')
+            ->where('portCalls.0.id', $portCall->id)
+            ->where('portCalls.0.client_spk_number', 'SPK/KLIEN/VENDOR/01')
+            ->where('availableRequestItems.0.id', $requestItem->id)
+            ->where('vendors.0.id', $vendor->id));
 
     $this->actingAs($admin)->post(route('vendor-invoices.store'), [
         'port_call_id' => $portCall->id,
@@ -123,7 +147,7 @@ test('vendor invoice is created from an approved request item and becomes payabl
 
 test('legacy vendor invoice batches are not shown in operational funding', function () {
     $admin = vendorWorkflowUser('Admin');
-    $portCall = vendorWorkflowPortCall('LEGACY');
+    $portCall = vendorWorkflowPortCall('LEGACY', $admin);
     $vendor = Vendor::create(['code' => 'VD-LEGACY', 'name' => 'PT Vendor Legacy', 'is_active' => true]);
     $invoice = CostDocument::create([
         'port_call_id' => $portCall->id, 'vendor_id' => $vendor->id,
@@ -154,7 +178,7 @@ test('legacy vendor invoice batches are not shown in operational funding', funct
 test('operational users cannot record vendor invoices', function () {
     Storage::fake('local');
     $operational = vendorWorkflowUser('Lapangan');
-    $portCall = vendorWorkflowPortCall('ROLE');
+    $portCall = vendorWorkflowPortCall('ROLE', $operational);
     $vendor = Vendor::create(['code' => 'VD-ROLE', 'name' => 'PT Vendor Role', 'is_active' => true]);
 
     $this->actingAs($operational)->post(route('vendor-invoices.store'), [
@@ -172,7 +196,7 @@ test('operational users cannot record vendor invoices', function () {
 test('an approved request item cannot be used by more than one vendor invoice', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
-    $portCall = vendorWorkflowPortCall('UNIQUE');
+    $portCall = vendorWorkflowPortCall('UNIQUE', $admin);
     $vendor = Vendor::create(['code' => 'VD-UNIQUE', 'name' => 'PT Vendor Unik', 'is_active' => true]);
     $requestItem = vendorWorkflowRequestItem($portCall, $admin, 'UNIQUE', 750000);
 
@@ -203,7 +227,7 @@ test('an approved request item cannot be used by more than one vendor invoice', 
 test('vendor payment is allocated per invoice and cannot exceed its outstanding amount', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
-    $portCall = vendorWorkflowPortCall('PAY');
+    $portCall = vendorWorkflowPortCall('PAY', $admin);
     $vendor = Vendor::create(['code' => 'VD-PAY', 'name' => 'PT Vendor Bayar', 'is_active' => true]);
     $invoice = CostDocument::create([
         'port_call_id' => $portCall->id, 'vendor_id' => $vendor->id,
@@ -271,7 +295,7 @@ test('vendor payment is allocated per invoice and cannot exceed its outstanding 
 test('partial vendor payment updates the invoice and prevents overpayment', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
-    $portCall = vendorWorkflowPortCall('PENDING');
+    $portCall = vendorWorkflowPortCall('PENDING', $admin);
     $vendor = Vendor::create(['code' => 'VD-PENDING', 'name' => 'PT Vendor Pending', 'is_active' => true]);
     $invoice = CostDocument::create([
         'port_call_id' => $portCall->id, 'vendor_id' => $vendor->id,

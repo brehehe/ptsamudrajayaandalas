@@ -95,6 +95,10 @@ class MaritimeAudioService {
         return this.soundEnabled;
     }
 
+    public setSoundEnabled(enabled: boolean): void {
+        this.soundEnabled = enabled;
+    }
+
     public isEnabled(): boolean {
         return this.soundEnabled;
     }

@@ -822,7 +822,7 @@ export default function Welcome({ auth }: WelcomeProps) {
                                 </p>
                                 <p className="flex items-center gap-2">
                                     <span className="text-[#19B5F7] font-bold">✉️</span>
-                                    <span>operasional@samudrajaya.co.id</span>
+                                    <span>operasional@gmail.com</span>
                                 </p>
                                 <p className="flex items-center gap-2">
                                     <span className="text-[#19B5F7] font-bold">🕒</span>

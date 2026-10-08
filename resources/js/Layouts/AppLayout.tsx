@@ -8,6 +8,7 @@ import { usePage, Link, router } from '@inertiajs/react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Bell, Menu, X } from 'lucide-react';
 import { PageProps } from '@/types';
+import NotificationCenter, { openNotificationCenter } from '@/Components/notifications/NotificationCenter';
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -31,10 +32,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     mobileBackground = 'surface',
 }) => {
     const page = usePage<PageProps>();
-    const { auth } = page.props;
+    const { auth, notifications } = page.props;
     const url = page.url;
     const user = auth?.user;
-    const [scrolled, setScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [isNavigating, setIsNavigating] = useState(false);
     const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -54,17 +54,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             : /^\/(requests|vessels)\/[^/]+$/.test(currentPath)
                 ? 'detail'
                 : 'list';
-
-    useEffect(() => {
-        const onScroll = () => {
-            const offset =
-                window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
-            setScrolled(offset > 12);
-        };
-        onScroll();
-        window.addEventListener('scroll', onScroll, { passive: true });
-        return () => window.removeEventListener('scroll', onScroll);
-    }, []);
 
     useEffect(() => {
         setMobileMenuOpen(false);
@@ -145,16 +134,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         };
     }, [mobileMenuOpen]);
 
-    // User initials for avatar
-    const initials = user?.name
-        ? user.name
-            .split(' ')
-            .map((w: string) => w[0])
-            .slice(0, 2)
-            .join('')
-            .toUpperCase()
-        : '?';
-
     return (
         <div
             className={
@@ -191,107 +170,58 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                     <Topbar />
                 </div>
 
-                {/* Mobile Header — transparent at top, solid white/dark on scroll */}
-                {!hideMobileHeader &&
-                    (() => {
-                        const isTransparent = transparentMobileHeader && !scrolled;
-                        return (
-                            <header
-                                className={`md:hidden h-16 px-4 flex items-center justify-between ${transparentMobileHeader
-                                    ? 'fixed top-0 left-0 right-0 z-30'
-                                    : 'sticky top-0 z-30'
-                                    } transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none ${scrolled
-                                        ? 'bg-white dark:bg-[#0C1D36] shadow-sm border-b ' +
-                                        'border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                        : transparentMobileHeader
-                                            ? 'bg-transparent border-none border-b-0 shadow-none'
-                                            : 'bg-white dark:bg-[#0C1D36] border-b ' +
-                                            'border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                    }`}
+                {/* Mobile Header — stays in the page flow so page imagery begins below it. */}
+                {!hideMobileHeader && (
+                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-[#DCEAF8] bg-white px-4 shadow-sm md:hidden">
+                        <Link
+                            href="/dashboard"
+                            className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                            aria-label="Buka beranda SJA"
+                        >
+                            <Logo variant="icon" className="shrink-0" />
+                            <span className="flex min-w-0 flex-col leading-tight">
+                                <span
+                                    translate="no"
+                                    className="truncate text-[10px] font-extrabold text-[#0B1F63]"
+                                >
+                                    PT. SAMUDRA JAYA ANDALAS
+                                </span>
+                                <span className="truncate text-[9px] font-medium text-[#52658E]">
+                                    Ship Agency Management System
+                                </span>
+                            </span>
+                        </Link>
+
+                        <div className="flex shrink-0 items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={openNotificationCenter}
+                                className="relative flex size-11 items-center justify-center rounded-full text-[#0B1F63] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                                aria-label={`Buka notifikasi${notifications?.unread_count ? `, ${notifications.unread_count} belum dibaca` : ''}`}
                             >
-                                <div className="flex min-w-0 items-center gap-1">
-                                    {showMobileMenu && (
-                                        <button
-                                            ref={menuButtonRef}
-                                            type="button"
-                                            onClick={() => setMobileMenuOpen(true)}
-                                            className={`flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent ? 'text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] focus-visible:outline-white' : 'text-[#0B1F63] dark:text-[#F1F5F9] focus-visible:outline-[#0060F4]'}`}
-                                            aria-label="Buka menu utama"
-                                            aria-expanded={mobileMenuOpen}
-                                        >
-                                            <Menu aria-hidden="true" className="size-5" />
-                                        </button>
-                                    )}
-                                    <Link
-                                        href="/dashboard"
-                                        className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent
-                                            ? 'focus-visible:outline-white'
-                                            : 'focus-visible:outline-[#0060F4]'
-                                            }`}
-                                        aria-label="Buka beranda SJA"
-                                    >
-                                        <Logo variant="icon" className="shrink-0" />
-                                        <span className="flex min-w-0 flex-col leading-tight">
-                                            <span
-                                                translate="no"
-                                                className={`truncate text-[10px] font-extrabold transition-colors ${isTransparent
-                                                    ? 'text-blue drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]'
-                                                    : 'text-[#0B1F63] dark:text-[#F1F5F9]'
-                                                    }`}
-                                            >
-                                                PT. SAMUDRA JAYA ANDALAS
-                                            </span>
-                                            <span
-                                                className={`truncate text-[9px] font-medium transition-colors ${isTransparent
-                                                    ? 'text-blue/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]'
-                                                    : 'text-[#52658E] dark:text-[#94A3B8]'
-                                                    }`}
-                                            >
-                                                Ship Agency Management System
-                                            </span>
-                                        </span>
-                                    </Link>
-                                </div>
+                                <Bell aria-hidden="true" className="size-5" strokeWidth={2} />
+                                {(notifications?.unread_count ?? 0) > 0 && (
+                                    <span className="absolute right-0 top-0 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[#C62840] px-1 text-[9px] font-black tabular-nums text-white ring-2 ring-white">
+                                        {notifications.unread_count > 99 ? '99+' : notifications.unread_count}
+                                    </span>
+                                )}
+                            </button>
 
-                                <div className="flex items-center gap-1.5">
-                                    <Link
-                                        href="/requests"
-                                        className={`relative flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent
-                                            ? 'text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] hover:bg-white/10 focus-visible:outline-white'
-                                            : 'text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                            'hover:text-[#0060F4] ' +
-                                            'dark:hover:text-[#38BDF8] ' +
-                                            'hover:bg-[#E0F0FF] ' +
-                                            'dark:hover:bg-[#152E52] ' +
-                                            'focus-visible:outline-[#0060F4]'
-                                            }`}
-                                        aria-label="Buka pengajuan dan notifikasi"
-                                    >
-                                        <Bell aria-hidden="true" className="size-5" strokeWidth={2} />
-                                    </Link>
-
-                                    <Link
-                                        href="/profile"
-                                        className={`flex size-11 items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${isTransparent
-                                            ? 'focus-visible:outline-white'
-                                            : 'hover:bg-[#E0F0FF] focus-visible:outline-[#0060F4] dark:hover:bg-[#152E52]'
-                                            }`}
-                                        aria-label={`Buka profil ${user?.name || 'pengguna'}`}
-                                        aria-current={url.startsWith('/profile') ? 'page' : undefined}
-                                    >
-                                        <span
-                                            className={`flex size-8 items-center justify-center rounded-full text-[10px] font-extrabold shadow-sm ${isTransparent
-                                                ? 'bg-white text-[#0B1F63] ring-2 ring-white/40'
-                                                : 'bg-[#E0F0FF] text-[#0B1F63] ring-1 ring-[#DCEAF8] dark:bg-[#152E52] dark:text-[#F1F5F9] dark:ring-[#1E3A5F]'
-                                                }`}
-                                        >
-                                            {initials}
-                                        </span>
-                                    </Link>
-                                </div>
-                            </header>
-                        );
-                    })()}
+                            {showMobileMenu && (
+                                <button
+                                    ref={menuButtonRef}
+                                    type="button"
+                                    onClick={() => setMobileMenuOpen(true)}
+                                    className="flex size-11 items-center justify-center rounded-full text-[#0B1F63] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                                    aria-label="Buka menu utama"
+                                    aria-expanded={mobileMenuOpen}
+                                >
+                                    <Menu aria-hidden="true" className="size-5" />
+                                </button>
+                            )}
+                        </div>
+                    </header>
+                )}
 
                 <AnimatePresence>
                     {mobileMenuOpen && showMobileMenu && (
@@ -311,10 +241,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                                 role="dialog"
                                 aria-modal="true"
                                 aria-label="Menu utama"
-                                className="absolute inset-y-0 left-0 w-[min(86vw,20rem)] overscroll-contain bg-[#0D2945] shadow-2xl"
-                                initial={prefersReducedMotion ? false : { x: '-100%' }}
+                                className="absolute inset-y-0 right-0 w-[min(86vw,20rem)] overscroll-contain bg-[#0D2945] shadow-2xl"
+                                initial={prefersReducedMotion ? false : { x: '100%' }}
                                 animate={{ x: 0 }}
-                                exit={{ x: '-100%' }}
+                                exit={{ x: '100%' }}
                                 transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
                             >
                                 <button
@@ -355,6 +285,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </main>
 
                 {/* Mobile Bottom Navigation */}
+                {/* <NotificationCenter /> */}
                 <RoleMobileBottomNavigation />
             </div>
         </div>

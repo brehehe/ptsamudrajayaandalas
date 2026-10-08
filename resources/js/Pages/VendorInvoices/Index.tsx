@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Head, router, useForm } from '@inertiajs/react';
+import React, { useRef, useState } from 'react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
 import { CircleCheckBig, FileCheck2, Plus, Search } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Button from '../../Components/ui/Button';
@@ -8,13 +8,11 @@ import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import Input from '../../Components/forms/Input';
 import MoneyInput from '../../Components/forms/MoneyInput';
-import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Select from '../../Components/selects/Select';
 import Pagination from '../../Components/pagination/Pagination';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import DocumentActions from '../../Components/ui/DocumentActions';
-import Checkbox from '../../Components/forms/Checkbox';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Textarea from '../../Components/forms/Textarea';
 import { formatDate } from '../../lib/formatDate';
@@ -61,26 +59,8 @@ interface Paginated<T> {
     total: number;
 }
 
-interface AvailableRequestItem {
-    id: string;
-    item_name: string;
-    quantity: number | string;
-    unit?: string | null;
-    hpp_price: number | string;
-    vendor_id?: string | null;
-    vendor?: { id: string; name: string } | null;
-    request?: {
-        request_number: string;
-        port_call_id: string;
-        port_call?: { job_number?: string; ship?: { name: string }; port?: { name: string } };
-    };
-}
-
 interface Props {
     invoices: Paginated<Invoice>;
-    portCalls: Array<{ id: string; job_number?: string; ship?: { name: string }; port?: { name: string } }>;
-    availableRequestItems: AvailableRequestItem[];
-    vendors: Array<{ id: string; name: string }>;
     filters: { search: string; status: string };
     abilities: { create: boolean; verify: boolean };
 }
@@ -94,68 +74,18 @@ const labels: Record<string, string> = {
     unpaid: 'Belum Dibayar', partially_paid: 'Dibayar Sebagian', paid: 'Dibayar',
 };
 
-export default function VendorInvoiceIndex({ invoices, portCalls, availableRequestItems, vendors, filters, abilities }: Props) {
+export default function VendorInvoiceIndex({ invoices, filters, abilities }: Props) {
     const [search, setSearch] = useState(filters.search);
-    const [createOpen, setCreateOpen] = useState(false);
     const [reviewInvoice, setReviewInvoice] = useState<Invoice | null>(null);
     const [paymentToVerify, setPaymentToVerify] = useState<{ invoice: Invoice; payment: VendorPayment } | null>(null);
-    const createForm = useForm({
-        port_call_id: '', vendor_id: '', document_number: '',
-        document_date: new Date().toISOString().slice(0, 10),
-        received_date: new Date().toISOString().slice(0, 10), due_date: '',
-        request_item_ids: [] as string[], tax_amount: '0', notes: '', document: null as File | null,
-    });
     const reviewForm = useForm({ decision: 'verify', verified_total: '', notes: '' });
     const paymentVerificationForm = useForm({ action: 'verify_usage' });
-    const createErrorRef = useRef<HTMLDivElement>(null);
     const reviewErrorRef = useRef<HTMLDivElement>(null);
     const paymentErrorRef = useRef<HTMLDivElement>(null);
-    const selectableItems = useMemo(
-        () => availableRequestItems.filter((item) => item.request?.port_call_id === createForm.data.port_call_id),
-        [availableRequestItems, createForm.data.port_call_id],
-    );
-    const selectedItems = useMemo(
-        () => availableRequestItems.filter((item) => createForm.data.request_item_ids.includes(item.id)),
-        [availableRequestItems, createForm.data.request_item_ids],
-    );
-    const selectedSubtotal = selectedItems.reduce(
-        (total, item) => total + Number(item.hpp_price) * Number(item.quantity),
-        0,
-    );
 
     const applyFilters = (status = filters.status) => router.get('/vendor-invoices', { search, status }, {
         preserveState: true, preserveScroll: true,
     });
-
-    const submitCreate = (event: React.FormEvent) => {
-        event.preventDefault();
-        createForm.post('/vendor-invoices', {
-            forceFormData: true,
-            onSuccess: () => { setCreateOpen(false); createForm.reset(); },
-            onError: () => {
-                window.requestAnimationFrame(() => createErrorRef.current?.focus());
-            },
-        });
-    };
-
-    const selectPortCall = (portCallId: string) => {
-        createForm.setData((data) => ({ ...data, port_call_id: portCallId, request_item_ids: [] }));
-    };
-
-    const toggleRequestItem = (item: AvailableRequestItem, checked: boolean) => {
-        const itemIds = checked
-            ? [...createForm.data.request_item_ids, item.id]
-            : createForm.data.request_item_ids.filter((id) => id !== item.id);
-        const vendorIds = availableRequestItems
-            .filter((candidate) => itemIds.includes(candidate.id) && candidate.vendor_id)
-            .map((candidate) => candidate.vendor_id as string);
-
-        createForm.setData((data) => ({
-            ...data,
-            request_item_ids: itemIds,
-            vendor_id: new Set(vendorIds).size === 1 ? vendorIds[0] : data.vendor_id,
-        }));
-    };
 
     const openReview = (invoice: Invoice) => {
         reviewForm.setData({ decision: 'verify', verified_total: String(invoice.verified_total), notes: '' });
@@ -236,7 +166,7 @@ export default function VendorInvoiceIndex({ invoices, portCalls, availableReque
                         <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9] sm:text-3xl">Invoice Vendor</h1>
                         <p className="mt-1 max-w-2xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">Buat invoice langsung dari item pengajuan yang disetujui, verifikasi dokumen, lalu proses pembayarannya melalui menu Pengeluaran.</p>
                     </div>
-                    {abilities.create && <Button onClick={() => { createForm.clearErrors(); setCreateOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>Buat Invoice dari Pengajuan</Button>}
+                    {abilities.create && <Link href="/vendor-invoices/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"><Plus aria-hidden="true" className="size-4" />Buat Invoice dari Pengajuan</Link>}
                 </div>
 
                 <Card padding="md">
@@ -252,7 +182,7 @@ export default function VendorInvoiceIndex({ invoices, portCalls, availableReque
                     </form>
                 </Card>
 
-                {abilities.create && <Button className="w-full md:hidden" onClick={() => { createForm.clearErrors(); setCreateOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>Buat Invoice dari Pengajuan</Button>}
+                {abilities.create && <Link href="/vendor-invoices/create" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 md:hidden"><Plus aria-hidden="true" className="size-4" />Buat Invoice dari Pengajuan</Link>}
 
                 <ResponsiveTable<Invoice>
                     data={invoices.data}
@@ -273,77 +203,6 @@ export default function VendorInvoiceIndex({ invoices, portCalls, availableReque
                 />
                 <Pagination links={invoices.links} currentPage={invoices.current_page} lastPage={invoices.last_page} total={invoices.total} from={invoices.from ?? undefined} to={invoices.to ?? undefined} />
             </div>
-
-            <Modal
-                isOpen={createOpen}
-                onClose={() => {
-                    if (!createForm.processing) {
-                        createForm.clearErrors();
-                        setCreateOpen(false);
-                    }
-                }}
-                title="Buat Invoice Vendor dari Pengajuan"
-                subtitle="Pilih Job dan item pengajuan yang sudah disetujui, lalu lengkapi dokumen invoice vendor."
-                size="xl"
-                footer={(
-                    <>
-                        <Button type="button" variant="secondary" disabled={createForm.processing} onClick={() => { createForm.clearErrors(); setCreateOpen(false); }}>Batal</Button>
-                        <Button type="submit" form="vendor-invoice-create-form" disabled={createForm.data.request_item_ids.length === 0} isLoading={createForm.processing}>Simpan Invoice</Button>
-                    </>
-                )}
-            >
-                <form id="vendor-invoice-create-form" noValidate onSubmit={submitCreate} className="space-y-4">
-                    <FormErrorSummary ref={createErrorRef} errors={createForm.errors} />
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <Select required name="port_call_id" autoComplete="off" label="Kunjungan / Job" value={createForm.data.port_call_id} onChange={(e) => selectPortCall(e.target.value)} placeholder="Pilih job" options={portCalls.map((call) => ({ value: call.id, label: `${call.job_number || '-'} · ${call.ship?.name || '-'}` }))} error={createForm.errors.port_call_id} />
-                        <Select required name="vendor_id" autoComplete="off" label="Vendor" value={createForm.data.vendor_id} onChange={(e) => createForm.setData('vendor_id', e.target.value)} placeholder="Pilih vendor" options={vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }))} error={createForm.errors.vendor_id} />
-                        <Input required name="document_number" autoComplete="off" label="Nomor invoice" value={createForm.data.document_number} onChange={(e) => createForm.setData('document_number', e.target.value)} error={createForm.errors.document_number} />
-                        <Input required name="document_date" autoComplete="off" label="Tanggal invoice" type="date" value={createForm.data.document_date} onChange={(e) => createForm.setData('document_date', e.target.value)} error={createForm.errors.document_date} />
-                        <Input required name="received_date" autoComplete="off" label="Tanggal diterima" type="date" value={createForm.data.received_date} onChange={(e) => createForm.setData('received_date', e.target.value)} error={createForm.errors.received_date} />
-                        <Input name="due_date" autoComplete="off" label="Jatuh tempo" type="date" value={createForm.data.due_date} onChange={(e) => createForm.setData('due_date', e.target.value)} error={createForm.errors.due_date} />
-                        <MoneyInput name="tax_amount" autoComplete="off" label="Pajak" value={createForm.data.tax_amount} onChange={(value) => createForm.setData('tax_amount', value)} error={createForm.errors.tax_amount} />
-                        <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                            <p className="text-[11px] text-[#52658E]">Subtotal dari pengajuan</p>
-                            <p className="mt-0.5 text-sm font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{money(selectedSubtotal)}</p>
-                        </div>
-                        <fieldset className="sm:col-span-2">
-                            <legend className="mb-2 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Item pengajuan yang ditagihkan</legend>
-                            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-[#DCEAF8] p-2 dark:border-[#1E3A5F]">
-                                {!createForm.data.port_call_id ? (
-                                    <p className="p-3 text-sm text-[#52658E]">Pilih Kunjungan/Job untuk melihat item yang sudah disetujui.</p>
-                                ) : selectableItems.length === 0 ? (
-                                    <p className="p-3 text-sm text-[#52658E]">Tidak ada item tersedia. Item mungkin belum disetujui atau sudah dipakai.</p>
-                                ) : selectableItems.map((item) => (
-                                    <div key={item.id} className="rounded-lg border border-[#E0F0FF] p-3 dark:border-[#1E3A5F]">
-                                        <Checkbox
-                                            checked={createForm.data.request_item_ids.includes(item.id)}
-                                            onChange={(event) => toggleRequestItem(item, event.target.checked)}
-                                            label={`${item.item_name} · ${item.quantity} ${item.unit || 'Paket'}`}
-                                            description={`${item.request?.request_number || 'Pengajuan'} · ${money(Number(item.hpp_price) * Number(item.quantity))}`}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                            {createForm.errors.request_item_ids && <p role="alert" className="mt-1.5 text-xs font-semibold text-[#C62840]">{createForm.errors.request_item_ids}</p>}
-                        </fieldset>
-                        <div className="sm:col-span-2">
-                            <PhotoUploadPicker
-                                label="Dokumen invoice"
-                                required
-                                value={createForm.data.document}
-                                onChange={(file) => createForm.setData('document', file)}
-                                mode="gallery"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                maxSizeMb={10}
-                                variant="compact"
-                                error={createForm.errors.document}
-                                helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB. File dapat dilihat sebelum disimpan."
-                            />
-                        </div>
-                    </div>
-                    <Textarea name="notes" autoComplete="off" label="Catatan" value={createForm.data.notes} onChange={(e) => createForm.setData('notes', e.target.value)} error={createForm.errors.notes} maxLength={2000} showCharCount />
-                </form>
-            </Modal>
 
             <Modal
                 isOpen={Boolean(reviewInvoice)}
