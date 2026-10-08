@@ -26,10 +26,13 @@ import Select from '../../Components/selects/Select';
 import SelectSearch from '../../Components/selects/SelectSearch';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
+import StatusBadge from '../../Components/ui/StatusBadge';
 import AppLayout from '../../Layouts/AppLayout';
 import { optimizeImageFile } from '../../lib/optimizeImageFile';
 import type { PageProps } from '../../types';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import ShipImage from '../../Components/vessels/ShipImage';
+import { playSjaChime } from '../../Components/feedback/AudioNotification';
 
 interface OptionItem {
     id: string | number;
@@ -60,7 +63,19 @@ interface Props {
     ports: OptionItem[];
     assignees: OptionItem[];
     defaultAssigneeId?: number | null;
-    canManageMasterVessels: boolean;
+    canCreateVessels: boolean;
+}
+
+interface CreatedWorkOrder {
+    id: string;
+    system_number: string;
+    status: 'draft' | 'active' | string;
+    received_at?: string | null;
+    ship_id: string;
+    ship_name: string;
+    ship_image?: string | null;
+    port_call_id?: string | null;
+    job_number?: string | null;
 }
 
 interface WorkOrderForm {
@@ -141,9 +156,12 @@ export default function WorkOrdersCreate({
     ports,
     assignees,
     defaultAssigneeId,
-    canManageMasterVessels,
+    canCreateVessels,
 }: Props) {
-    const { auth } = usePage<PageProps>().props;
+    const { auth, flash } = usePage<PageProps & {
+        flash?: PageProps['flash'] & { created_work_order?: CreatedWorkOrder | null };
+    }>().props;
+    const createdWorkOrder = flash?.created_work_order ?? null;
     const now = useMemo(() => new Date(), []);
     const [currentStep, setCurrentStep] = useState(0);
     const [clientErrors, setClientErrors] = useState<Partial<Record<FormField, string>>>({});
@@ -152,6 +170,12 @@ export default function WorkOrdersCreate({
     const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
     const role = auth.user?.primary_role || 'Pengguna';
     const isFieldStaff = role === 'Lapangan';
+
+    useEffect(() => {
+        if (createdWorkOrder) {
+            playSjaChime('success');
+        }
+    }, [createdWorkOrder?.id]);
 
     // Dynamic lists to allow inline additions without losing SPK form progress
     const [companyList, setCompanyList] = useState<OptionItem[]>(companies);
@@ -328,7 +352,7 @@ export default function WorkOrdersCreate({
                 }
             });
 
-            const response = await window.axios.post('/master/vessels', payload, {
+            const response = await window.axios.post(route('master.vessels.store'), payload, {
                 headers: { Accept: 'application/json' },
             });
             const created = response.data?.vessel;
@@ -552,6 +576,106 @@ export default function WorkOrdersCreate({
         submit('active');
     };
 
+    if (createdWorkOrder) {
+        const vesselUrl = createdWorkOrder.port_call_id
+            ? `${route('vessels.show', createdWorkOrder.ship_id)}?visit=${encodeURIComponent(createdWorkOrder.port_call_id)}`
+            : route('vessels.show', createdWorkOrder.ship_id);
+        const receivedDate = createdWorkOrder.received_at
+            ? new Intl.DateTimeFormat('id-ID', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                timeZone: 'Asia/Jakarta',
+            }).format(new Date(createdWorkOrder.received_at))
+            : '-';
+
+        return (
+            <AppLayout title="SPK Berhasil">
+                <Head title="SPK Berhasil Dibuat — PT Samudra Jaya Andalas" />
+
+                <main className="mx-auto flex min-h-[calc(100dvh-9rem)] max-w-2xl items-center justify-center px-1 py-6 sm:px-4">
+                    <Card className="w-full overflow-hidden p-0 text-center">
+                        <div className="px-5 py-8 sm:px-10 sm:py-10">
+                            <div className="mx-auto flex size-24 items-center justify-center rounded-full bg-[#DCF7E8] text-[#087443] shadow-[0_14px_32px_rgba(8,116,67,0.18)]">
+                                <Check aria-hidden="true" className="size-12" strokeWidth={3} />
+                            </div>
+
+                            <h1 className="mt-7 text-3xl font-black text-[#0060F4] sm:text-4xl">
+                                SPK Berhasil Dibuat!
+                            </h1>
+                            <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-[#52658E] sm:text-base dark:text-[#AFC0D4]">
+                                Data SPK dan kunjungan kapal sudah tersimpan di sistem. Pilih tujuan berikutnya untuk melanjutkan pekerjaan.
+                            </p>
+
+                            <dl className="mt-7 grid gap-4 rounded-2xl border border-[#DCEAF8] bg-[#F0F8FF] p-5 text-left dark:border-[#1E3A5F] dark:bg-[#102642] sm:grid-cols-[72px_minmax(0,1fr)] sm:items-center">
+                                <ShipImage
+                                    src={createdWorkOrder.ship_image}
+                                    alt={`Foto ${createdWorkOrder.ship_name}`}
+                                    width={72}
+                                    height={72}
+                                    className="size-[72px] rounded-xl object-cover"
+                                    placeholderIconClassName="size-7"
+                                />
+                                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <dt className="text-xs font-medium text-[#52658E] dark:text-[#AFC0D4]">Nomor SPK</dt>
+                                        <dd className="mt-1 break-all font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">{createdWorkOrder.system_number}</dd>
+                                    </div>
+                                    <div>
+                                        <dt className="text-xs font-medium text-[#52658E] dark:text-[#AFC0D4]">Nomor Job</dt>
+                                        <dd className="mt-1 break-all font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">{createdWorkOrder.job_number ?? '-'}</dd>
+                                    </div>
+                                    <div>
+                                        <dt className="text-xs font-medium text-[#52658E] dark:text-[#AFC0D4]">Kapal</dt>
+                                        <dd className="mt-1 break-words text-sm font-extrabold text-[#0B1F63] dark:text-white">{createdWorkOrder.ship_name}</dd>
+                                    </div>
+                                    <div>
+                                        <dt className="text-xs font-medium text-[#52658E] dark:text-[#AFC0D4]">Tanggal diterima</dt>
+                                        <dd className="mt-1 text-sm font-extrabold text-[#0B1F63] dark:text-white">{receivedDate}</dd>
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <dt className="sr-only">Status</dt>
+                                        <dd>
+                                            <StatusBadge
+                                                status={createdWorkOrder.status === 'active' ? 'Aktif' : 'Draft'}
+                                                label={createdWorkOrder.status === 'active' ? 'Aktif' : 'Draft'}
+                                                showDot
+                                            />
+                                        </dd>
+                                    </div>
+                                </div>
+                            </dl>
+
+                            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                                <Link
+                                    href={vesselUrl}
+                                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2"
+                                >
+                                    <Ship aria-hidden="true" className="size-4" />
+                                    Buka Kapal & Kunjungan
+                                </Link>
+                                <Link
+                                    href={route('work-orders.index')}
+                                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[#0060F4] bg-white px-5 text-sm font-bold text-[#0060F4] transition-colors hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2 dark:bg-[#0C1D36] dark:hover:bg-[#102642]"
+                                >
+                                    <ArrowLeft aria-hidden="true" className="size-4" />
+                                    Kembali ke Daftar SPK
+                                </Link>
+                            </div>
+
+                            <Link
+                                href={route('work-orders.detail', createdWorkOrder.id)}
+                                className="mt-5 inline-flex min-h-11 items-center justify-center px-3 text-sm font-bold text-[#52658E] underline-offset-4 hover:text-[#0060F4] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:text-[#AFC0D4]"
+                            >
+                                Lihat detail SPK
+                            </Link>
+                        </div>
+                    </Card>
+                </main>
+            </AppLayout>
+        );
+    }
+
     return (
         <AppLayout title="Tambah SPK">
             <Head title="Tambah SPK — PT Samudra Jaya Andalas" />
@@ -579,9 +703,9 @@ export default function WorkOrdersCreate({
                     <div className="min-w-0">
                         <p className="text-xs font-bold text-[#0060F4]">SPK baru · Langkah {currentStep + 1} dari {steps.length}</p>
                         <h1 className="mt-1 text-balance text-2xl font-extrabold text-[#0B1F63] sm:text-3xl dark:text-[#F1F5F9]">Buat SPK & Kunjungan</h1>
-                        <p className="mt-1 max-w-3xl text-pretty text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">
+                        {/* <p className="mt-1 max-w-3xl text-pretty text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">
                             Satu SPK membuat satu nomor job. Seluruh aktivitas, kebutuhan, biaya, dan invoice berikutnya akan mengikuti kunjungan ini.
-                        </p>
+                        </p> */}
                     </div>
                 </header>
 
@@ -634,7 +758,7 @@ export default function WorkOrdersCreate({
                     <div
                         role="alert"
                         aria-live="polite"
-                        className={`mb-5 flex items-center justify-between gap-3 rounded-2xl border p-4 text-sm transition-all ${notification.type === 'success'
+                        className={`mb-5 flex items-center justify-between gap-3 rounded-2xl border p-4 text-sm transition-colors ${notification.type === 'success'
                             ? 'border-[#087443]/20 bg-[#DCF7E8] text-[#087443] dark:bg-[#087443]/15 dark:text-[#86EFAC]'
                             : 'border-[#C62840]/20 bg-[#FFE7EC] text-[#9F1239] dark:bg-[#C62840]/15 dark:text-[#FCA5A5]'
                             }`}
@@ -796,7 +920,7 @@ export default function WorkOrdersCreate({
                                                 <div>
                                                     <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Pilih dari Master Kapal</p>
                                                     <p className="mt-1 text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">Kapal dapat dipakai kembali, tetapi setiap kedatangan selalu membuat Kunjungan/Job baru.</p>
-                                                    {canManageMasterVessels && (
+                                                    {canCreateVessels && (
                                                         <Link href="/master/vessels" className="mt-2 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#0060F4] hover:text-[#082870] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]">
                                                             Kelola Master Kapal
                                                             <ArrowRight aria-hidden="true" className="size-4" />
@@ -838,7 +962,7 @@ export default function WorkOrdersCreate({
                                             name="ship_id"
                                             required
                                             label="Kapal"
-                                            action={
+                                            action={canCreateVessels ? (
                                                 <button
                                                     type="button"
                                                     onClick={handleOpenAddShip}
@@ -848,7 +972,7 @@ export default function WorkOrdersCreate({
                                                     <Plus aria-hidden="true" className="size-3.5" />
                                                     <span>Tambah Kapal</span>
                                                 </button>
-                                            }
+                                            ) : undefined}
                                             value={form.data.ship_id}
                                             onChange={(value) => updateField('ship_id', String(value))}
                                             placeholder={form.data.company_id ? 'Pilih kapal…' : 'Pilih perusahaan lebih dahulu'}

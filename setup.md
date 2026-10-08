@@ -32,10 +32,10 @@ Sistem dilengkapi dengan 4 akun representatif sesuai persona operasional:
 
 | Persona | Nama Pengguna | Email Login | Kata Sandi | Peran / Scope |
 |---|---|---|---|---|
-| **Pak Prima** | Staff Lapangan | `prima@samudrajaya.co.id` | `password` | Staff Lapangan (Mobile Interface, Buat Pengajuan, Status Kapal) |
-| **Bu Titik** | Admin Operasional | `titik@samudrajaya.co.id` | `password` | Admin Operasional (Desktop OCC, Review Pengajuan, Kelola Kapal) |
-| **Admin Sistem**| IT Administrator | `admin@samudrajaya.co.id` | `password` | Super Admin (Manajemen User & Role, Log Audit, Konfigurasi) |
-| **Owner / Ryan**| Direktur / Otorisator | `owner@samudrajaya.co.id` | `password` | Direktur (Persetujuan Transaksi Besar, Monitoring Eksekutif) |
+| **Pak Prima** | Staff Lapangan | `prima@gmail.com` | `password` | Staff Lapangan (Mobile Interface, Buat Pengajuan, Status Kapal) |
+| **Bu Titik** | Admin Operasional | `titik@gmail.com` | `password` | Admin Operasional (Desktop OCC, Review Pengajuan, Kelola Kapal) |
+| **Admin Sistem**| IT Administrator | `admin@gmail.com` | `password` | Super Admin (Manajemen User & Role, Log Audit, Konfigurasi) |
+| **Owner / Ryan**| Direktur / Otorisator | `owner@gmail.com` | `password` | Direktur (Persetujuan Transaksi Besar, Monitoring Eksekutif) |
 
 > **Fitur Quick Login:** Halaman `/login` menyediakan tombol *1-Click Demo Login* untuk mempermudah pengujian peralihan persona Pak Prima, Bu Titik, Admin, dan Owner secara instan.
 

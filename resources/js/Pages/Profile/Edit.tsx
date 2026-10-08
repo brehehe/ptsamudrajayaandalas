@@ -8,6 +8,7 @@ import { PageProps } from '@/types';
 import { Head, useForm, usePage, router } from '@inertiajs/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FormErrorSummary from '@/Components/forms/FormErrorSummary';
+import { disableFirebasePush } from '@/services/firebaseMessaging';
 
 interface ProfileInfo {
     name: string;
@@ -112,8 +113,9 @@ export default function Edit({
         setIsLogoutConfirmOpen(true);
     };
 
-    const handleConfirmLogout = () => {
+    const handleConfirmLogout = async (): Promise<void> => {
         setLogoutProcessing(true);
+        await disableFirebasePush();
         router.post('/logout', {}, {
             onFinish: () => setLogoutProcessing(false),
         });

@@ -86,6 +86,8 @@ interface VesselNeedFlowProps {
     vessel: Ship;
     products: MasterProduct[];
     portCallId?: string;
+    clientPicName?: string | null;
+    clientPicContact?: string | null;
     step: NeedFlowStep;
     section?: string;
     onSectionChange?: (section: string) => void;
@@ -97,6 +99,8 @@ export default function VesselNeedFlow({
     vessel,
     products,
     portCallId,
+    clientPicName,
+    clientPicContact,
     step: needFlowStep,
     section: initialSection,
     onSectionChange,
@@ -107,8 +111,13 @@ export default function VesselNeedFlow({
     const [formSection, setFormSection] = useState<'Deck' | 'Engine' | 'Lainnya'>('Deck');
     const [formSectionOther, setFormSectionOther] = useState('');
     const [formDate, setFormDate] = useState(getTodayDateInputValue);
-    const [formOrderedByName, setFormOrderedByName] = useState(vessel.captain_name || '');
-    const [formOrderedByPhone, setFormOrderedByPhone] = useState(vessel.captain_phone || '');
+    const [formOrderedByName, setFormOrderedByName] = useState(clientPicName || vessel.captain_name || '');
+    const [formOrderedByPhone, setFormOrderedByPhone] = useState(clientPicContact || vessel.captain_phone || '');
+
+    useEffect(() => {
+        setFormOrderedByName(clientPicName || vessel.captain_name || '');
+        setFormOrderedByPhone(clientPicContact || vessel.captain_phone || '');
+    }, [clientPicContact, clientPicName, portCallId, vessel.captain_name, vessel.captain_phone]);
 
     // Sync section with parent and OverviewTab
     useEffect(() => {

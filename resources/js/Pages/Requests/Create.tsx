@@ -61,6 +61,8 @@ interface PortCall {
     work_order?: {
         id: string;
         system_number: string;
+        client_pic_name?: string | null;
+        client_pic_contact?: string | null;
     };
 }
 
@@ -190,8 +192,8 @@ const makeDefaultDetail = (portCall: PortCall): ShipSelectionData => ({
     request_type: '',
     department: 'Deck',
     order_date: getCurrentLocalDate(),
-    requester_name: portCall.ship.captain_name || '',
-    requester_phone: portCall.ship.captain_phone || '',
+    requester_name: portCall.work_order?.client_pic_name || portCall.ship.captain_name || '',
+    requester_phone: portCall.work_order?.client_pic_contact || portCall.ship.captain_phone || '',
     items: [],
     required_date: getCurrentLocalDate(),
     required_time: '10:00',

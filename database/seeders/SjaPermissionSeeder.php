@@ -41,7 +41,8 @@ class SjaPermissionSeeder extends Seeder
                 'port-calls.view', 'daily-reports.view-all', 'expense-requests.view',
                 'expense-requests.approve', 'funding.view', 'funding.approve-kopra',
                 'outgoing-payments.view', 'invoices.view', 'receivables.view',
-                'reports.view', 'attachments.download',
+                'reports.view', 'users.view', 'users.create', 'users.update',
+                'users.delete', 'attachments.download',
             ],
             'Lapangan' => [
                 'dashboard.view', 'work-orders.view', 'work-orders.create', 'work-orders.update-assigned',

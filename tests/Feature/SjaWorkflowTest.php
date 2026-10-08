@@ -169,6 +169,45 @@ test('multi-item needs require form metadata and item priority', function () {
     $this->assertDatabaseCount('request_items', 0);
 });
 
+test('completed vessel visits reject new needs', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $ship = Ship::create([
+        'name' => 'KM Job Selesai',
+        'status' => 'Selesai',
+        'is_active' => true,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-COMPLETED-NEED',
+        'ship_id' => $ship->id,
+        'status' => 'departed',
+        'eta_at' => now()->subDay(),
+        'departed_at' => now(),
+    ]);
+
+    $this->actingAs($user)
+        ->from(route('vessels.show', ['id' => $ship->id, 'visit' => $portCall->id]))
+        ->post(route('needs.store'), [
+            'ship_id' => $ship->id,
+            'port_call_id' => $portCall->id,
+            'section' => 'Deck',
+            'ordered_by_name' => 'Pemesan Uji',
+            'ordered_by_phone' => '0800000000',
+            'request_date' => now()->toDateString(),
+            'items' => [[
+                'item_name' => 'Air Tawar',
+                'quantity' => 1,
+                'unit' => 'Ton',
+                'is_urgent' => false,
+            ]],
+        ])
+        ->assertSessionHasErrors([
+            'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+        ]);
+
+    $this->assertDatabaseMissing('requests', ['port_call_id' => $portCall->id]);
+});
+
 test('multi-item needs reject invalid urgency without saving a request', function () {
     $user = User::factory()->create();
     $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
@@ -264,7 +303,7 @@ test('authenticated user can view specific target vessel detail', function () {
 });
 
 test('operational admin can create a shipping company', function () {
-    $admin = User::factory()->create(['email' => 'admin@samudrajaya.co.id']);
+    $admin = User::factory()->create(['email' => 'admin@gmail.com']);
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
 
     $response = $this->actingAs($admin)->post('/companies', [
@@ -283,7 +322,7 @@ test('operational admin can create a shipping company', function () {
 });
 
 test('non-admin user cannot create a shipping company or vessel', function () {
-    $nonAdmin = User::factory()->create(['email' => 'prima.lapangan@samudrajaya.co.id']);
+    $nonAdmin = User::factory()->create(['email' => 'prima.lapangan@gmail.com']);
     $nonAdmin->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
 
     $this->actingAs($nonAdmin)->post('/companies', [
@@ -299,7 +338,7 @@ test('non-admin user cannot create a shipping company or vessel', function () {
 });
 
 test('operational admin can create a ship and assign to company or create company on the fly', function () {
-    $admin = User::factory()->create(['email' => 'admin@samudrajaya.co.id']);
+    $admin = User::factory()->create(['email' => 'admin@gmail.com']);
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
 
     // 1. Create a company first
@@ -358,7 +397,7 @@ test('operational admin can create a ship and assign to company or create compan
 });
 
 test('dashboard provides all bu titik occ operational datasets', function () {
-    $user = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@samudrajaya.co.id']);
+    $user = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@gmail.com']);
     $user->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
     $ship = Ship::create([
         'name' => 'KM Dashboard Aktual',
@@ -394,7 +433,7 @@ test('dashboard provides all bu titik occ operational datasets', function () {
 
 test('admin can submit upcoming ship arrival (ShipSubmission)', function () {
     Storage::fake('public');
-    $admin = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@samudrajaya.co.id']);
+    $admin = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@gmail.com']);
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
     $port = Port::first();
 
@@ -437,7 +476,7 @@ test('admin can submit upcoming ship arrival (ShipSubmission)', function () {
 });
 
 test('admin can schedule upcoming arrival for existing master ship and creates work order and port call', function () {
-    $admin = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@samudrajaya.co.id']);
+    $admin = User::factory()->create(['name' => 'Bu Titik', 'email' => 'titik@gmail.com']);
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
     $port = Port::first();
     $company = ShipCompany::create(['name' => 'PT Pelayaran Master Uji', 'is_active' => true]);
@@ -484,7 +523,7 @@ test('admin can schedule upcoming arrival for existing master ship and creates w
 });
 
 test('dashboard provides upcoming_ships, ports, companies, and all_ships props for 4 roles', function () {
-    $user = User::factory()->create(['name' => 'Hendra Wijaya', 'email' => 'owner@samudrajaya.co.id']);
+    $user = User::factory()->create(['name' => 'Hendra Wijaya', 'email' => 'owner@gmail.com']);
     $user->assignRole(Role::firstOrCreate(['name' => 'Owner', 'guard_name' => 'web']));
 
     $response = $this->actingAs($user)->get('/dashboard');

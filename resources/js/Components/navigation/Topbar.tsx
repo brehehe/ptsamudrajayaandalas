@@ -1,9 +1,12 @@
 import ThemeToggle from '@/Components/ui/ThemeToggle';
+import { openNotificationCenter } from '@/Components/notifications/NotificationCenter';
+import { disableFirebasePush } from '@/services/firebaseMessaging';
 import { PageProps } from '@/types';
 import { router, usePage } from '@inertiajs/react';
+import { Bell } from 'lucide-react';
 
 export const Topbar = () => {
-    const { auth } = usePage<PageProps>().props;
+    const { auth, notifications } = usePage<PageProps>().props;
     const user = auth?.user;
     const initials = (user?.name || 'Pengguna')
         .split(/\s+/)
@@ -11,6 +14,11 @@ export const Topbar = () => {
         .slice(0, 2)
         .map((part) => part.charAt(0).toUpperCase())
         .join('');
+
+    const handleLogout = async (): Promise<void> => {
+        await disableFirebasePush();
+        router.post('/logout');
+    };
 
     return (
         <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#DCEAF8] bg-white px-5 shadow-[0_1px_3px_rgba(8,40,112,0.04)] transition-colors duration-200 dark:border-[#1E3A5F] dark:bg-[#071322] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3)] lg:px-7 xl:h-16">
@@ -20,6 +28,20 @@ export const Topbar = () => {
 
             <div className="flex items-center gap-3 lg:gap-4">
                 <ThemeToggle />
+
+                <button
+                    type="button"
+                    onClick={openNotificationCenter}
+                    aria-label={`Buka notifikasi${notifications?.unread_count ? `, ${notifications.unread_count} belum dibaca` : ''}`}
+                    className="relative flex size-10 items-center justify-center rounded-full text-[#52658E] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#94A3B8] dark:hover:bg-[#152E52] dark:hover:text-[#60A5FA]"
+                >
+                    <Bell aria-hidden="true" className="size-5" />
+                    {(notifications?.unread_count ?? 0) > 0 && (
+                        <span className="absolute right-0 top-0 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[#C62840] px-1 text-[9px] font-black tabular-nums text-white ring-2 ring-white dark:ring-[#071322]">
+                            {notifications.unread_count > 99 ? '99+' : notifications.unread_count}
+                        </span>
+                    )}
+                </button>
 
                 <div className="flex items-center gap-2.5 border-l border-[#DCEAF8] pl-3 dark:border-[#1E3A5F]">
                     <div
@@ -39,7 +61,7 @@ export const Topbar = () => {
 
                     <button
                         type="button"
-                        onClick={() => router.post('/logout')}
+                        onClick={() => void handleLogout()}
                         aria-label="Keluar dari sistem"
                         title="Keluar"
                         className="ml-1 rounded-md p-2 text-[#8C9BB9] transition-colors hover:bg-[#FFF0F2] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#64748B] dark:hover:bg-[#3A1520] dark:hover:text-[#F87171]"

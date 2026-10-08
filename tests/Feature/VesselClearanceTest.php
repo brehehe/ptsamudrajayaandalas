@@ -223,9 +223,28 @@ test('vessel detail exposes active clearance jobs to operational staff without p
 
     $this->actingAs($user)->get(route('vessels.show', $portCall->ship_id))->assertInertia(fn (Assert $page) => $page
         ->component('Vessels/Show')->where('canManageClearance', true)
+        ->where('canCreateRequests', true)
         ->has('clearancePortCalls', 2)->where('clearancePortCalls.0.id', $otherPortCall->id)
         ->where('clearancePortCalls.0.clearance_in_block_reason', null)
         ->missing('clearancePortCalls.0.verified_arrival_payments'));
+});
+
+test('completed vessel visit disables new request actions', function () {
+    $user = User::factory()->create();
+    $portCall = createClearancePortCall($user, [
+        'status' => 'departed',
+        'departed_at' => now(),
+    ]);
+    $portCall->ship()->update(['status' => 'Selesai']);
+
+    $this->actingAs($user)
+        ->get(route('vessels.show', ['id' => $portCall->ship_id, 'visit' => $portCall->id]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Vessels/Show')
+            ->where('selectedVisit.status', 'departed')
+            ->where('canManageClearance', true)
+            ->where('canCreateRequests', false)
+            ->has('clearancePortCalls', 0));
 });
 
 test('vessel detail returns database needs for the selected visit and excludes clearance requests', function () {
@@ -403,6 +422,11 @@ test('owner can monitor vessel workflow but cannot submit or process clearance',
         'status' => 'Dalam Proses',
     ])->assertForbidden();
 
+    $this->patch(route('needs.items.update-status', $clearanceRequest->id), [
+        'item_ids' => [Str::uuid()->toString()],
+        'status' => 'dalam_proses',
+    ])->assertForbidden();
+
     $this->assertDatabaseHas('requests', [
         'id' => $clearanceRequest->id,
         'status' => 'Disetujui',
@@ -495,6 +519,213 @@ test('clearance in changes vessel status only after director approval and admin 
         'id' => $portCall->ship_id,
         'status' => 'Labuh',
     ]);
+});
+
+test('admin processes approved clearance items individually or in bulk before completing the request', function () {
+    $this->freezeTime();
+    $staff = User::factory()->create();
+    $portCall = createClearancePortCall($staff);
+    $clearanceRequest = ShipRequest::create([
+        'request_number' => 'REQ-ITEM-PROCESSING',
+        'ship_id' => $portCall->ship_id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $staff->id,
+        'status' => 'Disetujui',
+        'service_type' => 'clearance_in',
+        'requested_port_call_status' => 'anchored',
+        'operational_occurred_at' => now(),
+        'request_date' => now()->toDateString(),
+    ]);
+    $firstItem = $clearanceRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Clearance Imigrasi',
+        'unit' => 'Dokumen',
+        'quantity' => 1,
+        'hpp_price' => 100000,
+        'selling_price' => 150000,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    $secondItem = $clearanceRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Clearance Karantina',
+        'unit' => 'Dokumen',
+        'quantity' => 1,
+        'hpp_price' => 100000,
+        'selling_price' => 150000,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+
+    $this->actingAs($admin)
+        ->patch(route('needs.items.update-status', $clearanceRequest->id), [
+            'item_ids' => [$firstItem->id],
+            'status' => 'dalam_proses',
+        ])
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('success');
+
+    $this->assertDatabaseHas('request_items', ['id' => $firstItem->id, 'status' => 'dalam_proses']);
+    $this->assertDatabaseHas('request_items', ['id' => $secondItem->id, 'status' => 'disetujui']);
+    $this->assertDatabaseHas('requests', ['id' => $clearanceRequest->id, 'status' => 'Dalam Proses']);
+
+    $this->patch(route('needs.items.update-status', $clearanceRequest->id), [
+        'item_ids' => [$firstItem->id],
+        'status' => 'selesai',
+    ])->assertSessionHasNoErrors();
+
+    $this->assertDatabaseHas('request_items', ['id' => $firstItem->id, 'status' => 'selesai']);
+    $this->assertDatabaseHas('requests', ['id' => $clearanceRequest->id, 'status' => 'Dalam Proses']);
+    $this->assertDatabaseHas('port_calls', ['id' => $portCall->id, 'status' => 'scheduled']);
+
+    $this->patch(route('needs.items.update-status', $clearanceRequest->id), [
+        'item_ids' => [$secondItem->id],
+        'status' => 'dalam_proses',
+    ])->assertSessionHasNoErrors();
+
+    $this->patch(route('needs.items.update-status', $clearanceRequest->id), [
+        'item_ids' => [$secondItem->id],
+        'status' => 'selesai',
+    ])->assertSessionHasNoErrors()->assertSessionHas('success');
+
+    $this->assertDatabaseHas('request_items', ['id' => $secondItem->id, 'status' => 'selesai']);
+    $this->assertDatabaseHas('requests', [
+        'id' => $clearanceRequest->id,
+        'status' => 'Selesai',
+        'completed_at' => now()->format('Y-m-d H:i:s'),
+    ]);
+    $this->assertDatabaseHas('port_calls', [
+        'id' => $portCall->id,
+        'status' => 'anchored',
+        'arrived_at' => now()->format('Y-m-d H:i:s'),
+    ]);
+});
+
+test('admin can process a newly approved clearance item after the request was previously completed', function () {
+    $this->freezeTime();
+    $staff = User::factory()->create();
+    $portCall = createClearancePortCall($staff, [
+        'status' => 'anchored',
+        'arrived_at' => now()->subHour(),
+    ]);
+    $portCall->ship()->update(['status' => 'Labuh']);
+    $clearanceRequest = ShipRequest::create([
+        'request_number' => 'REQ-CLEARANCE-REOPENED',
+        'ship_id' => $portCall->ship_id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $staff->id,
+        'status' => 'Selesai',
+        'service_type' => 'clearance_in',
+        'requested_port_call_status' => 'anchored',
+        'operational_occurred_at' => now()->subHour(),
+        'request_date' => now()->toDateString(),
+        'completed_at' => now()->subMinutes(30),
+    ]);
+    $clearanceRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Clearance Sebelumnya',
+        'unit' => 'Dokumen',
+        'quantity' => 1,
+        'hpp_price' => 100000,
+        'selling_price' => 150000,
+        'status' => 'selesai',
+        'director_status' => 'approved',
+    ]);
+    $newlyApprovedItem = $clearanceRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Dokumen Tambahan Clearance',
+        'unit' => 'Dokumen',
+        'quantity' => 1,
+        'hpp_price' => 100000,
+        'selling_price' => 150000,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+
+    $this->actingAs($admin)
+        ->patch(route('needs.items.update-status', $clearanceRequest->id), [
+            'item_ids' => [$newlyApprovedItem->id],
+            'status' => 'dalam_proses',
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('success');
+
+    $this->assertDatabaseHas('request_items', [
+        'id' => $newlyApprovedItem->id,
+        'status' => 'dalam_proses',
+    ]);
+    $this->assertDatabaseHas('requests', [
+        'id' => $clearanceRequest->id,
+        'status' => 'Dalam Proses',
+        'completed_at' => null,
+    ]);
+
+    $this->patch(route('needs.items.update-status', $clearanceRequest->id), [
+        'item_ids' => [$newlyApprovedItem->id],
+        'status' => 'selesai',
+    ])->assertRedirect()->assertSessionHasNoErrors()->assertSessionHas('success');
+
+    $this->assertDatabaseHas('request_items', [
+        'id' => $newlyApprovedItem->id,
+        'status' => 'selesai',
+    ]);
+    $this->assertDatabaseHas('requests', [
+        'id' => $clearanceRequest->id,
+        'status' => 'Selesai',
+        'completed_at' => now()->format('Y-m-d H:i:s'),
+    ]);
+    $this->assertDatabaseHas('port_calls', [
+        'id' => $portCall->id,
+        'status' => 'anchored',
+    ]);
+});
+
+test('admin cannot process an item from another request', function () {
+    $staff = User::factory()->create();
+    $portCall = createClearancePortCall($staff);
+    $firstRequest = ShipRequest::create([
+        'request_number' => 'REQ-ITEM-OWNER-A',
+        'ship_id' => $portCall->ship_id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $staff->id,
+        'status' => 'Disetujui',
+        'request_date' => now()->toDateString(),
+    ]);
+    $secondRequest = ShipRequest::create([
+        'request_number' => 'REQ-ITEM-OWNER-B',
+        'ship_id' => $portCall->ship_id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $staff->id,
+        'status' => 'Disetujui',
+        'request_date' => now()->toDateString(),
+    ]);
+    $foreignItem = $secondRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Item pengajuan lain',
+        'unit' => 'Paket',
+        'quantity' => 1,
+        'hpp_price' => 100000,
+        'selling_price' => 150000,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+
+    $this->actingAs($admin)
+        ->patch(route('needs.items.update-status', $firstRequest->id), [
+            'item_ids' => [$foreignItem->id],
+            'status' => 'dalam_proses',
+        ])
+        ->assertSessionHasErrors('item_ids.0');
+
+    $this->assertDatabaseHas('request_items', ['id' => $foreignItem->id, 'status' => 'disetujui']);
+    $this->assertDatabaseHas('requests', ['id' => $firstRequest->id, 'status' => 'Disetujui']);
 });
 
 test('clearance out changes vessel status only after admin completes the approved request', function () {

@@ -14,8 +14,10 @@ use App\Http\Controllers\MasterUserController;
 use App\Http\Controllers\MasterVendorController;
 use App\Http\Controllers\MasterVesselController;
 use App\Http\Controllers\NeedController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReceivableController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RequestController;
@@ -38,6 +40,14 @@ Route::get('/', function () {
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+    Route::post('/push-subscriptions', [PushSubscriptionController::class, 'store'])
+        ->middleware('throttle:20,1')
+        ->name('push-subscriptions.store');
+    Route::delete('/push-subscriptions', [PushSubscriptionController::class, 'destroy'])
+        ->middleware('throttle:20,1')
+        ->name('push-subscriptions.destroy');
 
     // SPK / Work Order
     Route::get('/work-orders', [WorkOrderController::class, 'index'])->name('work-orders.index');
@@ -59,6 +69,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/needs', [NeedController::class, 'index'])->name('needs.index');
     Route::post('/needs', [NeedController::class, 'store'])->name('needs.store');
     Route::patch('/needs/{id}/status', [NeedController::class, 'updateStatus'])->name('needs.update-status');
+    Route::patch('/needs/{id}/items/status', [NeedController::class, 'updateItemStatuses'])->name('needs.items.update-status');
 
     // Requests / Pengajuan Kebutuhan (Form Wizard 3-Langkah Lapangan & Admin Actions)
     Route::get('/requests', [RequestController::class, 'index'])->name('requests.index');
@@ -109,19 +120,23 @@ Route::middleware(['auth'])->group(function () {
 
     // Invoice vendor dibuat dari item pengajuan, diverifikasi, lalu dibayar melalui menu Pengeluaran.
     Route::get('/vendor-invoices', [VendorInvoiceController::class, 'index'])->name('vendor-invoices.index');
+    Route::get('/vendor-invoices/create', [VendorInvoiceController::class, 'create'])->name('vendor-invoices.create');
     Route::post('/vendor-invoices', [VendorInvoiceController::class, 'store'])->name('vendor-invoices.store');
     Route::post('/vendor-invoices/{costDocument}/verify', [VendorInvoiceController::class, 'verify'])->name('vendor-invoices.verify');
     Route::get('/vendor-invoices/{costDocument}/document', [VendorInvoiceController::class, 'download'])->name('vendor-invoices.document');
 
-    // Nota Rampung Pelindo dan rekonsiliasi biaya per Kunjungan/Job.
+    // Nota Rampung per Kunjungan/Job.
     Route::get('/completion-notes', [CompletionNoteController::class, 'index'])->name('completion-notes.index');
+    Route::get('/completion-notes/create', [CompletionNoteController::class, 'create'])->name('completion-notes.create');
     Route::post('/completion-notes', [CompletionNoteController::class, 'store'])->name('completion-notes.store');
-    Route::post('/completion-notes/{completionNote}/transition', [CompletionNoteController::class, 'update'])->name('completion-notes.transition');
     Route::get('/completion-notes/{completionNote}/document', [CompletionNoteController::class, 'download'])->name('completion-notes.document');
 
     // Invoice & Tagihan (Dual Invoices: Keagenan & Reimburse)
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
     Route::post('/invoices', [InvoiceController::class, 'store'])->name('invoices.store');
+    Route::get('/invoices/{invoice}/edit', [InvoiceController::class, 'edit'])->name('invoices.edit');
+    Route::patch('/invoices/{invoice}', [InvoiceController::class, 'update'])->name('invoices.update');
     Route::post('/invoices/{id}/release', [InvoiceController::class, 'release'])->name('invoices.release');
     Route::post('/invoices/{id}/mark-sent', [InvoiceController::class, 'markSent'])->name('invoices.mark-sent');
     Route::get('/invoices/{invoice}/generated-document', [InvoiceController::class, 'generatedDocument'])->name('invoices.documents.generated');

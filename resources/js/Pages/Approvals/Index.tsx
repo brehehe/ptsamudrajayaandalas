@@ -7,6 +7,7 @@ import Table, { Column } from '../../Components/tables/Table';
 import TableMobile from '../../Components/tables/TableMobile';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Tabs from '../../Components/ui/Tabs';
+import ShipImage from '../../Components/vessels/ShipImage';
 
 interface RequestItem {
     id: string;
@@ -25,12 +26,12 @@ interface ShipRequest {
     created_at: string;
     company?: { name: string };
     port?: { name: string };
-    ship?: { name: string; company?: { name: string } };
+    ship?: { name: string; image?: string | null; company?: { name: string } };
     port_call?: {
         id?: string;
         job_number?: string;
         port?: { name: string };
-        ship?: { name: string; company?: { name: string } };
+        ship?: { name: string; image?: string | null; company?: { name: string } };
     };
     items?: RequestItem[];
 }
@@ -52,6 +53,7 @@ interface ApprovalRow {
     key: string;
     jobNumber: string;
     shipName: string;
+    shipImage?: string | null;
     companyName: string;
     portName: string;
     requests: ShipRequest[];
@@ -162,6 +164,7 @@ export default function ApprovalsIndex({
                     key,
                     jobNumber: request.port_call?.job_number || request.request_number,
                     shipName: request.ship?.name || request.port_call?.ship?.name || '-',
+                    shipImage: request.ship?.image || request.port_call?.ship?.image,
                     companyName:
                         request.company?.name ||
                         request.ship?.company?.name ||
@@ -218,18 +221,21 @@ export default function ApprovalsIndex({
                 header: 'Job / Kapal',
                 width: '260px',
                 render: (row) => (
-                    <div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-mono font-bold text-[#0060F4]">{row.jobNumber}</span>
-                            {row.isNew && (
-                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                    Baru
-                                </span>
-                            )}
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        <ShipImage src={row.shipImage} alt={`Foto ${row.shipName}`} width={44} height={44} loading="lazy" className="size-11 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" />
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="break-all font-mono font-bold text-[#0060F4]">{row.jobNumber}</span>
+                                {row.isNew && (
+                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                        Baru
+                                    </span>
+                                )}
+                            </div>
+                            <p className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                {row.shipName}
+                            </p>
                         </div>
-                        <p className="mt-1 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                            {row.shipName}
-                        </p>
                     </div>
                 ),
             },
@@ -531,6 +537,7 @@ export default function ApprovalsIndex({
                             keyExtractor={(row) => row.key}
                             titleRender={(row) => row.shipName}
                             subtitleRender={(row) => row.jobNumber}
+                            imageRender={(row) => <ShipImage src={row.shipImage} alt={`Foto ${row.shipName}`} width={52} height={52} loading="lazy" className="size-[52px] rounded-xl object-cover" placeholderIconClassName="size-5" />}
                             statusRender={(row) => (
                                 <div className="flex flex-col items-end gap-1">
                                     {row.isNew && <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">Baru</span>}

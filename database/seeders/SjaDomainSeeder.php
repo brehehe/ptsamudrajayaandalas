@@ -77,8 +77,8 @@ class SjaDomainSeeder extends Seeder
         }
 
         // Retrieve reference users and ships
-        $prima = User::where('email', 'prima@samudrajaya.co.id')->first() ?? User::first();
-        $titik = User::where('email', 'titik@samudrajaya.co.id')->first() ?? User::first();
+        $prima = User::where('email', 'prima@gmail.com')->first() ?? User::first();
+        $titik = User::where('email', 'titik@gmail.com')->first() ?? User::first();
         $gresikPort = $ports['IDGRS'] ?? Port::first();
         $ships = Ship::with('company')->get();
 

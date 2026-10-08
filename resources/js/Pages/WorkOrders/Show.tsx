@@ -175,13 +175,6 @@ interface FinancialSummary {
         uploaded_at?: string | null;
         verified_at?: string | null;
     } | null;
-    reconciliation?: {
-        id: string;
-        status: string;
-        actual_total?: number | string | null;
-        variance?: number | string | null;
-        reconciled_at?: string | null;
-    } | null;
 }
 
 interface HistoryItem {
@@ -681,20 +674,13 @@ export default function WorkOrderShow({
                             </div>
                         </div>
 
-                        <div className="mt-5 grid gap-3 border-t border-[#DCEAF8] pt-5 dark:border-[#1E3A5F] sm:grid-cols-2">
+                        <div className="mt-5 border-t border-[#DCEAF8] pt-5 dark:border-[#1E3A5F]">
                             <div className="flex items-center justify-between gap-3 rounded-xl bg-[#F8FBFF] p-4 dark:bg-[#071322]">
                                 <div>
                                     <p className="text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">Nota Rampung</p>
                                     <p className="mt-1 text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{financial.completion_note?.document_number || 'Belum tersedia'}</p>
                                 </div>
                                 <StatusBadge status={financial.completion_note?.status || 'Menunggu'} label={financial.completion_note?.status || 'Menunggu'} size="sm" />
-                            </div>
-                            <div className="flex items-center justify-between gap-3 rounded-xl bg-[#F8FBFF] p-4 dark:bg-[#071322]">
-                                <div>
-                                    <p className="text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">Rekonsiliasi</p>
-                                    <p className="mt-1 text-sm font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{financial.reconciliation ? formatMoney(financial.reconciliation.actual_total) : 'Belum tersedia'}</p>
-                                </div>
-                                <StatusBadge status={financial.reconciliation?.status || 'Menunggu'} label={financial.reconciliation?.status || 'Menunggu'} size="sm" />
                             </div>
                         </div>
                     </section>

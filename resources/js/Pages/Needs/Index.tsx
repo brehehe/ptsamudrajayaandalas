@@ -13,12 +13,14 @@ import Table from '../../Components/tables/Table';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
 import Textarea from '../../Components/forms/Textarea';
+import ShipImage from '../../Components/vessels/ShipImage';
 
 interface Ship {
     id: string;
     name: string;
     imo_number: string;
     ship_type?: string;
+    image?: string | null;
     company?: {
         id: string;
         name: string;
@@ -252,9 +254,7 @@ export default function NeedsIndex({
                                     >
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="flex min-w-0 items-start gap-3">
-                                                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#152E52] dark:text-[#38BDF8]">
-                                                    <ClipboardList aria-hidden="true" className="size-5" />
-                                                </span>
+                                                <ShipImage src={item.ship?.image} alt={`Foto ${item.ship?.name || 'kapal'}`} width={52} height={52} loading="lazy" className="size-[52px] shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]" placeholderIconClassName="size-5" />
                                                 <div className="min-w-0">
                                                     <p className="truncate text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
                                                         {item.request_number}
@@ -316,9 +316,12 @@ export default function NeedsIndex({
                                             header: 'Kapal & pemilik',
                                             width: '220px',
                                             render: (item) => (
-                                                <div>
-                                                    <p className="font-bold">{item.ship?.name || 'Kapal tidak ditemukan'}</p>
-                                                    <p className="mt-0.5 text-[11px] text-[#52658E]">IMO {item.ship?.imo_number || '-'} · {item.ship?.company?.name || 'Agen pribadi'}</p>
+                                                <div className="flex min-w-0 items-center gap-2.5">
+                                                    <ShipImage src={item.ship?.image} alt={`Foto ${item.ship?.name || 'kapal'}`} width={40} height={40} loading="lazy" className="size-10 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" />
+                                                    <div className="min-w-0">
+                                                        <p className="break-words font-bold">{item.ship?.name || 'Kapal tidak ditemukan'}</p>
+                                                        <p className="mt-0.5 break-words text-[11px] text-[#52658E]">IMO {item.ship?.imo_number || '-'} · {item.ship?.company?.name || 'Agen pribadi'}</p>
+                                                    </div>
                                                 </div>
                                             ),
                                         },

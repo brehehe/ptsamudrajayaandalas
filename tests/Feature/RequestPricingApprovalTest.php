@@ -121,6 +121,70 @@ test('director approval is per item and leaves unsubmitted items pending', funct
     expect($shipRequest->fresh()->status)->toBe('Disetujui Sebagian');
 });
 
+test('admin can fulfill an approved item while other items continue the approval flow', function () {
+    $admin = createPricingUser('Admin');
+    $director = createPricingUser('Direktur');
+    [$shipRequest, $approvedItem, $returnedItem] = createPricingRequest($admin);
+    $waitingItem = $shipRequest->items()->create([
+        'item_type' => 'jasa',
+        'item_name' => 'Crew Transport',
+        'unit' => 'Orang',
+        'quantity' => 2,
+        'hpp_price' => 400000,
+        'selling_price' => 650000,
+        'status' => 'pending',
+        'director_status' => 'pending',
+    ]);
+
+    $this->actingAs($admin)->post(route('requests.forward-director', $shipRequest->id), [
+        'selected_items' => [$approvedItem->id, $returnedItem->id],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $this->actingAs($director)->post(route('approvals.requests.item-decision', $shipRequest->id), [
+        'decisions' => [[
+            'item_id' => $approvedItem->id,
+            'status' => 'approved',
+        ]],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($shipRequest->fresh()->status)->toBe('Disetujui Sebagian');
+    expect($approvedItem->fresh()->status)->toBe('disetujui');
+    expect($returnedItem->fresh()->status)->toBe('pending');
+    expect($waitingItem->fresh()->status)->toBe('pending');
+
+    $this->actingAs($admin)->patch(route('needs.items.update-status', $shipRequest->id), [
+        'item_ids' => [$approvedItem->id],
+        'status' => 'dalam_proses',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $this->patch(route('needs.items.update-status', $shipRequest->id), [
+        'item_ids' => [$approvedItem->id],
+        'status' => 'selesai',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($approvedItem->fresh()->status)->toBe('selesai');
+    expect($shipRequest->fresh()->status)->toBe('Dalam Proses');
+
+    $this->post(route('requests.forward-director', $shipRequest->id), [
+        'selected_items' => [$returnedItem->id],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($returnedItem->fresh()->status)->toBe('diajukan_ke_direktur');
+    expect($shipRequest->fresh()->status)->toBe('Dalam Proses');
+
+    $this->actingAs($director)
+        ->get(route('approvals.index', ['tab' => 'menunggu']))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('requests.0.id', $shipRequest->id));
+
+    $this->actingAs($director)->post(route('approvals.items.decision', $returnedItem->id), [
+        'decision' => 'approved',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($returnedItem->fresh()->status)->toBe('disetujui');
+    expect($shipRequest->fresh()->status)->toBe('Dalam Proses');
+});
+
 test('approved hpp and selling price require revision before they can change', function () {
     $admin = createPricingUser('Admin');
     $director = createPricingUser('Direktur');
@@ -293,6 +357,69 @@ test('director can approve partial items and unapproved item returns to pending 
         'director_status' => 'pending',
     ]);
     expect($shipRequest->fresh()->status)->toBe('Disetujui Sebagian');
+});
+
+test('unselected items leave the director queue until admin submits them again', function () {
+    $admin = createPricingUser('Admin');
+    $director = createPricingUser('Direktur');
+    [$shipRequest, $approvedItem, $unselectedItem] = createPricingRequest($admin);
+
+    $this->actingAs($admin)->post(route('requests.forward-director', $shipRequest->id), [
+        'selected_items' => [$approvedItem->id, $unselectedItem->id],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $approvalResponse = $this->actingAs($director)->post(route('approvals.requests.batch-item-decision'), [
+        'decisions' => [[
+            'item_id' => $approvedItem->id,
+            'status' => 'approved',
+        ]],
+    ]);
+
+    $approvalResponse->assertRedirect()->assertSessionHasNoErrors();
+    $this->assertDatabaseHas('request_items', [
+        'id' => $approvedItem->id,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    $this->assertDatabaseHas('request_items', [
+        'id' => $unselectedItem->id,
+        'status' => 'pending',
+        'director_status' => 'pending',
+        'director_notes' => 'Belum diputuskan Direktur. Silakan ajukan ulang setelah ditinjau Admin.',
+    ]);
+    expect($shipRequest->fresh()->status)->toBe('Disetujui Sebagian');
+
+    $this->actingAs($director)->post(route('approvals.items.decision', $unselectedItem->id), [
+        'decision' => 'approved',
+    ])->assertSessionHas('error');
+
+    $this->assertDatabaseHas('request_items', [
+        'id' => $unselectedItem->id,
+        'status' => 'pending',
+        'director_status' => 'pending',
+    ]);
+
+    $this->actingAs($admin)->post(route('requests.forward-director', $shipRequest->id), [
+        'selected_items' => [$unselectedItem->id],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $this->assertDatabaseHas('request_items', [
+        'id' => $unselectedItem->id,
+        'status' => 'diajukan_ke_direktur',
+        'director_status' => 'pending',
+        'director_notes' => null,
+    ]);
+
+    $this->actingAs($director)->post(route('approvals.items.decision', $unselectedItem->id), [
+        'decision' => 'approved',
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $this->assertDatabaseHas('request_items', [
+        'id' => $unselectedItem->id,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    expect($shipRequest->fresh()->status)->toBe('Disetujui');
 });
 
 test('admin can batch forward items and director can batch decide items across requests', function () {

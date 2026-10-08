@@ -92,6 +92,52 @@ test('authenticated users can view approval detail with hpp budgeting focus', fu
         ->where('capabilities.is_director', true));
 });
 
+test('approval detail lists the newest request first', function () {
+    $role = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
+    $director = User::factory()->create();
+    $director->assignRole($role);
+
+    $ship = Ship::create([
+        'name' => 'KM Urutan Approval',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-ORDER-APPROVALS',
+        'ship_id' => $ship->id,
+        'status' => 'Akan Datang',
+    ]);
+
+    $this->travelTo('2026-10-08 08:00:00');
+    $olderRequest = ShipRequest::create([
+        'request_number' => 'REQ-APPROVAL-OLDER',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $director->id,
+        'status' => 'Menunggu Approval Direktur',
+        'request_date' => '2026-10-08',
+    ]);
+
+    $this->travelTo('2026-10-08 09:00:00');
+    $newestRequest = ShipRequest::create([
+        'request_number' => 'REQ-APPROVAL-NEWEST',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $director->id,
+        'status' => 'Menunggu Approval Direktur',
+        'request_date' => '2026-10-08',
+    ]);
+    $this->travelBack();
+
+    $response = $this->actingAs($director)->get('/approvals/JOB-ORDER-APPROVALS/detail');
+
+    $response->assertInertia(fn (Assert $page) => $page
+        ->has('requests', 2)
+        ->where('requests.0.id', $newestRequest->id)
+        ->where('requests.1.id', $olderRequest->id)
+        ->where('request.id', $newestRequest->id));
+});
+
 test('director can reject specific item with reason resulting in partial approval status', function () {
     $role = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
     $director = User::factory()->create();

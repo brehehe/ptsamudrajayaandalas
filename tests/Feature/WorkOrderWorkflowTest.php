@@ -48,7 +48,14 @@ test('admin creates an spk with one reusable ship visit and a private document',
         'document' => UploadedFile::fake()->create('spk.pdf', 100, 'application/pdf'),
     ]);
 
-    $response->assertRedirect()->assertSessionHasNoErrors();
+    $response
+        ->assertRedirect(route('work-orders.create'))
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('created_work_order', fn (array $created): bool => $created['ship_id'] === $ship->id
+            && $created['ship_name'] === $ship->name
+            && $created['status'] === 'active'
+            && str_starts_with($created['job_number'], 'JOB-SPK-SJA-')
+        );
     $workOrder = WorkOrder::query()->firstOrFail();
     expect($workOrder->status)->toBe('active');
     $this->assertDatabaseHas('work_order_items', ['work_order_id' => $workOrder->id, 'name' => 'Bongkar muat']);
@@ -250,7 +257,7 @@ test('the spk creation screen follows role access and scopes field assignments',
         ->assertInertia(fn (Assert $page) => $page
             ->component('WorkOrders/Create')
             ->where('defaultAssigneeId', $officer->id)
-            ->where('canManageMasterVessels', false)
+            ->where('canCreateVessels', true)
             ->has('assignees', 1)
             ->where('assignees.0.id', $officer->id)
         );
@@ -316,6 +323,32 @@ test('the spk creation screen loads companies and ships and allows storing new c
         'company_id' => $newCompanyId,
         'planned_ship_id' => $newShipId,
         'client_number' => 'SPK/PBM/2026/001',
+    ]);
+});
+
+test('field staff can add a vessel while creating an spk', function () {
+    $officer = workOrderUser('Lapangan');
+    $company = ShipCompany::create([
+        'name' => 'PT Armada Operasional',
+        'is_active' => true,
+    ]);
+
+    $response = $this->actingAs($officer)->postJson(route('master.vessels.store'), [
+        'name' => 'TB Kapal Operasional',
+        'ship_company_id' => $company->id,
+        'ship_type' => 'Tugboat',
+    ]);
+
+    $response
+        ->assertCreated()
+        ->assertJsonPath('vessel.name', 'TB Kapal Operasional')
+        ->assertJsonPath('vessel.ship_company_id', $company->id);
+
+    $this->assertDatabaseHas('ships', [
+        'name' => 'TB Kapal Operasional',
+        'ship_company_id' => $company->id,
+        'created_by' => $officer->id,
+        'is_active' => true,
     ]);
 });
 

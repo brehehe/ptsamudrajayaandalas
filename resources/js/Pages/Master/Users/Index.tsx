@@ -24,6 +24,8 @@ interface UserItem {
     account_status?: string;
     last_login_at?: string | null;
     roles?: Array<{ id: number; name: string }>;
+    can_update: boolean;
+    can_delete: boolean;
 }
 
 interface MasterUsersIndexProps {
@@ -34,6 +36,8 @@ interface MasterUsersIndexProps {
 }
 
 const roleName = (user: UserItem): string => user.roles?.[0]?.name ?? 'Tanpa Peran';
+const createUserFormId = 'create-master-user-form';
+const editUserFormId = 'edit-master-user-form';
 
 function AccountStatus({ user }: { user: UserItem }) {
     if (user.is_active === false) {
@@ -79,6 +83,16 @@ export default function MasterUsersIndex({
     const openCreateModal = () => {
         resetUserForm();
         setIsCreateModalOpen(true);
+    };
+
+    const closeCreateModal = () => {
+        clearErrors();
+        setIsCreateModalOpen(false);
+    };
+
+    const closeEditModal = () => {
+        clearErrors();
+        setEditingUser(null);
     };
 
     const openEditModal = (user: UserItem) => {
@@ -139,31 +153,45 @@ export default function MasterUsersIndex({
         });
     };
 
-    const actionButtons = (user: UserItem) => (
-        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-            <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => openEditModal(user)}
-                leftIcon={<Pencil aria-hidden="true" className="size-3.5" />}
-                aria-label={`Edit ${user.name}`}
-            >
-                Edit
-            </Button>
-            <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setUserToDelete(user)}
-                className="text-[#C62840] hover:bg-[#FFE7EC] hover:text-[#C62840]"
-                leftIcon={<Trash2 aria-hidden="true" className="size-3.5" />}
-                aria-label={`Hapus ${user.name}`}
-            >
-                Hapus
-            </Button>
-        </div>
-    );
+    const actionButtons = (user: UserItem) => {
+        if (!user.can_update && !user.can_delete) {
+            return (
+                <span className="text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                    Dilindungi
+                </span>
+            );
+        }
+
+        return (
+            <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                {user.can_update && (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditModal(user)}
+                        leftIcon={<Pencil aria-hidden="true" className="size-3.5" />}
+                        aria-label={`Edit ${user.name}`}
+                    >
+                        Edit
+                    </Button>
+                )}
+                {user.can_delete && (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setUserToDelete(user)}
+                        className="text-[#C62840] hover:bg-[#FFE7EC] hover:text-[#C62840]"
+                        leftIcon={<Trash2 aria-hidden="true" className="size-3.5" />}
+                        aria-label={`Hapus ${user.name}`}
+                    >
+                        Hapus
+                    </Button>
+                )}
+            </div>
+        );
+    };
 
     const columns = useMemo<Column<UserItem>[]>(
         () => [
@@ -228,8 +256,8 @@ export default function MasterUsersIndex({
         [canManage],
     );
 
-    const userForm = (onSubmit: (event: React.FormEvent) => void, isEditing = false) => (
-        <form noValidate onSubmit={onSubmit} className="space-y-3.5">
+    const userForm = (formId: string, onSubmit: (event: React.FormEvent) => void, isEditing = false) => (
+        <form id={formId} noValidate onSubmit={onSubmit} className="space-y-3.5">
             <FormErrorSummary errors={errors} />
             <Input
                 required
@@ -251,7 +279,7 @@ export default function MasterUsersIndex({
                 value={data.email}
                 onChange={(event) => setData('email', event.target.value)}
                 error={errors.email}
-                placeholder="nama@samudrajaya.co.id…"
+                placeholder="nama@gmail.com…"
             />
             <div className="grid gap-3 sm:grid-cols-2">
                 <Input type="tel" name="phone" label="Nomor telepon" autoComplete="tel" value={data.phone} onChange={(event) => setData('phone', event.target.value)} error={errors.phone} />
@@ -284,22 +312,22 @@ export default function MasterUsersIndex({
                 helperText="Pilih peran sesuai tanggung jawab pengguna."
                 error={errors.role}
             />
-            <div className="flex justify-end gap-2 border-t border-[#DCEAF8] pt-3 dark:border-[#1E3A5F]">
-                <Button type="button" variant="secondary" onClick={() => {
-                    clearErrors();
-                    if (isEditing) {
-                        setEditingUser(null);
-                    } else {
-                        setIsCreateModalOpen(false);
-                    }
-                }}>
-                    Batal
-                </Button>
-                <Button type="submit" variant="primary" isLoading={processing}>
-                    {isEditing ? 'Perbarui' : 'Simpan'}
-                </Button>
-            </div>
         </form>
+    );
+
+    const userModalFooter = (formId: string, isEditing = false) => (
+        <>
+            <Button
+                type="button"
+                variant="secondary"
+                onClick={isEditing ? closeEditModal : closeCreateModal}
+            >
+                Batal
+            </Button>
+            <Button type="submit" form={formId} variant="primary" isLoading={processing}>
+                {isEditing ? 'Perbarui' : 'Simpan'}
+            </Button>
+        </>
     );
 
     return (
@@ -351,11 +379,21 @@ export default function MasterUsersIndex({
                 />
             </div>
 
-            <Modal isOpen={isCreateModalOpen} onClose={() => { clearErrors(); setIsCreateModalOpen(false); }} title="Tambah Pengguna">
-                {userForm(submitCreate)}
+            <Modal
+                isOpen={isCreateModalOpen}
+                onClose={closeCreateModal}
+                title="Tambah Pengguna"
+                footer={userModalFooter(createUserFormId)}
+            >
+                {userForm(createUserFormId, submitCreate)}
             </Modal>
-            <Modal isOpen={Boolean(editingUser)} onClose={() => { clearErrors(); setEditingUser(null); }} title={editingUser ? `Edit ${editingUser.name}` : 'Edit Pengguna'}>
-                {userForm(submitEdit, true)}
+            <Modal
+                isOpen={Boolean(editingUser)}
+                onClose={closeEditModal}
+                title={editingUser ? `Edit ${editingUser.name}` : 'Edit Pengguna'}
+                footer={userModalFooter(editUserFormId, true)}
+            >
+                {userForm(editUserFormId, submitEdit, true)}
             </Modal>
             <ConfirmDialog
                 isOpen={Boolean(userToDelete)}

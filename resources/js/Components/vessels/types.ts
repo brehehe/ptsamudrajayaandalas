@@ -17,6 +17,7 @@ export interface RequestItemData {
     required_date?: string;
     required_time?: string;
     is_urgent?: boolean;
+    status?: string | null;
     director_status?: string | null;
 }
 
@@ -122,6 +123,7 @@ export interface VesselShowProps {
     selectedPortCallId?: string | null;
     selectedVisit?: SelectedVisit | null;
     canManageClearance?: boolean;
+    canCreateRequests?: boolean;
     canProcessRequests?: boolean;
 }
 
@@ -129,6 +131,8 @@ export interface SelectedVisit {
     id: string;
     job_number?: string | null;
     status: string;
+    client_pic_name?: string | null;
+    client_pic_contact?: string | null;
 }
 
 export interface ClearancePortCall {

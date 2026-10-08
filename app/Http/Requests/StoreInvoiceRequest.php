@@ -25,9 +25,10 @@ class StoreInvoiceRequest extends FormRequest
         return [
             'port_call_id' => ['required', 'uuid', 'exists:port_calls,id'],
             'company_id' => ['required', 'uuid', 'exists:ship_companies,id'],
-            'request_id' => ['required', 'uuid', 'exists:requests,id'],
             'request_item_ids' => ['required', 'array', 'min:1', 'max:100'],
             'request_item_ids.*' => ['required', 'distinct:strict', 'uuid', 'exists:request_items,id'],
+            'item_prices' => ['required', 'array'],
+            'item_prices.*' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
             'invoice_type' => ['required', 'in:agency,reimburse'],
             'addon_total' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'tax' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
@@ -43,6 +44,10 @@ class StoreInvoiceRequest extends FormRequest
         return [
             'request_item_ids.required' => 'Pilih minimal satu item kebutuhan untuk invoice.',
             'request_item_ids.min' => 'Pilih minimal satu item kebutuhan untuk invoice.',
+            'item_prices.required' => 'Harga jual setiap item terpilih wajib diisi.',
+            'item_prices.*.required' => 'Harga jual item wajib diisi.',
+            'item_prices.*.numeric' => 'Harga jual item harus berupa angka.',
+            'item_prices.*.gt' => 'Harga jual item harus lebih dari nol.',
             'supporting_document.mimes' => 'Dokumen pendukung harus berupa PDF, Word, JPG, JPEG, atau PNG.',
             'supporting_document.max' => 'Ukuran dokumen pendukung maksimal 10 MB.',
         ];

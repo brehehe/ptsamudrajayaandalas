@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\DirectorApprovalCompleted;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\ShipRequest;
+use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -16,6 +17,8 @@ use Inertia\Response;
 
 class ApprovalController extends Controller
 {
+    public function __construct(private readonly WorkflowNotifier $workflowNotifier) {}
+
     public function index(Request $request): Response
     {
         $tab = $request->query('tab', 'menunggu');
@@ -41,7 +44,12 @@ class ApprovalController extends Controller
         ]);
 
         if ($tab === 'menunggu') {
-            $requestsQuery->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval']);
+            $requestsQuery->where(function ($query) {
+                $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
+                    ->orWhereHas('items', fn ($itemQuery) => $itemQuery
+                        ->where('status', 'diajukan_ke_direktur')
+                        ->where('director_status', 'pending'));
+            });
             $paymentsQuery->where('verification_status', 'pending');
         } elseif ($tab === 'disetujui') {
             $requestsQuery->whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai']);
@@ -73,7 +81,14 @@ class ApprovalController extends Controller
 
         $counts = [
             'semua' => ShipRequest::count() + OutgoingPayment::count(),
-            'menunggu' => ShipRequest::whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])->count() + OutgoingPayment::where('verification_status', 'pending')->count(),
+            'menunggu' => ShipRequest::query()
+                ->where(function ($query) {
+                    $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
+                        ->orWhereHas('items', fn ($itemQuery) => $itemQuery
+                            ->where('status', 'diajukan_ke_direktur')
+                            ->where('director_status', 'pending'));
+                })
+                ->count() + OutgoingPayment::where('verification_status', 'pending')->count(),
             'disetujui' => ShipRequest::whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai'])->count() + OutgoingPayment::where('verification_status', 'verified')->count(),
             'ditolak' => ShipRequest::where('status', 'Ditolak')->count() + OutgoingPayment::where('verification_status', 'rejected')->count(),
         ];
@@ -102,6 +117,9 @@ class ApprovalController extends Controller
             'ship.company',
             'port',
             'workOrder',
+            'requests' => fn ($query) => $query
+                ->orderByDesc('created_at')
+                ->orderByDesc('id'),
             'requests.ship.company',
             'requests.company',
             'requests.port',
@@ -135,6 +153,9 @@ class ApprovalController extends Controller
                 'portCall.port',
                 'portCall.workOrder',
                 'portCall.ship.company',
+                'portCall.requests' => fn ($query) => $query
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id'),
                 'portCall.requests.creator',
                 'portCall.requests.invoices',
                 'portCall.requests.items.product.vendor',
@@ -228,8 +249,9 @@ class ApprovalController extends Controller
         return DB::transaction(function () use ($id, $validated, $request) {
             $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
             $this->authorizeDirectorDecision($request);
+            $decidedItemIds = collect();
 
-            if (! in_array($shipRequest->status, ['Menunggu Approval Direktur', 'Disetujui Sebagian', 'Menunggu Approval'], true)) {
+            if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 return redirect()->back()->with('error', 'Pengajuan ini belum dikirim Admin atau sudah selesai ditinjau.');
             }
 
@@ -254,6 +276,8 @@ class ApprovalController extends Controller
                     },
                 ]);
 
+                $decidedItemIds->push($item->id);
+
                 activity('request-item-approval')
                     ->performedOn($item)
                     ->causedBy($request->user())
@@ -267,6 +291,10 @@ class ApprovalController extends Controller
                     ->log('Direktur memberikan keputusan pada item pengajuan');
             }
 
+            $returnedItemCount = $decidedItemIds->isNotEmpty()
+                ? $this->returnUnselectedItemsToAdmin($shipRequest, $decidedItemIds, $request)
+                : 0;
+
             $requestStatus = $this->syncRequestApprovalStatus($shipRequest);
 
             if (function_exists('activity')) {
@@ -277,13 +305,15 @@ class ApprovalController extends Controller
             }
 
             if ($requestStatus !== 'Menunggu Approval Direktur') {
-                try {
-                    event(new DirectorApprovalCompleted($shipRequest));
-                } catch (\Throwable) {
-                }
+                $this->workflowNotifier->notifyDirectorDecision($shipRequest, $request->user());
             }
 
-            return redirect()->back()->with('success', "Keputusan item pengajuan {$shipRequest->request_number} berhasil disimpan dan dikembalikan ke Admin.");
+            $message = "Keputusan item pengajuan {$shipRequest->request_number} berhasil disimpan.";
+            if ($returnedItemCount > 0) {
+                $message .= " {$returnedItemCount} item yang tidak dipilih dikembalikan ke Admin untuk diajukan ulang.";
+            }
+
+            return redirect()->back()->with('success', $message);
         });
     }
 
@@ -293,7 +323,7 @@ class ApprovalController extends Controller
             $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
             $this->authorizeDirectorDecision($request);
 
-            if ($shipRequest->status !== 'Menunggu Approval Direktur') {
+            if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 return redirect()->back()->with('error', "Pengajuan {$shipRequest->request_number} sudah diproses sebelumnya (Status: {$shipRequest->status}).");
             }
 
@@ -334,10 +364,7 @@ class ApprovalController extends Controller
                     ->log("Direktur menyetujui seluruh item pengajuan {$shipRequest->request_number}");
             }
 
-            try {
-                event(new DirectorApprovalCompleted($shipRequest));
-            } catch (\Throwable) {
-            }
+            $this->workflowNotifier->notifyDirectorDecision($shipRequest, $request->user());
 
             return redirect()->back()->with('success', "Pengajuan {$shipRequest->request_number} berhasil disetujui oleh Direktur.");
         });
@@ -353,7 +380,7 @@ class ApprovalController extends Controller
             $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
             $this->authorizeDirectorDecision($request);
 
-            if ($shipRequest->status !== 'Menunggu Approval Direktur') {
+            if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 return redirect()->back()->with('error', "Pengajuan {$shipRequest->request_number} tidak dapat ditolak karena berstatus {$shipRequest->status}.");
             }
 
@@ -394,6 +421,7 @@ class ApprovalController extends Controller
 
             $shipRequest->update(['notes' => $note]);
             $this->syncRequestApprovalStatus($shipRequest);
+            $this->workflowNotifier->notifyDirectorDecision($shipRequest, $request->user());
 
             return redirect()->back()->with('success', "Pengajuan {$shipRequest->request_number} telah ditolak.");
         });
@@ -435,7 +463,7 @@ class ApprovalController extends Controller
                 return redirect()->back()->with('error', 'Item ini belum dikirim Admin atau sudah diputuskan sebelumnya.');
             }
 
-            if (! in_array($item->request->status, ['Menunggu Approval Direktur', 'Disetujui Sebagian', 'Menunggu Approval'], true)) {
+            if (in_array($item->request->status, ['Selesai', 'Dibatalkan'], true)) {
                 return redirect()->back()->with('error', 'Pengajuan ini belum dikirim Admin atau sudah selesai ditinjau.');
             }
 
@@ -462,7 +490,11 @@ class ApprovalController extends Controller
                 ])
                 ->log('Direktur memberikan keputusan pada item pengajuan');
 
-            $this->syncRequestApprovalStatus($item->request);
+            $requestStatus = $this->syncRequestApprovalStatus($item->request);
+
+            if ($requestStatus !== 'Menunggu Approval Direktur') {
+                $this->workflowNotifier->notifyDirectorDecision($item->request, $request->user());
+            }
 
             return redirect()->back()->with('success', "Status item {$item->item_name} berhasil diubah menjadi {$status}.");
         });
@@ -478,20 +510,10 @@ class ApprovalController extends Controller
     private function syncRequestApprovalStatus(ShipRequest $shipRequest): string
     {
         $items = $shipRequest->items()->get(['status', 'director_status']);
-        $totalItems = $items->count();
-        $approvedItems = $items->where('director_status', 'approved')->count();
-        $rejectedItems = $items->where('director_status', 'rejected')->count();
         $awaitingDirector = $items->where('status', 'diajukan_ke_direktur')
             ->where('director_status', 'pending')
             ->count();
-
-        $status = match (true) {
-            $awaitingDirector > 0 => 'Menunggu Approval Direktur',
-            $totalItems > 0 && $approvedItems === $totalItems => 'Disetujui',
-            $approvedItems > 0 => 'Disetujui Sebagian',
-            $totalItems > 0 && $rejectedItems === $totalItems => 'Ditolak',
-            default => 'Menunggu Approval',
-        };
+        $status = $shipRequest->resolveWorkflowStatus($items);
 
         $shipRequest->update([
             'status' => $status,
@@ -500,6 +522,43 @@ class ApprovalController extends Controller
         ]);
 
         return $status;
+    }
+
+    /**
+     * @param  Collection<int, string>  $decidedItemIds
+     */
+    private function returnUnselectedItemsToAdmin(
+        ShipRequest $shipRequest,
+        Collection $decidedItemIds,
+        Request $request
+    ): int {
+        $unselectedItems = $shipRequest->items()
+            ->where('status', 'diajukan_ke_direktur')
+            ->where('director_status', 'pending')
+            ->whereNotIn('id', $decidedItemIds)
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($unselectedItems as $item) {
+            $item->update([
+                'status' => 'pending',
+                'director_status' => 'pending',
+                'director_notes' => 'Belum diputuskan Direktur. Silakan ajukan ulang setelah ditinjau Admin.',
+            ]);
+
+            if (function_exists('activity')) {
+                activity('request-item-approval')
+                    ->performedOn($item)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'request_id' => $shipRequest->id,
+                        'decision' => 'returned_to_admin',
+                    ])
+                    ->log('Item yang tidak dipilih Direktur dikembalikan ke Admin');
+            }
+        }
+
+        return $unselectedItems->count();
     }
 
     public function batchItemDecision(Request $request): RedirectResponse
@@ -516,7 +575,7 @@ class ApprovalController extends Controller
         return DB::transaction(function () use ($validated, $request) {
             $itemIds = collect($validated['decisions'])->pluck('item_id');
             $items = RequestItem::lockForUpdate()->whereIn('id', $itemIds)->get()->keyBy('id');
-            $affectedRequestIds = collect();
+            $decidedItemIdsByRequest = collect();
 
             foreach ($validated['decisions'] as $dec) {
                 /** @var RequestItem|null $item */
@@ -550,17 +609,34 @@ class ApprovalController extends Controller
                         ->log('Direktur memberikan keputusan pada item pengajuan');
                 }
 
-                $affectedRequestIds->push($item->request_id);
+                $requestItemIds = $decidedItemIdsByRequest->get($item->request_id, collect());
+                $requestItemIds->push($item->id);
+                $decidedItemIdsByRequest->put($item->request_id, $requestItemIds);
             }
 
-            foreach ($affectedRequestIds->unique() as $requestId) {
+            $returnedItemCount = 0;
+
+            foreach ($decidedItemIdsByRequest as $requestId => $decidedItemIds) {
                 $shipRequest = ShipRequest::lockForUpdate()->find($requestId);
                 if ($shipRequest) {
-                    $this->syncRequestApprovalStatus($shipRequest);
+                    $returnedItemCount += $this->returnUnselectedItemsToAdmin(
+                        $shipRequest,
+                        $decidedItemIds,
+                        $request
+                    );
+                    $requestStatus = $this->syncRequestApprovalStatus($shipRequest);
+                    if ($requestStatus !== 'Menunggu Approval Direktur') {
+                        $this->workflowNotifier->notifyDirectorDecision($shipRequest, $request->user());
+                    }
                 }
             }
 
-            return redirect()->back()->with('success', 'Keputusan Direktur berhasil disimpan.');
+            $message = 'Keputusan Direktur berhasil disimpan.';
+            if ($returnedItemCount > 0) {
+                $message .= " {$returnedItemCount} item yang tidak dipilih dikembalikan ke Admin untuk diajukan ulang.";
+            }
+
+            return redirect()->back()->with('success', $message);
         });
     }
 }

@@ -8,6 +8,7 @@ use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
+use App\Models\WorkOrder;
 use Spatie\Permission\Models\Role;
 
 test('operational user can view request wizard creation page', function () {
@@ -17,6 +18,58 @@ test('operational user can view request wizard creation page', function () {
     $response = $this->actingAs($user)->get('/requests/create');
 
     $response->assertStatus(200);
+});
+
+test('request contact defaults from spk and fills blank spk pic from a submitted request', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $company = ShipCompany::create(['name' => 'PT Sinkron PIC', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM Sinkron PIC', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $port = Port::create(['code' => 'PICS', 'name' => 'Pelabuhan Sinkron', 'city' => 'Gresik', 'is_active' => true]);
+    $workOrder = WorkOrder::create([
+        'system_number' => 'SPK-PIC-SYNC-001',
+        'company_id' => $company->id,
+        'status' => 'active',
+        'created_by' => $user->id,
+        'assigned_to' => $user->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-PIC-SYNC-001',
+        'work_order_id' => $workOrder->id,
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => now()->addDay(),
+    ]);
+
+    $this->actingAs($user)->post(route('requests.store-multi'), [
+        'ships' => [[
+            'ship_id' => $ship->id,
+            'port_call_id' => $portCall->id,
+            'request_type' => 'Kebutuhan Kapal',
+            'department' => 'Deck',
+            'requester_name' => 'Ibu Ratna',
+            'requester_phone' => '081234567890',
+            'required_date' => now()->addDay()->toDateString(),
+            'items' => [[
+                'item_name' => 'Air Tawar',
+                'quantity' => 5,
+                'unit' => 'Ton',
+            ]],
+        ]],
+    ])->assertRedirect(route('requests.index'))->assertSessionHasNoErrors();
+
+    expect($workOrder->fresh()->client_pic_name)->toBe('Ibu Ratna')
+        ->and($workOrder->fresh()->client_pic_contact)->toBe('081234567890');
+
+    $this->actingAs($user)
+        ->get(route('requests.create'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('portCalls.0.work_order.client_pic_name', 'Ibu Ratna')
+            ->where('portCalls.0.work_order.client_pic_contact', '081234567890'));
 });
 
 test('lapangan user can submit wizard request with multiple items', function () {
@@ -524,7 +577,7 @@ test('request wizard disables duplicate clearance in and omits completed visits'
         'status' => 'scheduled',
         'eta_at' => today()->addDays(2),
     ]);
-    PortCall::create([
+    $completedVisit = PortCall::create([
         'job_number' => 'JOB-CLEARANCE-COMPLETED',
         'ship_id' => $ship->id,
         'port_id' => $port->id,
@@ -574,8 +627,45 @@ test('request wizard disables duplicate clearance in and omits completed visits'
         ->assertRedirect(route('requests.create'))
         ->assertSessionHasErrors('ships.0.request_type');
 
+    $completedVisitPayload = [
+        'ship_id' => $ship->id,
+        'port_call_id' => $completedVisit->id,
+        'request_type' => 'Kebutuhan Kapal',
+        'department' => 'Deck',
+        'required_date' => today()->toDateString(),
+        'items' => [[
+            'item_name' => 'Air Tawar',
+            'quantity' => 1,
+            'unit' => 'Ton',
+        ]],
+    ];
+
+    $this->actingAs($user)
+        ->from(route('requests.create'))
+        ->post(route('requests.store-multi'), ['ships' => [$completedVisitPayload]])
+        ->assertRedirect(route('requests.create'))
+        ->assertSessionHasErrors([
+            'ships.0.port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+        ]);
+
+    $this->actingAs($user)
+        ->from(route('requests.create'))
+        ->post(route('requests.store-wizard'), [
+            'company_id' => $company->id,
+            'ship_id' => $ship->id,
+            'port_call_id' => $completedVisit->id,
+            'service_type' => 'Sandar',
+            'port_id' => $port->id,
+            'items' => $completedVisitPayload['items'],
+        ])
+        ->assertRedirect(route('requests.create'))
+        ->assertSessionHasErrors([
+            'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+        ]);
+
     expect(ShipRequest::query()
         ->where('port_call_id', $pendingVisit->id)
         ->where('service_type', 'clearance_in')
         ->count())->toBe(1);
+    expect(ShipRequest::query()->where('port_call_id', $completedVisit->id)->count())->toBe(0);
 });

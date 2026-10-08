@@ -163,7 +163,7 @@ test('admin can update a vessel photo and remove a vessel from active master', f
     ]);
 });
 
-test('owner and field staff cannot mutate master vessels', function () {
+test('owner cannot create a vessel and field staff cannot update or delete vessels', function () {
     $company = ShipCompany::create([
         'name' => 'PT Armada Nusantara',
         'code' => 'AN',
@@ -176,11 +176,17 @@ test('owner and field staff cannot mutate master vessels', function () {
         'is_active' => true,
     ]);
 
-    foreach (['Owner', 'Lapangan'] as $role) {
-        $user = masterTestUser($role);
+    $owner = masterTestUser('Owner');
+    $fieldStaff = masterTestUser('Lapangan');
 
-        $this->actingAs($user)->post(route('master.vessels.store'), [
-            'name' => 'Tidak Diizinkan',
+    $this->actingAs($owner)->post(route('master.vessels.store'), [
+        'name' => 'Tidak Diizinkan',
+        'ship_company_id' => $company->id,
+    ])->assertForbidden();
+
+    foreach ([$owner, $fieldStaff] as $user) {
+        $this->actingAs($user)->patch(route('master.vessels.update', $ship), [
+            'name' => 'Tidak Boleh Diubah',
             'ship_company_id' => $company->id,
         ])->assertForbidden();
 

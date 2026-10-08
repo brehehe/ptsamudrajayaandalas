@@ -105,6 +105,11 @@ class PortCall extends Model
         return null;
     }
 
+    public function acceptsNewRequests(): bool
+    {
+        return ! in_array(strtolower((string) $this->status), ['departed', 'completed', 'selesai'], true);
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class, 'port_call_id');

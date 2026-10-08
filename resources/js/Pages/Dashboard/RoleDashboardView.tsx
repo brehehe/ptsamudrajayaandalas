@@ -209,7 +209,7 @@ function LatestRequests({ requests }: { requests: any[] }) {
 
     const items = requests.slice(0, 5);
     const columns: Column<any>[] = [
-        { key: 'request_number', header: 'No. Pengajuan', wrap: 'normal', render: (request) => <Link href={`/requests/${request.id}`} className="font-extrabold text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">{request.request_number}</Link> },
+        { key: 'request_number', header: 'No. Pengajuan', wrap: 'normal', width: '190px', render: (request) => <div className="flex items-center gap-2.5"><ShipImage src={request.ship_image} alt={`Foto ${request.ship_name}`} width={40} height={40} loading="lazy" className="size-10 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" /><div className="min-w-0"><Link href={`/requests/${request.id}`} className="break-all font-extrabold text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">{request.request_number}</Link>{request.is_new && <span className="mt-1 block w-fit rounded-full bg-[#0060F4] px-2 py-0.5 text-[9px] font-bold text-white">Baru</span>}</div></div> },
         { key: 'date', header: 'Tanggal' },
         { key: 'ship_name', header: 'Kapal', wrap: 'normal' },
         { key: 'items_count', header: 'Jumlah', render: (request) => `${request.items_count} kebutuhan` },
@@ -221,7 +221,7 @@ function LatestRequests({ requests }: { requests: any[] }) {
         <>
             <div className="space-y-2 md:hidden">
                 {items.map((request) => (
-                    <Link key={request.id} href={`/requests/${request.id}`} className="block rounded-xl border border-[#E5EEF7] p-3 hover:border-[#9CC9F5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F]">
+                    <Link key={request.id} href={`/requests/${request.id}`} className={`block rounded-xl border p-3 hover:border-[#9CC9F5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${request.is_new ? 'border-[#0060F4] bg-[#EAF4FF] dark:border-[#38BDF8] dark:bg-[#102B4A]' : 'border-[#E5EEF7] dark:border-[#1E3A5F]'}`}>
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0"><p className="truncate text-xs font-extrabold text-[#0B1F63] dark:text-white">{request.request_number}</p><p className="mt-0.5 truncate text-[11px] text-[#52658E] dark:text-[#9FB0C6]">{request.ship_name} · {request.items_count} kebutuhan</p></div>
                             <StatusBadge status={request.status} />
@@ -231,7 +231,7 @@ function LatestRequests({ requests }: { requests: any[] }) {
                 ))}
             </div>
             <div className="hidden md:block">
-                <Table columns={columns} data={items} keyExtractor={(request) => request.id} compact minWidth="660px" />
+                <Table columns={columns} data={items} keyExtractor={(request) => request.id} compact minWidth="760px" rowClassName={(request) => request.is_new ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]' : ''} />
             </div>
         </>
     );

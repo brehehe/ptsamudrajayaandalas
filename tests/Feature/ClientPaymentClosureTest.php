@@ -2,7 +2,6 @@
 
 use App\Models\ClientReceipt;
 use App\Models\CompletionNote;
-use App\Models\CostReconciliation;
 use App\Models\Invoice;
 use App\Models\Port;
 use App\Models\PortCall;
@@ -77,25 +76,23 @@ test('client receipt requires real proof and cannot exceed invoice outstanding a
         ->and((float) $invoice->fresh()->outstanding_amount)->toBe(0.0);
 });
 
-test('work order cannot close before reconciliation and client payment but closes after all gates pass', function () {
+test('work order can close after nota rampung upload and client payment without reconciliation', function () {
     $admin = closureWorkflowUser('Admin');
     [$workOrder, $portCall, $company] = closureWorkflowVisit($admin);
 
     $this->actingAs($admin)->patch(route('work-orders.status', $workOrder), ['status' => 'closed'])
         ->assertSessionHasErrors('status');
 
-    $note = CompletionNote::create([
+    CompletionNote::create([
         'port_call_id' => $portCall->id, 'document_number' => 'NR-CLOSE-001',
         'departed_at' => $portCall->departed_at, 'issued_at' => now()->subDay(),
-        'uploaded_at' => now(), 'document_path' => 'private/nota.pdf', 'actual_amount' => 500000,
-        'status' => 'reconciled', 'uploaded_by' => $admin->id, 'verified_by' => $admin->id, 'verified_at' => now(),
+        'uploaded_at' => now(), 'document_path' => 'private/nota.pdf', 'actual_amount' => 0,
+        'status' => 'uploaded', 'uploaded_by' => $admin->id,
     ]);
-    CostReconciliation::create([
-        'port_call_id' => $portCall->id, 'completion_note_id' => $note->id,
-        'initial_total' => 500000, 'actual_total' => 500000, 'variance' => 0,
-        'adjustment' => 0, 'status' => 'completed', 'reconciled_by' => $admin->id, 'reconciled_at' => now(),
-    ]);
-    $portCall->update(['reconciled_at' => now()]);
+
+    $this->actingAs($admin)->patch(route('work-orders.status', $workOrder), ['status' => 'closed'])
+        ->assertSessionHasErrors('status');
+
     Invoice::create([
         'invoice_number' => 'INV-CLOSE-001', 'port_call_id' => $portCall->id,
         'company_id' => $company->id, 'invoice_type' => 'agency', 'invoice_date' => now(),

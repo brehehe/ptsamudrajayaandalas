@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreMasterUserRequest;
 use App\Http\Requests\UpdateMasterUserRequest;
 use App\Models\User;
+use App\Support\UserRoleHierarchy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Inertia\Inertia;
@@ -15,12 +17,12 @@ use Spatie\Permission\Models\Role;
 
 class MasterUserController extends Controller
 {
-    private const MANAGED_ROLES = ['Owner', 'Direktur', 'Admin', 'Lapangan'];
-
     public function index(Request $request): Response
     {
         Gate::authorize('viewAny', User::class);
         $search = $request->query('search');
+        /** @var User $actor */
+        $actor = $request->user();
 
         $query = User::query()->with('roles');
 
@@ -31,19 +33,33 @@ class MasterUserController extends Controller
             });
         }
 
-        $users = $query->orderBy('name')->get();
+        $users = $query->orderBy('name')->get()
+            ->map(fn (User $user): array => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'job_title' => $user->job_title,
+                'is_active' => $user->is_active,
+                'account_status' => $user->account_status,
+                'last_login_at' => $user->last_login_at,
+                'roles' => $user->roles->map->only(['id', 'name'])->values(),
+                'can_update' => $actor->can('update', $user),
+                'can_delete' => $actor->can('delete', $user),
+            ]);
+        $assignableRoles = UserRoleHierarchy::assignableRoles($actor);
         $availableRoles = Role::query()
             ->where('guard_name', 'web')
-            ->whereIn('name', self::MANAGED_ROLES)
+            ->whereIn('name', $assignableRoles)
             ->pluck('name')
             ->all();
-        $roles = array_values(array_intersect(self::MANAGED_ROLES, $availableRoles));
+        $roles = array_values(array_intersect($assignableRoles, $availableRoles));
 
         return Inertia::render('Master/Users/Index', [
             'users' => $users,
             'roles' => $roles,
             'search' => $search ?? '',
-            'can_manage' => Gate::allows('create', User::class) && $roles !== [],
+            'can_manage' => $actor->can('create', User::class) && $roles !== [],
         ]);
     }
 
@@ -52,17 +68,21 @@ class MasterUserController extends Controller
         Gate::authorize('create', User::class);
         $validated = $request->validated();
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
-            'phone' => $validated['phone'] ?? null,
-            'job_title' => $validated['job_title'] ?? null,
-            'is_active' => $validated['is_active'] ?? true,
-            'account_status' => ($validated['is_active'] ?? true) ? 'pending_activation' : 'disabled',
-        ]);
+        $user = DB::transaction(function () use ($validated): User {
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
+                'phone' => $validated['phone'] ?? null,
+                'job_title' => $validated['job_title'] ?? null,
+                'is_active' => $validated['is_active'] ?? true,
+                'account_status' => ($validated['is_active'] ?? true) ? 'pending_activation' : 'disabled',
+            ]);
 
-        $user->assignRole($validated['role']);
+            $user->assignRole($validated['role']);
+
+            return $user;
+        });
 
         return redirect()->back()->with('success', "Pengguna {$user->name} berhasil ditambahkan dengan peran {$validated['role']}.");
     }
@@ -88,9 +108,10 @@ class MasterUserController extends Controller
             $updateData['password'] = Hash::make($validated['password']);
         }
 
-        $user->update($updateData);
-
-        $user->syncRoles([$validated['role']]);
+        DB::transaction(function () use ($user, $updateData, $validated): void {
+            $user->update($updateData);
+            $user->syncRoles([$validated['role']]);
+        });
 
         return redirect()->back()->with('success', "Data pengguna {$user->name} berhasil diperbarui.");
     }

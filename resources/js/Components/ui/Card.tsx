@@ -5,6 +5,7 @@ export interface CardProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 't
     children?: ReactNode;
     title?: ReactNode;
     subtitle?: ReactNode;
+    titleLevel?: 2 | 3 | 4;
     header?: ReactNode;
     actions?: ReactNode;
     footer?: ReactNode;
@@ -22,6 +23,7 @@ export const Card: React.FC<CardProps> = ({
     children,
     title,
     subtitle,
+    titleLevel = 3,
     header,
     actions,
     footer,
@@ -66,12 +68,13 @@ export const Card: React.FC<CardProps> = ({
     };
 
     const hasHeader = header || title || subtitle || actions;
+    const HeadingTag = titleLevel === 2 ? 'h2' : titleLevel === 4 ? 'h4' : 'h3';
 
     return (
         <div
             {...props}
             aria-busy={isLoading || undefined}
-            className={`rounded-[16px] transition-all duration-200 ${
+            className={`rounded-[16px] transition-[border-color,background-color,box-shadow,transform] duration-200 ${
                 overflowStyles[overflow]
             } ${variantStyles[variant]} ${paddingStyles[padding]} ${
                 hoverable && variant !== 'interactive'
@@ -115,14 +118,14 @@ export const Card: React.FC<CardProps> = ({
                             ) : (
                                 <div>
                                     {title && (
-                                        <h3
+                                        <HeadingTag
                                             className={
                                                 'text-sm sm:text-base font-extrabold text-[#0B1F63] ' +
                                                 'dark:text-[#F1F5F9] leading-snug'
                                             }
                                         >
                                             {title}
-                                        </h3>
+                                        </HeadingTag>
                                     )}
                                     {subtitle && (
                                         <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-0.5">

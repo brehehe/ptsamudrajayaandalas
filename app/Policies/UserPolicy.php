@@ -3,12 +3,13 @@
 namespace App\Policies;
 
 use App\Models\User;
+use App\Support\UserRoleHierarchy;
 
 class UserPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->isOwner() || $user->isOperationalAdmin();
+        return UserRoleHierarchy::assignableRoles($user) !== [];
     }
 
     /**
@@ -24,7 +25,7 @@ class UserPolicy
      */
     public function create(User $user): bool
     {
-        return $user->isOperationalAdmin();
+        return UserRoleHierarchy::assignableRoles($user) !== [];
     }
 
     /**
@@ -32,7 +33,7 @@ class UserPolicy
      */
     public function update(User $user, User $model): bool
     {
-        return $user->isOperationalAdmin();
+        return UserRoleHierarchy::canManage($user, $model);
     }
 
     /**
@@ -40,7 +41,7 @@ class UserPolicy
      */
     public function delete(User $user, User $model): bool
     {
-        return $user->isOperationalAdmin()
+        return UserRoleHierarchy::canManage($user, $model)
             && $user->isNot($model);
     }
 

@@ -146,7 +146,7 @@ test('director can approve a pending ship request', function () {
 });
 
 test('authenticated user can access Dashboard and receives SJA mobile and desktop props', function () {
-    $user = User::where('email', 'prima@samudrajaya.co.id')->first() ?? User::factory()->create();
+    $user = User::where('email', 'prima@gmail.com')->first() ?? User::factory()->create();
 
     $response = $this->actingAs($user)->get('/dashboard');
 
