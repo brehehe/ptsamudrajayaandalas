@@ -1,12 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { Building2, FileText, Ship as ShipIcon } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Button, { getButtonClassName } from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import MoneyInput from '../../Components/forms/MoneyInput';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import SelectSearch from '../../Components/selects/SelectSearch';
+import Textarea from '../../Components/forms/Textarea';
 import { formatDate } from '../../lib/formatDate';
 
 interface Company { id: string; name: string }
@@ -18,17 +20,25 @@ interface PortCall {
     ship?: { id: string; name: string } | null;
     port?: { id: string; name: string } | null;
     departed_at?: string | null;
+    initial_paid_total?: number;
 }
 
 interface Props {
     companies: Company[];
     portCalls: PortCall[];
+    preselectedPortCallId?: string | null;
 }
 
-export default function CompletionNoteCreate({ companies, portCalls }: Props) {
-    const [companyId, setCompanyId] = useState('');
-    const [shipId, setShipId] = useState('');
-    const form = useForm({ port_call_id: '', document: null as File | null });
+export default function CompletionNoteCreate({ companies, portCalls, preselectedPortCallId = null }: Props) {
+    const preselectedJob = portCalls.find((portCall) => portCall.id === preselectedPortCallId);
+    const [companyId, setCompanyId] = useState(() => preselectedJob?.company_id ?? '');
+    const [shipId, setShipId] = useState(() => preselectedJob?.ship?.id ?? '');
+    const form = useForm({
+        port_call_id: preselectedJob?.id ?? '',
+        document: null as File | null,
+        actual_amount: '',
+        notes: '',
+    });
     const ships = useMemo(() => {
         const unique = new Map<string, { id: string; name: string }>();
         portCalls.filter((portCall) => !companyId || portCall.company_id === companyId).forEach((portCall) => {
@@ -45,6 +55,21 @@ export default function CompletionNoteCreate({ companies, portCalls }: Props) {
         () => portCalls.find((portCall) => portCall.id === form.data.port_call_id),
         [form.data.port_call_id, portCalls],
     );
+
+    useEffect(() => {
+        const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
+            if (!form.isDirty || form.processing) {
+                return;
+            }
+
+            event.preventDefault();
+            event.returnValue = '';
+        };
+
+        window.addEventListener('beforeunload', warnAboutUnsavedChanges);
+
+        return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
+    }, [form.isDirty, form.processing]);
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
@@ -68,6 +93,11 @@ export default function CompletionNoteCreate({ companies, portCalls }: Props) {
                     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
                         <Card title="Pilih Job" titleLevel={2} subtitle="Hanya Job yang belum memiliki Nota Rampung ditampilkan." padding="none">
                             <div className="p-4 sm:p-5">
+                                {preselectedJob && (
+                                    <p role="status" className="mb-4 rounded-xl border border-[#BCE0FD] bg-[#E0F0FF] px-3 py-2.5 text-xs font-semibold text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#F1F5F9]">
+                                        Job <span className="font-mono font-black text-[#0060F4] dark:text-[#60A5FA]" translate="no">{preselectedJob.job_number}</span> dipilih otomatis dari halaman sebelumnya.
+                                    </p>
+                                )}
                                 <div className="grid gap-3 sm:grid-cols-2">
                                     <SelectSearch
                                         required
@@ -133,6 +163,10 @@ export default function CompletionNoteCreate({ companies, portCalls }: Props) {
                                             <dt className="text-[#52658E] dark:text-[#94A3B8]">Berangkat</dt>
                                             <dd className="mt-0.5 truncate font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(selectedJob.departed_at)}</dd>
                                         </div>
+                                        <div className="min-w-0 sm:col-span-2">
+                                            <dt className="text-[#52658E] dark:text-[#94A3B8]">Pembayaran awal kapal</dt>
+                                            <dd className="mt-0.5 font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(selectedJob.initial_paid_total || 0)}</dd>
+                                        </div>
                                     </dl>
                                 )}
 
@@ -145,7 +179,17 @@ export default function CompletionNoteCreate({ companies, portCalls }: Props) {
                         </Card>
 
                         <Card title="Dokumen Nota Rampung" titleLevel={2} subtitle="Nomor arsip dibuat otomatis oleh sistem." padding="none">
-                            <div className="p-4 sm:p-5">
+                            <div className="space-y-4 p-4 sm:p-5">
+                                <MoneyInput
+                                    required
+                                    name="actual_amount"
+                                    autoComplete="off"
+                                    label="Nilai Tagihan Resmi"
+                                    value={form.data.actual_amount}
+                                    onChange={(value) => form.setData('actual_amount', value)}
+                                    error={form.errors.actual_amount}
+                                    helperText="Nilai ini dibandingkan dengan pembayaran awal untuk menampilkan kekurangan atau kelebihan bayar."
+                                />
                                 <PhotoUploadPicker
                                     required
                                     label="Bukti Nota Rampung"
@@ -157,6 +201,16 @@ export default function CompletionNoteCreate({ companies, portCalls }: Props) {
                                     variant="compact"
                                     error={form.errors.document}
                                     helperText="Word, PDF, JPG, JPEG, atau PNG. Maksimal 10 MB."
+                                />
+                                <Textarea
+                                    name="notes"
+                                    autoComplete="off"
+                                    label="Catatan Rekonsiliasi (opsional)"
+                                    value={form.data.notes}
+                                    onChange={(event) => form.setData('notes', event.target.value)}
+                                    rows={3}
+                                    maxLength={1000}
+                                    error={form.errors.notes}
                                 />
                             </div>
                         </Card>

@@ -33,6 +33,7 @@ interface NeedItem {
     required_date: string;
     required_time: string;
     is_urgent: boolean;
+    attachment?: File | null;
 }
 
 interface HeaderValidationErrors {
@@ -139,6 +140,7 @@ export default function VesselNeedFlow({
             is_urgent: false,
             required_date: '',
             required_time: '',
+            attachment: null,
         },
     ]);
 
@@ -292,6 +294,7 @@ export default function VesselNeedFlow({
                 is_urgent: false,
                 required_date: '',
                 required_time: '',
+                attachment: null,
             },
         ]);
     };
@@ -382,6 +385,9 @@ export default function VesselNeedFlow({
             formData.append(`items[${idx}][required_time]`, it.required_time);
             if (it.product_id) {
                 formData.append(`items[${idx}][product_id]`, it.product_id);
+            }
+            if (it.attachment) {
+                formData.append(`items[${idx}][attachment]`, it.attachment);
             }
         });
 
@@ -962,6 +968,18 @@ export default function VesselNeedFlow({
                                                     updateItem(idx, 'required_time', value)
                                                 }
                                                 className="border-t border-slate-100 pt-2 dark:border-[#1E3A5F]"
+                                            />
+
+                                            <PhotoUploadPicker
+                                                label="Dokumen pendukung item (opsional)"
+                                                value={item.attachment || null}
+                                                onChange={(file) => updateItem(idx, 'attachment', file)}
+                                                mode="gallery"
+                                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                                maxSizeMb={10}
+                                                resizeImages={false}
+                                                variant="compact"
+                                                helperText="Invoice vendor, penawaran, atau bukti item. Maksimal 10 MB."
                                             />
                                         </div>
                                     ))}

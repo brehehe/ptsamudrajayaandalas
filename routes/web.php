@@ -21,6 +21,7 @@ use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReceivableController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RequestController;
+use App\Http\Controllers\RequestItemSupplierInvoiceController;
 use App\Http\Controllers\ServiceTypeController;
 use App\Http\Controllers\VendorInvoiceController;
 use App\Http\Controllers\VesselController;
@@ -53,6 +54,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/work-orders', [WorkOrderController::class, 'index'])->name('work-orders.index');
     Route::get('/work-orders/create', [WorkOrderController::class, 'create'])->name('work-orders.create');
     Route::post('/work-orders', [WorkOrderController::class, 'store'])->name('work-orders.store');
+    Route::get('/work-orders/{workOrder}/edit', [WorkOrderController::class, 'edit'])->name('work-orders.edit');
+    Route::patch('/work-orders/{workOrder}', [WorkOrderController::class, 'update'])->name('work-orders.update');
     Route::get('/work-orders/{workOrder}/detail', [WorkOrderController::class, 'show'])->name('work-orders.detail');
     Route::patch('/work-orders/{workOrder}/status', [WorkOrderController::class, 'updateStatus'])->name('work-orders.status');
     Route::get('/work-orders/{workOrder}/document', [WorkOrderController::class, 'download'])->name('work-orders.document');
@@ -87,6 +90,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/requests/{id}/create-clearance-in-invoice', [RequestController::class, 'createClearanceInInvoice'])->name('requests.clearance-in-invoice');
     Route::post('/requests/{id}/split-invoices', [RequestController::class, 'splitInvoices'])->name('requests.split-invoices');
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
+    Route::get('/request-items/{requestItem}/attachment', [RequestController::class, 'downloadItemAttachment'])->name('request-items.attachment');
+    Route::post('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'store'])->name('request-items.supplier-invoice.store');
+    Route::get('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'show'])->name('request-items.supplier-invoice.show');
 
     // Approval Direktur & Otorisasi Dana Kopra
     Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
@@ -107,6 +113,10 @@ Route::middleware(['auth'])->group(function () {
     // Pengeluaran / Disbursement
     Route::get('/expenses', [ExpenseController::class, 'index'])->name('expenses.index');
     Route::post('/expenses', [ExpenseController::class, 'store'])->name('expenses.store');
+    Route::post('/expenses/company-requests', [ExpenseController::class, 'storeCompanyExpense'])->name('expenses.company.store');
+    Route::post('/expenses/company-requests/{expenseRequest}/decision', [ExpenseController::class, 'decideCompanyExpense'])->name('expenses.company.decision');
+    Route::post('/expenses/company-requests/{expenseRequest}/realize', [ExpenseController::class, 'realizeCompanyExpense'])->name('expenses.company.realize');
+    Route::get('/expenses/company-requests/{expenseRequest}/documents/{type}', [ExpenseController::class, 'downloadCompanyExpenseDocument'])->name('expenses.company.documents');
 
     // Pengajuan dana operasional, approval Direktur, pencatatan proses eksternal Kopra, pencairan, dan realisasi.
     Route::get('/funding', [FundingWorkflowController::class, 'index'])->name('funding.index');

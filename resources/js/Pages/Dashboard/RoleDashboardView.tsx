@@ -358,6 +358,47 @@ function QuickActions({ actions }: { actions: QuickAction[] }) {
     );
 }
 
+function ProcessPipeline({ items }: { items: PipelineItem[] }) {
+    const columns: Column<PipelineItem>[] = [
+        {
+            key: 'label',
+            header: 'Tahap proses',
+            wrap: 'normal',
+            render: (item) => (
+                <Link
+                    href={item.href}
+                    prefetch
+                    className="font-extrabold text-[#0B1F63] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-white"
+                >
+                    {item.label}
+                </Link>
+            ),
+        },
+        {
+            key: 'value',
+            header: 'Terbuka',
+            align: 'right',
+            width: '96px',
+            render: (item) => (
+                <span className="inline-flex min-w-9 justify-center rounded-lg bg-[#E0F0FF] px-2.5 py-1.5 text-xs font-black tabular-nums text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                    {new Intl.NumberFormat('id-ID').format(item.value)}
+                </span>
+            ),
+        },
+    ];
+
+    return (
+        <Table
+            columns={columns}
+            data={items}
+            keyExtractor={(item) => item.label}
+            compact
+            tableLayout="fixed"
+            emptyMessage="Tidak ada proses yang perlu dipantau"
+        />
+    );
+}
+
 export default function RoleDashboardView({ dashboard, userName, liveDate, liveTime, latestRequests, needsToday, activeShips, recentActivities, pendingApprovals, financialOverview }: RoleDashboardViewProps) {
     const meta = roleMeta[dashboard.role];
     const RoleIcon = meta.icon;
@@ -367,6 +408,24 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
               receivables_by_company: financialOverview.receivables_by_company ?? [],
           }
         : null;
+    const processPanel = {
+        admin: {
+            title: 'Kontrol alur dokumen',
+            subtitle: 'Posisi pekerjaan dari SPK sampai penagihan',
+        },
+        direktur: {
+            title: 'Status alur pengawasan',
+            subtitle: 'Tahapan pekerjaan yang masih berjalan',
+        },
+        owner: {
+            title: 'Siklus bisnis berjalan',
+            subtitle: 'Posisi proses operasional dan keuangan',
+        },
+        operasional: {
+            title: 'Akses cepat',
+            subtitle: `Menu utama ${dashboard.eyebrow.toLowerCase()}`,
+        },
+    }[dashboard.role];
 
     return (
         <>
@@ -380,7 +439,6 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
                 latestRequests={latestRequests}
                 needsToday={needsToday}
                 pendingApprovals={pendingApprovals}
-                recentInvoices={financialOverview?.recent_invoices ?? []}
                 receivablesOverview={receivablesOverview}
             />
 
@@ -438,11 +496,18 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
 
             <DashboardAnalytics charts={dashboard.charts} />
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
-                <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="md:col-span-2 xl:col-span-6"><RecentActivities activities={recentActivities} /></Panel>
-                <Panel title={dashboard.is_read_only ? 'Perlu dipantau' : 'Prioritas Anda'} subtitle={dashboard.is_read_only ? 'Ringkasan yang memerlukan perhatian Owner' : 'Pekerjaan yang perlu ditindaklanjuti'} className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
-                <Panel title={dashboard.is_read_only ? 'Akses pemantauan' : 'Akses cepat'} subtitle={dashboard.is_read_only ? 'Seluruh menu Owner bersifat lihat saja' : `Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
-            </div>
+            {dashboard.role === 'operasional' ? (
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
+                    <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="md:col-span-2 xl:col-span-6"><RecentActivities activities={recentActivities} /></Panel>
+                    <Panel title="Prioritas Anda" subtitle="Pekerjaan lapangan yang perlu ditindaklanjuti" className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
+                    <Panel title="Akses cepat" subtitle={`Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
+                </div>
+            ) : (
+                <div className="grid gap-3 xl:grid-cols-12">
+                    <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="xl:col-span-7"><RecentActivities activities={recentActivities} /></Panel>
+                    <Panel title={processPanel?.title ?? 'Status proses'} subtitle={processPanel?.subtitle} className="xl:col-span-5"><ProcessPipeline items={dashboard.pipeline} /></Panel>
+                </div>
+            )}
 
             {dashboard.role === 'admin' && (
                 <div className="flex items-start gap-3 rounded-2xl border border-[#B8DCFF] bg-[#EAF4FF] p-4 dark:border-[#174B7B] dark:bg-[#0A2340]">

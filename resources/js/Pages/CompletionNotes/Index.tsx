@@ -20,6 +20,13 @@ interface CompletionNote {
     uploaded_at: string;
     document_path: string;
     status: string;
+    actual_amount: number | string;
+    reconciliation?: {
+        initial_total: number | string;
+        actual_total: number | string;
+        variance: number | string;
+        status: string;
+    } | null;
     uploader?: { name: string } | null;
     port_call?: {
         job_number: string;
@@ -51,6 +58,10 @@ const statusLabel: Record<string, string> = {
     reconciled: 'Selesai',
 };
 
+const money = (value: number | string) => new Intl.NumberFormat('id-ID', {
+    style: 'currency', currency: 'IDR', maximumFractionDigits: 0,
+}).format(Number(value || 0));
+
 export default function CompletionNotesIndex({ notes, filters, abilities }: Props) {
     const [search, setSearch] = useState(filters.search);
     const applyFilters = (status = filters.status) => router.get('/completion-notes', { search, status }, {
@@ -71,6 +82,8 @@ export default function CompletionNotesIndex({ notes, filters, abilities }: Prop
         { key: 'job', header: 'Job / Kapal', wrap: 'normal', render: (note) => <div><p className="font-semibold" translate="no">{note.port_call?.job_number || '—'}</p><p className="text-[11px] text-[#52658E]">{note.port_call?.ship?.name || 'Kapal tidak tersedia'}</p></div> },
         { key: 'company', header: 'Perusahaan', wrap: 'normal', render: (note) => note.port_call?.work_order?.company?.name || '—' },
         { key: 'port', header: 'Pelabuhan', wrap: 'normal', render: (note) => note.port_call?.port?.name || '—' },
+        { key: 'paid', header: 'Dibayar / Resmi', align: 'right', render: (note) => <div className="whitespace-nowrap text-right text-xs tabular-nums"><p>{money(note.reconciliation?.initial_total || 0)}</p><p className="font-bold text-[#0B1F63] dark:text-white">{money(note.actual_amount)}</p></div> },
+        { key: 'variance', header: 'Selisih', align: 'right', render: (note) => <span className={`whitespace-nowrap font-bold tabular-nums ${Number(note.reconciliation?.variance || 0) > 0 ? 'text-[#C62840]' : 'text-[#087443]'}`}>{money(note.reconciliation?.variance || 0)}</span> },
         { key: 'status', header: 'Status', render: (note) => <StatusBadge status={note.status === 'uploaded' ? 'Aktif' : 'Selesai'} label={statusLabel[note.status] || note.status} showDot /> },
         { key: 'actions', header: 'Aksi', align: 'right', render: actions },
     ];
@@ -84,7 +97,7 @@ export default function CompletionNotesIndex({ notes, filters, abilities }: Prop
                 <div className="hidden items-end justify-between gap-4 border-b border-[#DCEAF8] pb-4 md:flex dark:border-[#1E3A5F]">
                     <div>
                         <h1 className="text-balance text-3xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">Nota Rampung</h1>
-                        <p className="mt-1 text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">Pilih Job lalu unggah dokumen final tanpa proses rekonsiliasi tambahan.</p>
+                        <p className="mt-1 text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">Nota resmi, pembayaran awal, dan selisih biaya tetap terhubung ke Job kapal.</p>
                     </div>
                     {abilities.create && <Link href="/completion-notes/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"><FilePlus2 aria-hidden="true" className="size-4" />Unggah Nota Rampung</Link>}
                 </div>
@@ -122,6 +135,8 @@ export default function CompletionNotesIndex({ notes, filters, abilities }: Prop
                             { label: 'Job', render: (note) => note.port_call?.job_number || '—' },
                             { label: 'Perusahaan', render: (note) => note.port_call?.work_order?.company?.name || '—' },
                             { label: 'Diunggah', render: (note) => formatDate(note.uploaded_at) },
+                            { label: 'Tagihan resmi', render: (note) => money(note.actual_amount) },
+                            { label: 'Selisih', render: (note) => money(note.reconciliation?.variance || 0) },
                         ],
                         actionsRender: actions,
                     }}

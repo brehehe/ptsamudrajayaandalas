@@ -429,6 +429,15 @@ export default function OperationsIndex({
         });
     };
 
+    const formatDateOnly = (dateString?: string | null) => {
+        if (!dateString) return '-';
+        return new Date(dateString).toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        });
+    };
+
     /* ── Riwayat filtering ── */
     const filteredActivities = operationalActivities.filter((a) => {
         // 1. Category filter
@@ -1175,7 +1184,7 @@ export default function OperationsIndex({
                                 key: 'schedule',
                                 header: 'ETA / ETD',
                                 width: '220px',
-                                render: (portCall) => <div><p>ETA {formatDateTime(portCall.eta_at)}</p><p className="mt-0.5 text-[11px] text-[#52658E]">ETD {formatDateTime(portCall.etd_at)}</p></div>,
+                                render: (portCall) => <div><p>ETA {formatDateOnly(portCall.eta_at)}</p><p className="mt-0.5 text-[11px] text-[#52658E]">ETD {formatDateOnly(portCall.etd_at)}</p></div>,
                             },
                             {
                                 key: 'status',

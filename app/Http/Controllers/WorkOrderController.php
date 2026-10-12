@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreWorkOrderRequest;
+use App\Http\Requests\UpdateWorkOrderRequest;
 use App\Http\Requests\UpdateWorkOrderStatusRequest;
 use App\Models\Port;
 use App\Models\PortCall;
@@ -284,6 +285,7 @@ class WorkOrderController extends Controller
             'history' => $this->buildHistory($workOrder, $portCall),
             'capabilities' => [
                 'can_view_financial' => $canViewFinancial,
+                'can_update' => Gate::forUser($user)->allows('update', $workOrder),
             ],
         ]);
     }
@@ -293,29 +295,39 @@ class WorkOrderController extends Controller
         Gate::authorize('create', WorkOrder::class);
 
         $user = $request->user();
-        $assignees = User::query()
-            ->where('is_active', true)
-            ->whereHas('roles', fn ($query) => $query->whereIn('name', ['Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']))
-            ->when($user->isStaff(), fn ($query) => $query->whereKey($user->id))
-            ->orderBy('name')
-            ->get(['id', 'name']);
 
         return Inertia::render('WorkOrders/Create', [
-            'companies' => ShipCompany::query()
-                ->where('is_active', true)
-                ->orderBy('name')
-                ->get(['id', 'name']),
-            'ships' => Ship::query()
-                ->where('is_active', true)
-                ->orderBy('name')
-                ->get(['id', 'name', 'ship_company_id', 'imo_number', 'ship_type', 'gross_tonnage', 'image']),
-            'ports' => Port::query()
-                ->where('is_active', true)
-                ->orderBy('name')
-                ->get(['id', 'name', 'city']),
-            'assignees' => $assignees,
+            ...$this->workOrderFormOptions($user),
             'defaultAssigneeId' => $user->isStaff() ? $user->id : null,
             'canCreateVessels' => Gate::allows('create', Ship::class),
+        ]);
+    }
+
+    public function edit(Request $request, WorkOrder $workOrder): Response
+    {
+        Gate::authorize('update', $workOrder);
+        $workOrder->load(['items:id,work_order_id,name,description', 'portCall:id,work_order_id,eta_at,etd_at']);
+
+        return Inertia::render('WorkOrders/Edit', [
+            'workOrder' => [
+                'id' => $workOrder->id,
+                'system_number' => $workOrder->system_number,
+                'client_number' => $workOrder->client_number,
+                'company_id' => $workOrder->company_id,
+                'ship_id' => $workOrder->planned_ship_id,
+                'port_id' => $workOrder->planned_port_id,
+                'document_date' => $workOrder->document_date?->toDateString(),
+                'received_at' => $workOrder->received_at?->format('Y-m-d\TH:i'),
+                'eta_at' => $workOrder->planned_eta_at?->toDateString(),
+                'etd_at' => $workOrder->planned_etd_at?->toDateString(),
+                'activity_name' => $workOrder->items->first()?->name,
+                'activity_description' => $workOrder->items->first()?->description,
+                'assigned_to' => $workOrder->assigned_to,
+                'client_pic_name' => $workOrder->client_pic_name,
+                'client_pic_contact' => $workOrder->client_pic_contact,
+                'document_url' => $workOrder->document_path ? route('work-orders.document', $workOrder) : null,
+            ],
+            ...$this->workOrderFormOptions($request->user()),
         ]);
     }
 
@@ -395,6 +407,69 @@ class WorkOrderController extends Controller
             ]);
     }
 
+    public function update(UpdateWorkOrderRequest $request, WorkOrder $workOrder): RedirectResponse
+    {
+        Gate::authorize('update', $workOrder);
+        $validated = $request->validated();
+        $newDocumentPath = $request->hasFile('document')
+            ? $request->file('document')->store('sja/spk', 'local')
+            : null;
+        $oldDocumentPath = $workOrder->document_path;
+
+        try {
+            DB::transaction(function () use ($request, $workOrder, $validated, $newDocumentPath): void {
+                $lockedWorkOrder = WorkOrder::query()->lockForUpdate()->findOrFail($workOrder->id);
+                Gate::authorize('update', $lockedWorkOrder);
+
+                $lockedWorkOrder->update([
+                    'client_number' => $validated['client_number'],
+                    'company_id' => $validated['company_id'],
+                    'document_date' => $validated['document_date'],
+                    'received_at' => $validated['received_at'],
+                    'document_path' => $newDocumentPath ?? $lockedWorkOrder->document_path,
+                    'client_pic_name' => $validated['client_pic_name'] ?? null,
+                    'client_pic_contact' => $validated['client_pic_contact'] ?? null,
+                    'assigned_to' => $validated['assigned_to'],
+                    'planned_ship_id' => $validated['ship_id'],
+                    'planned_port_id' => $validated['port_id'],
+                    'planned_eta_at' => $validated['eta_at'],
+                    'planned_etd_at' => $validated['etd_at'] ?? null,
+                ]);
+
+                $lockedWorkOrder->items()->updateOrCreate([], [
+                    'name' => $validated['activity_name'],
+                    'description' => $validated['activity_description'] ?? null,
+                ]);
+
+                $lockedWorkOrder->portCall()->update([
+                    'ship_id' => $validated['ship_id'],
+                    'port_id' => $validated['port_id'],
+                    'eta_at' => $validated['eta_at'],
+                    'etd_at' => $validated['etd_at'] ?? null,
+                ]);
+
+                activity('work-order')
+                    ->performedOn($lockedWorkOrder)
+                    ->causedBy($request->user())
+                    ->withProperties(['document_replaced' => $newDocumentPath !== null])
+                    ->log('Data SPK diperbarui');
+            });
+        } catch (\Throwable $exception) {
+            if ($newDocumentPath) {
+                Storage::disk('local')->delete($newDocumentPath);
+            }
+
+            throw $exception;
+        }
+
+        if ($newDocumentPath && $oldDocumentPath) {
+            Storage::disk('local')->delete($oldDocumentPath);
+        }
+
+        return redirect()->route('work-orders.detail', $workOrder)
+            ->with('success', "SPK {$workOrder->system_number} berhasil diperbarui.");
+    }
+
     public function updateStatus(UpdateWorkOrderStatusRequest $request, WorkOrder $workOrder): RedirectResponse
     {
         $validated = $request->validated();
@@ -451,6 +526,31 @@ class WorkOrderController extends Controller
         abort_unless($workOrder->document_path && Storage::disk('local')->exists($workOrder->document_path), 404);
 
         return Storage::disk('local')->download($workOrder->document_path);
+    }
+
+    /** @return array<string, mixed> */
+    private function workOrderFormOptions(User $user): array
+    {
+        return [
+            'companies' => ShipCompany::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name']),
+            'ships' => Ship::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'ship_company_id', 'imo_number', 'ship_type', 'gross_tonnage', 'image']),
+            'ports' => Port::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'city']),
+            'assignees' => User::query()
+                ->where('is_active', true)
+                ->whereHas('roles', fn ($query) => $query->whereIn('name', ['Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional']))
+                ->when($user->isStaff(), fn ($query) => $query->whereKey($user->id))
+                ->orderBy('name')
+                ->get(['id', 'name']),
+        ];
     }
 
     /**

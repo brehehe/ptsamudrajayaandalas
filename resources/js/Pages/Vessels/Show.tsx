@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, CircleAlert, MapPin, Plus, RefreshCw, Ship as ShipIcon } from 'lucide-react';
+import { ArrowLeft, CircleAlert, ExternalLink, FileCheck2, FileUp, MapPin, Plus, RefreshCw, Ship as ShipIcon } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
-import Button from '../../Components/ui/Button';
+import Button, { getButtonClassName } from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import Input from '../../Components/forms/Input';
@@ -32,6 +32,12 @@ const mobileTabs = [
     { key: 'pengajuan', label: 'Pengajuan' },
 ] as const;
 
+const formatRupiah = (value: number): string => new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+}).format(value);
+
 export default function VesselShow({
     vessel,
     needs = [],
@@ -42,6 +48,7 @@ export default function VesselShow({
     canManageClearance = false,
     canCreateRequests = false,
     canProcessRequests = false,
+    canCreateCompletionNotes = false,
 }: VesselShowProps) {
     const requests = vessel.requests || [];
     const visitRequests = selectedVisit
@@ -58,6 +65,25 @@ export default function VesselShow({
     const [selectedSection, setSelectedSection] = useState<string>('Deck');
     const [clearanceDirection, setClearanceDirection] = useState<'in' | 'out' | null>(null);
     const [clearanceToast, setClearanceToast] = useState<AlertToastMessage | null>(null);
+
+    const financialSummary = selectedVisit ? (
+        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-[#DCEAF8] bg-[#DCEAF8] dark:border-[#1E3A5F] dark:bg-[#1E3A5F]">
+            <div className="min-w-0 bg-white p-3 dark:bg-[#0C1D36]">
+                <p className="text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">Total HPP</p>
+                <p className="mt-1 truncate text-xs font-extrabold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9] sm:text-sm">{formatRupiah(selectedVisit.total_hpp)}</p>
+            </div>
+            <div className="min-w-0 bg-white p-3 dark:bg-[#0C1D36]">
+                <p className="text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">Ditagihkan</p>
+                <p className="mt-1 truncate text-xs font-extrabold tabular-nums text-[#0060F4] sm:text-sm">{formatRupiah(selectedVisit.total_invoiced)}</p>
+            </div>
+            <div className="min-w-0 bg-white p-3 dark:bg-[#0C1D36]">
+                <p className="text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">Margin Kapal</p>
+                <p className={`mt-1 truncate text-xs font-extrabold tabular-nums sm:text-sm ${selectedVisit.margin_available ? (selectedVisit.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
+                    {selectedVisit.margin_available ? formatRupiah(selectedVisit.margin) : 'Menunggu invoice'}
+                </p>
+            </div>
+        </div>
+    ) : null;
 
     // Quick Action Modals: Catat Aktivitas Lapangan
     const [showActivityModal, setShowActivityModal] = useState(false);
@@ -199,6 +225,65 @@ export default function VesselShow({
         }
     };
 
+    const renderCompletionNoteAction = (fullWidth = false) => {
+        if (!selectedVisit) {
+            return null;
+        }
+
+        if (selectedVisit.completion_note) {
+            return (
+                <a
+                    href={route('completion-notes.document', {
+                        completionNote: selectedVisit.completion_note.id,
+                        view: 1,
+                    })}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Lihat Nota Rampung ${selectedVisit.completion_note.document_number}`}
+                    className={getButtonClassName({
+                        variant: 'outline',
+                        className: fullWidth ? 'w-full' : 'shrink-0',
+                    })}
+                >
+                    <FileCheck2 aria-hidden="true" className="size-4" />
+                    Lihat Nota Rampung
+                    <ExternalLink aria-hidden="true" className="size-3.5" />
+                </a>
+            );
+        }
+
+        if (canCreateCompletionNotes && selectedVisit.status === 'departed') {
+            return (
+                <Link
+                    href={route('completion-notes.create', { port_call_id: selectedVisit.id })}
+                    prefetch
+                    className={getButtonClassName({
+                        variant: 'primary',
+                        className: fullWidth ? 'w-full' : 'shrink-0',
+                    })}
+                >
+                    <FileUp aria-hidden="true" className="size-4" />
+                    Unggah Nota Rampung
+                </Link>
+            );
+        }
+
+        if (canCreateCompletionNotes) {
+            return (
+                <span
+                    role="status"
+                    title="Nota Rampung dapat diunggah setelah kapal berangkat."
+                    className={`inline-flex min-h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-[#DCEAF8] bg-[#F1F5F9] px-3.5 text-sm font-semibold text-[#64748B] opacity-70 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8] ${fullWidth ? 'w-full' : ''}`}
+                >
+                    <FileCheck2 aria-hidden="true" className="size-4" />
+                    Tersedia setelah kapal berangkat
+                </span>
+            );
+        }
+
+        return null;
+    };
+
     return (
         <AppLayout
             title={`Detail Kapal — ${vessel.name}`}
@@ -330,18 +415,26 @@ export default function VesselShow({
 
                             {/* ── TAB 1: OVERVIEW (SEAMLESS DIRECT VIEW) ── */}
                             {mobileTab === 'overview' && (
-                                <OverviewTab
-                                    vessel={vessel}
-                                    selectedSection={selectedSection}
-                                    onStartNeed={() => setNeedFlowStep('header')}
-                                    onRecordActivity={() => setShowActivityModal(true)}
-                                    canManageClearance={canManageClearance}
-                                    canCreateRequests={canCreateRequests}
-                                    onClearance={(direction) => {
-                                        setClearanceToast(null);
-                                        setClearanceDirection(direction);
-                                    }}
-                                />
+                                <div>
+                                    {(selectedVisit?.completion_note || canCreateCompletionNotes) && (
+                                        <div className="px-4 pt-4">
+                                            {renderCompletionNoteAction(true)}
+                                        </div>
+                                    )}
+                                    <div className="px-4 pt-4">{financialSummary}</div>
+                                    <OverviewTab
+                                        vessel={vessel}
+                                        selectedSection={selectedSection}
+                                        onStartNeed={() => setNeedFlowStep('header')}
+                                        onRecordActivity={() => setShowActivityModal(true)}
+                                        canManageClearance={canManageClearance}
+                                        canCreateRequests={canCreateRequests}
+                                        onClearance={(direction) => {
+                                            setClearanceToast(null);
+                                            setClearanceDirection(direction);
+                                        }}
+                                    />
+                                </div>
                             )}
 
                             {/* ── TAB 2: AKTIVITAS (SEAMLESS VIEW) ── */}
@@ -432,17 +525,22 @@ export default function VesselShow({
                             </p>
                         </div>
 
-                        {canCreateRequests && (
-                            <Button
-                                type="button"
-                                className="shrink-0"
-                                leftIcon={<Plus aria-hidden="true" className="size-4" />}
-                                onClick={() => setNeedFlowStep('header')}
-                            >
-                                Buat kebutuhan
-                            </Button>
-                        )}
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            {renderCompletionNoteAction()}
+                            {canCreateRequests && (
+                                <Button
+                                    type="button"
+                                    className="shrink-0"
+                                    leftIcon={<Plus aria-hidden="true" className="size-4" />}
+                                    onClick={() => setNeedFlowStep('header')}
+                                >
+                                    Buat kebutuhan
+                                </Button>
+                            )}
+                        </div>
                     </div>
+
+                    {financialSummary}
 
                     {/* Vessel Hero Image Banner */}
                     <div

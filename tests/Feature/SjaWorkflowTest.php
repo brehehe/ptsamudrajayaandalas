@@ -2,10 +2,13 @@
 
 use App\Models\Port;
 use App\Models\PortCall;
+use App\Models\Product;
+use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
+use App\Models\Vendor;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
@@ -267,6 +270,56 @@ test('ship need is stored on the selected visit and rejects another ships visit'
     ]);
 });
 
+test('vessel need copies hpp and vendor from the selected master product', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $vendor = Vendor::create([
+        'code' => 'VND-NEED-MASTER',
+        'name' => 'PT Vendor Kebutuhan Master',
+        'is_active' => true,
+    ]);
+    $product = Product::create([
+        'code' => 'PRD-NEED-MASTER',
+        'name' => 'MGO Fuel',
+        'item_type' => 'non_jasa',
+        'unit' => 'Liter',
+        'hpp_default' => 12500,
+        'selling_price_default' => 15500,
+        'vendor_id' => $vendor->id,
+        'is_active' => true,
+    ]);
+    $ship = Ship::create(['name' => 'KM Harga Master', 'is_active' => true]);
+    $visit = PortCall::create([
+        'job_number' => 'JOB-NEED-MASTER-001',
+        'ship_id' => $ship->id,
+        'status' => 'anchored',
+        'eta_at' => now(),
+    ]);
+
+    $this->actingAs($user)->post(route('needs.store'), [
+        'ship_id' => $ship->id,
+        'port_call_id' => $visit->id,
+        'section' => 'Engine',
+        'ordered_by_name' => 'Chief Engineer',
+        'ordered_by_phone' => '081234567890',
+        'request_date' => now()->toDateString(),
+        'items' => [[
+            'product_id' => $product->id,
+            'item_name' => $product->name,
+            'quantity' => 100,
+            'unit' => $product->unit,
+            'is_urgent' => false,
+        ]],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $requestItem = RequestItem::query()->where('product_id', $product->id)->firstOrFail();
+
+    expect((float) $requestItem->hpp_price)->toBe(12500.0)
+        ->and((float) $requestItem->selling_price)->toBe(0.0)
+        ->and($requestItem->vendor_id)->toBe($vendor->id)
+        ->and($requestItem->item_type)->toBe('non_jasa');
+});
+
 test('authenticated user can view component library showcase', function () {
     $user = User::factory()->create();
 
@@ -451,7 +504,7 @@ test('admin can submit upcoming ship arrival (ShipSubmission)', function () {
         'captain_name' => 'Capt. Surya Wijaya',
         'captain_phone' => '081234567890',
         'port_id' => $port?->id,
-        'eta' => now()->addDays(2)->format('Y-m-d\TH:i'),
+        'eta' => now()->addDays(2)->toDateString(),
         'arrival_notes' => 'Rencana sandar di dermaga KSOP',
         'image' => UploadedFile::fake()->image('kapal-baru.jpg'),
     ]);
@@ -494,7 +547,7 @@ test('admin can schedule upcoming arrival for existing master ship and creates w
         'ship_selection_type' => 'existing',
         'ship_id' => $ship->id,
         'port_id' => $port?->id,
-        'eta' => now()->addDays(3)->format('Y-m-d\TH:i'),
+        'eta' => now()->addDays(3)->toDateString(),
         'captain_name' => 'Capt. Hartono',
         'captain_phone' => '0812345678',
         'arrival_notes' => 'Kunjungan kedua muat pupuk',

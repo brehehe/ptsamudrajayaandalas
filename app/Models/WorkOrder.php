@@ -62,8 +62,8 @@ class WorkOrder extends Model
             'received_at' => 'datetime',
             'submitted_at' => 'datetime',
             'reviewed_at' => 'datetime',
-            'planned_eta_at' => 'datetime',
-            'planned_etd_at' => 'datetime',
+            'planned_eta_at' => 'date',
+            'planned_etd_at' => 'date',
             'operational_completed_at' => 'datetime',
             'closed_at' => 'datetime',
         ];

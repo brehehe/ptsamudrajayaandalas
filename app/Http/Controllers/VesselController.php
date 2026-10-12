@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompletionNote;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Product;
@@ -36,7 +37,14 @@ class VesselController extends Controller
         ];
 
         $query = PortCall::query()
-            ->with(['ship.company', 'port', 'requests.items'])
+            ->with([
+                'ship.company',
+                'port',
+                'requests.items',
+                'invoices' => fn ($invoiceQuery) => $invoiceQuery
+                    ->whereIn('status', ['released', 'sent', 'paid'])
+                    ->select('id', 'port_call_id', 'grand_total', 'status'),
+            ])
             ->whereHas('ship', fn ($shipQuery) => $shipQuery->where('is_active', true));
 
         if ($status && $status !== 'Semua') {
@@ -69,6 +77,11 @@ class VesselController extends Controller
             $ship = $portCall->ship;
             $needsCount = $portCall->requests->flatMap->items->count();
             $requestsCount = $portCall->requests->count();
+            $totalHpp = (float) $portCall->requests
+                ->flatMap->items
+                ->where('director_status', 'approved')
+                ->sum(fn (RequestItem $item): float => (float) $item->hpp_price * (float) $item->quantity);
+            $totalInvoiced = (float) $portCall->invoices->sum('grand_total');
             $translatedStatus = match ($portCall->status) {
                 'scheduled' => 'Akan Datang',
                 'anchored' => 'Labuh',
@@ -92,6 +105,10 @@ class VesselController extends Controller
                 'port_name' => $portCall->port?->name,
                 'needs_count' => $needsCount,
                 'requests_count' => $requestsCount,
+                'total_hpp' => $totalHpp,
+                'total_invoiced' => $totalInvoiced,
+                'margin' => $totalInvoiced - $totalHpp,
+                'margin_available' => $portCall->invoices->isNotEmpty(),
                 'ship_company_id' => $ship->ship_company_id,
                 'company' => $ship->company,
                 'created_at' => $portCall->created_at?->toISOString(),
@@ -156,7 +173,15 @@ class VesselController extends Controller
             ->get();
 
         $portCalls = $vessel->portCalls()
-            ->with(['port', 'workOrder:id,client_pic_name,client_pic_contact', 'clearanceInRequests:id,port_call_id'])
+            ->with([
+                'port',
+                'workOrder:id,client_pic_name,client_pic_contact',
+                'clearanceInRequests:id,port_call_id',
+                'completionNote:id,port_call_id,document_number,status',
+                'invoices' => fn ($invoiceQuery) => $invoiceQuery
+                    ->whereIn('status', ['released', 'sent', 'paid'])
+                    ->select('id', 'port_call_id', 'grand_total', 'status'),
+            ])
             ->orderByDesc('eta_at')
             ->get();
 
@@ -229,6 +254,14 @@ class VesselController extends Controller
         $vesselPayload = $vessel->toArray();
         $vesselPayload['eta'] = $selectedVisit?->eta_at?->toISOString();
         $vesselPayload['port'] = $selectedVisit?->port?->toArray();
+        $selectedVisitHpp = $selectedVisit
+            ? (float) $vessel->requests
+                ->where('port_call_id', $selectedVisit->id)
+                ->flatMap->items
+                ->where('director_status', 'approved')
+                ->sum(fn (RequestItem $item): float => (float) $item->hpp_price * (float) $item->quantity)
+            : 0.0;
+        $selectedVisitInvoiced = (float) ($selectedVisit?->invoices->sum('grand_total') ?? 0);
 
         return Inertia::render('Vessels/Show', [
             'vessel' => $vesselPayload,
@@ -242,14 +275,24 @@ class VesselController extends Controller
                 'status' => $selectedVisit->status,
                 'client_pic_name' => $selectedVisit->workOrder?->client_pic_name,
                 'client_pic_contact' => $selectedVisit->workOrder?->client_pic_contact,
+                'total_hpp' => $selectedVisitHpp,
+                'total_invoiced' => $selectedVisitInvoiced,
+                'margin' => $selectedVisitInvoiced - $selectedVisitHpp,
+                'margin_available' => $selectedVisit->invoices->isNotEmpty(),
                 'eta_at' => $selectedVisit->eta_at?->toISOString(),
                 'etd_at' => $selectedVisit->etd_at?->toISOString(),
                 'port' => $selectedVisit->port?->only(['id', 'name', 'code', 'city']),
+                'completion_note' => $selectedVisit->completionNote?->only([
+                    'id',
+                    'document_number',
+                    'status',
+                ]),
             ] : null,
             'canManageClearance' => $request->user()->isStaff() || $request->user()->isOperationalAdmin(),
             'canCreateRequests' => ($request->user()->can('create', ShipRequest::class))
                 && ($selectedVisit?->acceptsNewRequests() ?? false),
             'canProcessRequests' => $request->user()->isOperationalAdmin(),
+            'canCreateCompletionNotes' => $request->user()->can('create', CompletionNote::class),
         ]);
     }
 
@@ -265,7 +308,7 @@ class VesselController extends Controller
             'ship_type' => 'required|string|max:100',
             'status' => 'required|string|max:50',
             'agent_name' => 'nullable|string|max:255',
-            'eta' => 'nullable|date',
+            'eta' => 'nullable|date_format:Y-m-d',
             'ship_company_id' => 'nullable|uuid|exists:ship_companies,id',
             'is_new_company' => 'nullable|boolean',
             'new_company_name' => 'nullable|required_if:is_new_company,true|string|max:255',
@@ -302,7 +345,7 @@ class VesselController extends Controller
             'status' => $validated['status'],
             'ship_company_id' => $companyId,
             'agent_name' => $validated['agent_name'] ?? 'PT Samudra Jaya Andalas',
-            'eta' => $validated['eta'] ?? now()->addDays(2),
+            'eta' => $validated['eta'] ?? now()->addDays(2)->toDateString(),
             'is_active' => true,
         ]);
 
@@ -326,7 +369,7 @@ class VesselController extends Controller
             'assigned_to' => $effectiveUserId,
             'planned_ship_id' => $ship->id,
             'planned_port_id' => $portId,
-            'planned_eta_at' => $ship->eta ?? now()->addDays(2),
+            'planned_eta_at' => $ship->eta?->toDateString() ?? now()->addDays(2)->toDateString(),
         ]);
 
         PortCall::create([
@@ -336,7 +379,7 @@ class VesselController extends Controller
             'job_number' => 'JOB-'.date('Ymd').'-'.rand(100, 999),
             'status' => 'scheduled',
             'financial_status' => 'pending_reconciliation',
-            'eta_at' => $ship->eta ?? now()->addDays(2),
+            'eta_at' => $ship->eta?->toDateString() ?? now()->addDays(2)->toDateString(),
         ]);
 
         return redirect()->route('vessels.index')->with('success', 'Kapal dan data perusahaan berhasil disimpan.');
@@ -393,7 +436,7 @@ class VesselController extends Controller
             'captain_name' => 'nullable|string|max:255',
             'captain_phone' => 'nullable|string|max:50',
             'port_id' => 'nullable|uuid|exists:ports,id',
-            'eta' => 'required|date',
+            'eta' => 'required|date_format:Y-m-d',
             'arrival_notes' => 'nullable|string',
             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);

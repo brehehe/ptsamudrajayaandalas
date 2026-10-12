@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CreateVendorInvoiceFromApprovedItem;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
 use App\Models\RequestItem;
@@ -17,12 +18,21 @@ use Inertia\Response;
 
 class ApprovalController extends Controller
 {
-    public function __construct(private readonly WorkflowNotifier $workflowNotifier) {}
+    public function __construct(
+        private readonly WorkflowNotifier $workflowNotifier,
+        private readonly CreateVendorInvoiceFromApprovedItem $createVendorInvoiceFromApprovedItem,
+    ) {}
 
     public function index(Request $request): Response
     {
-        $tab = $request->query('tab', 'menunggu');
-        $search = $request->query('search');
+        $validated = $request->validate([
+            'tab' => ['nullable', 'in:menunggu,disetujui,ditolak'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+        $tab = $validated['tab'] ?? 'menunggu';
+        $search = $validated['search'] ?? null;
+        $date = $validated['date'] ?? null;
 
         $requestsQuery = ShipRequest::query()->with([
             'ship.company',
@@ -34,6 +44,7 @@ class ApprovalController extends Controller
             'creator',
             'items.product.vendor',
             'items.vendor',
+            'items.costDocumentItem.costDocument',
         ]);
 
         $paymentsQuery = OutgoingPayment::query()->with([
@@ -42,6 +53,11 @@ class ApprovalController extends Controller
             'recorder',
             'verifier',
         ]);
+
+        if ($date) {
+            $requestsQuery->whereDate('request_date', $date);
+            $paymentsQuery->whereDate('payment_date', $date);
+        }
 
         if ($tab === 'menunggu') {
             $requestsQuery->where(function ($query) {
@@ -78,6 +94,25 @@ class ApprovalController extends Controller
 
         $pendingRequests = $requestsQuery->orderByDesc('created_at')->get();
         $pendingPayments = $paymentsQuery->orderByDesc('created_at')->get();
+        $this->prepareApprovalItems($pendingRequests);
+
+        $summaryDate = $date ?? now()->toDateString();
+        $dailyRequests = ShipRequest::query()
+            ->whereDate('request_date', $summaryDate)
+            ->with('items:id,request_id,quantity,hpp_price,director_status')
+            ->get(['id', 'port_call_id', 'request_date']);
+        $dailySummary = [
+            'date' => $summaryDate,
+            'ship_count' => $dailyRequests->pluck('port_call_id')->filter()->unique()->count(),
+            'request_count' => $dailyRequests->count(),
+            'item_count' => $dailyRequests->sum(fn (ShipRequest $shipRequest): int => $shipRequest->items->count()),
+            'total_hpp' => (float) $dailyRequests->sum(fn (ShipRequest $shipRequest): float => (float) $shipRequest->items->sum(
+                fn (RequestItem $item): float => (float) $item->hpp_price * (float) $item->quantity,
+            )),
+            'approved_hpp' => (float) $dailyRequests->sum(fn (ShipRequest $shipRequest): float => (float) $shipRequest->items
+                ->where('director_status', 'approved')
+                ->sum(fn (RequestItem $item): float => (float) $item->hpp_price * (float) $item->quantity)),
+        ];
 
         $counts = [
             'semua' => ShipRequest::count() + OutgoingPayment::count(),
@@ -99,6 +134,8 @@ class ApprovalController extends Controller
             'counts' => $counts,
             'activeTab' => $tab,
             'search' => $search ?? '',
+            'date' => $date ?? '',
+            'dailySummary' => $dailySummary,
             'capabilities' => [
                 'can_decide_items' => $request->user()?->isDirector() ?? false,
                 'can_view_hpp' => true,
@@ -127,6 +164,7 @@ class ApprovalController extends Controller
             'requests.invoices',
             'requests.items.product.vendor',
             'requests.items.vendor',
+            'requests.items.costDocumentItem.costDocument',
         ]);
 
         $portCall = $isUuid
@@ -160,10 +198,12 @@ class ApprovalController extends Controller
                 'portCall.requests.invoices',
                 'portCall.requests.items.product.vendor',
                 'portCall.requests.items.vendor',
+                'portCall.requests.items.costDocumentItem.costDocument',
                 'creator',
                 'invoices',
                 'items.product.vendor',
                 'items.vendor',
+                'items.costDocumentItem.costDocument',
             ]);
 
             $shipRequest = $isUuid
@@ -174,6 +214,7 @@ class ApprovalController extends Controller
         }
 
         $allRequests = $portCall ? $portCall->requests : ($shipRequest ? collect([$shipRequest]) : collect());
+        $this->prepareApprovalItems($allRequests);
 
         $canDecideItems = $request->user()?->isDirector() ?? false;
 
@@ -182,7 +223,6 @@ class ApprovalController extends Controller
         $totalHppApproved = 0;
         $totalHppRejected = 0;
         $totalHppAll = 0;
-        $totalSellingAll = 0;
         $pendingItemsCount = 0;
         $approvedItemsCount = 0;
         $rejectedItemsCount = 0;
@@ -192,12 +232,9 @@ class ApprovalController extends Controller
             foreach ($req->items as $item) {
                 $qty = (float) $item->quantity;
                 $hpp = (float) $item->hpp_price;
-                $selling = (float) $item->selling_price;
                 $lineHpp = $qty * $hpp;
-                $lineSelling = $qty * $selling;
 
                 $totalHppAll += $lineHpp;
-                $totalSellingAll += $lineSelling;
                 $totalItemsCount++;
 
                 if ($item->director_status === 'approved') {
@@ -228,7 +265,6 @@ class ApprovalController extends Controller
                 'total_hpp_approved' => $totalHppApproved,
                 'total_hpp_rejected' => $totalHppRejected,
                 'total_hpp_all' => $totalHppAll,
-                'total_selling_all' => $totalSellingAll,
                 'pending_items_count' => $pendingItemsCount,
                 'approved_items_count' => $approvedItemsCount,
                 'rejected_items_count' => $rejectedItemsCount,
@@ -276,6 +312,10 @@ class ApprovalController extends Controller
                     },
                 ]);
 
+                if ($status === 'approved') {
+                    $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+                }
+
                 $decidedItemIds->push($item->id);
 
                 activity('request-item-approval')
@@ -285,7 +325,6 @@ class ApprovalController extends Controller
                         'request_id' => $shipRequest->id,
                         'decision' => $status,
                         'hpp_price' => (float) $item->hpp_price,
-                        'selling_price' => (float) $item->selling_price,
                         'notes' => $dec['director_notes'] ?? null,
                     ])
                     ->log('Direktur memberikan keputusan pada item pengajuan');
@@ -343,6 +382,8 @@ class ApprovalController extends Controller
                     'status' => 'disetujui',
                 ]);
 
+                $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+
                 activity('request-item-approval')
                     ->performedOn($item)
                     ->causedBy($request->user())
@@ -350,7 +391,6 @@ class ApprovalController extends Controller
                         'request_id' => $shipRequest->id,
                         'decision' => 'approved',
                         'hpp_price' => (float) $item->hpp_price,
-                        'selling_price' => (float) $item->selling_price,
                     ])
                     ->log('Direktur menyetujui item dan mengunci harga');
             }
@@ -408,7 +448,6 @@ class ApprovalController extends Controller
                         'request_id' => $shipRequest->id,
                         'decision' => 'rejected',
                         'hpp_price' => (float) $item->hpp_price,
-                        'selling_price' => (float) $item->selling_price,
                         'notes' => $validated['reason'] ?? null,
                     ])
                     ->log('Direktur menolak item pengajuan');
@@ -478,6 +517,10 @@ class ApprovalController extends Controller
                 },
             ]);
 
+            if ($status === 'approved') {
+                $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+            }
+
             activity('request-item-approval')
                 ->performedOn($item)
                 ->causedBy($request->user())
@@ -485,7 +528,6 @@ class ApprovalController extends Controller
                     'request_id' => $item->request->id,
                     'decision' => $status,
                     'hpp_price' => (float) $item->hpp_price,
-                    'selling_price' => (float) $item->selling_price,
                     'notes' => $validated['notes'] ?? null,
                 ])
                 ->log('Direktur memberikan keputusan pada item pengajuan');
@@ -561,6 +603,34 @@ class ApprovalController extends Controller
         return $unselectedItems->count();
     }
 
+    /** @param Collection<int, ShipRequest> $shipRequests */
+    private function prepareApprovalItems(Collection $shipRequests): void
+    {
+        $shipRequests->each(function (ShipRequest $shipRequest): void {
+            $shipRequest->items->each(function (RequestItem $item): void {
+                $costDocument = $item->costDocumentItem?->costDocument;
+                $attachmentExtension = Str::lower(pathinfo((string) $item->attachment_path, PATHINFO_EXTENSION));
+                $supplierInvoiceExtension = Str::lower(pathinfo((string) $item->supplier_invoice_path, PATHINFO_EXTENSION));
+                $item->setAttribute('attachment_url', $item->attachment_path
+                    ? route('request-items.attachment', $item)
+                    : null);
+                $item->setAttribute('attachment_is_image', in_array($attachmentExtension, ['jpg', 'jpeg', 'png', 'webp'], true));
+                $item->setAttribute('supplier_invoice_url', $item->supplier_invoice_path
+                    ? route('request-items.supplier-invoice.show', $item)
+                    : null);
+                $item->setAttribute('supplier_invoice_is_image', in_array($supplierInvoiceExtension, ['jpg', 'jpeg', 'png', 'webp'], true));
+                $item->setAttribute('supplier_invoice_complete', $item->hasCompleteSupplierInvoice());
+                $item->setAttribute(
+                    'vendor_invoice_url',
+                    $costDocument?->document_type === 'vendor_invoice'
+                        ? route('vendor-invoices.document', $costDocument)
+                        : null,
+                );
+                $item->makeHidden(['selling_price', 'attachment_path', 'supplier_invoice_path']);
+            });
+        });
+    }
+
     public function batchItemDecision(Request $request): RedirectResponse
     {
         $this->authorizeDirectorDecision($request);
@@ -595,6 +665,10 @@ class ApprovalController extends Controller
                     },
                 ]);
 
+                if ($status === 'approved') {
+                    $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+                }
+
                 if (function_exists('activity')) {
                     activity('request-item-approval')
                         ->performedOn($item)
@@ -603,7 +677,6 @@ class ApprovalController extends Controller
                             'request_id' => $item->request_id,
                             'decision' => $status,
                             'hpp_price' => (float) $item->hpp_price,
-                            'selling_price' => (float) $item->selling_price,
                             'notes' => $dec['director_notes'] ?? null,
                         ])
                         ->log('Direktur memberikan keputusan pada item pengajuan');

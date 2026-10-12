@@ -65,6 +65,10 @@ export interface Vessel {
     port_name?: string;
     needs_count?: number;
     requests_count?: number;
+    total_hpp: number;
+    total_invoiced: number;
+    margin: number;
+    margin_available: boolean;
     created_at?: string;
     ship_company_id?: string;
     company?: ShipCompany;
@@ -126,6 +130,12 @@ export const formatEtaDateTime = (dateStr?: string | null): string => {
     }
 };
 
+const formatRupiah = (value: number): string => new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+}).format(value);
+
 export default function VesselsIndex({
     vessels,
     companies = [],
@@ -153,7 +163,7 @@ export default function VesselsIndex({
     // Shared Kunjungan / Arrival fields
     const [arrivalPortId, setArrivalPortId] = useState('');
     const [arrivalEta, setArrivalEta] = useState(
-        new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)
+        new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     );
     const [arrivalCaptainName, setArrivalCaptainName] = useState('');
     const [arrivalCaptainPhone, setArrivalCaptainPhone] = useState('');
@@ -259,7 +269,7 @@ export default function VesselsIndex({
                     ship_selection_type: 'existing',
                     ship_id: selectedMasterShipId,
                     port_id: arrivalPortId || (ports.length > 0 ? ports[0].id : null),
-                    eta: arrivalEta ? new Date(arrivalEta).toISOString() : '',
+                    eta: arrivalEta,
                     captain_name: arrivalCaptainName || null,
                     captain_phone: arrivalCaptainPhone || null,
                     arrival_notes: arrivalNotes || null,
@@ -291,7 +301,7 @@ export default function VesselsIndex({
                     call_sign: newShipCallSign.trim() || null,
                     image: newShipImage,
                     port_id: arrivalPortId || (ports.length > 0 ? ports[0].id : null),
-                    eta: arrivalEta ? new Date(arrivalEta).toISOString() : '',
+                    eta: arrivalEta,
                     captain_name: arrivalCaptainName.trim() || null,
                     captain_phone: arrivalCaptainPhone.trim() || null,
                     arrival_notes: arrivalNotes.trim() || null,
@@ -869,6 +879,12 @@ export default function VesselsIndex({
                                                             : '-'}
                                                     </span>
                                                 </div>
+                                                <div className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+                                                    <span>Margin:</span>
+                                                    <span className={`truncate font-bold ${vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
+                                                        {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1083,6 +1099,12 @@ export default function VesselsIndex({
                                                             vessel.requests_count > 0
                                                             ? `${vessel.requests_count}`
                                                             : '-'}
+                                                    </span>
+                                                </div>
+                                                <div className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+                                                    <span>Margin:</span>
+                                                    <span className={`truncate font-bold ${vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
+                                                        {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1781,6 +1803,16 @@ export default function VesselsIndex({
                                                                 {vessel.requests_count || '-'}
                                                             </strong>
                                                         </span>
+                                                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                                            <span>HPP:</span>
+                                                            <strong className="text-[#082870] dark:text-white">{formatRupiah(vessel.total_hpp)}</strong>
+                                                        </span>
+                                                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                                            <span>Margin:</span>
+                                                            <strong className={vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}>
+                                                                {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
+                                                            </strong>
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -2133,11 +2165,11 @@ export default function VesselsIndex({
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
-                                        Jadwal Kedatangan (ETA) *
+                                        Tanggal Kedatangan (ETA) *
                                     </label>
                                     <input
                                         name="eta"
-                                        type="datetime-local"
+                                        type="date"
                                         required
                                         value={arrivalEta}
                                         onChange={(e) => setArrivalEta(e.target.value)}
@@ -2351,11 +2383,11 @@ export default function VesselsIndex({
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
-                                            Jadwal Kedatangan (ETA) *
+                                            Tanggal Kedatangan (ETA) *
                                         </label>
                                         <input
                                             name="eta"
-                                            type="datetime-local"
+                                            type="date"
                                             required
                                             value={arrivalEta}
                                             onChange={(e) => setArrivalEta(e.target.value)}

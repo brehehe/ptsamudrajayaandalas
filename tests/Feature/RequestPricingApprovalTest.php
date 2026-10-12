@@ -4,6 +4,7 @@ use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
 use App\Models\User;
+use App\Models\Vendor;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 
@@ -33,6 +34,11 @@ function createPricingRequest(User $creator): array
         'status' => 'Menunggu Approval',
         'request_date' => now()->toDateString(),
     ]);
+    $vendor = Vendor::create([
+        'code' => 'VP'.substr(str_replace('-', '', $shipRequest->id), -18),
+        'name' => "PT Vendor {$shipRequest->id}",
+        'is_active' => true,
+    ]);
 
     $selectedItem = RequestItem::create([
         'request_id' => $shipRequest->id,
@@ -44,6 +50,12 @@ function createPricingRequest(User $creator): array
         'selling_price' => 4200000,
         'status' => 'pending',
         'director_status' => 'pending',
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => "INV-{$shipRequest->id}-1",
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_path' => "tests/INV-{$shipRequest->id}-1.pdf",
+        'supplier_invoice_uploaded_by' => $creator->id,
     ]);
 
     $pendingItem = RequestItem::create([
@@ -56,12 +68,18 @@ function createPricingRequest(User $creator): array
         'selling_price' => 750000,
         'status' => 'pending',
         'director_status' => 'pending',
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => "INV-{$shipRequest->id}-2",
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_path' => "tests/INV-{$shipRequest->id}-2.pdf",
+        'supplier_invoice_uploaded_by' => $creator->id,
     ]);
 
     return [$shipRequest, $selectedItem, $pendingItem];
 }
 
-test('admin selects which items and prices are forwarded to director', function () {
+test('admin selects which items and hpp values are forwarded to director without changing selling prices', function () {
     $admin = createPricingUser('Admin');
     [$shipRequest, $selectedItem, $pendingItem] = createPricingRequest($admin);
 
@@ -78,7 +96,7 @@ test('admin selects which items and prices are forwarded to director', function 
     $this->assertDatabaseHas('request_items', [
         'id' => $selectedItem->id,
         'hpp_price' => 2750000,
-        'selling_price' => 4500000,
+        'selling_price' => 4200000,
         'status' => 'diajukan_ke_direktur',
         'director_status' => 'pending',
     ]);
@@ -185,7 +203,7 @@ test('admin can fulfill an approved item while other items continue the approval
     expect($shipRequest->fresh()->status)->toBe('Dalam Proses');
 });
 
-test('approved hpp and selling price require revision before they can change', function () {
+test('approved hpp requires revision before it can change and selling price remains outside approval', function () {
     $admin = createPricingUser('Admin');
     $director = createPricingUser('Direktur');
     [$shipRequest, $selectedItem] = createPricingRequest($admin);
@@ -219,7 +237,7 @@ test('approved hpp and selling price require revision before they can change', f
 
     $this->post(route('requests.items.update-price', [$shipRequest->id, $selectedItem->id]), [
         'hpp_price' => 3000000,
-        'selling_price' => 5000000,
+        'selling_price' => 4200000,
     ])->assertSessionHasErrors('hpp_price');
 
     $this->post(route('requests.items.batch-update-prices'), [
@@ -271,7 +289,7 @@ test('approved hpp and selling price require revision before they can change', f
     $this->assertDatabaseHas('request_items', [
         'id' => $selectedItem->id,
         'hpp_price' => 3000000,
-        'selling_price' => 5000000,
+        'selling_price' => 4200000,
         'status' => 'diajukan_ke_direktur',
     ]);
 });
@@ -425,18 +443,24 @@ test('unselected items leave the director queue until admin submits them again',
 test('admin can batch forward items and director can batch decide items across requests', function () {
     $admin = createPricingUser('Admin');
     $director = createPricingUser('Direktur');
-    [$req1, $item1] = createPricingRequest($admin);
-    [$req2, $item2] = createPricingRequest($admin);
+    [$req1, $item1, $unselectedItem1] = createPricingRequest($admin);
+    [$req2, $item2, $unselectedItem2] = createPricingRequest($admin);
+    [$req3, $item3, $unselectedItem3] = createPricingRequest($admin);
 
-    // Admin batch forwards items from req1 and req2
+    // Admin batch forwards items from three different vessel requests.
     $this->actingAs($admin)->post(route('requests.batch-forward-director'), [
-        'selected_items' => [$item1->id, $item2->id],
+        'selected_items' => [$item1->id, $item2->id, $item3->id],
     ])->assertRedirect()->assertSessionHasNoErrors();
 
     expect($req1->fresh()->status)->toBe('Menunggu Approval Direktur');
     expect($req2->fresh()->status)->toBe('Menunggu Approval Direktur');
+    expect($req3->fresh()->status)->toBe('Menunggu Approval Direktur');
     expect($item1->fresh()->status)->toBe('diajukan_ke_direktur');
     expect($item2->fresh()->status)->toBe('diajukan_ke_direktur');
+    expect($item3->fresh()->status)->toBe('diajukan_ke_direktur');
+    expect($unselectedItem1->fresh()->status)->toBe('pending');
+    expect($unselectedItem2->fresh()->status)->toBe('pending');
+    expect($unselectedItem3->fresh()->status)->toBe('pending');
 
     // Director batch decides
     $this->actingAs($director)->post(route('approvals.requests.batch-item-decision'), [
@@ -452,9 +476,9 @@ test('admin can batch forward items and director can batch decide items across r
     expect($req2->fresh()->status)->toBe('Menunggu Approval');
 });
 
-test('admin cannot forward items with zero hpp or zero selling price to director', function () {
+test('admin requires positive hpp but does not require or mutate selling price when forwarding', function () {
     $admin = createPricingUser('Admin');
-    [$shipRequest, $item] = createPricingRequest($admin);
+    [$shipRequest, $item, $pendingItem] = createPricingRequest($admin);
 
     // Try forwarding with HPP = 0
     $responseZeroHpp = $this->actingAs($admin)->post(route('requests.forward-director', $shipRequest->id), [
@@ -469,7 +493,7 @@ test('admin cannot forward items with zero hpp or zero selling price to director
     $responseZeroHpp->assertSessionHasErrors('selected_items');
     expect($item->fresh()->status)->toBe('pending');
 
-    // Try forwarding with Selling Price = 0
+    // Harga jual bukan bagian dari approval biaya dan nilai kiriman diabaikan.
     $responseZeroSelling = $this->actingAs($admin)->post(route('requests.forward-director', $shipRequest->id), [
         'selected_items' => [$item->id],
         'item_prices' => [[
@@ -479,19 +503,21 @@ test('admin cannot forward items with zero hpp or zero selling price to director
         ]],
     ]);
 
-    $responseZeroSelling->assertSessionHasErrors('selected_items');
-    expect($item->fresh()->status)->toBe('pending');
+    $responseZeroSelling->assertRedirect()->assertSessionHasNoErrors();
+    expect($item->fresh()->status)->toBe('diajukan_ke_direktur')
+        ->and((float) $item->fresh()->hpp_price)->toBe(500000.0)
+        ->and((float) $item->fresh()->selling_price)->toBe(4200000.0);
 
     // Try batch forward with zero price
     $responseBatchZero = $this->actingAs($admin)->post(route('requests.batch-forward-director'), [
-        'selected_items' => [$item->id],
+        'selected_items' => [$pendingItem->id],
         'item_prices' => [[
-            'id' => $item->id,
+            'id' => $pendingItem->id,
             'hpp_price' => 0,
             'selling_price' => 0,
         ]],
     ]);
 
     $responseBatchZero->assertSessionHasErrors('selected_items');
-    expect($item->fresh()->status)->toBe('pending');
+    expect($pendingItem->fresh()->status)->toBe('pending');
 });

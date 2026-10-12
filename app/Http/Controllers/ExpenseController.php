@@ -2,16 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreCompanyExpenseRequest;
 use App\Http\Requests\StoreOutgoingPaymentRequest;
 use App\Models\CostDocument;
+use App\Models\ExpenseRequest;
 use App\Models\OutgoingPayment;
+use App\Models\User;
+use App\Notifications\WorkflowActionNotification;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExpenseController extends Controller
 {
@@ -65,6 +74,18 @@ class ExpenseController extends Controller
         $totalAmount = OutgoingPayment::sum('amount');
         $verifiedAmount = OutgoingPayment::where('verification_status', 'verified')->sum('amount');
         $pendingAmount = OutgoingPayment::where('verification_status', 'pending')->sum('amount');
+
+        $companyExpenseRequests = ExpenseRequest::query()
+            ->where('scope', 'company')
+            ->with(['creator:id,name', 'reviewer:id,name', 'realizer:id,name', 'items:id,expense_request_id,description,amount'])
+            ->when($search, fn ($expenseQuery, $value) => $expenseQuery->where(function ($scope) use ($value) {
+                $scope->where('request_number', 'ilike', "%{$value}%")
+                    ->orWhere('category', 'ilike', "%{$value}%")
+                    ->orWhereHas('items', fn ($itemQuery) => $itemQuery->where('description', 'ilike', "%{$value}%"));
+            }))
+            ->latest('created_at')
+            ->paginate(10, ['*'], 'company_page')
+            ->withQueryString();
 
         $payableVendorInvoices = collect();
         if ($request->user()->isOperationalAdmin()) {
@@ -139,6 +160,7 @@ class ExpenseController extends Controller
         return Inertia::render('Expenses/Index', [
             'expenses' => $expenses,
             'payableVendorInvoices' => $payableVendorInvoices,
+            'companyExpenseRequests' => $companyExpenseRequests,
             'stats' => [
                 'total' => (float) $totalAmount,
                 'verified' => (float) $verifiedAmount,
@@ -152,6 +174,9 @@ class ExpenseController extends Controller
             ],
             'abilities' => [
                 'manage' => $request->user()->isOperationalAdmin(),
+                'create_company_expense' => $request->user()->isOperationalAdmin(),
+                'decide_company_expense' => $request->user()->isDirector(),
+                'realize_company_expense' => $request->user()->isOperationalAdmin(),
             ],
         ]);
     }
@@ -243,5 +268,158 @@ class ExpenseController extends Controller
         });
 
         return redirect()->back()->with('success', "Pembayaran {$payment->reference_number} berhasil dicatat. Status invoice langsung diperbarui.");
+    }
+
+    public function storeCompanyExpense(StoreCompanyExpenseRequest $request): RedirectResponse
+    {
+        $validated = $request->validated();
+        $documentPath = $request->hasFile('supporting_document')
+            ? $request->file('supporting_document')->store('sja/company-expenses/supporting-documents', 'local')
+            : null;
+
+        try {
+            $expenseRequest = DB::transaction(function () use ($request, $validated, $documentPath): ExpenseRequest {
+                $expenseRequest = ExpenseRequest::create([
+                    'request_number' => sprintf('PNG-SJA-%s-%s', now()->format('ymd'), Str::upper(Str::random(6))),
+                    'port_call_id' => null,
+                    'scope' => 'company',
+                    'category' => $validated['category'],
+                    'version' => 1,
+                    'status' => 'waiting_director',
+                    'currency' => 'IDR',
+                    'total' => $validated['amount'],
+                    'notes' => $validated['notes'] ?? null,
+                    'supporting_document_path' => $documentPath,
+                    'created_by' => $request->user()->id,
+                    'submitted_at' => now(),
+                ]);
+                $expenseRequest->items()->create([
+                    'description' => $validated['description'],
+                    'amount' => $validated['amount'],
+                ]);
+
+                activity('company-expense')
+                    ->performedOn($expenseRequest)
+                    ->causedBy($request->user())
+                    ->withProperties(['category' => $validated['category'], 'amount' => (float) $validated['amount']])
+                    ->log('Pengajuan biaya nonkapal dikirim ke Direktur');
+
+                return $expenseRequest;
+            }, attempts: 3);
+        } catch (\Throwable $exception) {
+            if ($documentPath) {
+                Storage::disk('local')->delete($documentPath);
+            }
+
+            throw $exception;
+        }
+
+        Notification::send(
+            User::role('Direktur')->where('is_active', true)->get(),
+            new WorkflowActionNotification([
+                'title' => 'Pengajuan biaya perusahaan baru',
+                'message' => "{$expenseRequest->request_number} menunggu keputusan Direktur.",
+                'url' => route('expenses.index'),
+                'action_label' => 'Tinjau Pengajuan',
+                'action_required' => true,
+                'tone' => 'warning',
+                'entity_type' => 'company_expense',
+                'entity_id' => $expenseRequest->id,
+                'request_number' => $expenseRequest->request_number,
+                'status' => 'Menunggu Direktur',
+                'created_at' => now()->toISOString(),
+            ]),
+        );
+
+        return redirect()->back()->with('success', "Pengajuan {$expenseRequest->request_number} berhasil dikirim ke Direktur.");
+    }
+
+    public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest): RedirectResponse
+    {
+        abort_unless($request->user()?->isDirector(), 403);
+        $validated = $request->validate([
+            'decision' => ['required', Rule::in(['approve', 'reject'])],
+            'notes' => ['nullable', 'required_if:decision,reject', 'string', 'max:1000'],
+        ]);
+
+        DB::transaction(function () use ($request, $expenseRequest, $validated): void {
+            $lockedExpense = ExpenseRequest::query()->lockForUpdate()->findOrFail($expenseRequest->id);
+            if ($lockedExpense->scope !== 'company' || $lockedExpense->status !== 'waiting_director') {
+                throw ValidationException::withMessages(['decision' => 'Pengajuan ini sudah diputuskan atau tidak lagi tersedia.']);
+            }
+
+            $lockedExpense->update([
+                'status' => $validated['decision'] === 'approve' ? 'approved' : 'rejected',
+                'notes' => $validated['notes'] ?? $lockedExpense->notes,
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
+
+            activity('company-expense')
+                ->performedOn($lockedExpense)
+                ->causedBy($request->user())
+                ->withProperties(['decision' => $validated['decision'], 'notes' => $validated['notes'] ?? null])
+                ->log($validated['decision'] === 'approve' ? 'Biaya nonkapal disetujui Direktur' : 'Biaya nonkapal ditolak Direktur');
+        }, attempts: 3);
+
+        return redirect()->back()->with('success', 'Keputusan pengajuan biaya perusahaan berhasil disimpan.');
+    }
+
+    public function realizeCompanyExpense(Request $request, ExpenseRequest $expenseRequest): RedirectResponse
+    {
+        abort_unless($request->user()?->isOperationalAdmin(), 403);
+        $validated = $request->validate([
+            'realized_amount' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
+            'realized_date' => ['required', 'date', 'before_or_equal:today'],
+            'payment_reference' => ['required', 'string', 'max:100'],
+            'payment_proof' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+        ]);
+        $proofPath = $request->file('payment_proof')->store('sja/company-expenses/payment-proofs', 'local');
+
+        try {
+            DB::transaction(function () use ($request, $expenseRequest, $validated, $proofPath): void {
+                $lockedExpense = ExpenseRequest::query()->lockForUpdate()->findOrFail($expenseRequest->id);
+                if ($lockedExpense->scope !== 'company' || $lockedExpense->status !== 'approved') {
+                    throw ValidationException::withMessages(['realized_amount' => 'Hanya pengajuan yang sudah disetujui dan belum dibayar yang dapat direalisasikan.']);
+                }
+
+                $lockedExpense->update([
+                    'status' => 'realized',
+                    'realized_amount' => $validated['realized_amount'],
+                    'realized_date' => $validated['realized_date'],
+                    'payment_reference' => $validated['payment_reference'],
+                    'payment_proof_path' => $proofPath,
+                    'realized_by' => $request->user()->id,
+                    'realized_at' => now(),
+                ]);
+
+                activity('company-expense')
+                    ->performedOn($lockedExpense)
+                    ->causedBy($request->user())
+                    ->withProperties(['realized_amount' => (float) $validated['realized_amount']])
+                    ->log('Realisasi biaya nonkapal dicatat');
+            }, attempts: 3);
+        } catch (\Throwable $exception) {
+            Storage::disk('local')->delete($proofPath);
+            throw $exception;
+        }
+
+        return redirect()->back()->with('success', 'Realisasi biaya perusahaan berhasil dicatat.');
+    }
+
+    public function downloadCompanyExpenseDocument(Request $request, ExpenseRequest $expenseRequest, string $type): StreamedResponse
+    {
+        Gate::authorize('view', $expenseRequest);
+        abort_unless($expenseRequest->scope === 'company', 404);
+        $path = match ($type) {
+            'supporting' => $expenseRequest->supporting_document_path,
+            'payment' => $expenseRequest->payment_proof_path,
+            default => null,
+        };
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
+        return $request->boolean('view')
+            ? Storage::disk('local')->response($path)
+            : Storage::disk('local')->download($path);
     }
 }

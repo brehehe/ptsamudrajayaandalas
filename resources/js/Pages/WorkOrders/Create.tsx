@@ -140,6 +140,17 @@ const formatDate = (value: string) => {
     }).format(new Date(value));
 };
 
+const formatDateOnly = (value: string) => {
+    if (!value) {
+        return 'Belum diisi';
+    }
+
+    return new Intl.DateTimeFormat('id-ID', {
+        dateStyle: 'medium',
+        timeZone: 'Asia/Jakarta',
+    }).format(new Date(`${value}T00:00:00`));
+};
+
 const fileSize = (bytes: number) => {
     if (bytes < 1024 * 1024) {
         return `${Math.ceil(bytes / 1024)} KB`;
@@ -778,10 +789,10 @@ export default function WorkOrdersCreate({
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} noValidate>
+                <form className="min-w-0" onSubmit={handleSubmit} noValidate>
                     <FormErrorSummary errors={{ ...form.errors, ...clientErrors }} className="mb-4" />
-                    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-                        <Card className="overflow-hidden">
+                    <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+                        <Card className="min-w-0 overflow-hidden">
                             <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] px-5 py-4 dark:border-[#1E3A5F] dark:bg-[#102642]">
                                 <h2 className="text-balance text-lg font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">{steps[currentStep].title}</h2>
                                 <p className="mt-1 text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">{steps[currentStep].description}</p>
@@ -789,7 +800,7 @@ export default function WorkOrdersCreate({
 
                             <div className="p-4 sm:p-6">
                                 {currentStep === 0 && (
-                                    <fieldset className="grid gap-5 sm:grid-cols-2">
+                                    <fieldset className="grid min-w-0 gap-5 sm:grid-cols-2">
                                         <legend className="sr-only">Data dokumen SPK</legend>
                                         <Input
                                             id="client-number"
@@ -849,7 +860,7 @@ export default function WorkOrdersCreate({
                                             error={errorFor('client_pic_contact')}
                                         />
 
-                                        <div className="sm:col-span-2">
+                                        <div className="min-w-0 sm:col-span-2">
                                             <p className="mb-1.5 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Dokumen SPK <span className="text-[#C62840] dark:text-[#F87171] ml-0.5">*</span></p>
                                             <label
                                                 htmlFor="spk-document"
@@ -886,7 +897,7 @@ export default function WorkOrdersCreate({
                                             {errorFor('document') && <p id="document-error" role="alert" className="mt-1.5 text-xs font-semibold text-[#C62840] dark:text-[#F87171]">{errorFor('document')}</p>}
 
                                             {form.data.document && (
-                                                <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                                <div className="mt-3 flex min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
                                                     <FileText aria-hidden="true" className="size-5 shrink-0 text-[#0060F4]" />
                                                     <div className="min-w-0 flex-1">
                                                         <p className="truncate text-sm font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{form.data.document.name}</p>
@@ -1016,18 +1027,18 @@ export default function WorkOrdersCreate({
                                             required
                                             autoComplete="off"
                                             label="ETA"
-                                            type="datetime-local"
+                                            type="date"
                                             value={form.data.eta_at}
                                             onChange={(event) => updateField('eta_at', event.target.value)}
                                             error={errorFor('eta_at')}
-                                            helperText="Estimasi kedatangan wajib untuk membuat job."
+                                            helperText="Tanggal kedatangan sesuai SPK, tanpa jam perkiraan."
                                         />
                                         <Input
                                             id="etd-at"
                                             name="etd_at"
                                             autoComplete="off"
                                             label="ETD"
-                                            type="datetime-local"
+                                            type="date"
                                             value={form.data.etd_at}
                                             onChange={(event) => updateField('etd_at', event.target.value)}
                                             error={errorFor('etd_at')}
@@ -1123,7 +1134,7 @@ export default function WorkOrdersCreate({
                                                 <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><Building2 aria-hidden="true" className="size-3.5" />Perusahaan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedCompany?.name || '-'}</dd></div>
                                                 <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><Ship aria-hidden="true" className="size-3.5" />Kapal</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedShip?.name || '-'}</dd></div>
                                                 <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><MapPin aria-hidden="true" className="size-3.5" />Pelabuhan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedPort?.name || '-'}</dd></div>
-                                                <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><CalendarClock aria-hidden="true" className="size-3.5" />ETA / ETD</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(form.data.eta_at)}<span className="block text-xs font-normal text-[#52658E] dark:text-[#94A3B8]">ETD: {form.data.etd_at ? formatDate(form.data.etd_at) : 'Belum ditentukan'}</span></dd></div>
+                                                <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><CalendarClock aria-hidden="true" className="size-3.5" />ETA / ETD</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDateOnly(form.data.eta_at)}<span className="block text-xs font-normal text-[#52658E] dark:text-[#94A3B8]">ETD: {form.data.etd_at ? formatDateOnly(form.data.etd_at) : 'Belum ditentukan'}</span></dd></div>
                                             </dl>
                                         </section>
 
@@ -1160,7 +1171,7 @@ export default function WorkOrdersCreate({
                             </div>
                         </Card>
 
-                        <aside className="space-y-4 lg:sticky lg:top-20" aria-label="Ringkasan kunjungan">
+                        <aside className="min-w-0 space-y-4 lg:sticky lg:top-20" aria-label="Ringkasan kunjungan">
                             <Card className="overflow-hidden">
                                 <div className="bg-[#0D2945] p-5 text-white">
                                     <div className="flex items-center gap-3">
@@ -1175,7 +1186,7 @@ export default function WorkOrdersCreate({
                                 <dl className="grid gap-4 p-5 text-sm">
                                     <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Perusahaan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedCompany?.name || '-'}</dd></div>
                                     <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Pelabuhan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedPort?.name || '-'}</dd></div>
-                                    <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">ETA</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(form.data.eta_at)}</dd></div>
+                                    <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">ETA</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDateOnly(form.data.eta_at)}</dd></div>
                                     <div><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Penanggung jawab</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedAssignee?.name || '-'}</dd></div>
                                 </dl>
                             </Card>

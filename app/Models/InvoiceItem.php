@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InvoiceItem extends Model
 {
@@ -13,6 +14,8 @@ class InvoiceItem extends Model
     protected $fillable = [
         'invoice_id',
         'request_item_id',
+        'sort_order',
+        'is_custom',
         'description',
         'vendor_name',
         'quantity',
@@ -27,6 +30,8 @@ class InvoiceItem extends Model
             'quantity' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'subtotal' => 'decimal:2',
+            'sort_order' => 'integer',
+            'is_custom' => 'boolean',
         ];
     }
 
@@ -38,5 +43,10 @@ class InvoiceItem extends Model
     public function requestItem(): BelongsTo
     {
         return $this->belongsTo(RequestItem::class);
+    }
+
+    public function sources(): HasMany
+    {
+        return $this->hasMany(InvoiceItemSource::class);
     }
 }

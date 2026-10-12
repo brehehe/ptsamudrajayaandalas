@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Invoice;
+use App\Actions\ResolveClearanceProduct;
+use App\Models\CompletionNote;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Product;
@@ -18,17 +19,23 @@ use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RequestController extends Controller
 {
-    public function __construct(private readonly WorkflowNotifier $workflowNotifier) {}
+    public function __construct(
+        private readonly WorkflowNotifier $workflowNotifier,
+        private readonly ResolveClearanceProduct $resolveClearanceProduct,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -53,6 +60,7 @@ class RequestController extends Controller
             'invoices',
             'items.product.vendor',
             'items.vendor',
+            'items.costDocumentItem.costDocument',
         ]);
 
         if ($includedStatuses) {
@@ -145,6 +153,9 @@ class RequestController extends Controller
             $products->each->makeHidden('hpp_default');
         }
 
+        $this->prepareRequestItems($requests);
+        $products->each->makeHidden('selling_price_default');
+
         return Inertia::render('Requests/Index', [
             'requests' => $requests,
             'portCalls' => $portCalls,
@@ -182,6 +193,7 @@ class RequestController extends Controller
             'ship.company',
             'port',
             'workOrder',
+            'completionNote:id,port_call_id,document_number,status',
             'requests' => fn ($query) => $query
                 ->orderByDesc('created_at')
                 ->orderByDesc('id'),
@@ -192,6 +204,7 @@ class RequestController extends Controller
             'requests.invoices',
             'requests.items.product.vendor',
             'requests.items.vendor',
+            'requests.items.costDocumentItem.costDocument',
         ]);
 
         $portCall = $isUuid
@@ -218,6 +231,7 @@ class RequestController extends Controller
                 'portCall.port',
                 'portCall.workOrder',
                 'portCall.ship.company',
+                'portCall.completionNote:id,port_call_id,document_number,status',
                 'portCall.requests' => fn ($query) => $query
                     ->orderByDesc('created_at')
                     ->orderByDesc('id'),
@@ -225,10 +239,12 @@ class RequestController extends Controller
                 'portCall.requests.invoices',
                 'portCall.requests.items.product.vendor',
                 'portCall.requests.items.vendor',
+                'portCall.requests.items.costDocumentItem.costDocument',
                 'creator',
                 'invoices',
                 'items.product.vendor',
                 'items.vendor',
+                'items.costDocumentItem.costDocument',
             ]);
 
             $shipRequest = $isUuid
@@ -239,6 +255,9 @@ class RequestController extends Controller
         }
 
         $allRequests = $portCall ? $portCall->requests : ($shipRequest ? collect([$shipRequest]) : collect());
+        if ($shipRequest) {
+            Gate::authorize('view', $shipRequest);
+        }
 
         $products = Product::query()
             ->where('is_active', true)
@@ -252,6 +271,10 @@ class RequestController extends Controller
                 'selling_price_default',
                 'hpp_default',
             ]);
+        $vendors = Vendor::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         $canReviewPrices = $request->user()?->isOperationalAdmin() ?? false;
         $canDecideItems = $request->user()?->isDirector() ?? false;
@@ -270,17 +293,22 @@ class RequestController extends Controller
             $products->each->makeHidden('hpp_default');
         }
 
+        $this->prepareRequestItems($allRequests);
+        $products->each->makeHidden('selling_price_default');
+
         return Inertia::render('Requests/Show', [
             'job' => $portCall,
             'requests' => $allRequests,
             'request' => $shipRequest ?? $allRequests->first(),
             'products' => $products,
+            'vendors' => $vendors,
             'capabilities' => [
                 'can_review_prices' => $canReviewPrices,
                 'can_decide_items' => $canDecideItems,
                 'can_view_hpp' => $canViewHpp,
                 'can_create_requests' => $canCreateRequestsForJob,
                 'can_process_requests' => $request->user()?->isOperationalAdmin() ?? false,
+                'can_create_completion_notes' => $request->user()?->can('create', CompletionNote::class) ?? false,
             ],
         ]);
     }
@@ -355,6 +383,7 @@ class RequestController extends Controller
             'items.*.required_time' => ['nullable', 'string'],
             'items.*.notes' => ['nullable', 'string', 'max:1000'],
             'items.*.is_urgent' => ['nullable', 'boolean'],
+            'items.*.attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'extensions:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
 
             // General notes
             'notes' => ['nullable', 'string', 'max:1000'],
@@ -438,7 +467,6 @@ class RequestController extends Controller
             foreach ($validated['items'] as $item) {
                 $productId = $item['product_id'] ?? null;
                 $hppPrice = 0.00;
-                $sellingPrice = 0.00;
                 $vendorId = null;
                 $itemType = 'non_jasa';
 
@@ -455,17 +483,12 @@ class RequestController extends Controller
                             ->where('service_type', $validated['service_type'])
                             ->first();
 
-                        if ($portPrice && $portPrice->selling_price > 0) {
-                            $sellingPrice = (float) $portPrice->selling_price;
-                        } elseif ($validated['service_type'] === 'Labuh' && $prod->price_labuh > 0) {
-                            $sellingPrice = (float) $prod->price_labuh;
-                        } elseif ($prod->price_sandar > 0) {
-                            $sellingPrice = (float) $prod->price_sandar;
-                        } else {
-                            $sellingPrice = (float) $prod->selling_price_default;
-                        }
                     }
                 }
+
+                $attachmentPath = isset($item['attachment'])
+                    ? $item['attachment']->store('sja/request-items', 'local')
+                    : null;
 
                 RequestItem::create([
                     'request_id' => $newRequest->id,
@@ -478,7 +501,8 @@ class RequestController extends Controller
                     'required_date' => $item['required_date'] ?? now()->toDateString(),
                     'required_time' => $item['required_time'] ?? null,
                     'hpp_price' => $hppPrice,
-                    'selling_price' => $sellingPrice,
+                    'selling_price' => 0,
+                    'attachment_path' => $attachmentPath,
                     'status' => 'pending',
                     'director_status' => 'pending',
                     'is_urgent' => ! empty($item['is_urgent']),
@@ -539,6 +563,7 @@ class RequestController extends Controller
             'ships.*.items.*.required_time' => ['nullable', 'string'],
             'ships.*.items.*.is_urgent' => ['nullable', 'boolean'],
             'ships.*.items.*.notes' => ['nullable', 'string', 'max:1000'],
+            'ships.*.items.*.attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'extensions:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -551,6 +576,16 @@ class RequestController extends Controller
                 $nextNum = (int) $matches[1] + 1;
             }
             $batchCode = sprintf('PGJ-%s-%04d', $year, $nextNum);
+
+            $products = collect($validated['ships'])
+                ->flatMap(fn (array $shipData) => $shipData['items'] ?? [])
+                ->pluck('product_id')
+                ->filter()
+                ->unique()
+                ->pipe(fn (Collection $productIds) => Product::query()
+                    ->whereIn('id', $productIds)
+                    ->get(['id', 'item_type', 'vendor_id', 'hpp_default'])
+                    ->keyBy('id'));
 
             $createdRequests = [];
 
@@ -686,19 +721,21 @@ class RequestController extends Controller
                     foreach ($shipData['items'] as $item) {
                         $productId = $item['product_id'] ?? null;
                         $hppPrice = 0.00;
-                        $sellingPrice = 0.00;
                         $vendorId = null;
                         $itemType = $item['item_type'] ?? 'non_jasa';
 
                         if ($productId) {
-                            $prod = Product::find($productId);
+                            $prod = $products->get($productId);
                             if ($prod) {
                                 $itemType = $prod->item_type ?? 'non_jasa';
                                 $hppPrice = (float) $prod->hpp_default;
                                 $vendorId = $prod->vendor_id;
-                                $sellingPrice = (float) $prod->selling_price_default;
                             }
                         }
+
+                        $attachmentPath = isset($item['attachment'])
+                            ? $item['attachment']->store('sja/request-items', 'local')
+                            : null;
 
                         RequestItem::create([
                             'request_id' => $newRequest->id,
@@ -711,7 +748,8 @@ class RequestController extends Controller
                             'required_date' => $item['required_date'] ?? ($shipData['required_date'] ?? now()->toDateString()),
                             'required_time' => $item['required_time'] ?? ($shipData['required_time'] ?? null),
                             'hpp_price' => $hppPrice,
-                            'selling_price' => $sellingPrice,
+                            'selling_price' => 0,
+                            'attachment_path' => $attachmentPath,
                             'status' => 'pending',
                             'director_status' => 'pending',
                             'is_urgent' => ! empty($item['is_urgent']),
@@ -720,15 +758,21 @@ class RequestController extends Controller
                     }
                 } else {
                     // Create primary service item
+                    $product = ($isClearanceIn || $isClearanceOut)
+                        ? $this->resolveClearanceProduct->handle($serviceType)
+                        : null;
+
                     RequestItem::create([
                         'request_id' => $newRequest->id,
-                        'item_type' => 'jasa',
+                        'product_id' => $product?->id,
+                        'vendor_id' => $product?->vendor_id,
+                        'item_type' => $product?->item_type ?? 'jasa',
                         'item_name' => $shipData['request_type'],
                         'quantity' => 1,
                         'unit' => 'Paket',
                         'required_date' => $shipData['required_date'] ?? now()->toDateString(),
                         'required_time' => $shipData['required_time'] ?? null,
-                        'hpp_price' => 0.00,
+                        'hpp_price' => $product?->hpp_default ?? 0,
                         'selling_price' => 0.00,
                         'status' => 'pending',
                         'director_status' => 'pending',
@@ -800,7 +844,7 @@ class RequestController extends Controller
             'quantity' => $validated['quantity'],
             'required_date' => now()->toDateString(),
             'hpp_price' => $product?->hpp_default ?? 0,
-            'selling_price' => $product?->selling_price_default ?? 0,
+            'selling_price' => 0,
             'status' => 'pending',
             'director_status' => 'pending',
         ]);
@@ -824,13 +868,12 @@ class RequestController extends Controller
             'item_prices' => ['nullable', 'array'],
             'item_prices.*.id' => ['required_with:item_prices', 'uuid', 'exists:request_items,id'],
             'item_prices.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
-            'item_prices.*.selling_price' => ['nullable', 'numeric', 'min:0'],
             'item_prices.*.vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'admin_notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         return DB::transaction(function () use ($id, $validated, $request) {
-            $shipRequest = ShipRequest::lockForUpdate()->with('items')->findOrFail($id);
+            $shipRequest = ShipRequest::lockForUpdate()->with('items.costDocumentItem.costDocument')->findOrFail($id);
 
             if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 throw ValidationException::withMessages([
@@ -863,25 +906,22 @@ class RequestController extends Controller
                 $newHpp = isset($price['hpp_price']) && is_numeric($price['hpp_price'])
                     ? (float) $price['hpp_price']
                     : (float) $item->hpp_price;
-                $newSelling = isset($price['selling_price']) && is_numeric($price['selling_price'])
-                    ? (float) $price['selling_price']
-                    : (float) $item->selling_price;
+                $vendorId = $price['vendor_id'] ?? $item->vendor_id;
+                $this->assertSupplierInvoiceReady($item, $vendorId);
 
-                if ($newHpp <= 0 || $newSelling <= 0) {
+                if ($newHpp <= 0) {
                     throw ValidationException::withMessages([
-                        'selected_items' => "Item '{$item->item_name}' belum memiliki HPP atau Harga Jual yang valid (> Rp 0). Harap lengkapi harga terlebih dahulu sebelum diajukan ke Direktur.",
+                        'selected_items' => "Item '{$item->item_name}' belum memiliki HPP yang valid (> Rp 0). Lengkapi biaya berdasarkan dokumen pendukung sebelum diajukan ke Direktur.",
                     ]);
                 }
 
                 $oldPrices = [
                     'hpp_price' => (float) $item->hpp_price,
-                    'selling_price' => (float) $item->selling_price,
                 ];
 
                 $item->update([
                     'hpp_price' => $newHpp,
-                    'selling_price' => $newSelling,
-                    'vendor_id' => $price['vendor_id'] ?? $item->vendor_id,
+                    'vendor_id' => $vendorId,
                     'status' => 'diajukan_ke_direktur',
                     'director_status' => 'pending',
                     'director_notes' => null,
@@ -896,7 +936,6 @@ class RequestController extends Controller
                         'old' => $oldPrices,
                         'new' => [
                             'hpp_price' => (float) $item->hpp_price,
-                            'selling_price' => (float) $item->selling_price,
                         ],
                     ])
                     ->log('Harga item dikirim Admin kepada Direktur');
@@ -969,7 +1008,6 @@ class RequestController extends Controller
                     'action' => 'revision_requested',
                     'approved_snapshot' => [
                         'hpp_price' => (float) $item->hpp_price,
-                        'selling_price' => (float) $item->selling_price,
                     ],
                     'reason' => $validated['reason'],
                 ])
@@ -994,201 +1032,27 @@ class RequestController extends Controller
     }
 
     /**
-     * Shortcut for Clearance In Pelindo kedatangan invoice before ship arrival
+     * Open the flexible invoice composer for this request's Job.
      */
     public function createClearanceInInvoice(Request $request, string $id): RedirectResponse
     {
         $this->authorizeAdminPricing($request);
+        $shipRequest = ShipRequest::query()->findOrFail($id);
 
-        return DB::transaction(function () use ($id) {
-            $shipRequest = ShipRequest::with(['ship.company', 'items'])->lockForUpdate()->findOrFail($id);
-
-            $companyId = $shipRequest->company_id ?? $shipRequest->ship?->ship_company_id;
-            if (! $companyId) {
-                return redirect()->back()->with('error', 'Data perusahaan pelayaran tidak ditemukan.');
-            }
-
-            // Find or calculate Clearance In Pelindo cost
-            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-            $clearanceItem = $shipRequest->items()
-                ->where('director_status', 'approved')
-                ->where('is_invoiced', false)
-                ->where(function ($q) use ($like) {
-                    $q->where('item_name', $like, '%Clearance In%')
-                        ->orWhere('item_name', $like, '%Pelindo Kedatangan%');
-                })
-                ->whereDoesntHave('invoiceItem')
-                ->lockForUpdate()
-                ->first();
-
-            if (! $clearanceItem) {
-                return redirect()->back()->with('error', 'Invoice Clearance In hanya dapat dibuat dari item yang telah disetujui Direktur.');
-            }
-
-            $amount = $clearanceItem ? (float) $clearanceItem->selling_price : 18500000.00;
-
-            $invCount = Invoice::where('invoice_type', 'reimburse')->count() + 1;
-            $invNumber = sprintf('INV-CLR-IN-26-%04d', $invCount);
-
-            $invoice = Invoice::create([
-                'invoice_number' => $invNumber,
-                'port_call_id' => $shipRequest->port_call_id,
-                'company_id' => $companyId,
-                'request_id' => $shipRequest->id,
-                'invoice_type' => 'reimburse',
-                'invoice_date' => now()->toDateString(),
-                'due_date' => now()->addDays(3)->toDateString(),
-                'subtotal' => $amount,
-                'addon_total' => 0,
-                'discount' => 0,
-                'tax' => 0,
-                'grand_total' => $amount,
-                'paid_amount' => 0,
-                'outstanding_amount' => $amount,
-                'currency' => 'IDR',
-                'status' => 'draft',
-                'delivery_status' => 'pending',
-                'notes' => 'Invoice Awal: Pembayaran Pelindo Kedatangan (Clearance In) wajib lunas sebelum kapal tiba di pelabuhan.',
-                'version' => 1,
-            ]);
-
-            if ($clearanceItem) {
-                $invoice->items()->create([
-                    'request_item_id' => $clearanceItem->id,
-                    'description' => $clearanceItem->item_name,
-                    'quantity' => $clearanceItem->quantity,
-                    'unit' => $clearanceItem->unit ?: 'Paket',
-                    'unit_price' => $clearanceItem->selling_price,
-                    'subtotal' => $amount,
-                ]);
-                $clearanceItem->update(['is_invoiced' => true]);
-            }
-
-            return redirect()->route('invoices.index')->with('success', "Invoice awal Pelindo kedatangan {$invNumber} sebesar Rp ".number_format($amount, 0, ',', '.').' berhasil dibuat.');
-        });
+        return redirect()->route('invoices.create', ['job' => $shipRequest->port_call_id])
+            ->with('success', 'Susun baris Clearance In dan Clearance Out pada draft invoice sesuai kebutuhan penagihan.');
     }
 
     /**
-     * Automatic Dual-Invoice Splitting (Invoice Jasa & Invoice Reimburse)
+     * Open the flexible invoice composer instead of generating fixed invoice lines.
      */
     public function splitInvoices(Request $request, string $id): RedirectResponse
     {
         $this->authorizeAdminPricing($request);
+        $shipRequest = ShipRequest::query()->findOrFail($id);
 
-        return DB::transaction(function () use ($id) {
-            $shipRequest = ShipRequest::with(['ship.company', 'items.product'])->lockForUpdate()->findOrFail($id);
-
-            $companyId = $shipRequest->company_id ?? $shipRequest->ship?->ship_company_id;
-            if (! $companyId) {
-                return redirect()->back()->with('error', 'Data perusahaan pelayaran tidak ditemukan.');
-            }
-
-            $approvedItems = $shipRequest->items()
-                ->where('director_status', 'approved')
-                ->where('is_invoiced', false)
-                ->whereDoesntHave('invoiceItem')
-                ->lockForUpdate()
-                ->get();
-
-            if ($approvedItems->isEmpty()) {
-                return redirect()->back()->with('error', 'Tidak ada item yang telah disetujui Direktur dan belum ditagihkan.');
-            }
-
-            $jasaItems = $approvedItems->filter(fn ($it) => $it->isJasa());
-            $nonJasaItems = $approvedItems->filter(fn ($it) => ! $it->isJasa());
-
-            $createdInvoices = [];
-
-            // 1. Create Invoice Keagenan / Jasa (with PPh 23 deduction / materai)
-            if ($jasaItems->isNotEmpty()) {
-                $subtotalJasa = $jasaItems->sum(fn ($it) => (float) $it->selling_price * (float) $it->quantity);
-                $taxJasa = $subtotalJasa * 0.02; // PPh 23 2%
-                $materai = 10000.00;
-                $grandTotalJasa = $subtotalJasa + $materai;
-
-                $count = Invoice::where('invoice_type', 'agency')->count() + 1;
-                $invNumberJasa = sprintf('INV-AGY-26-%04d', $count);
-
-                $invJasa = Invoice::create([
-                    'invoice_number' => $invNumberJasa,
-                    'port_call_id' => $shipRequest->port_call_id,
-                    'company_id' => $companyId,
-                    'request_id' => $shipRequest->id,
-                    'invoice_type' => 'agency',
-                    'invoice_date' => now()->toDateString(),
-                    'due_date' => now()->addDays(14)->toDateString(),
-                    'subtotal' => $subtotalJasa,
-                    'addon_total' => $materai,
-                    'discount' => 0,
-                    'tax' => $taxJasa,
-                    'grand_total' => $grandTotalJasa,
-                    'paid_amount' => 0,
-                    'outstanding_amount' => $grandTotalJasa,
-                    'currency' => 'IDR',
-                    'status' => 'draft',
-                    'delivery_status' => 'pending',
-                    'notes' => 'Invoice Keagenan & Jasa Kapal (Termasuk PPh 23 dan Bea Meterai)',
-                    'version' => 1,
-                ]);
-
-                foreach ($jasaItems as $ji) {
-                    $invJasa->items()->create([
-                        'request_item_id' => $ji->id,
-                        'description' => $ji->item_name,
-                        'quantity' => $ji->quantity,
-                        'unit' => $ji->unit ?: 'Paket',
-                        'unit_price' => $ji->selling_price,
-                        'subtotal' => (float) $ji->selling_price * (float) $ji->quantity,
-                    ]);
-                    $ji->update(['is_invoiced' => true]);
-                }
-                $createdInvoices[] = $invNumberJasa;
-            }
-
-            // 2. Create Invoice Reimburse / Non-Jasa
-            if ($nonJasaItems->isNotEmpty()) {
-                $subtotalNonJasa = $nonJasaItems->sum(fn ($it) => (float) $it->selling_price * (float) $it->quantity);
-                $countRmb = Invoice::where('invoice_type', 'reimburse')->count() + 1;
-                $invNumberRmb = sprintf('INV-RMB-26-%04d', $countRmb);
-
-                $invRmb = Invoice::create([
-                    'invoice_number' => $invNumberRmb,
-                    'port_call_id' => $shipRequest->port_call_id,
-                    'company_id' => $companyId,
-                    'request_id' => $shipRequest->id,
-                    'invoice_type' => 'reimburse',
-                    'invoice_date' => now()->toDateString(),
-                    'due_date' => now()->addDays(7)->toDateString(),
-                    'subtotal' => $subtotalNonJasa,
-                    'addon_total' => 0,
-                    'discount' => 0,
-                    'tax' => 0,
-                    'grand_total' => $subtotalNonJasa,
-                    'paid_amount' => 0,
-                    'outstanding_amount' => $subtotalNonJasa,
-                    'currency' => 'IDR',
-                    'status' => 'draft',
-                    'delivery_status' => 'pending',
-                    'notes' => 'Invoice Reimbursement Operasional Kapal (Air Tawar, BBM, Pelindo, Mooring Boat)',
-                    'version' => 1,
-                ]);
-
-                foreach ($nonJasaItems as $ni) {
-                    $invRmb->items()->create([
-                        'request_item_id' => $ni->id,
-                        'description' => $ni->item_name,
-                        'quantity' => $ni->quantity,
-                        'unit' => $ni->unit ?: 'Paket',
-                        'unit_price' => $ni->selling_price,
-                        'subtotal' => (float) $ni->selling_price * (float) $ni->quantity,
-                    ]);
-                    $ni->update(['is_invoiced' => true]);
-                }
-                $createdInvoices[] = $invNumberRmb;
-            }
-
-            return redirect()->route('invoices.index')->with('success', 'Berhasil memecah invoice menjadi: '.implode(' dan ', $createdInvoices));
-        });
+        return redirect()->route('invoices.create', ['job' => $shipRequest->port_call_id])
+            ->with('success', 'Pilih tipe invoice lalu susun, gabungkan, atau pecah baris tagihan pada draft.');
     }
 
     /**
@@ -1208,13 +1072,13 @@ class RequestController extends Controller
             'required_time' => ['nullable', 'string', 'max:20'],
             'is_urgent' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'extensions:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
         ]);
 
         return DB::transaction(function () use ($shipRequest, $validated, $request) {
 
             $productId = $validated['product_id'] ?? null;
             $hppPrice = 0.00;
-            $sellingPrice = 0.00;
             $itemType = 'non_jasa';
             $vendorId = null;
 
@@ -1223,7 +1087,6 @@ class RequestController extends Controller
                 if ($product) {
                     $itemType = $product->item_type;
                     $vendorId = $product->vendor_id;
-                    $sellingPrice = (float) $product->selling_price_default;
                     $hppPrice = (float) $product->hpp_default;
 
                     // Port price lookup if applicable
@@ -1233,11 +1096,8 @@ class RequestController extends Controller
                             ->where('service_type', $shipRequest->service_type ?? 'Sandar')
                             ->first();
 
-                        if ($portPrice && $portPrice->selling_price > 0) {
-                            $sellingPrice = (float) $portPrice->selling_price;
-                            if ($portPrice->hpp_price > 0) {
-                                $hppPrice = (float) $portPrice->hpp_price;
-                            }
+                        if ($portPrice && $portPrice->hpp_price > 0) {
+                            $hppPrice = (float) $portPrice->hpp_price;
                         }
                     }
                 }
@@ -1253,18 +1113,16 @@ class RequestController extends Controller
                 'required_date' => $validated['required_date'] ?? now()->toDateString(),
                 'required_time' => $validated['required_time'] ?? null,
                 'hpp_price' => $hppPrice,
-                'selling_price' => $sellingPrice,
+                'selling_price' => 0,
                 'vendor_id' => $vendorId,
+                'attachment_path' => isset($validated['attachment'])
+                    ? $validated['attachment']->store('sja/request-items', 'local')
+                    : null,
                 'status' => 'pending',
                 'director_status' => 'pending',
                 'is_urgent' => ! empty($validated['is_urgent']),
                 'notes' => $validated['notes'] ?? null,
             ]);
-
-            // Re-open status to Menunggu Approval if it was previously Selesai or Disetujui
-            if (in_array($shipRequest->status, ['Selesai', 'Disetujui'])) {
-                $shipRequest->update(['status' => 'Menunggu Approval']);
-            }
 
             if (function_exists('activity')) {
                 activity('request')
@@ -1289,13 +1147,13 @@ class RequestController extends Controller
             'item_prices' => ['nullable', 'array'],
             'item_prices.*.id' => ['required_with:item_prices', 'uuid', 'exists:request_items,id'],
             'item_prices.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
-            'item_prices.*.selling_price' => ['nullable', 'numeric', 'min:0'],
+            'item_prices.*.vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'admin_notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         return DB::transaction(function () use ($validated, $request) {
             $selectedItemIds = collect($validated['selected_items'])->unique()->values();
-            $items = RequestItem::lockForUpdate()->with('request')->whereIn('id', $selectedItemIds)->get();
+            $items = RequestItem::lockForUpdate()->with(['request', 'costDocumentItem.costDocument'])->whereIn('id', $selectedItemIds)->get();
             $submittedPrices = collect($validated['item_prices'] ?? [])->keyBy('id');
 
             $requestGroups = $items->groupBy('request_id');
@@ -1316,19 +1174,18 @@ class RequestController extends Controller
                     $newHpp = isset($price['hpp_price']) && is_numeric($price['hpp_price'])
                         ? (float) $price['hpp_price']
                         : (float) $item->hpp_price;
-                    $newSelling = isset($price['selling_price']) && is_numeric($price['selling_price'])
-                        ? (float) $price['selling_price']
-                        : (float) $item->selling_price;
+                    $vendorId = $price['vendor_id'] ?? $item->vendor_id;
+                    $this->assertSupplierInvoiceReady($item, $vendorId);
 
-                    if ($newHpp <= 0 || $newSelling <= 0) {
+                    if ($newHpp <= 0) {
                         throw ValidationException::withMessages([
-                            'selected_items' => "Item '{$item->item_name}' pada pengajuan {$shipRequest->request_number} belum memiliki HPP atau Harga Jual yang valid (> Rp 0). Harap lengkapi harga terlebih dahulu sebelum diajukan ke Direktur.",
+                            'selected_items' => "Item '{$item->item_name}' pada pengajuan {$shipRequest->request_number} belum memiliki HPP yang valid (> Rp 0).",
                         ]);
                     }
 
                     $item->update([
                         'hpp_price' => $newHpp,
-                        'selling_price' => $newSelling,
+                        'vendor_id' => $vendorId,
                         'status' => 'diajukan_ke_direktur',
                         'director_status' => 'pending',
                         'director_notes' => null,
@@ -1371,7 +1228,6 @@ class RequestController extends Controller
 
         $validated = $request->validate([
             'hpp_price' => ['nullable', 'numeric', 'min:0'],
-            'selling_price' => ['nullable', 'numeric', 'min:0'],
             'vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
         ]);
 
@@ -1386,11 +1242,8 @@ class RequestController extends Controller
             }
 
             $oldHpp = (float) $item->hpp_price;
-            $oldSelling = (float) $item->selling_price;
-
             $item->update([
                 'hpp_price' => array_key_exists('hpp_price', $validated) ? $validated['hpp_price'] : $item->hpp_price,
-                'selling_price' => array_key_exists('selling_price', $validated) ? $validated['selling_price'] : $item->selling_price,
                 'vendor_id' => array_key_exists('vendor_id', $validated) ? $validated['vendor_id'] : $item->vendor_id,
             ]);
 
@@ -1401,8 +1254,8 @@ class RequestController extends Controller
                     ->withProperties([
                         'request_id' => $shipRequest->id,
                         'action' => 'price_updated',
-                        'old' => ['hpp_price' => $oldHpp, 'selling_price' => $oldSelling],
-                        'new' => ['hpp_price' => (float) $item->hpp_price, 'selling_price' => (float) $item->selling_price],
+                        'old' => ['hpp_price' => $oldHpp],
+                        'new' => ['hpp_price' => (float) $item->hpp_price],
                     ])
                     ->log("Admin memperbarui harga {$item->item_name}");
             }
@@ -1419,7 +1272,6 @@ class RequestController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.id' => ['required', 'uuid', 'exists:request_items,id'],
             'items.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
-            'items.*.selling_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
         ]);
 
@@ -1444,13 +1296,67 @@ class RequestController extends Controller
 
                 $item->update([
                     'hpp_price' => $itemData['hpp_price'] ?? $item->hpp_price,
-                    'selling_price' => $itemData['selling_price'] ?? $item->selling_price,
                     'vendor_id' => array_key_exists('vendor_id', $itemData) ? $itemData['vendor_id'] : $item->vendor_id,
                 ]);
                 $updatedCount++;
             }
 
             return redirect()->back()->with('success', "{$updatedCount} harga item berhasil disimpan.");
+        });
+    }
+
+    public function downloadItemAttachment(Request $request, RequestItem $requestItem): StreamedResponse
+    {
+        $requestItem->loadMissing('request');
+        Gate::authorize('view', $requestItem->request);
+        abort_unless($requestItem->attachment_path, 404);
+
+        foreach (['local', 'public'] as $disk) {
+            if (Storage::disk($disk)->exists($requestItem->attachment_path)) {
+                return $request->boolean('download')
+                    ? Storage::disk($disk)->download($requestItem->attachment_path)
+                    : Storage::disk($disk)->response($requestItem->attachment_path);
+            }
+        }
+
+        abort(404);
+    }
+
+    private function assertSupplierInvoiceReady(RequestItem $item, ?string $vendorId): void
+    {
+        if (! $vendorId || $item->vendor_id !== $vendorId || ! $item->hasCompleteSupplierInvoice()) {
+            throw ValidationException::withMessages([
+                'selected_items' => "Nota invoice supplier untuk item '{$item->item_name}' belum lengkap. Pilih vendor, isi HPP dan data nota, lalu unggah dokumennya sebelum diajukan ke Direktur.",
+            ]);
+        }
+    }
+
+    /** @param Collection<int, ShipRequest> $shipRequests */
+    private function prepareRequestItems(Collection $shipRequests): void
+    {
+        $shipRequests->each(function (ShipRequest $shipRequest): void {
+            $shipRequest->items->each(function (RequestItem $item): void {
+                $costDocument = $item->costDocumentItem?->costDocument;
+                $attachmentExtension = Str::lower(pathinfo((string) $item->attachment_path, PATHINFO_EXTENSION));
+                $supplierInvoiceExtension = Str::lower(pathinfo((string) $item->supplier_invoice_path, PATHINFO_EXTENSION));
+
+                $item->setAttribute('attachment_url', $item->attachment_path
+                    ? route('request-items.attachment', $item)
+                    : null);
+                $item->setAttribute('attachment_is_image', in_array($attachmentExtension, ['jpg', 'jpeg', 'png', 'webp'], true));
+                $item->setAttribute('supplier_invoice_url', $item->supplier_invoice_path
+                    ? route('request-items.supplier-invoice.show', $item)
+                    : null);
+                $item->setAttribute('supplier_invoice_is_image', in_array($supplierInvoiceExtension, ['jpg', 'jpeg', 'png', 'webp'], true));
+                $item->setAttribute('supplier_invoice_complete', $item->hasCompleteSupplierInvoice());
+                $item->setAttribute(
+                    'vendor_invoice_url',
+                    $costDocument?->document_type === 'vendor_invoice'
+                        ? route('vendor-invoices.document', $costDocument)
+                        : null,
+                );
+                $item->makeHidden(['selling_price', 'attachment_path', 'supplier_invoice_path']);
+            });
         });
     }
 

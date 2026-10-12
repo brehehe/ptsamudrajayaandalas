@@ -84,6 +84,7 @@ interface ItemDetail {
     is_urgent?: boolean;
     required_date?: string;
     required_time?: string;
+    attachment?: File | null;
 }
 
 interface ShipSelectionData {
@@ -182,6 +183,7 @@ const createInitialItem = (): ItemDetail => {
         is_urgent: false, // Bagian prioritas kebutuhan auto-isi default ke 'Normal'
         required_date: today,
         required_time: '10:00',
+        attachment: null,
     };
 };
 
@@ -390,6 +392,9 @@ export default function RequestsCreate({
                                 unit: it.unit || 'Unit',
                                 notes: it.notes || '',
                                 is_urgent: Boolean(it.is_urgent),
+                                required_date: it.required_date || det.required_date,
+                                required_time: it.required_time || det.required_time,
+                                attachment: it.attachment || null,
                             }))
                         : [],
                 };
@@ -398,6 +403,7 @@ export default function RequestsCreate({
         };
 
         router.post('/requests/multi', payload, {
+            forceFormData: true,
             preserveScroll: true,
             onSuccess: (page) => {
                 setIsSubmitting(false);
@@ -995,7 +1001,7 @@ export default function RequestsCreate({
                                                     type="text"
                                                     value={item.item_name}
                                                     onChange={(e) => updateItem(item.id, 'item_name', e.target.value)}
-                                                    placeholder="Tulis nama barang atau kebutuhan lainnya..."
+                                                    placeholder="Tulis nama barang atau kebutuhan lainnya…"
                                                     className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] text-xs sm:text-sm text-[#0B1F63] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
                                                 />
                                             )}
@@ -1056,6 +1062,18 @@ export default function RequestsCreate({
                                                 onTimeChange={(val) => updateItem(item.id, 'required_time', val)}
                                             />
                                         </div>
+
+                                        <PhotoUploadPicker
+                                            label="Dokumen pendukung item (opsional)"
+                                            value={item.attachment || null}
+                                            onChange={(file) => updateItem(item.id, 'attachment', file)}
+                                            mode="gallery"
+                                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                            maxSizeMb={10}
+                                            resizeImages={false}
+                                            variant="compact"
+                                            helperText="Invoice vendor, penawaran, atau bukti khusus untuk item ini. Maksimal 10 MB."
+                                        />
                                     </div>
                                 )))}
 
@@ -1271,7 +1289,7 @@ export default function RequestsCreate({
                                 disabled={isSubmitting}
                                 className="flex-1 py-3 px-4 rounded-xl bg-[#0060F4] hover:bg-[#082870] active:scale-[0.99] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                             >
-                                <span>{isSubmitting ? 'Mengirim...' : 'Kirim Pengajuan'}</span>
+                                <span>{isSubmitting ? 'Mengirim…' : 'Kirim Pengajuan'}</span>
                                 <span>→</span>
                             </button>
                         </div>

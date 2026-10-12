@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import {
     AlertCircle,
@@ -17,6 +17,7 @@ import {
     ExternalLink,
     FileCheck2,
     FileText,
+    FileUp,
     Flame,
     Layers,
     LockKeyhole,
@@ -31,12 +32,14 @@ import {
     X,
 } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
-import Button from '../../Components/ui/Button';
+import Button, { getButtonClassName } from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { playSjaChime } from '../../Components/feedback/AudioNotification';
 import Modal from '../../Components/overlays/Modal';
 import { formatRupiahInput, normalizeRupiahInput } from '../../Components/forms/MoneyInput';
+import MoneyInput from '../../Components/forms/MoneyInput';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import RequestWorkflowPanel, {
     RequestItemWorkflowAction,
 } from '../../Components/RequestWorkflowPanel';
@@ -56,8 +59,12 @@ interface ProductOption {
     name: string;
     unit: string;
     item_type: 'jasa' | 'non_jasa';
-    selling_price_default: number | string;
     hpp_default: number | string;
+}
+
+interface VendorOption {
+    id: string;
+    name: string;
 }
 
 interface RequestItem {
@@ -66,7 +73,16 @@ interface RequestItem {
     unit?: string;
     quantity: number | string;
     hpp_price?: number | string;
-    selling_price?: number | string;
+    attachment_url?: string | null;
+    attachment_is_image?: boolean;
+    supplier_invoice_number?: string | null;
+    supplier_invoice_date?: string | null;
+    supplier_invoice_received_date?: string | null;
+    supplier_invoice_due_date?: string | null;
+    supplier_invoice_url?: string | null;
+    supplier_invoice_is_image?: boolean;
+    supplier_invoice_complete?: boolean;
+    vendor_invoice_url?: string | null;
     status: string;
     director_status?: string;
     director_notes?: string;
@@ -114,6 +130,11 @@ interface JobInfo {
         system_number: string;
         client_number?: string;
     };
+    completion_note?: {
+        id: string;
+        document_number: string;
+        status: string;
+    } | null;
 }
 
 interface ShipRequest {
@@ -172,12 +193,14 @@ interface RequestShowProps {
     requests?: ShipRequest[];
     request?: ShipRequest;
     products: ProductOption[];
+    vendors: VendorOption[];
     capabilities: {
         can_review_prices: boolean;
         can_decide_items: boolean;
         can_view_hpp: boolean;
         can_create_requests: boolean;
         can_process_requests: boolean;
+        can_create_completion_notes: boolean;
     };
 }
 
@@ -202,6 +225,11 @@ const formatDateTime = (value?: string | null): string => {
         hour: '2-digit',
         minute: '2-digit',
     }).format(new Date(value));
+};
+
+const formatDateOnly = (value?: string | null): string => {
+    if (!value) return '-';
+    return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(value));
 };
 
 const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -237,17 +265,17 @@ const getEtaParts = (dateStr?: string | null): { date: string; time: string } =>
         const day = d.getDate().toString().padStart(2, '0');
         const month = MONTHS_ID[d.getMonth()] || '-';
         const year = d.getFullYear();
-        const hours = d.getHours().toString().padStart(2, '0');
-        const minutes = d.getMinutes().toString().padStart(2, '0');
-
         return {
             date: `${day} ${month} ${year}`,
-            time: `${hours}:${minutes}`,
+            time: '',
         };
     } catch {
         return { date: dateStr || '-', time: '' };
     }
 };
+
+const requestStatusLabel = (status: string): string =>
+    status.trim().toLowerCase() === 'menunggu approval' ? 'Menunggu Approval Admin' : status;
 
 const renderVesselStatusBadge = (status?: string) => {
     const s = (status || '').toLowerCase();
@@ -355,11 +383,164 @@ function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: 
     );
 }
 
+function ItemEvidenceLinks({
+    item,
+    onEditSupplierInvoice,
+}: {
+    item: RequestItem;
+    onEditSupplierInvoice?: () => void;
+}) {
+    if (!item.attachment_url && !item.supplier_invoice_url && !item.vendor_invoice_url && !onEditSupplierInvoice) return null;
+
+    return (
+        <div className="mt-2 flex flex-wrap items-start gap-2 text-[11px] font-semibold">
+            {item.attachment_url && (
+                <a
+                    href={`${item.attachment_url}?view=1`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group overflow-hidden rounded-lg border border-[#DCEAF8] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                    aria-label={`Buka bukti item ${item.item_name}`}
+                >
+                    {item.attachment_is_image ? (
+                        <img
+                            src={`${item.attachment_url}?view=1`}
+                            alt={`Bukti item ${item.item_name}`}
+                            className="h-16 w-20 object-cover transition-transform group-hover:scale-105"
+                            loading="lazy"
+                        />
+                    ) : (
+                        <span className="inline-flex min-h-8 items-center gap-1 px-2 hover:underline">
+                            <FileText aria-hidden="true" className="size-3" /> Bukti item
+                        </span>
+                    )}
+                </a>
+            )}
+            {item.supplier_invoice_url && (
+                <a
+                    href={`${item.supplier_invoice_url}?view=1`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group overflow-hidden rounded-lg border border-[#BCE0FD] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                    aria-label={`Buka nota supplier ${item.item_name}`}
+                >
+                    {item.supplier_invoice_is_image ? (
+                        <span className="block">
+                            <img
+                                src={`${item.supplier_invoice_url}?view=1`}
+                                alt={`Nota supplier ${item.item_name}`}
+                                className="h-16 w-20 object-cover transition-transform group-hover:scale-105"
+                                loading="lazy"
+                            />
+                            <span className="block max-w-20 truncate px-1.5 py-1 text-center text-[9px]">
+                                {item.supplier_invoice_number || 'Nota supplier'}
+                            </span>
+                        </span>
+                    ) : (
+                        <span className="inline-flex min-h-8 items-center gap-1 px-2 hover:underline">
+                            <FileCheck2 aria-hidden="true" className="size-3" /> Nota supplier
+                        </span>
+                    )}
+                </a>
+            )}
+            {item.vendor_invoice_url && (
+                <a href={item.vendor_invoice_url} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 text-[#0060F4] hover:underline">
+                    <ExternalLink aria-hidden="true" className="size-3" /> Siap dibayar
+                </a>
+            )}
+            {onEditSupplierInvoice && (
+                <button
+                    type="button"
+                    onClick={onEditSupplierInvoice}
+                    className={`inline-flex min-h-8 items-center gap-1 rounded-lg border px-2 font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
+                        item.supplier_invoice_complete
+                            ? 'border-[#DCEAF8] bg-white text-[#0060F4] hover:border-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]'
+                            : 'border-amber-300 bg-amber-50 text-[#A65300] hover:border-amber-500 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                    }`}
+                >
+                    <FileCheck2 aria-hidden="true" className="size-3" />
+                    {item.supplier_invoice_complete ? 'Ubah nota supplier' : 'Unggah nota supplier'}
+                </button>
+            )}
+        </div>
+    );
+}
+
+function RequestEvidenceGallery({ request }: { request: ShipRequest }) {
+    const evidenceItems = (request.items || []).filter((item) => item.attachment_url);
+
+    return (
+        <section
+            aria-labelledby={`request-evidence-${request.id}`}
+            className="border-t border-[#DCEAF8] bg-[#F8FBFF]/80 px-4 py-3.5 dark:border-[#1E3A5F] dark:bg-[#071322]/60"
+        >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h3
+                            id={`request-evidence-${request.id}`}
+                            className="inline-flex items-center gap-1.5 text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]"
+                        >
+                            <FileCheck2 aria-hidden="true" className="size-4 text-[#0060F4]" />
+                            Bukti upload REQ
+                        </h3>
+                        <span className="rounded-full bg-[#E0F0FF] px-2 py-0.5 text-[10px] font-bold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                            {evidenceItems.length} dokumen
+                        </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                        Dokumen yang diunggah saat pengajuan, dikelompokkan sesuai item kebutuhan.
+                    </p>
+                </div>
+
+                {evidenceItems.length > 0 ? (
+                    <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-3">
+                        {evidenceItems.map((item) => (
+                            <a
+                                key={item.id}
+                                href={`${item.attachment_url}?view=1`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="group flex min-h-16 min-w-0 items-center gap-2.5 rounded-xl border border-[#DCEAF8] bg-white p-2 text-left shadow-2xs transition hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]"
+                                aria-label={`Buka bukti upload REQ untuk ${item.item_name}`}
+                            >
+                                {item.attachment_is_image ? (
+                                    <img
+                                        src={`${item.attachment_url}?view=1`}
+                                        alt=""
+                                        className="size-12 shrink-0 rounded-lg border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
+                                        loading="lazy"
+                                    />
+                                ) : (
+                                    <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        <FileText aria-hidden="true" className="size-5" />
+                                    </span>
+                                )}
+                                <span className="min-w-0">
+                                    <span className="line-clamp-2 block text-xs font-bold leading-4 text-[#0B1F63] group-hover:text-[#0060F4] dark:text-[#F1F5F9]">
+                                        {item.item_name}
+                                    </span>
+                                    <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                        Lihat bukti <ExternalLink aria-hidden="true" className="size-2.5" />
+                                    </span>
+                                </span>
+                            </a>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="rounded-xl border border-dashed border-[#BCE0FD] bg-white px-3 py-2 text-xs font-semibold text-[#52658E] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#94A3B8]">
+                        Belum ada bukti upload pada REQ ini.
+                    </p>
+                )}
+            </div>
+        </section>
+    );
+}
+
 type DirectorDecision = 'approved' | 'pending' | 'rejected';
 
 interface PriceDraft {
     hpp_price: string;
-    selling_price: string;
 }
 
 interface DecisionDraft {
@@ -380,6 +561,7 @@ export default function RequestShow({
     requests = [],
     request: initialRequest,
     products,
+    vendors,
     capabilities,
 }: RequestShowProps) {
     const { auth, errors } = usePage<PageProps>().props;
@@ -422,6 +604,10 @@ export default function RequestShow({
 
     const canUseAdminActions = capabilities.can_review_prices;
 
+    const [activeRequestId, setActiveRequestId] = useState<string>(
+        initialRequest?.id ?? allRequests[0]?.id ?? ''
+    );
+
     // Track selected items per request for forward-to-director
     const [selectedItemIdsByReq, setSelectedItemIdsByReq] = useState<Record<string, string[]>>({});
     // Track price drafts per item
@@ -436,30 +622,35 @@ export default function RequestShow({
 
     // Modals
     const [addItemTargetReqId, setAddItemTargetReqId] = useState<string | null>(null);
+    const [supplierInvoiceItem, setSupplierInvoiceItem] = useState<RequestItem | null>(null);
     const [copiedNumber, setCopiedNumber] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (allRequests.length === 0) {
+            setActiveRequestId('');
+            return;
+        }
+
+        if (!allRequests.some((shipRequest) => shipRequest.id === activeRequestId)) {
+            setActiveRequestId(initialRequest?.id ?? allRequests[0].id);
+        }
+    }, [activeRequestId, allRequests, initialRequest?.id]);
+
+    const activeRequest = useMemo(
+        () => allRequests.find((shipRequest) => shipRequest.id === activeRequestId) ?? allRequests[0],
+        [activeRequestId, allRequests]
+    );
 
     // Initialize drafts from items
     useEffect(() => {
         const drafts: Record<string, PriceDraft> = {};
         const decisions: Record<string, DecisionDraft> = {};
-        const selected: Record<string, string[]> = {};
 
         allRequests.forEach((req) => {
-            const isReqActive = !['Selesai', 'Dibatalkan'].includes(req.status);
-            const editableIds: string[] = [];
             (req.items || []).forEach((item) => {
                 drafts[item.id] = {
                     hpp_price: normalizeRupiahInput(item.hpp_price ?? 0),
-                    selling_price: normalizeRupiahInput(item.selling_price ?? 0),
                 };
-                if (
-                    isReqActive &&
-                    item.director_status !== 'approved' &&
-                    item.status !== 'diajukan_ke_direktur' &&
-                    !item.is_invoiced
-                ) {
-                    editableIds.push(item.id);
-                }
                 if (item.status === 'diajukan_ke_direktur' && item.director_status === 'pending') {
                     decisions[item.id] = {
                         status: 'pending' as DirectorDecision,
@@ -467,12 +658,30 @@ export default function RequestShow({
                     };
                 }
             });
-            selected[req.id] = editableIds;
         });
 
         setPriceDrafts(drafts);
         setDecisionDrafts(decisions);
-        setSelectedItemIdsByReq(selected);
+        setSelectedItemIdsByReq((current) => {
+            const next: Record<string, string[]> = {};
+
+            allRequests.forEach((req) => {
+                const selectableItemIds = new Set(
+                    (req.items || [])
+                        .filter((item) =>
+                            !['Selesai', 'Dibatalkan'].includes(req.status) &&
+                            item.director_status !== 'approved' &&
+                            item.status !== 'diajukan_ke_direktur' &&
+                            !item.is_invoiced
+                        )
+                        .map((item) => item.id)
+                );
+
+                next[req.id] = (current[req.id] || []).filter((itemId) => selectableItemIds.has(itemId));
+            });
+
+            return next;
+        });
     }, [allRequests]);
 
     const itemForm = useForm({
@@ -483,6 +692,60 @@ export default function RequestShow({
         notes: '',
         is_urgent: false,
     });
+
+    const supplierInvoiceForm = useForm({
+        vendor_id: '',
+        hpp_price: '',
+        supplier_invoice_number: '',
+        supplier_invoice_date: '',
+        supplier_invoice_received_date: '',
+        supplier_invoice_due_date: '',
+        supplier_invoice_document: null as File | null,
+    });
+
+    const canEditSupplierInvoice = (item: RequestItem): boolean =>
+        canUseAdminActions &&
+        item.director_status !== 'approved' &&
+        item.status !== 'diajukan_ke_direktur' &&
+        !item.is_invoiced;
+
+    const closeSupplierInvoiceModal = () => {
+        setSupplierInvoiceItem(null);
+        supplierInvoiceForm.reset();
+        supplierInvoiceForm.clearErrors();
+    };
+
+    const openSupplierInvoiceModal = (item: RequestItem) => {
+        setSupplierInvoiceItem(item);
+        supplierInvoiceForm.setData({
+            vendor_id: item.vendor?.id ?? '',
+            hpp_price: normalizeRupiahInput(item.hpp_price ?? 0),
+            supplier_invoice_number: item.supplier_invoice_number ?? '',
+            supplier_invoice_date: item.supplier_invoice_date?.slice(0, 10) ?? '',
+            supplier_invoice_received_date: item.supplier_invoice_received_date?.slice(0, 10) ?? '',
+            supplier_invoice_due_date: item.supplier_invoice_due_date?.slice(0, 10) ?? '',
+            supplier_invoice_document: null,
+        });
+        supplierInvoiceForm.clearErrors();
+    };
+
+    const submitSupplierInvoice = (event: FormEvent) => {
+        event.preventDefault();
+        if (!supplierInvoiceItem) return;
+
+        supplierInvoiceForm.post(route('request-items.supplier-invoice.store', supplierInvoiceItem.id), {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                setPriceDrafts((current) => ({
+                    ...current,
+                    [supplierInvoiceItem.id]: { hpp_price: supplierInvoiceForm.data.hpp_price },
+                }));
+                closeSupplierInvoiceModal();
+                playSjaChime('success');
+            },
+        });
+    };
 
     const selectProduct = (productId: string) => {
         const product = products.find((item) => item.id === productId);
@@ -517,7 +780,6 @@ export default function RequestShow({
             route('requests.items.update-price', [requestId, itemId]),
             {
                 hpp_price: parseFloat(draft.hpp_price) || 0,
-                selling_price: parseFloat(draft.selling_price) || 0,
             },
             {
                 preserveScroll: true,
@@ -533,7 +795,6 @@ export default function RequestShow({
         const itemsToSave = editableItems.map((item) => ({
             id: item.id,
             hpp_price: parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price)) || 0,
-            selling_price: parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price)) || 0,
         }));
 
         if (itemsToSave.length === 0) return;
@@ -639,6 +900,11 @@ export default function RequestShow({
         totalSelectedCount > 0 &&
         totalSelectedCount < allEditableItemsAcrossJob.length;
 
+    const activeDesktopRows = useMemo(
+        () => desktopRows.filter((row) => row.request.id === activeRequest?.id),
+        [activeRequest?.id, desktopRows]
+    );
+
     const handleToggleSelectAllAcrossJob = () => {
         const next: Record<string, string[]> = {};
         allRequests.forEach((r) => {
@@ -660,20 +926,30 @@ export default function RequestShow({
     const handleBatchForwardAllToDirector = () => {
         if (validSelectedItemsAcrossJob.length === 0) return;
 
-        // Validasi: pastikan setiap item yang diajukan sudah memiliki HPP dan Harga Jual > 0
+        // Approval Direktur hanya memeriksa biaya/HPP.
         const zeroPriceItems = validSelectedItemsAcrossJob.filter(({ item }) => {
             const hpp = parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price ?? 0)) || 0;
-            const selling = parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price ?? 0)) || 0;
-            return hpp <= 0 || selling <= 0;
+            return hpp <= 0;
         });
 
         if (zeroPriceItems.length > 0) {
             playSjaChime('alert');
             const msgs = zeroPriceItems.map(({ item, requestId }) => {
                 const req = allRequests.find((r) => r.id === requestId);
-                return `Item "${item.item_name}" (${req?.request_number || 'Pengajuan'}) belum memiliki harga HPP atau Harga Jual (> Rp 0). Harap lengkapi harga terlebih dahulu sebelum diajukan ke Direktur.`;
+                return `Item "${item.item_name}" (${req?.request_number || 'Pengajuan'}) belum memiliki HPP (> Rp 0). Lengkapi biaya berdasarkan dokumen pendukung sebelum diajukan ke Direktur.`;
             });
             setPriceValidationErrors(msgs);
+            return;
+        }
+
+        const incompleteInvoiceItems = validSelectedItemsAcrossJob.filter(({ item }) => !item.supplier_invoice_complete);
+        if (incompleteInvoiceItems.length > 0) {
+            playSjaChime('alert');
+            setPriceValidationErrors(incompleteInvoiceItems.map(({ item, requestId }) => {
+                const req = allRequests.find((requestItem) => requestItem.id === requestId);
+
+                return `Nota invoice supplier untuk "${item.item_name}" (${req?.request_number || 'Pengajuan'}) belum lengkap. Unggah dokumen dan lengkapi data supplier sebelum dikirim ke Direktur.`;
+            }));
             return;
         }
 
@@ -688,7 +964,6 @@ export default function RequestShow({
                 item_prices: allSelectedIds.map((itemId) => ({
                     id: itemId,
                     hpp_price: parseFloat(priceDrafts[itemId]?.hpp_price ?? '0') || 0,
-                    selling_price: parseFloat(priceDrafts[itemId]?.selling_price ?? '0') || 0,
                 })),
                 admin_notes: 'Pengajuan sekaligus seluruh item kebutuhan kapal kepada Direktur.',
             },
@@ -707,7 +982,6 @@ export default function RequestShow({
         const itemsToSave = allEditableItemsAcrossJob.map(({ item }) => ({
             id: item.id,
             hpp_price: parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price)) || 0,
-            selling_price: parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price)) || 0,
         }));
 
         setActiveAction('batch-save-all');
@@ -738,19 +1012,27 @@ export default function RequestShow({
         const reqItems = req.items || [];
         const selectedItems = reqItems.filter((it) => selectedIds.includes(it.id));
 
-        // Validasi: pastikan setiap item yang diajukan sudah memiliki HPP dan Harga Jual > 0
+        // Approval Direktur hanya memeriksa biaya/HPP.
         const zeroPriceItems = selectedItems.filter((item) => {
             const hpp = parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price ?? 0)) || 0;
-            const selling = parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price ?? 0)) || 0;
-            return hpp <= 0 || selling <= 0;
+            return hpp <= 0;
         });
 
         if (zeroPriceItems.length > 0) {
             playSjaChime('alert');
             const msgs = zeroPriceItems.map(
-                (item) => `Item "${item.item_name}" pada pengajuan ${req.request_number} belum memiliki harga HPP atau Harga Jual (> Rp 0). Harap lengkapi harga terlebih dahulu sebelum diajukan ke Direktur.`
+                (item) => `Item "${item.item_name}" pada pengajuan ${req.request_number} belum memiliki HPP (> Rp 0). Lengkapi biaya berdasarkan dokumen pendukung sebelum diajukan ke Direktur.`
             );
             setPriceValidationErrors(msgs);
+            return;
+        }
+
+        const incompleteInvoiceItems = selectedItems.filter((item) => !item.supplier_invoice_complete);
+        if (incompleteInvoiceItems.length > 0) {
+            playSjaChime('alert');
+            setPriceValidationErrors(incompleteInvoiceItems.map(
+                (item) => `Nota invoice supplier untuk "${item.item_name}" pada pengajuan ${req.request_number} belum lengkap. Unggah dokumen dan lengkapi data supplier sebelum dikirim ke Direktur.`
+            ));
             return;
         }
 
@@ -763,7 +1045,6 @@ export default function RequestShow({
                 item_prices: selectedIds.map((itemId) => ({
                     id: itemId,
                     hpp_price: parseFloat(priceDrafts[itemId]?.hpp_price ?? '0') || 0,
-                    selling_price: parseFloat(priceDrafts[itemId]?.selling_price ?? '0') || 0,
                 })),
                 admin_notes: 'Harga telah ditinjau dan item terpilih diajukan.',
             },
@@ -804,12 +1085,95 @@ export default function RequestShow({
         setTimeout(() => setCopiedNumber(null), 2000);
     };
 
+    const handleRequestTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, requestId: string) => {
+        const currentIndex = allRequests.findIndex((shipRequest) => shipRequest.id === requestId);
+        let nextIndex = currentIndex;
+
+        if (event.key === 'ArrowRight') {
+            nextIndex = (currentIndex + 1) % allRequests.length;
+        } else if (event.key === 'ArrowLeft') {
+            nextIndex = (currentIndex - 1 + allRequests.length) % allRequests.length;
+        } else if (event.key === 'Home') {
+            nextIndex = 0;
+        } else if (event.key === 'End') {
+            nextIndex = allRequests.length - 1;
+        } else {
+            return;
+        }
+
+        event.preventDefault();
+        const nextRequest = allRequests[nextIndex];
+        setActiveRequestId(nextRequest.id);
+        window.requestAnimationFrame(() => {
+            document.getElementById(`request-tab-${nextRequest.id}`)?.focus();
+        });
+    };
+
     const runAction = (name: string, url: string, data: Parameters<typeof router.post>[1] = {}) => {
         router.post(url, data, {
             preserveScroll: true,
             onStart: () => setActiveAction(name),
             onFinish: () => setActiveAction(null),
         });
+    };
+
+    const renderCompletionNoteAction = (fullWidth = false) => {
+        if (!currentJob) {
+            return null;
+        }
+
+        if (currentJob.completion_note) {
+            return (
+                <a
+                    href={route('completion-notes.document', {
+                        completionNote: currentJob.completion_note.id,
+                        view: 1,
+                    })}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Lihat Nota Rampung ${currentJob.completion_note.document_number}`}
+                    className={getButtonClassName({
+                        variant: 'outline',
+                        className: fullWidth ? 'w-full' : 'shrink-0',
+                    })}
+                >
+                    <FileCheck2 aria-hidden="true" className="size-4" />
+                    Lihat Nota Rampung
+                    <ExternalLink aria-hidden="true" className="size-3.5" />
+                </a>
+            );
+        }
+
+        if (capabilities.can_create_completion_notes && currentJob.status === 'departed') {
+            return (
+                <Link
+                    href={route('completion-notes.create', { port_call_id: currentJob.id })}
+                    prefetch
+                    className={getButtonClassName({
+                        variant: 'primary',
+                        className: fullWidth ? 'w-full' : 'shrink-0',
+                    })}
+                >
+                    <FileUp aria-hidden="true" className="size-4" />
+                    Unggah Nota Rampung
+                </Link>
+            );
+        }
+
+        if (capabilities.can_create_completion_notes) {
+            return (
+                <span
+                    role="status"
+                    title="Nota Rampung dapat diunggah setelah kapal berangkat."
+                    className={`inline-flex min-h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-[#DCEAF8] bg-[#F1F5F9] px-3.5 text-sm font-semibold text-[#64748B] opacity-70 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8] ${fullWidth ? 'w-full' : ''}`}
+                >
+                    <FileCheck2 aria-hidden="true" className="size-4" />
+                    Tersedia setelah kapal berangkat
+                </span>
+            );
+        }
+
+        return null;
     };
 
     return (
@@ -960,6 +1324,12 @@ export default function RequestShow({
                             );
                         })()}
                     </div>
+
+                    {(currentJob?.completion_note || capabilities.can_create_completion_notes) && (
+                        <div className="mt-3">
+                            {renderCompletionNoteAction(true)}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -975,6 +1345,8 @@ export default function RequestShow({
                     </Link>
 
                     <div className="flex flex-wrap items-center gap-2">
+                        {renderCompletionNoteAction()}
+
                         {currentJob?.work_order?.system_number && (
                             <Link
                                 href={route('work-orders.index', { search: currentJob.work_order.system_number })}
@@ -1079,8 +1451,8 @@ export default function RequestShow({
                             {
                                 icon: CalendarDays,
                                 label: 'Estimasi Kedatangan (ETA)',
-                                value: currentJob?.eta_at ? formatDateTime(currentJob.eta_at) : (allRequests[0] ? formatDateTime(allRequests[0].request_date) : '-'),
-                                sub: currentJob?.etd_at ? `ETD: ${formatDateTime(currentJob.etd_at)}` : 'Jadwal operasional kapal',
+                                value: currentJob?.eta_at ? formatDateOnly(currentJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-'),
+                                sub: currentJob?.etd_at ? `ETD: ${formatDateOnly(currentJob.etd_at)}` : 'Jadwal operasional kapal',
                             },
                             {
                                 icon: FileText,
@@ -1155,6 +1527,116 @@ export default function RequestShow({
                         </div>
                     )}
 
+                    {allRequests.length > 0 && activeRequest && (
+                        <div className="overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                            <div className="border-b border-[#DCEAF8] bg-[#F8FBFF] p-2 dark:border-[#1E3A5F] dark:bg-[#071322] sm:p-3">
+                                <div
+                                    role="tablist"
+                                    aria-label="Pilih surat pengajuan"
+                                    className="flex snap-x gap-2 overflow-x-auto pb-1"
+                                >
+                                    {allRequests.map((shipRequest) => {
+                                        const isActive = shipRequest.id === activeRequest.id;
+                                        const selectedCount = (selectedItemIdsByReq[shipRequest.id] || []).length;
+                                        const evidenceCount = (shipRequest.items || []).filter((item) => item.attachment_url).length;
+
+                                        return (
+                                            <button
+                                                key={shipRequest.id}
+                                                id={`request-tab-${shipRequest.id}`}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={isActive}
+                                                aria-controls={`request-panel-${shipRequest.id}`}
+                                                tabIndex={isActive ? 0 : -1}
+                                                onClick={() => setActiveRequestId(shipRequest.id)}
+                                                onKeyDown={(event) => handleRequestTabKeyDown(event, shipRequest.id)}
+                                                className={`min-h-16 min-w-60 snap-start rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
+                                                    isActive
+                                                        ? 'border-[#0060F4] bg-[#E0F0FF] shadow-2xs dark:border-[#60A5FA] dark:bg-[#132847]'
+                                                        : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]'
+                                                }`}
+                                            >
+                                                <span className="flex items-start justify-between gap-2">
+                                                    <span
+                                                        className={`min-w-0 break-all font-mono text-xs font-black ${
+                                                            isActive
+                                                                ? 'text-[#0060F4] dark:text-[#60A5FA]'
+                                                                : 'text-[#0B1F63] dark:text-[#F1F5F9]'
+                                                        }`}
+                                                        translate="no"
+                                                    >
+                                                        {shipRequest.request_number}
+                                                    </span>
+                                                    {shipRequest.id === newestRequestId && (
+                                                        <span className="shrink-0 rounded-full bg-[#0060F4] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                                            Terbaru
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                                    <span>{shipRequest.items?.length ?? 0} item</span>
+                                                    <span>{evidenceCount} bukti</span>
+                                                    {selectedCount > 0 && (
+                                                        <span className="rounded-full bg-[#0060F4] px-1.5 py-0.5 text-white">
+                                                            {selectedCount} dipilih
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div
+                                id={`request-panel-${activeRequest.id}`}
+                                role="tabpanel"
+                                aria-labelledby={`request-tab-${activeRequest.id}`}
+                                tabIndex={0}
+                                className="focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0060F4]"
+                            >
+                                <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCopy(activeRequest.request_number)}
+                                                className="inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-lg px-2 font-mono text-sm font-black text-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:bg-[#132847]"
+                                                title="Salin nomor pengajuan"
+                                            >
+                                                <Tag aria-hidden="true" className="size-3.5 shrink-0" />
+                                                <span className="break-all" translate="no">{activeRequest.request_number}</span>
+                                                {copiedNumber === activeRequest.request_number ? (
+                                                    <Check aria-hidden="true" className="size-3.5 shrink-0 text-[#087443]" />
+                                                ) : (
+                                                    <Copy aria-hidden="true" className="size-3.5 shrink-0 text-[#52658E]" />
+                                                )}
+                                            </button>
+                                            <StatusBadge status={activeRequest.status} label={requestStatusLabel(activeRequest.status)} showDot size="sm" />
+                                        </div>
+                                        <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                            Dibuat oleh <strong className="text-[#0B1F63] dark:text-[#F1F5F9]">{activeRequest.creator?.name || 'Staff'}</strong>
+                                            {' · '}{formatDateTime(activeRequest.request_date)}
+                                        </p>
+                                        {activeRequest.notes && !activeRequest.notes.toLowerCase().includes('pengajuan clearance in untuk kapal') && (
+                                            <p className="mt-1 max-w-3xl text-pretty text-xs italic text-[#52658E] dark:text-[#94A3B8]">
+                                                “{activeRequest.notes}”
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div className="rounded-xl bg-[#F0F8FF] px-3 py-2 text-[11px] font-semibold text-[#52658E] dark:bg-[#132847] dark:text-[#94A3B8]">
+                                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Pilihan lintas tab tetap tersimpan</p>
+                                        <p>{totalSelectedCount} item dari seluruh REQ siap diajukan sekaligus.</p>
+                                    </div>
+                                </div>
+
+                                <RequestEvidenceGallery request={activeRequest} />
+                            </div>
+                        </div>
+                    )}
+
                     {/* Toolbar Aksi Sekaligus (Batch Actions ke Direktur) */}
                     {canUseAdminActions && allEditableItemsAcrossJob.length > 0 && (
                         <div className="flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-[#E0F0FF]/90 p-4 shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between md:bg-gradient-to-r md:from-[#E0F0FF]/90 md:via-white md:to-[#E0F0FF]/70 md:dark:from-[#0C1D36] md:dark:via-[#071322] md:dark:to-[#0C1D36]">
@@ -1169,7 +1651,7 @@ export default function RequestShow({
                                         onChange={handleToggleSelectAllAcrossJob}
                                         className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
                                     />
-                                    <span>Pilih Semua Item ({totalSelectedCount} dari {allEditableItemsAcrossJob.length} dipilih)</span>
+                                    <span>Pilih Semua Item Lintas REQ ({totalSelectedCount} dari {allEditableItemsAcrossJob.length} dipilih)</span>
                                 </label>
 
                                 {totalUrgentCount > 0 && (
@@ -1189,7 +1671,7 @@ export default function RequestShow({
                                     disabled={activeAction !== null || allEditableItemsAcrossJob.length === 0}
                                     onClick={handleSaveAllPricesAcrossJob}
                                 >
-                                    {activeAction === 'batch-save-all' ? 'Menyimpan...' : `Simpan Semua Harga (${allEditableItemsAcrossJob.length})`}
+                                    {activeAction === 'batch-save-all' ? 'Menyimpan…' : `Simpan Semua Harga (${allEditableItemsAcrossJob.length})`}
                                 </Button>
 
                                 <Button
@@ -1257,39 +1739,6 @@ export default function RequestShow({
                                 ]
                                 : []),
                             {
-                                key: 'request_number',
-                                header: 'Nomor Pengajuan',
-                                width: '185px',
-                                render: (row) => (
-                                    <div className="min-w-0 space-y-1.5">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCopy(row.request.request_number)}
-                                            className="inline-flex max-w-full items-start gap-1 text-left font-mono text-xs font-bold text-[#0060F4] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
-                                            title="Salin nomor pengajuan"
-                                        >
-                                            <Tag className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-                                            <span className="whitespace-normal break-words" translate="no">
-                                                {row.request.request_number}
-                                            </span>
-                                            {copiedNumber === row.request.request_number && (
-                                                <Check className="mt-0.5 size-3 shrink-0 text-[#087443]" aria-hidden="true" />
-                                            )}
-                                        </button>
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                            {row.isFirstForRequest && row.request.id === newestRequestId && (
-                                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">
-                                                    Terbaru
-                                                </span>
-                                            )}
-                                            <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                {row.request.creator?.name || 'Staff'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ),
-                            },
-                            {
                                 key: 'item',
                                 header: 'Item',
                                 width: '230px',
@@ -1299,6 +1748,10 @@ export default function RequestShow({
                                             {item.item_name}
                                         </p>
                                         <RequirementDate value={item.required_date} />
+                                        <ItemEvidenceLinks
+                                            item={item}
+                                            onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
+                                        />
                                         {item.is_urgent && (
                                             <span className="inline-flex rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                 Urgent
@@ -1380,67 +1833,6 @@ export default function RequestShow({
                                 },
                             },
                             {
-                                key: 'selling_price',
-                                header: 'Harga Jual',
-                                align: 'right',
-                                width: '160px',
-                                render: ({ request: req, item }) => {
-                                    const isEditable =
-                                        !['Selesai', 'Dibatalkan'].includes(req.status) &&
-                                        item.director_status !== 'approved' &&
-                                        item.status !== 'diajukan_ke_direktur' &&
-                                        !item.is_invoiced;
-
-                                    if (canUseAdminActions && isEditable) {
-                                        return (
-                                            <label className="block">
-                                                <span className="sr-only">Harga jual {item.item_name}</span>
-                                                <div className="flex h-9 min-w-36 items-center rounded-lg border border-[#BCE0FD] bg-white px-2 focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                    <span className="mr-1 text-[11px] font-bold text-[#0060F4]">Rp</span>
-                                                    <input
-                                                        type="text"
-                                                        name={`desktop_selling_${item.id}`}
-                                                        autoComplete="off"
-                                                        inputMode="numeric"
-                                                        value={formatRupiahInput(priceDrafts[item.id]?.selling_price ?? '0')}
-                                                        onChange={(event) =>
-                                                            setPriceDrafts((current) => ({
-                                                                ...current,
-                                                                [item.id]: {
-                                                                    ...current[item.id],
-                                                                    selling_price: normalizeRupiahInput(event.target.value),
-                                                                },
-                                                            }))
-                                                        }
-                                                        className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold tabular-nums text-[#0060F4] focus:ring-0"
-                                                    />
-                                                </div>
-                                            </label>
-                                        );
-                                    }
-
-                                    return (
-                                        <span className="whitespace-nowrap font-mono font-bold tabular-nums text-[#0060F4]">
-                                            {formatRupiah(item.selling_price)}
-                                        </span>
-                                    );
-                                },
-                            },
-                            {
-                                key: 'subtotal',
-                                header: 'Subtotal',
-                                align: 'right',
-                                width: '155px',
-                                render: ({ item }) => (
-                                    <span className="whitespace-nowrap font-mono font-bold tabular-nums">
-                                        {formatRupiah(
-                                            Number(priceDrafts[item.id]?.selling_price ?? item.selling_price ?? 0) *
-                                            Number(item.quantity)
-                                        )}
-                                    </span>
-                                ),
-                            },
-                            {
                                 key: 'status',
                                 header: 'Status',
                                 align: 'center',
@@ -1452,7 +1844,7 @@ export default function RequestShow({
                                             itemStatus={item.status}
                                         />
                                         <p className="text-pretty text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
-                                            {req.status}
+                                            {requestStatusLabel(req.status)}
                                         </p>
                                     </div>
                                 ),
@@ -1536,11 +1928,11 @@ export default function RequestShow({
                                 },
                             },
                         ]}
-                        data={desktopRows}
+                        data={activeDesktopRows}
                         keyExtractor={(row) => row.item.id}
                         compact
-                        minWidth="1545px"
-                        emptyMessage="Data Tidak Ditemukan"
+                        minWidth="1320px"
+                        emptyMessage="Belum ada item pada pengajuan ini"
                         rowClassName={(row) => {
                             if (canUseAdminActions && row.item.director_status === 'approved') {
                                 return '!bg-[#F3FCF7] dark:!bg-[#123526] border-l-4 border-l-[#087443]';
@@ -1557,8 +1949,8 @@ export default function RequestShow({
                     />
 
                     <div className="md:hidden">
-                        {allRequests.length > 0 ? (
-                            allRequests.map((req, reqIndex) => {
+                        {activeRequest ? (
+                            [activeRequest].map((req) => {
                                 const reqItems = req.items || [];
                                 const editableItems = reqItems.filter(
                                     (it) => it.director_status !== 'approved' && it.status !== 'diajukan_ke_direktur' && !it.is_invoiced
@@ -1581,10 +1973,6 @@ export default function RequestShow({
 
                                 const reqTotalHpp = reqItems.reduce(
                                     (sum, it) => sum + Number(it.hpp_price ?? 0) * Number(it.quantity),
-                                    0
-                                );
-                                const reqTotalSelling = reqItems.reduce(
-                                    (sum, it) => sum + Number(it.selling_price ?? 0) * Number(it.quantity),
                                     0
                                 );
                                 const itemNeedsAction = (item: RequestItem): boolean => {
@@ -1640,7 +2028,7 @@ export default function RequestShow({
                                                 <div className="min-w-0 space-y-2">
                                                     <div className="flex items-start gap-2">
                                                         <span className="flex size-6 items-center justify-center rounded-md bg-[#0060F4] text-xs font-black text-white">
-                                                            {reqIndex + 1}
+                                                            {allRequests.findIndex((shipRequest) => shipRequest.id === req.id) + 1}
                                                         </span>
 
                                                         <button
@@ -1669,7 +2057,7 @@ export default function RequestShow({
                                                                 Terbaru
                                                             </span>
                                                         )}
-                                                        <StatusBadge status={req.status} label={req.status} showDot size="sm" />
+                                                        <StatusBadge status={req.status} label={requestStatusLabel(req.status)} showDot size="sm" />
                                                         {hasUrgentItem && (
                                                             <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[11px] font-black uppercase text-white shadow-2xs">
                                                                 <Flame className="size-3 fill-white" />
@@ -1697,7 +2085,7 @@ export default function RequestShow({
                                                         disabled={savingReqId === req.id}
                                                         onClick={() => handleSaveAllPricesForReq(req)}
                                                     >
-                                                        {savingReqId === req.id ? 'Menyimpan...' : `Simpan Harga (${editableItems.length})`}
+                                                        {savingReqId === req.id ? 'Menyimpan…' : `Simpan Harga (${editableItems.length})`}
                                                     </Button>
                                                 )}
 
@@ -1865,6 +2253,10 @@ export default function RequestShow({
                                                                         {item.vendor?.name ||
                                                                             'Vendor belum ditentukan'}
                                                                     </p>
+                                                                    <ItemEvidenceLinks
+                                                                        item={item}
+                                                                        onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
+                                                                    />
                                                                     {item.notes && (
                                                                         <p className="text-[11px] text-[#52658E]">
                                                                             {item.notes}
@@ -1956,83 +2348,6 @@ export default function RequestShow({
                                                             ]
                                                             : []),
                                                         {
-                                                            key: 'selling',
-                                                            header: 'Harga Jual',
-                                                            align: 'right' as const,
-                                                            width: '180px',
-                                                            render: (item) => {
-                                                                const isEditable = editableItems.some(
-                                                                    (editable) => editable.id === item.id
-                                                                );
-                                                                if (canUseAdminActions && isEditable) {
-                                                                    return (
-                                                                        <label className="block">
-                                                                            <span className="sr-only">
-                                                                                Harga jual {item.item_name}
-                                                                            </span>
-                                                                            <div className="flex h-9 min-w-[150px] items-center rounded-[10px] border border-[#BCE0FD] bg-white px-2.5 focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                                                <span className="mr-1 text-[11px] font-bold text-[#0060F4]">
-                                                                                    Rp
-                                                                                </span>
-                                                                                <input
-                                                                                    type="text"
-                                                                                    name={`selling_price_${item.id}`}
-                                                                                    autoComplete="off"
-                                                                                    inputMode="numeric"
-                                                                                    value={formatRupiahInput(
-                                                                                        priceDrafts[item.id]
-                                                                                            ?.selling_price ?? '0'
-                                                                                    )}
-                                                                                    onChange={(event) =>
-                                                                                        setPriceDrafts(
-                                                                                            (current) => ({
-                                                                                                ...current,
-                                                                                                [item.id]: {
-                                                                                                    ...current[
-                                                                                                    item.id
-                                                                                                    ],
-                                                                                                    selling_price:
-                                                                                                        normalizeRupiahInput(
-                                                                                                            event
-                                                                                                                .target
-                                                                                                                .value
-                                                                                                        ),
-                                                                                                },
-                                                                                            })
-                                                                                        )
-                                                                                    }
-                                                                                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold text-[#0060F4] focus:ring-0"
-                                                                                />
-                                                                            </div>
-                                                                        </label>
-                                                                    );
-                                                                }
-                                                                return (
-                                                                    <span className="whitespace-nowrap font-mono font-bold text-[#0060F4]">
-                                                                        {formatRupiah(item.selling_price)}
-                                                                    </span>
-                                                                );
-                                                            },
-                                                        },
-                                                        {
-                                                            key: 'subtotal',
-                                                            header: 'Subtotal',
-                                                            align: 'right' as const,
-                                                            width: '170px',
-                                                            render: (item) => (
-                                                                <span className="whitespace-nowrap font-mono font-bold">
-                                                                    {formatRupiah(
-                                                                        Number(
-                                                                            priceDrafts[item.id]
-                                                                                ?.selling_price ??
-                                                                            item.selling_price ??
-                                                                            0
-                                                                        ) * Number(item.quantity)
-                                                                    )}
-                                                                </span>
-                                                            ),
-                                                        },
-                                                        {
                                                             key: 'status',
                                                             header: 'Status',
                                                             align: 'center' as const,
@@ -2111,20 +2426,6 @@ export default function RequestShow({
                                                             HPP: <strong>{formatRupiah(reqTotalHpp)}</strong>
                                                         </span>
                                                     )}
-                                                    <span>
-                                                        Jual:{' '}
-                                                        <strong>{formatRupiah(reqTotalSelling)}</strong>
-                                                    </span>
-                                                    {capabilities.can_view_hpp && (
-                                                        <span>
-                                                            Margin:{' '}
-                                                            <strong>
-                                                                {formatRupiah(
-                                                                    reqTotalSelling - reqTotalHpp
-                                                                )}
-                                                            </strong>
-                                                        </span>
-                                                    )}
                                                 </div>
 
                                                 {/* Mobile Item Cards View (< md) */}
@@ -2158,9 +2459,7 @@ export default function RequestShow({
                                                         const isSelected = selectedIds.includes(item.id);
                                                         const isUrgent = Boolean(item.is_urgent);
                                                         const itemHpp = parseFloat(priceDrafts[item.id]?.hpp_price ?? String(item.hpp_price ?? 0)) || 0;
-                                                        const itemSelling = parseFloat(priceDrafts[item.id]?.selling_price ?? String(item.selling_price ?? 0)) || 0;
-                                                        const itemSubtotal = itemSelling * Number(item.quantity);
-                                                        const hasZeroPriceWarning = isSelected && (itemHpp <= 0 || itemSelling <= 0);
+                                                        const hasZeroPriceWarning = isSelected && itemHpp <= 0;
 
                                                         return (
                                                             <div
@@ -2221,6 +2520,10 @@ export default function RequestShow({
                                                                                 <span className="break-words">{item.vendor?.name || 'Vendor: Belum ditentukan'}</span>
                                                                             </div>
                                                                             <RequirementDate value={item.required_date} />
+                                                                            <ItemEvidenceLinks
+                                                                                item={item}
+                                                                                onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
+                                                                            />
                                                                             {item.notes && (
                                                                                 <p className="text-[11px] italic text-[#52658E] dark:text-[#94A3B8]">
                                                                                     "{item.notes}"
@@ -2254,7 +2557,7 @@ export default function RequestShow({
                                                                 {hasZeroPriceWarning && (
                                                                     <div className="flex items-center gap-1.5 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-[11px] font-bold text-amber-900 dark:text-amber-200">
                                                                         <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0 text-amber-600" />
-                                                                        <span>Harga masih Rp 0! Harap isi HPP &amp; Harga Jual (&gt; Rp 0) sebelum diajukan.</span>
+                                                                        <span>HPP masih Rp 0. Lengkapi biaya berdasarkan dokumen pendukung sebelum diajukan.</span>
                                                                     </div>
                                                                 )}
 
@@ -2295,43 +2598,6 @@ export default function RequestShow({
                                                                                 </div>
                                                                             )}
 
-                                                                            <div className="flex items-center justify-between gap-2 text-xs">
-                                                                                <label
-                                                                                    htmlFor={`mobile-selling-${item.id}`}
-                                                                                    className="shrink-0 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]"
-                                                                                >
-                                                                                    Harga Jual:
-                                                                                </label>
-                                                                                <div className={`flex min-h-11 w-44 max-w-[68%] items-center rounded-lg border bg-white px-2.5 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemSelling <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#BCE0FD] dark:border-[#1E3A5F]'
-                                                                                    }`}>
-                                                                                    <span className="text-[10.5px] font-bold text-[#0060F4] mr-1">Rp</span>
-                                                                                    <input
-                                                                                        id={`mobile-selling-${item.id}`}
-                                                                                        name={`mobile_selling_${item.id}`}
-                                                                                        type="text"
-                                                                                        inputMode="numeric"
-                                                                                        autoComplete="off"
-                                                                                        value={formatRupiahInput(priceDrafts[item.id]?.selling_price ?? '0')}
-                                                                                        onChange={(e) =>
-                                                                                            setPriceDrafts((cur) => ({
-                                                                                                ...cur,
-                                                                                                [item.id]: {
-                                                                                                    ...cur[item.id],
-                                                                                                    selling_price: normalizeRupiahInput(e.target.value),
-                                                                                                },
-                                                                                            }))
-                                                                                        }
-                                                                                        className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-black tabular-nums text-[#0060F4] focus:ring-0 dark:text-[#60A5FA]"
-                                                                                    />
-                                                                                </div>
-                                                                            </div>
-
-                                                                            <div className="flex items-center justify-between pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                                                                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Subtotal:</span>
-                                                                                <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                                    {formatRupiah(itemSubtotal)}
-                                                                                </span>
-                                                                            </div>
                                                                         </div>
                                                                     ) : (
                                                                         <div className="space-y-1 text-xs">
@@ -2343,18 +2609,6 @@ export default function RequestShow({
                                                                                     </span>
                                                                                 </div>
                                                                             )}
-                                                                            <div className="flex items-center justify-between">
-                                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">Harga Jual:</span>
-                                                                                <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#60A5FA]">
-                                                                                    {formatRupiah(item.selling_price)}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div className="flex items-center justify-between pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                                                                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Subtotal:</span>
-                                                                                <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                                    {formatRupiah(itemSubtotal)}
-                                                                                </span>
-                                                                            </div>
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -2387,27 +2641,12 @@ export default function RequestShow({
                                                         );
                                                     })}
 
-                                                    {/* Mobile Subtotal Card Summary */}
-                                                    <div className="space-y-1.5 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                        <div className="flex items-center justify-between font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                                            <span>Subtotal ({reqItems.length} Item):</span>
-                                                            <span className="font-mono text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                {formatRupiah(reqTotalSelling)}
-                                                            </span>
+                                                    {capabilities.can_view_hpp && (
+                                                        <div className="flex items-center justify-between rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs font-bold text-[#52658E] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8]">
+                                                            <span>Total HPP ({reqItems.length} item)</span>
+                                                            <span className="font-mono tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(reqTotalHpp)}</span>
                                                         </div>
-                                                        {capabilities.can_view_hpp && (
-                                                            <div className="flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                <span>Total HPP:</span>
-                                                                <span className="font-mono font-medium">{formatRupiah(reqTotalHpp)}</span>
-                                                            </div>
-                                                        )}
-                                                        {capabilities.can_view_hpp && (
-                                                            <div className="flex items-center justify-between text-[11px] font-bold text-emerald-700 dark:text-emerald-300 pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                                                                <span>Margin:</span>
-                                                                <span className="font-mono">{formatRupiah(reqTotalSelling - reqTotalHpp)}</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                    )}
                                                 </div>
 
 
@@ -2470,8 +2709,12 @@ export default function RequestShow({
                                                                                 {item.item_name} ({item.quantity} {item.unit})
                                                                             </p>
                                                                             <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                                HPP: {formatRupiah(item.hpp_price)} • Jual: {formatRupiah(item.selling_price)}
+                                                                                HPP: {formatRupiah(item.hpp_price)}
                                                                             </p>
+                                                                            <ItemEvidenceLinks
+                                                                                item={item}
+                                                                                onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
+                                                                            />
                                                                         </div>
 
                                                                         <div className="flex flex-wrap items-center gap-2">
@@ -2501,7 +2744,7 @@ export default function RequestShow({
 
                                                                             <input
                                                                                 type="text"
-                                                                                placeholder="Catatan Direktur..."
+                                                                                placeholder="Catatan Direktur…"
                                                                                 value={decision.director_notes}
                                                                                 onChange={(e) =>
                                                                                     setDecisionDrafts((cur) => ({
@@ -2586,6 +2829,124 @@ export default function RequestShow({
                     </div>
                 </div>
             </div>
+
+            <Modal
+                isOpen={supplierInvoiceItem !== null}
+                onClose={closeSupplierInvoiceModal}
+                title="Nota Invoice Supplier"
+                subtitle={supplierInvoiceItem ? `Lengkapi dokumen biaya untuk ${supplierInvoiceItem.item_name} sebelum diajukan ke Direktur.` : undefined}
+                size="lg"
+                footer={(
+                    <>
+                        <Button type="button" variant="outline" onClick={closeSupplierInvoiceModal} disabled={supplierInvoiceForm.processing}>
+                            Batal
+                        </Button>
+                        <Button type="submit" form="supplier-invoice-form" isLoading={supplierInvoiceForm.processing}>
+                            Simpan Nota Supplier
+                        </Button>
+                    </>
+                )}
+            >
+                <form id="supplier-invoice-form" noValidate onSubmit={submitSupplierInvoice} className="space-y-4">
+                    <FormErrorSummary errors={supplierInvoiceForm.errors} />
+
+                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{supplierInvoiceItem?.item_name}</p>
+                        <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                            Nota ini menjadi dasar HPP dan otomatis dibuat sebagai invoice vendor siap dibayar setelah disetujui Direktur.
+                        </p>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Select
+                            required
+                            name="supplier_vendor_id"
+                            label="Vendor Supplier"
+                            value={supplierInvoiceForm.data.vendor_id}
+                            onChange={(event) => supplierInvoiceForm.setData('vendor_id', event.target.value)}
+                            options={[
+                                { value: '', label: 'Pilih vendor supplier' },
+                                ...vendors.map((vendor) => ({ value: vendor.id, label: vendor.name })),
+                            ]}
+                            error={supplierInvoiceForm.errors.vendor_id}
+                        />
+                        <MoneyInput
+                            required
+                            id="supplier_hpp_price"
+                            label="HPP per Satuan"
+                            value={supplierInvoiceForm.data.hpp_price}
+                            onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
+                            error={supplierInvoiceForm.errors.hpp_price}
+                        />
+                    </div>
+
+                    <Input
+                        required
+                        name="supplier_invoice_number"
+                        autoComplete="off"
+                        label="Nomor Invoice Supplier"
+                        value={supplierInvoiceForm.data.supplier_invoice_number}
+                        onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_number', event.target.value)}
+                        error={supplierInvoiceForm.errors.supplier_invoice_number}
+                        placeholder="Contoh: INV/VENDOR/2026/001"
+                    />
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                        <Input
+                            required
+                            type="date"
+                            name="supplier_invoice_date"
+                            label="Tanggal Invoice"
+                            value={supplierInvoiceForm.data.supplier_invoice_date}
+                            onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_date', event.target.value)}
+                            error={supplierInvoiceForm.errors.supplier_invoice_date}
+                        />
+                        <Input
+                            required
+                            type="date"
+                            name="supplier_invoice_received_date"
+                            label="Tanggal Diterima"
+                            value={supplierInvoiceForm.data.supplier_invoice_received_date}
+                            onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_received_date', event.target.value)}
+                            error={supplierInvoiceForm.errors.supplier_invoice_received_date}
+                        />
+                        <Input
+                            type="date"
+                            name="supplier_invoice_due_date"
+                            label="Jatuh Tempo (Opsional)"
+                            value={supplierInvoiceForm.data.supplier_invoice_due_date}
+                            onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_due_date', event.target.value)}
+                            error={supplierInvoiceForm.errors.supplier_invoice_due_date}
+                        />
+                    </div>
+
+                    {supplierInvoiceItem?.supplier_invoice_url && (
+                        <a
+                            href={`${supplierInvoiceItem.supplier_invoice_url}?view=1`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#DCEAF8] px-3 text-xs font-bold text-[#0060F4] hover:border-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F]"
+                        >
+                            <ExternalLink aria-hidden="true" className="size-3.5" />
+                            Lihat nota supplier tersimpan
+                        </a>
+                    )}
+
+                    <PhotoUploadPicker
+                        required={!supplierInvoiceItem?.supplier_invoice_url}
+                        label={supplierInvoiceItem?.supplier_invoice_url ? 'Ganti Dokumen Nota (Opsional)' : 'Dokumen Nota Invoice Supplier'}
+                        value={supplierInvoiceForm.data.supplier_invoice_document}
+                        onChange={(file) => supplierInvoiceForm.setData('supplier_invoice_document', file)}
+                        mode="gallery"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        maxSizeMb={10}
+                        variant="compact"
+                        resizeImages={false}
+                        error={supplierInvoiceForm.errors.supplier_invoice_document}
+                        helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB. Setiap item wajib memiliki dokumen sendiri."
+                    />
+                </form>
+            </Modal>
 
             {/* Modal Tambah Item Kebutuhan */}
             <Modal

@@ -5,6 +5,7 @@ use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
 use App\Models\User;
+use App\Models\Vendor;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 
@@ -298,6 +299,15 @@ test('director can approve 3 items and reject 1 item one by one, and admin can r
         ->and($shipRequest->status)->toBe('Disetujui Sebagian');
 
     // Step 3: Admin reviews the rejected item, adjusts price, and re-forwards item 4 to Director
+    $vendor = Vendor::create(['code' => 'VD-RESUBMIT', 'name' => 'PT Vendor Pengajuan Ulang', 'is_active' => true]);
+    $items[4]->update([
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => 'INV-RESUBMIT-004',
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_path' => 'tests/inv-resubmit-004.pdf',
+        'supplier_invoice_uploaded_by' => $admin->id,
+    ]);
     $adminReSubmitResp = $this->actingAs($admin)->post(route('requests.forward-director', $shipRequest->id), [
         'selected_items' => [$items[4]->id],
         'item_prices' => [

@@ -51,11 +51,10 @@ export default function ShipArrivalModal({
     const [isNewShip, setIsNewShip] = useState<boolean>(false);
     const [isNewCompany, setIsNewCompany] = useState<boolean>(false);
 
-    // Initial ETA: default to tomorrow at 08:00
+    // Initial ETA: tanggal kedatangan tanpa jam.
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(8, 0, 0, 0);
-    const defaultEtaStr = tomorrow.toISOString().slice(0, 16);
+    const defaultEtaStr = tomorrow.toISOString().slice(0, 10);
 
     const { data, setData, post, processing, errors, reset, clearErrors } = useForm({
         ship_selection_type: 'existing' as 'existing' | 'new',
@@ -552,12 +551,12 @@ export default function ShipArrivalModal({
                     </div>
                     <div>
                         <label className="text-xs font-semibold text-[#0B1F63] dark:text-[#E7F0FA] block mb-1">
-                            Tanggal & Waktu Kedatangan (ETA) *
+                            Tanggal Kedatangan (ETA) *
                         </label>
                         <input
                             required
                             name="eta"
-                            type="datetime-local"
+                            type="date"
                             value={data.eta}
                             onChange={(e) => setData('eta', e.target.value)}
                             className={

@@ -1,11 +1,13 @@
-import React from 'react';
-import { Head } from '@inertiajs/react';
+import React, { useState } from 'react';
+import { Head, router } from '@inertiajs/react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
+import Input from '../../Components/forms/Input';
+import Select from '../../Components/selects/Select';
 
 interface PortCallReportItem {
     id: string;
@@ -17,8 +19,13 @@ interface PortCallReportItem {
     eta: string;
     etd: string;
     total_invoiced: number;
-    total_expenses: number;
+    agency_invoiced: number;
+    reimbursement_invoiced: number;
+    total_hpp: number;
     margin: number;
+    margin_percentage: number;
+    invoice_count: number;
+    request_count: number;
 }
 
 interface ReportsIndexProps {
@@ -28,15 +35,22 @@ interface ReportsIndexProps {
         total_invoiced: number;
         agency_revenue: number;
         reimburse_revenue: number;
-        total_expenses: number;
-        net_agency_margin: number;
+        total_hpp: number;
+        non_vessel_expenses: number;
+        ship_margin: number;
+        company_net_result: number;
         completed_requests: number;
         pending_requests: number;
     };
     portCalls: PortCallReportItem[];
+    filters: { from: string; to: string; search: string; status: string };
 }
 
-export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) {
+export default function ReportsIndex({ summary, portCalls, filters }: ReportsIndexProps) {
+    const [from, setFrom] = useState(filters.from);
+    const [to, setTo] = useState(filters.to);
+    const [search, setSearch] = useState(filters.search);
+    const [status, setStatus] = useState(filters.status);
     const formatRupiah = (val: number) => {
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
@@ -58,12 +72,12 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
 
     const columns: Column<PortCallReportItem>[] = [
         { key: 'job_number', header: 'No. Job', wrap: 'normal', render: (call) => <span className="font-mono font-semibold text-[#0060F4]">{call.job_number}</span> },
-        { key: 'ship', header: 'Kapal & Klien', wrap: 'normal', render: (call) => <div><p className="font-semibold text-[#082870] dark:text-[#F1F5F9]">{call.ship_name}</p><p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{call.company_name}</p></div> },
+        { key: 'ship', header: 'Kapal & Klien', wrap: 'normal', render: (call) => <div><p className="font-semibold text-[#082870] dark:text-[#F1F5F9]">{call.ship_name}</p><p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">{call.company_name}</p><p className="mt-0.5 text-[10px] text-[#52658E] dark:text-[#94A3B8]">{call.request_count} pengajuan · {call.invoice_count} invoice</p></div> },
         { key: 'port_name', header: 'Pelabuhan', wrap: 'normal' },
         { key: 'status', header: 'Status', render: (call) => <StatusBadge status={statusLabel(call.status)} label={statusLabel(call.status)} /> },
         { key: 'total_invoiced', header: 'Ditagihkan', align: 'right', render: (call) => formatRupiah(call.total_invoiced) },
-        { key: 'total_expenses', header: 'Pengeluaran', align: 'right', render: (call) => formatRupiah(call.total_expenses) },
-        { key: 'margin', header: 'Margin SJA', align: 'right', render: (call) => <span className="font-bold text-emerald-700 dark:text-emerald-400">{formatRupiah(call.margin)}</span> },
+        { key: 'total_hpp', header: 'Total HPP', align: 'right', render: (call) => formatRupiah(call.total_hpp) },
+        { key: 'margin', header: 'Margin SJA', align: 'right', render: (call) => <div><p className={`font-bold ${call.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>{formatRupiah(call.margin)}</p><p className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">{call.margin_percentage.toLocaleString('id-ID')}%</p></div> },
     ];
 
     return (
@@ -106,11 +120,12 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                         className={
                             'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white ' +
                             'hover:bg-[#F0F8FF] border border-[#DCEAF8] text-[#082870] text-xs ' +
-                            'sm:text-sm font-bold shadow-xs transition-all flex-shrink-0 ' +
-                            'cursor-pointer self-start sm:self-auto'
+                            'sm:text-sm font-bold shadow-xs transition-colors flex-shrink-0 ' +
+                            'cursor-pointer self-start focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] sm:self-auto'
                         }
                     >
                         <svg
+                            aria-hidden="true"
                             className="w-4 h-4 text-[#0060F4]"
                             fill="none"
                             stroke="currentColor"
@@ -149,8 +164,25 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                     </div>
                 </div>
 
+                <Card padding="md">
+                    <form onSubmit={(event) => { event.preventDefault(); router.get('/reports', { from, to, search, status }, { preserveState: true, preserveScroll: true }); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.35fr_1fr_auto] lg:items-end">
+                        <Input required name="from" label="Dari tanggal" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+                        <Input required name="to" label="Sampai tanggal" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+                        <Input name="search" label="Cari kapal / Job / klien" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Contoh: KM Demo" clearable onClear={() => setSearch('')} />
+                        <Select name="status" label="Status kunjungan" value={status} onChange={(event) => setStatus(event.target.value)} options={[
+                            { value: 'all', label: 'Semua status' },
+                            { value: 'scheduled', label: 'Akan Datang' },
+                            { value: 'anchored', label: 'Labuh' },
+                            { value: 'berthed', label: 'Sandar' },
+                            { value: 'departed', label: 'Berangkat' },
+                            { value: 'completed', label: 'Selesai' },
+                        ]} />
+                        <Button type="submit">Terapkan Filter</Button>
+                    </form>
+                </Card>
+
                 {/* Financial & Operational Summary Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                     <div
                         className={
                             'bg-white dark:bg-[#0C1D36] p-4.5 rounded-2xl border border-[#DCEAF8] ' +
@@ -175,13 +207,13 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                         }
                     >
                         <div className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
-                            Total Disbursement (Keluar)
+                            Total HPP Kapal
                         </div>
                         <div className="text-2xl font-bold text-neutral-800 dark:text-[#F1F5F9] mt-1">
-                            {formatRupiah(summary.total_expenses)}
+                            {formatRupiah(summary.total_hpp)}
                         </div>
                         <div className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-1">
-                            Pelindo, BBM, Air, Perahu
+                            Biaya item yang disetujui Direktur
                         </div>
                     </div>
 
@@ -192,14 +224,26 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                         }
                     >
                         <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                            Selisih Tagihan &amp; Pengeluaran
+                            Margin Seluruh Kapal
                         </div>
                         <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-                            {formatRupiah(summary.net_agency_margin)}
+                            {formatRupiah(summary.ship_margin)}
                         </div>
                         <div className="text-[11px] text-emerald-600 dark:text-emerald-400/80 mt-1">
-                            Total invoice dikurangi pengeluaran tercatat
+                            Harga jual dikurangi HPP kapal
                         </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#DCEAF8] bg-white p-4.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                        <div className="text-xs font-medium text-[#C62840]">Biaya Nonkapal Terealisasi</div>
+                        <div className="mt-1 text-2xl font-bold text-[#C62840]">{formatRupiah(summary.non_vessel_expenses)}</div>
+                        <div className="mt-1 text-[11px] text-[#52658E]">Biaya perusahaan yang sudah dibayar</div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#BCE9D2] bg-emerald-50/60 p-4.5 shadow-xs dark:border-emerald-900 dark:bg-emerald-950/30">
+                        <div className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Hasil Bersih Perusahaan</div>
+                        <div className="mt-1 text-2xl font-bold text-emerald-700 dark:text-emerald-300">{formatRupiah(summary.company_net_result)}</div>
+                        <div className="mt-1 text-[11px] text-emerald-700/80">Margin kapal dikurangi biaya nonkapal terealisasi</div>
                     </div>
 
                     <div
@@ -244,8 +288,9 @@ export default function ReportsIndex({ summary, portCalls }: ReportsIndexProps) 
                                 { label: 'Klien', render: (call) => call.company_name },
                                 { label: 'Pelabuhan', render: (call) => call.port_name },
                                 { label: 'Ditagihkan', render: (call) => formatRupiah(call.total_invoiced) },
-                                { label: 'Pengeluaran', render: (call) => formatRupiah(call.total_expenses) },
-                                { label: 'Margin SJA', fullWidth: true, render: (call) => <span className="text-emerald-700">{formatRupiah(call.margin)}</span> },
+                                { label: 'Jasa / Reimbursement', render: (call) => `${formatRupiah(call.agency_invoiced)} / ${formatRupiah(call.reimbursement_invoiced)}` },
+                                { label: 'Total HPP', render: (call) => formatRupiah(call.total_hpp) },
+                                { label: 'Margin SJA', fullWidth: true, render: (call) => <span className={call.margin >= 0 ? 'text-emerald-700' : 'text-[#C62840]'}>{formatRupiah(call.margin)} ({call.margin_percentage.toLocaleString('id-ID')}%)</span> },
                             ],
                         }}
                     />

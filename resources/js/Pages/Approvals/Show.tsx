@@ -37,7 +37,6 @@ interface RequestItem {
     unit?: string;
     quantity: number | string;
     hpp_price?: number | string;
-    selling_price?: number | string;
     status: string;
     director_status?: 'approved' | 'rejected' | 'pending' | string;
     director_notes?: string;
@@ -51,6 +50,14 @@ interface RequestItem {
         id: string;
         name: string;
     };
+    attachment_url?: string | null;
+    attachment_is_image?: boolean;
+    supplier_invoice_number?: string | null;
+    supplier_invoice_date?: string | null;
+    supplier_invoice_url?: string | null;
+    supplier_invoice_is_image?: boolean;
+    supplier_invoice_complete?: boolean;
+    vendor_invoice_url?: string | null;
 }
 
 interface JobInfo {
@@ -143,7 +150,6 @@ interface ApprovalSummary {
     total_hpp_approved: number;
     total_hpp_rejected: number;
     total_hpp_all: number;
-    total_selling_all: number;
     pending_items_count: number;
     approved_items_count: number;
     rejected_items_count: number;
@@ -194,8 +200,58 @@ const formatDateTime = (value?: string | null): string => {
     }).format(new Date(value));
 };
 
+const formatDateOnly = (value?: string | null): string => {
+    if (!value) return '-';
+    return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(value));
+};
+
 const isDecidableItem = (item: RequestItem): boolean =>
     item.status === 'diajukan_ke_direktur' && item.director_status === 'pending';
+
+const ItemEvidenceLinks = ({ item }: { item: RequestItem }) => {
+    if (!item.attachment_url && !item.supplier_invoice_url && !item.vendor_invoice_url) return null;
+
+    return (
+        <div className="flex flex-wrap items-start gap-2 pt-2">
+            {item.attachment_url && (
+                <a
+                    href={`${item.attachment_url}?view=1`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group overflow-hidden rounded-lg border border-[#DCEAF8] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                    aria-label={`Buka bukti item ${item.item_name}`}
+                >
+                    {item.attachment_is_image ? (
+                        <img src={`${item.attachment_url}?view=1`} alt={`Bukti item ${item.item_name}`} className="h-16 w-20 object-cover transition-transform group-hover:scale-105" loading="lazy" />
+                    ) : (
+                        <span className="inline-flex min-h-8 items-center gap-1 px-2 text-[11px] font-bold hover:underline"><ExternalLink aria-hidden="true" className="size-3" /> Bukti item</span>
+                    )}
+                </a>
+            )}
+            {item.supplier_invoice_url && (
+                <a
+                    href={`${item.supplier_invoice_url}?view=1`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group overflow-hidden rounded-lg border border-[#BCE0FD] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                    aria-label={`Buka nota supplier ${item.item_name}`}
+                >
+                    {item.supplier_invoice_is_image ? (
+                        <span className="block">
+                            <img src={`${item.supplier_invoice_url}?view=1`} alt={`Nota supplier ${item.item_name}`} className="h-16 w-20 object-cover transition-transform group-hover:scale-105" loading="lazy" />
+                            <span className="block max-w-20 truncate px-1.5 py-1 text-center text-[9px]">{item.supplier_invoice_number || 'Nota supplier'}</span>
+                        </span>
+                    ) : (
+                        <span className="inline-flex min-h-8 items-center gap-1 px-2 text-[11px] font-bold hover:underline"><FileText aria-hidden="true" className="size-3" /> Nota supplier</span>
+                    )}
+                </a>
+            )}
+            {item.vendor_invoice_url && (
+                <a href={`${item.vendor_invoice_url}?view=1`} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-[#087443] hover:border-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"><FileText aria-hidden="true" className="size-3" /> Siap dibayar</a>
+            )}
+        </div>
+    );
+};
 
 export default function ApprovalShow({
     job,
@@ -484,7 +540,7 @@ export default function ApprovalShow({
                             <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
                                 <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">ETA</dt>
                                 <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">
-                                    {activeJob?.eta_at ? formatDateTime(activeJob.eta_at) : (allRequests[0] ? formatDateTime(allRequests[0].request_date) : '-')}
+                                    {activeJob?.eta_at ? formatDateOnly(activeJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-')}
                                 </dd>
                             </div>
                             <div className="col-span-2 rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
@@ -577,8 +633,8 @@ export default function ApprovalShow({
                             {
                                 icon: CalendarDays,
                                 label: 'Estimasi Kedatangan (ETA)',
-                                value: activeJob?.eta_at ? formatDateTime(activeJob.eta_at) : (allRequests[0] ? formatDateTime(allRequests[0].request_date) : '-'),
-                                sub: activeJob?.etd_at ? `ETD: ${formatDateTime(activeJob.etd_at)}` : 'Jadwal operasional kapal',
+                                value: activeJob?.eta_at ? formatDateOnly(activeJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-'),
+                                sub: activeJob?.etd_at ? `ETD: ${formatDateOnly(activeJob.etd_at)}` : 'Jadwal operasional kapal',
                             },
                             {
                                 icon: FileText,
@@ -841,6 +897,7 @@ export default function ApprovalShow({
                                             {item.item_name}
                                         </p>
                                         <RequirementDate value={item.required_date} />
+                                        <ItemEvidenceLinks item={item} />
                                         {item.is_urgent && (
                                             <span className="inline-flex rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                 Urgent
@@ -882,25 +939,14 @@ export default function ApprovalShow({
                                 ),
                             },
                             {
-                                key: 'selling_price',
-                                header: 'Harga Jual',
-                                align: 'right',
-                                width: '145px',
-                                render: ({ item }) => (
-                                    <span className="whitespace-nowrap font-mono font-bold tabular-nums text-[#0060F4]">
-                                        {formatRupiah(item.selling_price)}
-                                    </span>
-                                ),
-                            },
-                            {
                                 key: 'subtotal',
-                                header: 'Subtotal',
+                                header: 'Total HPP',
                                 align: 'right',
                                 width: '155px',
                                 render: ({ item }) => (
                                     <span className="whitespace-nowrap font-mono font-bold tabular-nums">
                                         {formatRupiah(
-                                            Number(item.selling_price || 0) * Number(item.quantity)
+                                            Number(item.hpp_price || 0) * Number(item.quantity)
                                         )}
                                     </span>
                                 ),
@@ -1016,10 +1062,6 @@ export default function ApprovalShow({
                                     : sum,
                             0
                         );
-                        const reqTotalSelling = reqItems.reduce(
-                            (sum, it) => sum + Number(it.selling_price ?? 0) * Number(it.quantity),
-                            0
-                        );
                         const itemPriority = (item: RequestItem): number => {
                             if (capabilities.can_decide_items && isDecidableItem(item)) return 4;
                             if (item.director_status === 'approved') return 3;
@@ -1126,7 +1168,7 @@ export default function ApprovalShow({
                                     {sortedReqItems.map((item) => {
                                         const isNew = capabilities.can_decide_items && isDecidableItem(item);
                                         const isSelected = selectedItemIds.includes(item.id);
-                                        const itemSubtotal = Number(item.selling_price || 0) * Number(item.quantity);
+                                        const itemSubtotal = Number(item.hpp_price || 0) * Number(item.quantity);
                                         const cardTone = isSelected
                                             ? 'border-[#0060F4] bg-[#EAF4FF] ring-1 ring-[#0060F4] dark:bg-[#102B4A]'
                                             : isNew
@@ -1171,6 +1213,7 @@ export default function ApprovalShow({
                                                             {item.vendor?.name || 'Vendor belum ditentukan'}
                                                         </p>
                                                         <RequirementDate value={item.required_date} />
+                                                        <ItemEvidenceLinks item={item} />
                                                         {item.notes && (
                                                             <p className="mt-1 break-words text-xs italic leading-5 text-[#52658E] dark:text-[#94A3B8]">
                                                                 “{item.notes}”
@@ -1204,12 +1247,8 @@ export default function ApprovalShow({
                                                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP</dt>
                                                         <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(item.hpp_price)}</dd>
                                                     </div>
-                                                    <div>
-                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Harga Jual</dt>
-                                                        <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0060F4] dark:text-[#60A5FA]">{formatRupiah(item.selling_price)}</dd>
-                                                    </div>
                                                     <div className="text-right">
-                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Subtotal</dt>
+                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Total HPP</dt>
                                                         <dd className="mt-0.5 break-words font-mono font-black tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(itemSubtotal)}</dd>
                                                     </div>
                                                 </dl>
@@ -1217,14 +1256,10 @@ export default function ApprovalShow({
                                         );
                                     })}
 
-                                    <dl className="grid grid-cols-3 gap-2 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                    <dl className="grid grid-cols-2 gap-2 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
                                         <div>
                                             <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP</dt>
                                             <dd className="mt-1 break-words font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(reqTotalHpp)}</dd>
-                                        </div>
-                                        <div>
-                                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Jual</dt>
-                                            <dd className="mt-1 break-words font-mono font-bold text-[#0060F4] dark:text-[#60A5FA]">{formatRupiah(reqTotalSelling)}</dd>
                                         </div>
                                         <div>
                                             <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">ACC</dt>

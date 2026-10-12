@@ -83,7 +83,9 @@ class VendorInvoiceController extends Controller
             ])
             ->whereIn('status', ['scheduled', 'anchored', 'berthed', 'departed'])
             ->whereHas('requests.items', fn ($query) => $query
-                ->where('director_status', 'approved')
+                ->where(fn ($statusQuery) => $statusQuery
+                    ->whereNull('director_status')
+                    ->orWhereNotIn('director_status', ['approved', 'rejected']))
                 ->where('hpp_price', '>', 0)
                 ->whereDoesntHave('costDocumentItem')
                 ->whereDoesntHave('expenseRequestItem'))
@@ -106,7 +108,9 @@ class VendorInvoiceController extends Controller
                 ->get(['id', 'name']),
             'portCalls' => $portCalls,
             'availableRequestItems' => RequestItem::query()
-                ->where('director_status', 'approved')
+                ->where(fn ($query) => $query
+                    ->whereNull('director_status')
+                    ->orWhereNotIn('director_status', ['approved', 'rejected']))
                 ->where('hpp_price', '>', 0)
                 ->whereDoesntHave('costDocumentItem')
                 ->whereDoesntHave('expenseRequestItem')
@@ -151,8 +155,8 @@ class VendorInvoiceController extends Controller
             }
 
             foreach ($requestItems as $requestItem) {
-                if ($requestItem->director_status !== 'approved') {
-                    throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} belum disetujui Direktur."]);
+                if (in_array($requestItem->director_status, ['approved', 'rejected'], true)) {
+                    throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} sudah pernah diputuskan Direktur dan tidak dapat ditautkan ke invoice vendor baru."]);
                 }
                 if ($requestItem->request?->port_call_id !== $validated['port_call_id']) {
                     throw ValidationException::withMessages(['request_item_ids' => 'Semua item invoice harus berasal dari Kunjungan/Job yang dipilih.']);
@@ -165,6 +169,10 @@ class VendorInvoiceController extends Controller
                 }
                 if ($requestItem->vendor_id && $requestItem->vendor_id !== $vendor->id) {
                     throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} terhubung ke vendor lain."]);
+                }
+
+                if (! $requestItem->vendor_id) {
+                    $requestItem->update(['vendor_id' => $vendor->id]);
                 }
             }
 

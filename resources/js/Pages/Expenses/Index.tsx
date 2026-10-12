@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Banknote, CheckCircle2, Clock3, Plus, ReceiptText, Search } from 'lucide-react';
+import { Banknote, CheckCircle2, Clock3, FilePlus2, Plus, ReceiptText, Search } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Button from '../../Components/ui/Button';
@@ -53,6 +53,23 @@ interface PayableVendorInvoice {
     };
 }
 
+interface CompanyExpenseRequest {
+    id: string;
+    request_number: string;
+    category: string;
+    status: 'waiting_director' | 'approved' | 'rejected' | 'realized';
+    total: number | string;
+    notes?: string | null;
+    supporting_document_path?: string | null;
+    payment_proof_path?: string | null;
+    realized_amount?: number | string | null;
+    realized_date?: string | null;
+    payment_reference?: string | null;
+    created_at: string;
+    creator?: { name: string } | null;
+    items: Array<{ description: string; amount: number | string }>;
+}
+
 interface Paginated<T> {
     data: T[];
     links: Array<{ url: string | null; label: string; active: boolean }>;
@@ -66,6 +83,7 @@ interface Paginated<T> {
 interface ExpensesIndexProps {
     expenses: Paginated<OutgoingPayment>;
     payableVendorInvoices: PayableVendorInvoice[];
+    companyExpenseRequests: Paginated<CompanyExpenseRequest>;
     stats: {
         total: number;
         verified: number;
@@ -77,7 +95,12 @@ interface ExpensesIndexProps {
         status: string;
         search: string;
     };
-    abilities: { manage: boolean };
+    abilities: {
+        manage: boolean;
+        create_company_expense: boolean;
+        decide_company_expense: boolean;
+        realize_company_expense: boolean;
+    };
 }
 
 const money = (value: number | string | null | undefined) => new Intl.NumberFormat('id-ID', {
@@ -122,13 +145,20 @@ const paymentStatus = (status: string) => {
 export default function ExpensesIndex({
     expenses,
     payableVendorInvoices,
+    companyExpenseRequests,
     stats,
     filters,
     abilities,
 }: ExpensesIndexProps) {
     const [search, setSearch] = useState(filters.search || '');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isCompanyExpenseModalOpen, setIsCompanyExpenseModalOpen] = useState(false);
+    const [decisionExpense, setDecisionExpense] = useState<CompanyExpenseRequest | null>(null);
+    const [realizationExpense, setRealizationExpense] = useState<CompanyExpenseRequest | null>(null);
     const paymentForm = useForm(initialPaymentData());
+    const companyExpenseForm = useForm({ category: '', description: '', amount: '', notes: '', supporting_document: null as File | null });
+    const decisionForm = useForm({ decision: 'approve', notes: '' });
+    const realizationForm = useForm({ realized_amount: '', realized_date: today(), payment_reference: '', payment_proof: null as File | null });
     const paymentErrorRef = useRef<HTMLDivElement>(null);
     const selectedInvoice = payableVendorInvoices.find((invoice) => invoice.id === paymentForm.data.cost_document_id);
 
@@ -188,6 +218,32 @@ export default function ExpensesIndex({
         });
     };
 
+    const submitCompanyExpense = (event: React.FormEvent) => {
+        event.preventDefault();
+        companyExpenseForm.post('/expenses/company-requests', {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => { setIsCompanyExpenseModalOpen(false); companyExpenseForm.reset(); },
+        });
+    };
+    const submitDecision = (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!decisionExpense) return;
+        decisionForm.post(`/expenses/company-requests/${decisionExpense.id}/decision`, {
+            preserveScroll: true,
+            onSuccess: () => { setDecisionExpense(null); decisionForm.reset(); },
+        });
+    };
+    const submitRealization = (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!realizationExpense) return;
+        realizationForm.post(`/expenses/company-requests/${realizationExpense.id}/realize`, {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => { setRealizationExpense(null); realizationForm.reset(); },
+        });
+    };
+
     const invoiceNumber = (expense: OutgoingPayment) => expense.allocations?.[0]?.cost_document?.document_number || '—';
     const proofActions = (expense: OutgoingPayment) => expense.proof_path ? (
         <DocumentActions
@@ -235,6 +291,20 @@ export default function ExpensesIndex({
         },
         { key: 'proof', header: 'Bukti', align: 'right', render: proofActions },
     ];
+    const companyExpenseStatus = (status: CompanyExpenseRequest['status']) => ({
+        waiting_director: { status: 'waiting', label: 'Menunggu Direktur' },
+        approved: { status: 'success', label: 'Disetujui' },
+        rejected: { status: 'rejected', label: 'Ditolak' },
+        realized: { status: 'success', label: 'Terbayar' },
+    }[status]);
+    const companyColumns: Column<CompanyExpenseRequest>[] = [
+        { key: 'request', header: 'Nomor Pengajuan', wrap: 'normal', render: (expense) => <div><p className="font-mono font-bold text-[#0060F4]" translate="no">{expense.request_number}</p><p className="text-[11px] text-[#52658E]">{formatDate(expense.created_at)}</p></div> },
+        { key: 'description', header: 'Kategori / Uraian', wrap: 'normal', render: (expense) => <div><p className="font-semibold">{expense.category}</p><p className="text-xs text-[#52658E]">{expense.items[0]?.description || '—'}</p></div> },
+        { key: 'amount', header: 'Diajukan', align: 'right', render: (expense) => <span className="font-bold tabular-nums">{money(expense.total)}</span> },
+        { key: 'status', header: 'Status', render: (expense) => { const badge = companyExpenseStatus(expense.status); return <StatusBadge status={badge.status} label={badge.label} showDot />; } },
+        { key: 'document', header: 'Dokumen', render: (expense) => expense.supporting_document_path ? <DocumentActions viewHref={`/expenses/company-requests/${expense.id}/documents/supporting?view=1`} downloadHref={`/expenses/company-requests/${expense.id}/documents/supporting`} /> : '—' },
+        { key: 'action', header: 'Aksi', align: 'right', render: (expense) => <div className="flex justify-end gap-2">{abilities.decide_company_expense && expense.status === 'waiting_director' && <Button type="button" size="sm" onClick={() => { setDecisionExpense(expense); decisionForm.reset(); }}>Putuskan</Button>}{abilities.realize_company_expense && expense.status === 'approved' && <Button type="button" size="sm" onClick={() => { setRealizationExpense(expense); realizationForm.setData('realized_amount', String(expense.total)); }}>Catat Bayar</Button>}{expense.status === 'realized' && expense.payment_proof_path && <DocumentActions viewHref={`/expenses/company-requests/${expense.id}/documents/payment?view=1`} downloadHref={`/expenses/company-requests/${expense.id}/documents/payment`} viewLabel="Bukti bayar" />}</div> },
+    ];
 
     return (
         <AppLayout title="Pengeluaran & Pembayaran" transparentMobileHeader noPaddingMobile mobileBackground="surface">
@@ -279,6 +349,29 @@ export default function ExpensesIndex({
                         <div className="flex items-start justify-between gap-3"><div><p className="text-xs text-[#52658E]">Perlu tindak lanjut</p><p className="mt-1 text-xl font-extrabold tabular-nums text-amber-700 dark:text-amber-400">{money(stats.pending)}</p><p className="mt-1 text-[11px] text-[#52658E]">Transaksi lama belum diselesaikan</p></div><span className="flex size-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"><Clock3 aria-hidden="true" className="size-5" /></span></div>
                     </Card>
                 </div>
+
+                <Card title="Pengajuan Biaya Perusahaan" titleLevel={2} subtitle="Listrik, air, internet, gaji, ATK, materai, dan biaya nonkapal lain diajukan tanpa memilih Job." padding="none" actions={abilities.create_company_expense ? <Button type="button" size="sm" onClick={() => setIsCompanyExpenseModalOpen(true)} leftIcon={<FilePlus2 aria-hidden="true" className="size-4" />}>Buat Pengajuan</Button> : null}>
+                    <ResponsiveTable<CompanyExpenseRequest>
+                        data={companyExpenseRequests.data}
+                        keyExtractor={(expense) => expense.id}
+                        desktop={{ columns: companyColumns, compact: true, minWidth: '940px', emptyMessage: 'Belum ada pengajuan biaya perusahaan.' }}
+                        mobile={{
+                            titleRender: (expense) => expense.category,
+                            subtitleRender: (expense) => expense.request_number,
+                            statusRender: (expense) => { const badge = companyExpenseStatus(expense.status); return <StatusBadge status={badge.status} label={badge.label} />; },
+                            fields: [
+                                { label: 'Uraian', fullWidth: true, render: (expense) => expense.items[0]?.description || '—' },
+                                { label: 'Diajukan', render: (expense) => money(expense.total) },
+                                { label: 'Tanggal', render: (expense) => formatDate(expense.created_at) },
+                            ],
+                            actionsRender: (expense) => <div className="flex w-full flex-wrap gap-2">{abilities.decide_company_expense && expense.status === 'waiting_director' && <Button className="flex-1" type="button" size="sm" onClick={() => setDecisionExpense(expense)}>Putuskan</Button>}{abilities.realize_company_expense && expense.status === 'approved' && <Button className="flex-1" type="button" size="sm" onClick={() => { setRealizationExpense(expense); realizationForm.setData('realized_amount', String(expense.total)); }}>Catat Bayar</Button>}</div>,
+                            emptyMessage: 'Belum ada pengajuan biaya perusahaan.',
+                        }}
+                    />
+                    {companyExpenseRequests.last_page > 1 && <div className="border-t border-[#DCEAF8] p-3 dark:border-[#1E3A5F]"><Pagination links={companyExpenseRequests.links} currentPage={companyExpenseRequests.current_page} lastPage={companyExpenseRequests.last_page} total={companyExpenseRequests.total} from={companyExpenseRequests.from ?? undefined} to={companyExpenseRequests.to ?? undefined} /></div>}
+                </Card>
+
+                <div className="border-b border-[#DCEAF8] pb-2 dark:border-[#1E3A5F]"><h2 className="text-lg font-extrabold text-[#0B1F63] dark:text-white">Pembayaran Invoice Vendor</h2><p className="text-xs text-[#52658E]">Riwayat pembayaran yang dipanggil langsung dari nomor invoice vendor.</p></div>
 
                 <Card padding="md">
                     <form onSubmit={(event) => { event.preventDefault(); applyFilters(); }} className="flex flex-col gap-3 sm:flex-row">
@@ -366,6 +459,34 @@ export default function ExpensesIndex({
                     <PhotoUploadPicker label="Bukti pembayaran" required value={paymentForm.data.proof} onChange={(file) => paymentForm.setData('proof', file)} mode="gallery" accept=".pdf,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={paymentForm.errors.proof} helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB." />
 
                     <Textarea name="notes" autoComplete="off" label="Catatan" value={paymentForm.data.notes} onChange={(event) => paymentForm.setData('notes', event.target.value)} error={paymentForm.errors.notes} maxLength={2000} showCharCount />
+                </form>
+            </Modal>
+
+            <Modal isOpen={abilities.create_company_expense && isCompanyExpenseModalOpen} onClose={() => !companyExpenseForm.processing && setIsCompanyExpenseModalOpen(false)} title="Pengajuan Biaya Perusahaan" subtitle="Pengajuan nonkapal langsung dikirim ke Direktur." size="lg" footer={<><Button type="button" variant="secondary" onClick={() => setIsCompanyExpenseModalOpen(false)} disabled={companyExpenseForm.processing}>Batal</Button><Button type="submit" form="company-expense-form" isLoading={companyExpenseForm.processing}>Kirim Pengajuan</Button></>}>
+                <form id="company-expense-form" noValidate onSubmit={submitCompanyExpense} className="space-y-4">
+                    <FormErrorSummary errors={companyExpenseForm.errors} />
+                    <Select required name="category" label="Kategori" value={companyExpenseForm.data.category} onChange={(event) => companyExpenseForm.setData('category', event.target.value)} error={companyExpenseForm.errors.category} placeholder="Pilih kategori" options={['Listrik', 'Air', 'Internet', 'Gaji', 'ATK', 'Materai', 'Kertas', 'Lainnya'].map((value) => ({ value, label: value }))} />
+                    <Input required name="description" autoComplete="off" label="Uraian Pengeluaran" value={companyExpenseForm.data.description} onChange={(event) => companyExpenseForm.setData('description', event.target.value)} error={companyExpenseForm.errors.description} />
+                    <MoneyInput required name="amount" autoComplete="off" label="Nominal Pengajuan" value={companyExpenseForm.data.amount} onChange={(value) => companyExpenseForm.setData('amount', value)} error={companyExpenseForm.errors.amount} />
+                    <PhotoUploadPicker label="Dokumen Pendukung (opsional)" value={companyExpenseForm.data.supporting_document} onChange={(file) => companyExpenseForm.setData('supporting_document', file)} mode="gallery" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={companyExpenseForm.errors.supporting_document} />
+                    <Textarea name="notes" autoComplete="off" label="Catatan (opsional)" value={companyExpenseForm.data.notes} onChange={(event) => companyExpenseForm.setData('notes', event.target.value)} error={companyExpenseForm.errors.notes} maxLength={1000} showCharCount />
+                </form>
+            </Modal>
+
+            <Modal isOpen={Boolean(decisionExpense)} onClose={() => !decisionForm.processing && setDecisionExpense(null)} title="Keputusan Biaya Perusahaan" subtitle={decisionExpense?.request_number} footer={<><Button type="button" variant="secondary" onClick={() => setDecisionExpense(null)} disabled={decisionForm.processing}>Batal</Button><Button type="submit" form="company-expense-decision-form" isLoading={decisionForm.processing}>Simpan Keputusan</Button></>}>
+                <form id="company-expense-decision-form" noValidate onSubmit={submitDecision} className="space-y-4">
+                    <FormErrorSummary errors={decisionForm.errors} />
+                    <Select required name="decision" label="Keputusan" value={decisionForm.data.decision} onChange={(event) => decisionForm.setData('decision', event.target.value)} options={[{ value: 'approve', label: 'Setujui' }, { value: 'reject', label: 'Tolak' }]} />
+                    <Textarea required={decisionForm.data.decision === 'reject'} name="notes" autoComplete="off" label="Catatan keputusan" value={decisionForm.data.notes} onChange={(event) => decisionForm.setData('notes', event.target.value)} error={decisionForm.errors.notes} maxLength={1000} />
+                </form>
+            </Modal>
+
+            <Modal isOpen={Boolean(realizationExpense)} onClose={() => !realizationForm.processing && setRealizationExpense(null)} title="Catat Pembayaran Biaya Perusahaan" subtitle={realizationExpense?.request_number} size="lg" footer={<><Button type="button" variant="secondary" onClick={() => setRealizationExpense(null)} disabled={realizationForm.processing}>Batal</Button><Button type="submit" form="company-expense-realization-form" isLoading={realizationForm.processing}>Simpan Pembayaran</Button></>}>
+                <form id="company-expense-realization-form" noValidate onSubmit={submitRealization} className="space-y-4">
+                    <FormErrorSummary errors={realizationForm.errors} />
+                    <div className="grid gap-4 sm:grid-cols-2"><MoneyInput required name="realized_amount" autoComplete="off" label="Nominal Dibayar" value={realizationForm.data.realized_amount} onChange={(value) => realizationForm.setData('realized_amount', value)} error={realizationForm.errors.realized_amount} /><Input required name="realized_date" autoComplete="off" label="Tanggal Bayar" type="date" value={realizationForm.data.realized_date} onChange={(event) => realizationForm.setData('realized_date', event.target.value)} error={realizationForm.errors.realized_date} /></div>
+                    <Input required name="payment_reference" autoComplete="off" label="Referensi Pembayaran" value={realizationForm.data.payment_reference} onChange={(event) => realizationForm.setData('payment_reference', event.target.value)} error={realizationForm.errors.payment_reference} />
+                    <PhotoUploadPicker required label="Bukti Pembayaran" value={realizationForm.data.payment_proof} onChange={(file) => realizationForm.setData('payment_proof', file)} mode="gallery" accept=".pdf,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={realizationForm.errors.payment_proof} />
                 </form>
             </Modal>
         </AppLayout>

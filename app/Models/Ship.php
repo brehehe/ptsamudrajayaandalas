@@ -42,7 +42,7 @@ class Ship extends Model
             'is_active' => 'boolean',
             'gross_tonnage' => 'decimal:2',
             'length' => 'decimal:2',
-            'eta' => 'datetime',
+            'eta' => 'date',
         ];
     }
 

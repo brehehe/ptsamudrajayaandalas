@@ -47,37 +47,86 @@ function completionWorkflowPortCall(string $status, User $creator): PortCall
     ]);
 }
 
-test('completion note is uploaded once for a departed job without reconciliation', function () {
+test('completion note is uploaded once and reconciled against prior job payments', function () {
     Storage::fake('local');
     $admin = completionWorkflowUser('Admin');
     $portCall = completionWorkflowPortCall('departed', $admin);
 
     $this->actingAs($admin)
-        ->get(route('completion-notes.create'))
+        ->get(route('completion-notes.create', ['port_call_id' => $portCall->id]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('CompletionNotes/Create')
+            ->where('preselectedPortCallId', $portCall->id)
             ->where('portCalls.0.id', $portCall->id)
             ->where('portCalls.0.client_spk_number', 'SPK/KLIEN/NOTA/001'));
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
+        'actual_amount' => 1250000,
         'document' => UploadedFile::fake()->create('nota-rampung.pdf', 100, 'application/pdf'),
     ])->assertRedirect()->assertSessionHasNoErrors();
 
     $note = CompletionNote::query()->firstOrFail();
     Storage::disk('local')->assertExists($note->document_path);
     expect($note->document_number)->toStartWith('NR-SJA-')
-        ->and($note->status)->toBe('uploaded')
-        ->and((float) $note->actual_amount)->toBe(0.0)
-        ->and($portCall->fresh()->financial_status)->toBe('billing');
+        ->and($note->status)->toBe('reconciled')
+        ->and((float) $note->actual_amount)->toBe(1250000.0)
+        ->and((float) $note->reconciliation->initial_total)->toBe(0.0)
+        ->and((float) $note->reconciliation->variance)->toBe(1250000.0)
+        ->and($note->reconciliation->status)->toBe('shortfall')
+        ->and($portCall->fresh()->financial_status)->toBe('reconciliation_shortfall');
+
+    $this->actingAs($admin)
+        ->get(route('completion-notes.index'))
+        ->assertInertia(fn ($page) => $page
+            ->component('CompletionNotes/Index')
+            ->has('notes.data', 1)
+            ->where('notes.data.0.id', $note->id)
+            ->where('notes.data.0.port_call.job_number', 'JOB-NOTA-001'));
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
+        'actual_amount' => 1250000,
         'document' => UploadedFile::fake()->create('nota-rampung-2.pdf', 100, 'application/pdf'),
     ])->assertSessionHasErrors('port_call_id');
 
     $this->assertDatabaseCount('completion_notes', 1);
+});
+
+test('vessel and request job details expose the same completion note record', function () {
+    $admin = completionWorkflowUser('Admin');
+    $portCall = completionWorkflowPortCall('departed', $admin);
+    $note = CompletionNote::create([
+        'port_call_id' => $portCall->id,
+        'document_number' => 'NR-SJA-DETAIL-001',
+        'departed_at' => $portCall->departed_at,
+        'issued_at' => now()->toDateString(),
+        'uploaded_at' => now(),
+        'document_path' => 'sja/completion-notes/detail.pdf',
+        'actual_amount' => 900000,
+        'status' => 'uploaded',
+        'uploaded_by' => $admin->id,
+    ]);
+
+    $this->actingAs($admin)
+        ->get(route('vessels.show', [
+            'id' => $portCall->ship_id,
+            'visit' => $portCall->id,
+        ]))
+        ->assertInertia(fn ($page) => $page
+            ->component('Vessels/Show')
+            ->where('canCreateCompletionNotes', true)
+            ->where('selectedVisit.completion_note.id', $note->id)
+            ->where('selectedVisit.completion_note.document_number', 'NR-SJA-DETAIL-001'));
+
+    $this->actingAs($admin)
+        ->get(route('requests.detail', $portCall->job_number))
+        ->assertInertia(fn ($page) => $page
+            ->component('Requests/Show')
+            ->where('capabilities.can_create_completion_notes', true)
+            ->where('job.completion_note.id', $note->id)
+            ->where('job.completion_note.document_number', 'NR-SJA-DETAIL-001'));
 });
 
 test('completion note cannot be uploaded before the ship departs', function () {
@@ -87,6 +136,7 @@ test('completion note cannot be uploaded before the ship departs', function () {
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
+        'actual_amount' => 500000,
         'document' => UploadedFile::fake()->create('nota.pdf', 20, 'application/pdf'),
     ])->assertSessionHasErrors('port_call_id');
 
@@ -100,6 +150,7 @@ test('word completion note document can be uploaded and viewed inline', function
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
+        'actual_amount' => 750000,
         'document' => UploadedFile::fake()->create(
             'nota-rampung.docx',
             100,

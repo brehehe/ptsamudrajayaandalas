@@ -22,6 +22,8 @@ interface Invoice {
     grand_total: number;
     paid_amount: number;
     outstanding_amount: number;
+    days_until_due?: number | null;
+    due_state?: 'unknown' | 'overdue' | 'due_soon' | 'current';
     company?: {
         id: string;
         name: string;
@@ -128,10 +130,10 @@ export default function ReceivablesIndex({
 
     const invoiceColumns: Column<Invoice>[] = [
         { key: 'invoice_number', header: 'No. Invoice', wrap: 'normal', render: (invoice) => <span className="font-mono font-semibold text-[#0060F4]">{invoice.invoice_number}</span> },
-        { key: 'invoice_type', header: 'Kategori', render: (invoice) => <StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimburse'} /> },
+        { key: 'invoice_type', header: 'Kategori', render: (invoice) => <StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement'} /> },
         { key: 'company', header: 'Perusahaan Klien', wrap: 'normal', render: (invoice) => invoice.company?.name || 'Klien' },
         { key: 'ship', header: 'Kapal', wrap: 'normal', render: (invoice) => invoice.port_call?.ship?.name || '—' },
-        { key: 'due_date', header: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
+        { key: 'due_date', header: 'Jatuh Tempo', wrap: 'normal', render: (invoice) => <div><p>{formatDate(invoice.due_date)}</p>{invoice.due_state === 'due_soon' && <p className="mt-1 text-[11px] font-bold text-amber-700">{invoice.days_until_due === 0 ? 'Hari ini' : `H-${invoice.days_until_due}`}</p>}{invoice.due_state === 'overdue' && <p className="mt-1 text-[11px] font-bold text-rose-600">Lewat {Math.abs(invoice.days_until_due || 0)} hari</p>}</div> },
         { key: 'grand_total', header: 'Total Tagihan', align: 'right', render: (invoice) => formatRupiah(invoice.grand_total) },
         { key: 'outstanding_amount', header: 'Sisa Piutang', align: 'right', render: (invoice) => <span className="font-bold text-rose-600">{formatRupiah(invoice.outstanding_amount)}</span> },
         { key: 'actions', header: 'Aksi', align: 'right', render: (invoice) => abilities.manage ? <Button size="sm" onClick={() => openReceiptForInvoice(invoice)}>Catat Bayar</Button> : '—' },
@@ -254,7 +256,7 @@ export default function ReceivablesIndex({
                         type="text"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Cari nomor faktur invoice, nama klien, atau referensi bank..."
+                        placeholder="Cari nomor faktur invoice, nama klien, atau referensi bank…"
                         className={
                             'w-full pl-10 pr-24 h-11 bg-white border border-[#DCEAF8] ' +
                             'rounded-xl text-sm text-[#0B1F63] placeholder-[#8C9BB9] shadow-xs ' +
@@ -284,7 +286,7 @@ export default function ReceivablesIndex({
                             subtitleRender: (invoice) => `${invoice.company?.name || 'Klien'} · ${invoice.port_call?.ship?.name || '—'}`,
                             statusRender: (invoice) => <StatusBadge status="Jatuh Tempo" label="Belum Lunas" />,
                             fields: [
-                                { label: 'Kategori', render: (invoice) => invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimburse' },
+                                { label: 'Kategori', render: (invoice) => invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement' },
                                 { label: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
                                 { label: 'Total', render: (invoice) => formatRupiah(invoice.grand_total) },
                                 { label: 'Sisa Piutang', render: (invoice) => <span className="text-rose-600">{formatRupiah(invoice.outstanding_amount)}</span> },
@@ -345,7 +347,7 @@ export default function ReceivablesIndex({
                             disabled={processing}
                             className="bg-[#0060F4] text-white"
                         >
-                            {processing ? 'Menyimpan...' : 'Simpan Penerimaan'}
+                            {processing ? 'Menyimpan…' : 'Simpan Penerimaan'}
                         </Button>
                     </div>
                 </form>

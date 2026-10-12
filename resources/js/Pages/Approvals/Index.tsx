@@ -1,21 +1,45 @@
 import React, { useMemo, useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowRight, Banknote, Check, FileCheck2, Search, X } from 'lucide-react';
+import {
+    ArrowRight,
+    Banknote,
+    Building2,
+    Check,
+    CheckCircle2,
+    Clock3,
+    ExternalLink,
+    FileCheck2,
+    FileText,
+    Files,
+    Layers3,
+    MapPin,
+    Search,
+    X,
+} from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
+import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Table, { Column } from '../../Components/tables/Table';
 import TableMobile from '../../Components/tables/TableMobile';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
 import Tabs from '../../Components/ui/Tabs';
+import Button from '../../Components/ui/Button';
 import ShipImage from '../../Components/vessels/ShipImage';
 
 interface RequestItem {
     id: string;
+    item_name?: string;
     quantity: number | string;
     hpp_price?: number | string;
-    selling_price?: number | string;
     status: string;
     director_status?: string;
+    vendor?: { name: string };
+    attachment_url?: string | null;
+    attachment_is_image?: boolean;
+    supplier_invoice_number?: string | null;
+    supplier_invoice_url?: string | null;
+    supplier_invoice_is_image?: boolean;
 }
 
 interface ShipRequest {
@@ -58,9 +82,11 @@ interface ApprovalRow {
     portName: string;
     requests: ShipRequest[];
     itemCount: number;
+    evidenceCount: number;
     pendingCount: number;
+    pendingEvidenceCount: number;
+    pendingHpp: number;
     totalHpp: number;
-    totalSelling: number;
     status: string;
     updatedAt: string;
     isNew: boolean;
@@ -72,6 +98,15 @@ interface ApprovalsIndexProps {
     counts: { semua?: number; menunggu: number; disetujui: number; ditolak: number };
     activeTab: string;
     search: string;
+    date: string;
+    dailySummary: {
+        date: string;
+        ship_count: number;
+        request_count: number;
+        item_count: number;
+        total_hpp: number;
+        approved_hpp: number;
+    };
     capabilities?: {
         can_decide_items: boolean;
         can_view_hpp: boolean;
@@ -107,17 +142,29 @@ const formatDate = (value?: string): string => {
 
 const normalized = (value?: string): string => (value || '').trim().toLowerCase();
 
+const isPendingDirectorItem = (item: RequestItem): boolean =>
+    normalized(item.status) === 'diajukan_ke_direktur' &&
+    (!item.director_status || item.director_status === 'pending');
+
+const itemHppTotal = (item: RequestItem): number =>
+    Number(item.hpp_price || 0) * Number(item.quantity || 0);
+
 export default function ApprovalsIndex({
     requests,
     payments,
     counts,
     activeTab,
     search: initialSearch,
+    date,
+    dailySummary,
     capabilities = DEFAULT_CAPABILITIES,
 }: ApprovalsIndexProps) {
     const [search, setSearch] = useState(initialSearch);
     const [section, setSection] = useState<'requests' | 'payments'>('requests');
     const [verifyingId, setVerifyingId] = useState<string | null>(null);
+    const [approvalTarget, setApprovalTarget] = useState<ApprovalRow | null>(null);
+    const [selectedApprovalRequestIds, setSelectedApprovalRequestIds] = useState<string[]>([]);
+    const [approvingJobKey, setApprovingJobKey] = useState<string | null>(null);
 
     const requestNeedsAction = (request: ShipRequest): boolean => {
         const status = normalized(request.status);
@@ -145,18 +192,14 @@ export default function ApprovalsIndex({
         requests.forEach((request) => {
             const key = request.port_call?.id || request.port_call?.job_number || request.id;
             const items = request.items || [];
-            const hpp = items.reduce(
-                (total, item) => total + Number(item.hpp_price || 0) * Number(item.quantity || 0),
-                0
-            );
-            const selling = items.reduce(
-                (total, item) =>
-                    total + Number(item.selling_price || 0) * Number(item.quantity || 0),
-                0
-            );
-            const pending = items.filter(
-                (item) => !item.director_status || item.director_status === 'pending'
+            const hpp = items.reduce((total, item) => total + itemHppTotal(item), 0);
+            const pendingItems = items.filter(isPendingDirectorItem);
+            const pending = pendingItems.length;
+            const pendingEvidenceCount = pendingItems.filter(
+                (item) => item.attachment_url || item.supplier_invoice_url
             ).length;
+            const pendingHpp = pendingItems.reduce((total, item) => total + itemHppTotal(item), 0);
+            const evidenceCount = items.filter((item) => item.attachment_url || item.supplier_invoice_url).length;
             const existing = groups.get(key);
 
             if (!existing) {
@@ -173,9 +216,11 @@ export default function ApprovalsIndex({
                     portName: request.port_call?.port?.name || request.port?.name || '-',
                     requests: [request],
                     itemCount: items.length,
+                    evidenceCount,
                     pendingCount: pending,
+                    pendingEvidenceCount,
+                    pendingHpp,
                     totalHpp: hpp,
-                    totalSelling: selling,
                     status: request.status,
                     updatedAt: request.created_at || request.request_date,
                     isNew: requestNeedsAction(request),
@@ -185,9 +230,11 @@ export default function ApprovalsIndex({
 
             existing.requests.push(request);
             existing.itemCount += items.length;
+            existing.evidenceCount += evidenceCount;
             existing.pendingCount += pending;
+            existing.pendingEvidenceCount += pendingEvidenceCount;
+            existing.pendingHpp += pendingHpp;
             existing.totalHpp += hpp;
-            existing.totalSelling += selling;
             existing.isNew = existing.isNew || requestNeedsAction(request);
             if (
                 new Date(request.created_at).getTime() > new Date(existing.updatedAt).getTime()
@@ -197,11 +244,15 @@ export default function ApprovalsIndex({
             }
         });
 
-        return Array.from(groups.values()).sort((a, b) => {
+        const sortedRows = Array.from(groups.values()).sort((a, b) => {
             if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
             return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
         });
-    }, [requests, capabilities]);
+
+        return activeTab === 'menunggu'
+            ? sortedRows.filter((row) => row.pendingCount > 0)
+            : sortedRows;
+    }, [requests, capabilities, activeTab]);
 
     const paymentRows = useMemo(
         () =>
@@ -212,108 +263,6 @@ export default function ApprovalsIndex({
                 return new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
             }),
         [payments, capabilities.can_decide_items]
-    );
-
-    const approvalColumns = useMemo<Column<ApprovalRow>[]>(
-        () => [
-            {
-                key: 'job',
-                header: 'Job / Kapal',
-                width: '260px',
-                render: (row) => (
-                    <div className="flex min-w-0 items-center gap-2.5">
-                        <ShipImage src={row.shipImage} alt={`Foto ${row.shipName}`} width={44} height={44} loading="lazy" className="size-11 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" />
-                        <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="break-all font-mono font-bold text-[#0060F4]">{row.jobNumber}</span>
-                                {row.isNew && (
-                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                        Baru
-                                    </span>
-                                )}
-                            </div>
-                            <p className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                {row.shipName}
-                            </p>
-                        </div>
-                    </div>
-                ),
-            },
-            {
-                key: 'company',
-                header: 'Klien / Pelabuhan',
-                width: '230px',
-                render: (row) => (
-                    <div className="space-y-1">
-                        <p className="font-semibold">{row.companyName}</p>
-                        <p className="text-[#52658E] dark:text-[#94A3B8]">{row.portName}</p>
-                    </div>
-                ),
-            },
-            {
-                key: 'items',
-                header: 'Rincian',
-                width: '150px',
-                render: (row) => (
-                    <div className="whitespace-nowrap">
-                        <strong>{row.requests.length}</strong> surat · <strong>{row.itemCount}</strong>{' '}
-                        item
-                        {row.pendingCount > 0 && (
-                            <p className="mt-1 text-[11px] font-semibold text-[#A65300]">
-                                {row.pendingCount} menunggu
-                            </p>
-                        )}
-                    </div>
-                ),
-            },
-            {
-                key: 'value',
-                header: capabilities.can_view_hpp ? 'HPP / Jual' : 'Nilai',
-                align: 'right',
-                width: '190px',
-                render: (row) => (
-                    <div className="whitespace-nowrap font-mono tabular-nums">
-                        {capabilities.can_view_hpp && (
-                            <p className="text-[#52658E]">{formatCurrency(row.totalHpp)}</p>
-                        )}
-                        <p className="font-bold">{formatCurrency(row.totalSelling)}</p>
-                    </div>
-                ),
-            },
-            {
-                key: 'status',
-                header: 'Status',
-                width: '180px',
-                render: (row) => (
-                    <StatusBadge status={row.status} label={row.status} size="sm" showDot />
-                ),
-            },
-            {
-                key: 'updated',
-                header: 'Diperbarui',
-                width: '130px',
-                render: (row) => (
-                    <span className="whitespace-nowrap text-[#52658E]">
-                        {formatDate(row.updatedAt)}
-                    </span>
-                ),
-            },
-            {
-                key: 'action',
-                header: 'Aksi',
-                align: 'right',
-                width: '110px',
-                render: (row) => (
-                    <Link
-                        href={route('approvals.detail', row.jobNumber)}
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] bg-white px-3 font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
-                    >
-                        Buka <ArrowRight aria-hidden="true" className="size-3.5" />
-                    </Link>
-                ),
-            },
-        ],
-        [capabilities.can_view_hpp]
     );
 
     const paymentColumns = useMemo<Column<OutgoingPayment>[]>(
@@ -435,8 +384,291 @@ export default function ApprovalsIndex({
         [capabilities.can_decide_items, verifyingId]
     );
 
-    const visit = (tab = activeTab, query = search): void => {
-        router.get('/approvals', { tab, search: query || undefined }, { preserveState: true });
+    const visit = (tab = activeTab, query = search, selectedDate = date): void => {
+        router.get('/approvals', { tab, search: query || undefined, date: selectedDate || undefined }, { preserveState: true });
+    };
+
+    const approvalTargetRequests = useMemo(
+        () => approvalTarget?.requests.filter((shipRequest) =>
+            (shipRequest.items || []).some(isPendingDirectorItem)
+        ) || [],
+        [approvalTarget]
+    );
+    const selectedApprovalItems = useMemo(() => {
+        const selectedRequestIds = new Set(selectedApprovalRequestIds);
+
+        return approvalTargetRequests.flatMap((shipRequest) =>
+            selectedRequestIds.has(shipRequest.id)
+                ? (shipRequest.items || []).filter(isPendingDirectorItem)
+                : []
+        );
+    }, [approvalTargetRequests, selectedApprovalRequestIds]);
+    const selectedApprovalHpp = useMemo(
+        () => selectedApprovalItems.reduce((total, item) => total + itemHppTotal(item), 0),
+        [selectedApprovalItems]
+    );
+
+    const openApprovalSelection = (row: ApprovalRow): void => {
+        setSelectedApprovalRequestIds([]);
+        setApprovalTarget(row);
+    };
+
+    const toggleApprovalRequest = (requestId: string): void => {
+        setSelectedApprovalRequestIds((current) =>
+            current.includes(requestId)
+                ? current.filter((id) => id !== requestId)
+                : [...current, requestId]
+        );
+    };
+
+    const toggleAllApprovalRequests = (): void => {
+        const actionableRequestIds = approvalTargetRequests.map((shipRequest) => shipRequest.id);
+        const allSelected = actionableRequestIds.length > 0
+            && actionableRequestIds.every((id) => selectedApprovalRequestIds.includes(id));
+
+        setSelectedApprovalRequestIds(allSelected ? [] : actionableRequestIds);
+    };
+
+    const approveSelectedRequestsForJob = (): void => {
+        if (!approvalTarget || selectedApprovalRequestIds.length === 0) return;
+
+        const selectedRequestIds = new Set(selectedApprovalRequestIds);
+        const pendingItems = approvalTargetRequests.flatMap((shipRequest) =>
+            (shipRequest.items || []).filter(isPendingDirectorItem).map((item) => ({
+                item,
+                isSelected: selectedRequestIds.has(shipRequest.id),
+            }))
+        );
+
+        if (pendingItems.length === 0) {
+            setApprovalTarget(null);
+            setSelectedApprovalRequestIds([]);
+            return;
+        }
+
+        setApprovingJobKey(approvalTarget.key);
+        router.post(
+            route('approvals.requests.batch-item-decision'),
+            {
+                decisions: pendingItems.map(({ item, isSelected }) => ({
+                    item_id: item.id,
+                    status: isSelected ? 'approved' : 'pending',
+                    director_notes: isSelected
+                        ? null
+                        : 'Belum dipilih Direktur. Silakan ajukan ulang setelah ditinjau Admin.',
+                })),
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setApprovalTarget(null);
+                    setSelectedApprovalRequestIds([]);
+                },
+                onFinish: () => setApprovingJobKey(null),
+            }
+        );
+    };
+
+    const queueSummary = useMemo(() => {
+        const pendingRows = approvalRows.filter((row) => row.pendingCount > 0);
+
+        return {
+            jobCount: pendingRows.length,
+            requestCount: pendingRows.reduce(
+                (total, row) => total + row.requests.filter((request) =>
+                    (request.items || []).some(isPendingDirectorItem)
+                ).length,
+                0
+            ),
+            itemCount: pendingRows.reduce((total, row) => total + row.pendingCount, 0),
+            totalHpp: pendingRows.reduce((total, row) => total + row.pendingHpp, 0),
+        };
+    }, [approvalRows]);
+
+    const renderApprovalCard = (row: ApprovalRow) => {
+        const isWaitingView = activeTab === 'menunggu';
+        const actionableRequests = row.requests.filter((request) =>
+            (request.items || []).some(isPendingDirectorItem)
+        );
+        const displayedRequests = isWaitingView && actionableRequests.length > 0
+            ? actionableRequests
+            : row.requests;
+        const displayedItemCount = isWaitingView ? row.pendingCount : row.itemCount;
+        const displayedEvidenceCount = isWaitingView ? row.pendingEvidenceCount : row.evidenceCount;
+        const displayedHpp = isWaitingView && row.pendingCount > 0 ? row.pendingHpp : row.totalHpp;
+
+        return (
+            <Card
+                key={row.key}
+                role="article"
+                overflow="hidden"
+                className={`flex h-full flex-col ${
+                    row.isNew
+                        ? 'border-l-4 border-l-[#0060F4] ring-1 ring-[#0060F4]/10 dark:border-l-[#38BDF8]'
+                        : ''
+                }`}
+            >
+                <div className="flex items-start justify-between gap-3 border-b border-[#DCEAF8] bg-[#F8FBFF] p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                    <div className="flex min-w-0 items-start gap-3">
+                        <ShipImage
+                            src={row.shipImage}
+                            alt={`Foto ${row.shipName}`}
+                            width={56}
+                            height={56}
+                            loading="lazy"
+                            className="size-14 shrink-0 rounded-xl object-cover"
+                            placeholderIconClassName="size-5"
+                        />
+                        <div className="min-w-0">
+                            <p className="break-all font-mono text-xs font-extrabold text-[#0060F4]">
+                                {row.jobNumber}
+                            </p>
+                            <h3 className="mt-1 break-words text-base font-extrabold leading-tight text-[#0B1F63] dark:text-white">
+                                {row.shipName}
+                            </h3>
+                            <p className="mt-1 flex items-start gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                <MapPin aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-[#0060F4]" />
+                                <span>{row.portName}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                        {row.isNew && (
+                            <span className="rounded-full bg-[#0060F4] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                                Perlu Ditinjau
+                            </span>
+                        )}
+                        <StatusBadge status={row.status} label={row.status} size="sm" showDot />
+                    </div>
+                </div>
+
+                <div className="flex flex-1 flex-col gap-4 p-4">
+                    <div className="flex items-start gap-2.5 text-sm text-[#0B1F63] dark:text-[#F1F5F9]">
+                        <Building2 aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#0060F4]" />
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                Klien
+                            </p>
+                            <p className="break-words font-bold">{row.companyName}</p>
+                        </div>
+                    </div>
+
+                    <dl className="grid grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                            <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                <Files aria-hidden="true" className="size-3" /> Surat
+                            </dt>
+                            <dd className="mt-1 text-lg font-extrabold text-[#0B1F63] dark:text-white">
+                                {displayedRequests.length}
+                            </dd>
+                        </div>
+                        <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-2.5 dark:border-[#285585] dark:bg-[#102B4A]">
+                            <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                <Layers3 aria-hidden="true" className="size-3" />
+                                {isWaitingView ? 'Ditinjau' : 'Item'}
+                            </dt>
+                            <dd className="mt-1 text-lg font-extrabold text-[#0060F4] dark:text-[#60A5FA]">
+                                {displayedItemCount}
+                            </dd>
+                        </div>
+                        <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                            <dt className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                <FileCheck2 aria-hidden="true" className="size-3" /> Bukti
+                            </dt>
+                            <dd className="mt-1 text-lg font-extrabold text-[#0B1F63] dark:text-white">
+                                {displayedEvidenceCount}
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <section className="flex-1" aria-label={`Rincian pengajuan ${row.jobNumber}`}>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                            <h4 className="text-xs font-extrabold text-[#0B1F63] dark:text-white">
+                                Rincian per REQ
+                            </h4>
+                            {displayedRequests.length > 1 && (
+                                <span className="rounded-full bg-[#E0F0FF] px-2 py-0.5 text-[10px] font-bold text-[#0060F4] dark:bg-[#0060F4]/20 dark:text-[#60A5FA]">
+                                    Dikirim sekaligus
+                                </span>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            {displayedRequests.map((shipRequest) => {
+                                const requestItems = shipRequest.items || [];
+                                const pendingItems = requestItems.filter(isPendingDirectorItem);
+                                const requestItemCount = isWaitingView ? pendingItems.length : requestItems.length;
+                                const requestHpp = (isWaitingView && pendingItems.length > 0
+                                    ? pendingItems
+                                    : requestItems
+                                ).reduce((total, item) => total + itemHppTotal(item), 0);
+
+                                return (
+                                    <div
+                                        key={shipRequest.id}
+                                        className="flex flex-col gap-1 rounded-xl border border-[#DCEAF8] px-3 py-2.5 dark:border-[#1E3A5F] sm:flex-row sm:items-center sm:justify-between"
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="break-all font-mono text-xs font-bold text-[#0060F4]">
+                                                {shipRequest.request_number}
+                                            </p>
+                                            <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                {requestItemCount} item {isWaitingView ? 'menunggu keputusan' : 'dalam pengajuan'}
+                                            </p>
+                                        </div>
+                                        <p className="shrink-0 font-mono text-xs font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                            {formatCurrency(requestHpp)}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </section>
+                </div>
+
+                <div className="border-t border-[#DCEAF8] bg-[#F8FBFF] p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                {isWaitingView ? 'HPP yang perlu diputuskan' : 'Total HPP'}
+                            </p>
+                            <p className="mt-0.5 font-mono text-lg font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                {formatCurrency(displayedHpp)}
+                            </p>
+                            <p className="mt-1 flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                <Clock3 aria-hidden="true" className="size-3" /> Diperbarui {formatDate(row.updatedAt)}
+                            </p>
+                        </div>
+                        <div className="grid shrink-0 gap-2 sm:grid-cols-2">
+                            {isWaitingView && capabilities.can_decide_items && row.pendingCount > 0 && (
+                                <Button
+                                    type="button"
+                                    size="md"
+                                    leftIcon={<CheckCircle2 aria-hidden="true" className="size-4" />}
+                                    disabled={approvingJobKey !== null}
+                                    onClick={() => openApprovalSelection(row)}
+                                    className="min-h-11 bg-emerald-600 px-4 font-bold text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+                                >
+                                    Pilih &amp; Setujui
+                                </Button>
+                            )}
+                            <Link
+                                href={route('approvals.detail', row.jobNumber)}
+                                prefetch
+                                aria-label={`${row.pendingCount > 0 ? 'Tinjau' : 'Buka'} persetujuan ${row.jobNumber}`}
+                                className={`inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
+                                    isWaitingView && capabilities.can_decide_items && row.pendingCount > 0
+                                        ? 'border border-[#BCE0FD] bg-white text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#285585] dark:bg-[#0C1D36] dark:hover:bg-[#102B4A]'
+                                        : 'bg-[#0060F4] text-white shadow-sm hover:bg-[#0050D0]'
+                                }`}
+                            >
+                                {row.pendingCount > 0 ? `Tinjau ${row.pendingCount} Item` : 'Lihat Detail'}
+                                <ArrowRight aria-hidden="true" className="size-4" />
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            </Card>
+        );
     };
 
     return (
@@ -466,6 +698,63 @@ export default function ApprovalsIndex({
                     equalWidth
                     className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
                 />
+
+                {section === 'requests' && activeTab === 'menunggu' && (
+                    <section
+                        className="overflow-hidden rounded-2xl border border-[#0060F4]/30 bg-linear-to-br from-[#E0F0FF] via-white to-[#F0F8FF] shadow-[0_10px_30px_rgba(0,96,244,0.08)] dark:border-[#285585] dark:from-[#102B4A] dark:via-[#0C1D36] dark:to-[#071322]"
+                        aria-labelledby="approval-queue-heading"
+                    >
+                        <div className="flex flex-col gap-3 border-b border-[#BCE0FD] p-4 dark:border-[#285585] sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h2 id="approval-queue-heading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                        Antrean Keputusan Direktur
+                                    </h2>
+                                    <span className="rounded-full bg-[#0060F4] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                                        {queueSummary.jobCount} Job
+                                    </span>
+                                </div>
+                                <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[#52658E] dark:text-[#B5C8DC]">
+                                    Pengajuan yang dikirim bersamaan dikelompokkan per job. Rincian setiap REQ tetap dipisahkan agar keputusan mudah diperiksa.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 rounded-xl border border-[#BCE0FD] bg-white px-3 py-2 text-xs font-bold text-[#0060F4] dark:border-[#285585] dark:bg-[#071322] dark:text-[#60A5FA]">
+                                <Layers3 aria-hidden="true" className="size-4" />
+                                {queueSummary.itemCount} item menunggu
+                            </div>
+                        </div>
+
+                        <dl className="grid grid-cols-2 gap-px bg-[#BCE0FD] dark:bg-[#285585] sm:grid-cols-4">
+                            {[
+                                ['Job Aktif', queueSummary.jobCount],
+                                ['Surat Pengajuan', queueSummary.requestCount],
+                                ['Item Ditinjau', queueSummary.itemCount],
+                                ['Total HPP Ditinjau', formatCurrency(queueSummary.totalHpp)],
+                            ].map(([label, value]) => (
+                                <div key={String(label)} className="bg-white/90 p-3.5 dark:bg-[#0C1D36]/95">
+                                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                        {label}
+                                    </dt>
+                                    <dd className="mt-1 break-words font-mono text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                        {value}
+                                    </dd>
+                                </div>
+                            ))}
+                        </dl>
+                    </section>
+                )}
+
+                {section === 'requests' && (
+                    <section className="rounded-2xl border border-[#B9D9FF] bg-[#F0F8FF] p-3 dark:border-[#285585] dark:bg-[#102B4A]" aria-label="Rekap pengajuan harian">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div><h2 className="text-sm font-extrabold text-[#0B1F63] dark:text-white">Rekap Harian Semua Kapal</h2><p className="mt-0.5 text-xs text-[#52658E] dark:text-[#94A3B8]">Ringkasan biaya pengajuan pada tanggal yang sama.</p></div>
+                            <label className="text-xs font-bold text-[#0B1F63] dark:text-white">Tanggal rekap<input name="date" autoComplete="off" type="date" value={date || dailySummary.date} onChange={(event) => visit(activeTab, search, event.target.value)} className="mt-1 block h-11 rounded-xl border border-[#DCEAF8] bg-white px-3 text-sm focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]" /></label>
+                        </div>
+                        <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                            {[['Kapal', dailySummary.ship_count], ['Pengajuan', dailySummary.request_count], ['Item', dailySummary.item_count], ['Total HPP', formatCurrency(dailySummary.total_hpp)], ['HPP Disetujui', formatCurrency(dailySummary.approved_hpp)]].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]"><dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E]">{label}</dt><dd className="mt-1 break-words font-bold tabular-nums text-[#0B1F63] dark:text-white">{value}</dd></div>)}
+                        </dl>
+                    </section>
+                )}
 
                 <section className="space-y-3" aria-label="Filter persetujuan">
                     <form
@@ -518,48 +807,37 @@ export default function ApprovalsIndex({
                 </section>
 
                 {section === 'requests' ? (
-                    <>
-                        <div className="hidden md:block">
-                            <Table
-                                columns={approvalColumns}
-                                data={approvalRows}
-                                keyExtractor={(row) => row.key}
-                                compact
-                                minWidth="1190px"
-                                emptyIcon={<FileCheck2 aria-hidden="true" className="mx-auto size-7" />}
-                                emptyMessage="Data Tidak Ditemukan"
-                                rowClassName={(row) => row.isNew ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]' : ''}
-                            />
+                    <section className="space-y-3" aria-labelledby="approval-list-heading">
+                        <div className="flex items-end justify-between gap-3">
+                            <div>
+                                <h2 id="approval-list-heading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                    Pengajuan per Job
+                                </h2>
+                                <p className="mt-0.5 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                    Setiap kartu merangkum seluruh REQ dalam satu kegiatan kapal.
+                                </p>
+                            </div>
+                            <span className="shrink-0 text-xs font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                {approvalRows.length} job
+                            </span>
                         </div>
-                        <TableMobile
-                            className="md:hidden"
-                            data={approvalRows}
-                            keyExtractor={(row) => row.key}
-                            titleRender={(row) => row.shipName}
-                            subtitleRender={(row) => row.jobNumber}
-                            imageRender={(row) => <ShipImage src={row.shipImage} alt={`Foto ${row.shipName}`} width={52} height={52} loading="lazy" className="size-[52px] rounded-xl object-cover" placeholderIconClassName="size-5" />}
-                            statusRender={(row) => (
-                                <div className="flex flex-col items-end gap-1">
-                                    {row.isNew && <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">Baru</span>}
-                                    <StatusBadge status={row.status} label={row.status} size="sm" />
-                                </div>
-                            )}
-                            fields={[
-                                { label: 'Klien', render: (row) => row.companyName },
-                                { label: 'Pelabuhan', render: (row) => row.portName },
-                                { label: 'Rincian', render: (row) => `${row.requests.length} surat · ${row.itemCount} item` },
-                                { label: 'Nilai jual', render: (row) => <span className="tabular-nums">{formatCurrency(row.totalSelling)}</span> },
-                                { label: 'Diperbarui', fullWidth: true, render: (row) => formatDate(row.updatedAt) },
-                            ]}
-                            actionsRender={(row) => (
-                                <Link href={route('approvals.detail', row.jobNumber)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">
-                                    Buka Persetujuan <ArrowRight aria-hidden="true" className="size-4" />
-                                </Link>
-                            )}
-                            emptyIcon={<FileCheck2 aria-hidden="true" className="mx-auto size-7" />}
-                            emptyMessage="Data Tidak Ditemukan"
-                        />
-                    </>
+
+                        {approvalRows.length > 0 ? (
+                            <div className="grid items-stretch gap-4 xl:grid-cols-2">
+                                {approvalRows.map(renderApprovalCard)}
+                            </div>
+                        ) : (
+                            <Card className="p-10 text-center">
+                                <FileCheck2 aria-hidden="true" className="mx-auto size-8 text-[#8C9BB9] dark:text-[#64748B]" />
+                                <h3 className="mt-3 text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                    Tidak ada pengajuan pada antrean ini
+                                </h3>
+                                <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                    Coba pilih status lain atau ubah kata kunci pencarian.
+                                </p>
+                            </Card>
+                        )}
+                    </section>
                 ) : (
                     <>
                         <div className="hidden md:block">
@@ -588,7 +866,7 @@ export default function ApprovalsIndex({
                                 { label: 'Nominal', fullWidth: true, render: (payment) => <span className="font-bold tabular-nums">{formatCurrency(payment.amount, payment.currency || 'IDR')}</span> },
                             ]}
                             actionsRender={(payment) => capabilities.can_decide_items && payment.verification_status === 'pending' ? (
-                                <button type="button" disabled={verifyingId !== null} onClick={() => { setVerifyingId(payment.id); router.post(`/approvals/payments/${payment.id}/verify`, {}, { preserveScroll: true, onFinish: () => setVerifyingId(null) }); }} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white disabled:opacity-50">
+                                <button type="button" disabled={verifyingId !== null} onClick={() => { setVerifyingId(payment.id); router.post(`/approvals/payments/${payment.id}/verify`, {}, { preserveScroll: true, onFinish: () => setVerifyingId(null) }); }} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:cursor-not-allowed disabled:opacity-50">
                                     <Check aria-hidden="true" className="size-4" /> {verifyingId === payment.id ? 'Memproses' : 'Verifikasi'}
                                 </button>
                             ) : undefined}
@@ -602,6 +880,188 @@ export default function ApprovalsIndex({
                     “Baru” hanya tampil pada status yang membutuhkan tindakan role Anda.
                 </p>
             </div>
+
+            <ConfirmDialog
+                isOpen={approvalTarget !== null}
+                title="Pilih REQ yang Disetujui"
+                description="REQ yang tidak dipilih otomatis kembali ke Admin untuk ditinjau dan diajukan ulang."
+                confirmLabel={`Setujui ${selectedApprovalRequestIds.length} REQ (${selectedApprovalItems.length} Item)`}
+                onConfirm={approveSelectedRequestsForJob}
+                onClose={() => {
+                    if (approvingJobKey === null) {
+                        setApprovalTarget(null);
+                        setSelectedApprovalRequestIds([]);
+                    }
+                }}
+                processing={approvalTarget !== null && approvingJobKey === approvalTarget.key}
+                disabled={!approvalTarget || selectedApprovalRequestIds.length === 0}
+            >
+                {approvalTarget && (
+                    <div className="space-y-3">
+                        <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-4 dark:border-[#285585] dark:bg-[#102B4A]">
+                            <p className="break-all font-mono text-xs font-extrabold text-[#0060F4]">
+                                {approvalTarget.jobNumber}
+                            </p>
+                            <p className="mt-1 text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                {approvalTarget.shipName}
+                            </p>
+                            <dl className="mt-3 grid grid-cols-3 gap-2">
+                                <div>
+                                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                        Dipilih
+                                    </dt>
+                                    <dd className="mt-0.5 font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                        {selectedApprovalRequestIds.length} REQ
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                        Kembali
+                                    </dt>
+                                    <dd className="mt-0.5 font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                        {approvalTargetRequests.length - selectedApprovalRequestIds.length} REQ
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                        HPP Dipilih
+                                    </dt>
+                                    <dd className="mt-0.5 break-words font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                        {formatCurrency(selectedApprovalHpp)}
+                                    </dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-[#DCEAF8] bg-white px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                            <input
+                                type="checkbox"
+                                checked={approvalTargetRequests.length > 0
+                                    && approvalTargetRequests.every((shipRequest) =>
+                                        selectedApprovalRequestIds.includes(shipRequest.id)
+                                    )}
+                                onChange={toggleAllApprovalRequests}
+                                className="size-5 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
+                            />
+                            <span>
+                                <span className="block text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                    Pilih semua REQ
+                                </span>
+                                <span className="block text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                    {selectedApprovalRequestIds.length} dari {approvalTargetRequests.length} dipilih
+                                </span>
+                            </span>
+                        </label>
+
+                        <div className="max-h-64 space-y-2 overflow-y-auto pr-1" aria-label="Daftar REQ yang dapat disetujui">
+                            {approvalTargetRequests.map((shipRequest) => {
+                                const requestItems = (shipRequest.items || []).filter(isPendingDirectorItem);
+                                const requestHpp = requestItems.reduce(
+                                    (total, item) => total + itemHppTotal(item),
+                                    0
+                                );
+                                const isSelected = selectedApprovalRequestIds.includes(shipRequest.id);
+
+                                return (
+                                    <div
+                                        key={shipRequest.id}
+                                        className={`rounded-xl border px-3 py-2.5 transition-colors ${
+                                            isSelected
+                                                ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                                                : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] dark:border-[#1E3A5F] dark:bg-[#071322]'
+                                        }`}
+                                    >
+                                        <label className="flex min-h-11 cursor-pointer items-center gap-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => toggleApprovalRequest(shipRequest.id)}
+                                                aria-label={`Pilih ${shipRequest.request_number}`}
+                                                className="size-5 shrink-0 rounded border-[#B7C9DF] text-emerald-600 focus:ring-emerald-500"
+                                            />
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block break-all font-mono text-xs font-extrabold text-[#0060F4]">
+                                                    {shipRequest.request_number}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                    {requestItems.length} item menunggu keputusan
+                                                </span>
+                                            </span>
+                                            <span className="shrink-0 font-mono text-xs font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                                {formatCurrency(requestHpp)}
+                                            </span>
+                                        </label>
+
+                                        <div className="mt-2 space-y-2 border-t border-[#DCEAF8]/80 pt-2 dark:border-[#1E3A5F]/80">
+                                            {requestItems.map((item) => (
+                                                <div
+                                                    key={item.id}
+                                                    className="flex flex-col gap-2 rounded-lg bg-white/80 p-2 dark:bg-[#071322]/70 sm:flex-row sm:items-center sm:justify-between"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="break-words text-xs font-bold text-[#0B1F63] dark:text-white">
+                                                            {item.item_name || 'Item pengajuan'}
+                                                        </p>
+                                                        <p className="mt-0.5 break-words text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                                            {item.vendor?.name || 'Vendor belum ditentukan'}
+                                                            {item.supplier_invoice_number
+                                                                ? ` · ${item.supplier_invoice_number}`
+                                                                : ''}
+                                                        </p>
+                                                    </div>
+
+                                                    {item.supplier_invoice_url ? (
+                                                        <a
+                                                            href={`${item.supplier_invoice_url}?view=1`}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            aria-label={`Buka bukti invoice supplier untuk ${item.item_name || 'item pengajuan'}`}
+                                                            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#F0F8FF] px-2.5 text-[11px] font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#285585] dark:bg-[#102B4A] dark:text-[#60A5FA]"
+                                                        >
+                                                            {item.supplier_invoice_is_image ? (
+                                                                <img
+                                                                    src={`${item.supplier_invoice_url}?view=1`}
+                                                                    alt=""
+                                                                    className="size-8 rounded object-cover"
+                                                                    loading="lazy"
+                                                                />
+                                                            ) : (
+                                                                <FileText aria-hidden="true" className="size-3.5" />
+                                                            )}
+                                                            <span>{item.supplier_invoice_number || 'Buka invoice'}</span>
+                                                            <ExternalLink aria-hidden="true" className="size-3" />
+                                                        </a>
+                                                    ) : item.attachment_url ? (
+                                                        <a
+                                                            href={`${item.attachment_url}?view=1`}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            aria-label={`Buka bukti upload untuk ${item.item_name || 'item pengajuan'}`}
+                                                            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-700 hover:border-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                                                        >
+                                                            <FileText aria-hidden="true" className="size-3.5" />
+                                                            Bukti upload
+                                                            <ExternalLink aria-hidden="true" className="size-3" />
+                                                        </a>
+                                                    ) : (
+                                                        <span className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-dashed border-[#D7A334] bg-amber-50 px-2.5 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                                                            Invoice belum tersedia
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                            REQ terpilih disetujui dan HPP-nya dikunci. REQ yang tidak dipilih dikembalikan ke Admin dengan status menunggu pengajuan ulang.
+                        </p>
+                    </div>
+                )}
+            </ConfirmDialog>
         </AppLayout>
     );
 }

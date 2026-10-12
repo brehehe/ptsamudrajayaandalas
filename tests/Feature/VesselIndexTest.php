@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Invoice;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Ship;
 use App\Models\ShipCompany;
+use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\WorkOrder;
 use Illuminate\Support\Str;
@@ -70,6 +72,10 @@ test('authenticated user can view vessels index with correct props and counts', 
         ->where('vessels.0.name', 'KM Test Kapal 01')
         ->where('vessels.0.image', '/storage/sja/vessels/km-test-kapal-01.webp')
         ->where('vessels.0.status', 'Akan Datang')
+        ->where('vessels.0.total_hpp', 0)
+        ->where('vessels.0.total_invoiced', 0)
+        ->where('vessels.0.margin', 0)
+        ->where('vessels.0.margin_available', false)
         ->has('companies')
         ->has('counts', fn (Assert $counts) => $counts
             ->has('semua')
@@ -129,6 +135,59 @@ test('each visit is listed separately while the vessel remains one master record
         ->where('counts.semua', 2)
         ->where('counts.selesai', 1)
     );
+});
+
+test('vessel list exposes hpp billing and margin for every visit', function () {
+    $user = User::factory()->create();
+    $company = ShipCompany::create(['name' => 'PT Margin Kapal', 'is_active' => true]);
+    $port = Port::create(['name' => 'Pelabuhan Margin', 'code' => 'MRG', 'city' => 'Gresik', 'is_active' => true]);
+    $ship = Ship::create([
+        'name' => 'KM Margin Terlihat',
+        'ship_company_id' => $company->id,
+        'status' => 'Selesai',
+        'is_active' => true,
+    ]);
+    $portCall = createVesselIndexVisit($ship, $port, $user, ['status' => 'completed']);
+    $shipRequest = ShipRequest::create([
+        'request_number' => 'REQ-MARGIN-VESSEL-001',
+        'ship_id' => $ship->id,
+        'company_id' => $company->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $user->id,
+        'status' => 'Disetujui',
+        'request_date' => today(),
+    ]);
+    $shipRequest->items()->create([
+        'item_name' => 'Biaya Kapal',
+        'unit' => 'Paket',
+        'quantity' => 2,
+        'hpp_price' => 100000,
+        'selling_price' => 0,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    Invoice::create([
+        'invoice_number' => 'INV-MARGIN-VESSEL-001',
+        'port_call_id' => $portCall->id,
+        'company_id' => $company->id,
+        'request_id' => $shipRequest->id,
+        'invoice_type' => 'agency',
+        'invoice_date' => today(),
+        'due_date' => today()->addDays(14),
+        'subtotal' => 500000,
+        'grand_total' => 500000,
+        'outstanding_amount' => 500000,
+        'status' => 'released',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('vessels.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Vessels/Index')
+            ->where('vessels.0.total_hpp', 200000)
+            ->where('vessels.0.total_invoiced', 500000)
+            ->where('vessels.0.margin', 300000)
+            ->where('vessels.0.margin_available', true));
 });
 
 test('master vessels shows one record with its visit count', function () {
@@ -193,7 +252,10 @@ test('completed visits remain available in operational reports', function () {
         'departed_at' => now()->subDay(),
     ]);
 
-    $response = $this->actingAs($user)->get(route('reports.index'));
+    $response = $this->actingAs($user)->get(route('reports.index', [
+        'search' => 'KM Laporan Selesai',
+        'status' => 'completed',
+    ]));
 
     $response->assertInertia(fn (Assert $page) => $page
         ->component('Reports/Index')
@@ -201,6 +263,8 @@ test('completed visits remain available in operational reports', function () {
         ->where('portCalls.0.job_number', 'JOB-REPORT-001')
         ->where('portCalls.0.ship_name', 'KM Laporan Selesai')
         ->where('portCalls.0.status', 'completed')
+        ->where('filters.search', 'KM Laporan Selesai')
+        ->where('filters.status', 'completed')
     );
 });
 

@@ -25,10 +25,13 @@ class StoreInvoiceRequest extends FormRequest
         return [
             'port_call_id' => ['required', 'uuid', 'exists:port_calls,id'],
             'company_id' => ['required', 'uuid', 'exists:ship_companies,id'],
-            'request_item_ids' => ['required', 'array', 'min:1', 'max:100'],
-            'request_item_ids.*' => ['required', 'distinct:strict', 'uuid', 'exists:request_items,id'],
-            'item_prices' => ['required', 'array'],
-            'item_prices.*' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
+            'lines' => ['required', 'array', 'min:1', 'max:100'],
+            'lines.*.description' => ['required', 'string', 'max:255'],
+            'lines.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999999999.99'],
+            'lines.*.unit' => ['required', 'string', 'max:50'],
+            'lines.*.unit_price' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
+            'lines.*.source_item_ids' => ['present', 'array', 'max:100'],
+            'lines.*.source_item_ids.*' => ['required', 'uuid', 'exists:request_items,id'],
             'invoice_type' => ['required', 'in:agency,reimburse'],
             'addon_total' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'tax' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
@@ -42,12 +45,11 @@ class StoreInvoiceRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'request_item_ids.required' => 'Pilih minimal satu item kebutuhan untuk invoice.',
-            'request_item_ids.min' => 'Pilih minimal satu item kebutuhan untuk invoice.',
-            'item_prices.required' => 'Harga jual setiap item terpilih wajib diisi.',
-            'item_prices.*.required' => 'Harga jual item wajib diisi.',
-            'item_prices.*.numeric' => 'Harga jual item harus berupa angka.',
-            'item_prices.*.gt' => 'Harga jual item harus lebih dari nol.',
+            'lines.required' => 'Tambahkan minimal satu baris tagihan.',
+            'lines.min' => 'Tambahkan minimal satu baris tagihan.',
+            'lines.*.description.required' => 'Nama setiap baris tagihan wajib diisi.',
+            'lines.*.quantity.gt' => 'Kuantitas baris tagihan harus lebih dari nol.',
+            'lines.*.unit_price.gt' => 'Harga jual baris tagihan harus lebih dari nol.',
             'supporting_document.mimes' => 'Dokumen pendukung harus berupa PDF, Word, JPG, JPEG, atau PNG.',
             'supporting_document.max' => 'Ukuran dokumen pendukung maksimal 10 MB.',
         ];

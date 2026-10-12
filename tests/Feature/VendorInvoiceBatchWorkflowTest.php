@@ -59,7 +59,7 @@ function vendorWorkflowRequestItem(PortCall $portCall, User $creator, string $su
         'port_id' => $portCall->port_id,
         'port_call_id' => $portCall->id,
         'created_by' => $creator->id,
-        'status' => 'Disetujui',
+        'status' => 'Menunggu Approval',
         'request_date' => '2026-10-01',
     ]);
 
@@ -69,63 +69,102 @@ function vendorWorkflowRequestItem(PortCall $portCall, User $creator, string $su
         'unit' => 'Paket',
         'hpp_price' => $amount,
         'selling_price' => $amount * 1.2,
-        'status' => 'disetujui',
-        'director_status' => 'approved',
+        'status' => 'pending',
+        'director_status' => 'pending',
     ]);
 }
 
-test('vendor invoice is created from an approved request item and becomes payable after verification without a funding batch', function () {
+test('supplier invoice is required per item and director approval creates a verified payable vendor invoice', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
+    $director = vendorWorkflowUser('Direktur');
     $portCall = vendorWorkflowPortCall('01', $admin);
     $vendor = Vendor::create(['code' => 'VDA-01', 'name' => 'PT Vendor Air', 'is_active' => true]);
     $requestItem = vendorWorkflowRequestItem($portCall, $admin, 'INV-AIR-01', 1200000);
+    $requestItem->update([
+        'attachment_path' => UploadedFile::fake()->image('foto-kebutuhan.jpg')->store('sja/request-items', 'local'),
+    ]);
+
+    $this->actingAs($admin)->post(route('requests.forward-director', $requestItem->request_id), [
+        'selected_items' => [$requestItem->id],
+    ])->assertInvalid(['selected_items']);
+
+    $this->assertDatabaseCount('cost_documents', 0);
+
+    $this->actingAs($admin)->post(route('request-items.supplier-invoice.store', $requestItem), [
+        'vendor_id' => $vendor->id,
+        'hpp_price' => 1200000,
+        'supplier_invoice_number' => 'INV-AIR-01',
+        'supplier_invoice_date' => '2026-09-28',
+        'supplier_invoice_received_date' => '2026-10-01',
+        'supplier_invoice_due_date' => '2026-10-15',
+        'supplier_invoice_document' => UploadedFile::fake()->image('INV-AIR-01.jpg'),
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $requestItem->refresh();
+    expect($requestItem->hasCompleteSupplierInvoice())->toBeTrue();
+    Storage::disk('local')->assertExists($requestItem->supplier_invoice_path);
 
     $this->actingAs($admin)
-        ->get(route('vendor-invoices.create'))
+        ->get(route('requests.detail', $portCall->job_number))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('VendorInvoices/Create')
-            ->where('portCalls.0.id', $portCall->id)
-            ->where('portCalls.0.client_spk_number', 'SPK/KLIEN/VENDOR/01')
-            ->where('availableRequestItems.0.id', $requestItem->id)
-            ->where('vendors.0.id', $vendor->id));
+            ->component('Requests/Show')
+            ->where('requests.0.items.0.id', $requestItem->id)
+            ->where('requests.0.items.0.attachment_is_image', true)
+            ->where('requests.0.items.0.supplier_invoice_complete', true)
+            ->where('requests.0.items.0.supplier_invoice_is_image', true)
+            ->where('requests.0.items.0.supplier_invoice_number', 'INV-AIR-01'));
 
-    $this->actingAs($admin)->post(route('vendor-invoices.store'), [
-        'port_call_id' => $portCall->id,
-        'vendor_id' => $vendor->id,
-        'document_number' => 'INV-AIR-01',
-        'document_date' => '2026-09-28',
-        'received_date' => '2026-10-01',
-        'request_item_ids' => [$requestItem->id],
-        'tax_amount' => 0,
-        'document' => UploadedFile::fake()->create('INV-AIR-01.pdf', 100, 'application/pdf'),
+    $this->actingAs($admin)
+        ->get(route('requests.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Requests/Index')
+            ->where('requests.0.items.0.id', $requestItem->id)
+            ->where('requests.0.items.0.attachment_is_image', true)
+            ->where('requests.0.items.0.supplier_invoice_complete', true));
+
+    $this->actingAs($admin)->post(route('requests.forward-director', $requestItem->request_id), [
+        'selected_items' => [$requestItem->id],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+    expect($requestItem->fresh()->status)->toBe('diajukan_ke_direktur');
+
+    $this->actingAs($director)
+        ->get(route('approvals.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Index')
+            ->where('requests.0.items.0.id', $requestItem->id)
+            ->where('requests.0.items.0.attachment_is_image', true)
+            ->where('requests.0.items.0.supplier_invoice_complete', true));
+
+    $this->actingAs($director)
+        ->get(route('approvals.detail', $portCall->job_number))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Show')
+            ->where('requests.0.items.0.id', $requestItem->id)
+            ->where('requests.0.items.0.attachment_is_image', true)
+            ->where('requests.0.items.0.supplier_invoice_complete', true));
+
+    $this->actingAs($director)->post(route('approvals.requests.item-decision', $requestItem->request_id), [
+        'decisions' => [[
+            'item_id' => $requestItem->id,
+            'status' => 'approved',
+            'director_notes' => 'Biaya dan nota supplier valid.',
+        ]],
     ])->assertRedirect()->assertSessionHasNoErrors();
 
     $invoice = CostDocument::where('document_number', 'INV-AIR-01')->firstOrFail();
-    expect($invoice->items()->value('request_item_id'))->toBe($requestItem->id);
+    expect($invoice->status)->toBe('verified')
+        ->and($invoice->payment_status)->toBe('unpaid')
+        ->and($invoice->verified_by)->toBe($director->id)
+        ->and((float) $invoice->verified_total)->toBe(1200000.0)
+        ->and($invoice->items()->value('request_item_id'))->toBe($requestItem->id);
 
-    $this->actingAs($admin)->get(route('expenses.index'))
+    $this->actingAs($admin)->get(route('vendor-invoices.index'))
         ->assertInertia(fn (Assert $page) => $page
-            ->component('Expenses/Index')
-            ->has('payableVendorInvoices', 0));
-
-    $this->actingAs($admin)->post(route('expenses.store'), [
-        'cost_document_id' => $invoice->id,
-        'payment_date' => '2026-10-01',
-        'reference_number' => 'TRF-UNVERIFIED-001',
-        'amount' => 1200000,
-        'proof' => UploadedFile::fake()->image('unverified.jpg'),
-    ])->assertInvalid([
-        'cost_document_id' => 'Invoice vendor belum terverifikasi atau tidak tersedia untuk pembayaran.',
-    ]);
-
-    $this->assertDatabaseCount('outgoing_payments', 0);
-
-    $this->actingAs($admin)->post(route('vendor-invoices.verify', $invoice), [
-        'decision' => 'verify',
-        'verified_total' => 1200000,
-    ])->assertRedirect()->assertSessionHasNoErrors();
+            ->component('VendorInvoices/Index')
+            ->where('invoices.data.0.id', $invoice->id)
+            ->where('invoices.data.0.status', 'verified'));
 
     $this->actingAs($admin)->get(route('expenses.index'))
         ->assertInertia(fn (Assert $page) => $page
@@ -143,6 +182,43 @@ test('vendor invoice is created from an approved request item and becomes payabl
     ]);
 
     $this->assertDatabaseCount('expense_requests', 0);
+});
+
+test('only admin can upload a supplier invoice and its private document requires authentication', function () {
+    Storage::fake('local');
+    $admin = vendorWorkflowUser('Admin');
+    $operational = vendorWorkflowUser('Lapangan');
+    $portCall = vendorWorkflowPortCall('SECURE', $admin);
+    $vendor = Vendor::create(['code' => 'VD-SECURE', 'name' => 'PT Vendor Aman', 'is_active' => true]);
+    $requestItem = vendorWorkflowRequestItem($portCall, $admin, 'SECURE', 350000);
+
+    $payload = [
+        'vendor_id' => $vendor->id,
+        'hpp_price' => 350000,
+        'supplier_invoice_number' => 'INV-SECURE-001',
+        'supplier_invoice_date' => '2026-10-01',
+        'supplier_invoice_received_date' => '2026-10-01',
+        'supplier_invoice_document' => UploadedFile::fake()->create('INV-SECURE-001.pdf', 64, 'application/pdf'),
+    ];
+
+    $this->actingAs($operational)
+        ->post(route('request-items.supplier-invoice.store', $requestItem), $payload)
+        ->assertForbidden();
+
+    $this->assertNull($requestItem->fresh()->supplier_invoice_path);
+
+    $this->actingAs($admin)
+        ->post(route('request-items.supplier-invoice.store', $requestItem), $payload)
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    auth()->logout();
+    $this->get(route('request-items.supplier-invoice.show', $requestItem))
+        ->assertRedirect(route('login'));
+
+    $this->actingAs($admin)
+        ->get(route('request-items.supplier-invoice.show', $requestItem))
+        ->assertOk();
 });
 
 test('legacy vendor invoice batches are not shown in operational funding', function () {
@@ -193,7 +269,7 @@ test('operational users cannot record vendor invoices', function () {
     ])->assertForbidden();
 });
 
-test('an approved request item cannot be used by more than one vendor invoice', function () {
+test('a request item cannot be used by more than one vendor invoice', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
     $portCall = vendorWorkflowPortCall('UNIQUE', $admin);

@@ -43,7 +43,17 @@ class ReceivableController extends Controller
             });
         }
 
-        $unpaidInvoices = $unpaidInvoicesQuery->orderBy('due_date')->get();
+        $unpaidInvoices = $unpaidInvoicesQuery->orderBy('due_date')->get()
+            ->each(function (Invoice $invoice): void {
+                $daysUntilDue = $invoice->due_date ? today()->diffInDays($invoice->due_date, false) : null;
+                $invoice->setAttribute('days_until_due', $daysUntilDue);
+                $invoice->setAttribute('due_state', match (true) {
+                    $daysUntilDue === null => 'unknown',
+                    $daysUntilDue < 0 => 'overdue',
+                    $daysUntilDue <= 2 => 'due_soon',
+                    default => 'current',
+                });
+            });
         $receipts = $receiptsQuery->get();
 
         // Calculate Aging

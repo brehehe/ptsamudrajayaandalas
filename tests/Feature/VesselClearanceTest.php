@@ -9,6 +9,7 @@ use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Models\WorkOrder;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -48,13 +49,13 @@ function createClearancePayment(PortCall $portCall, User $verifier, array $attri
     ]);
 }
 
-test('operational staff creates a clearance in request without changing vessel status', function (string $status) {
+test('operational staff creates a clearance in labuh request without changing vessel status', function () {
     $this->freezeTime();
     $user = User::factory()->create();
     $portCall = createClearancePortCall($user);
 
     $this->actingAs($user)->patch(route('operations.port-calls.status', $portCall->id), [
-        'status' => $status,
+        'status' => 'anchored',
         'expected_status' => 'scheduled',
         'occurred_at' => now()->toIso8601String(),
     ])->assertRedirect()->assertSessionHasNoErrors()->assertSessionHas('success');
@@ -70,7 +71,7 @@ test('operational staff creates a clearance in request without changing vessel s
         'port_call_id' => $portCall->id,
         'service_type' => 'clearance_in',
         'status' => 'Menunggu Approval',
-        'requested_port_call_status' => $status,
+        'requested_port_call_status' => 'anchored',
         'operational_occurred_at' => now()->format('Y-m-d H:i:s'),
     ]);
     $clearanceRequest = ShipRequest::where('port_call_id', $portCall->id)
@@ -79,7 +80,35 @@ test('operational staff creates a clearance in request without changing vessel s
     expect((float) $clearanceRequest->items()->firstOrFail()->hpp_price)->toBe(0.0)
         ->and((float) $clearanceRequest->items()->firstOrFail()->selling_price)->toBe(0.0);
     $this->assertDatabaseHas('activity_log', ['subject_id' => $portCall->id, 'causer_id' => $user->id, 'log_name' => 'clearance']);
-})->with(['labuh' => 'anchored', 'sandar' => 'berthed']);
+});
+
+test('clearance in sandar creates tactical berthing and epb payment items only', function () {
+    $this->freezeTime();
+    $user = User::factory()->create();
+    $portCall = createClearancePortCall($user);
+
+    $this->actingAs($user)->patch(route('operations.port-calls.status', $portCall->id), [
+        'status' => 'berthed',
+        'expected_status' => 'scheduled',
+        'occurred_at' => now()->toIso8601String(),
+    ])->assertRedirect()->assertSessionHasNoErrors()->assertSessionHas('success');
+
+    $clearanceRequest = ShipRequest::query()
+        ->where('port_call_id', $portCall->id)
+        ->where('service_type', 'clearance_in')
+        ->firstOrFail();
+    $items = $clearanceRequest->items()->orderBy('created_at')->get();
+
+    expect($items)->toHaveCount(2)
+        ->and($items->pluck('selling_price')->map(fn ($price): float => (float) $price)->all())->toBe([0.0, 0.0]);
+    expect($items->pluck('item_name'))
+        ->toContain('Taktis Penyandaran')
+        ->toContain('Pembayaran EPB (Pandu Tunda)');
+    $this->assertDatabaseMissing('request_items', [
+        'request_id' => $clearanceRequest->id,
+        'item_name' => 'Clearance In (Syahbandar & Karantina)',
+    ]);
+});
 
 test('clearance in remains available before arrival regardless of work order status', function () {
     $this->freezeTime();
@@ -107,6 +136,16 @@ test('clearance in remains available before arrival regardless of work order sta
 
 test('clearance out creates one pending request without changing vessel status', function (string $status, string $shipStatus) {
     $this->freezeTime();
+    $clearanceProduct = Product::create([
+        'code' => 'PRD-CLR',
+        'name' => 'Clearance In / Out (Syahbandar & Karantina)',
+        'category' => 'Clearance',
+        'item_type' => 'jasa',
+        'unit' => 'Dokumen',
+        'hpp_default' => 2500000,
+        'selling_price_default' => 4200000,
+        'is_active' => true,
+    ]);
     $user = User::factory()->create();
     $portCall = createClearancePortCall($user, ['status' => $status, 'arrived_at' => now()->subDay()]);
     $portCall->ship()->update(['status' => $shipStatus]);
@@ -128,6 +167,16 @@ test('clearance out creates one pending request without changing vessel status',
         'status' => 'Menunggu Approval',
         'requested_port_call_status' => 'departed',
     ]);
+    $clearanceItem = ShipRequest::query()
+        ->where('port_call_id', $portCall->id)
+        ->where('service_type', 'clearance_out')
+        ->firstOrFail()
+        ->items()
+        ->firstOrFail();
+
+    expect($clearanceItem->product_id)->toBe($clearanceProduct->id)
+        ->and((float) $clearanceItem->hpp_price)->toBe(2500000.0)
+        ->and((float) $clearanceItem->selling_price)->toBe(0.0);
 
     $this->patch(route('operations.port-calls.status', $portCall->id), $payload)
         ->assertSessionHas('error');
@@ -464,6 +513,15 @@ test('clearance in changes vessel status only after director approval and admin 
     $clearanceItem = $clearanceRequest->items()->firstOrFail();
     $admin = User::factory()->create();
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+    $vendor = Vendor::create(['code' => 'VD-CLR-IN', 'name' => 'PT Vendor Clearance In', 'is_active' => true]);
+    $clearanceItem->update([
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => 'INV-CLEARANCE-IN-001',
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_path' => 'tests/inv-clearance-in.pdf',
+        'supplier_invoice_uploaded_by' => $admin->id,
+    ]);
 
     $this->actingAs($admin)
         ->post(route('requests.forward-director', $clearanceRequest->id), [

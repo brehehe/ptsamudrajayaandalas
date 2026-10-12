@@ -29,6 +29,9 @@ interface Invoice {
     delivery_proof_path?: string | null;
     supporting_document_path?: string | null;
     items_count?: number;
+    total_hpp: number;
+    margin: number;
+    margin_percentage: number;
     company?: { id: string; name: string } | null;
     port_call?: {
         job_number: string;
@@ -40,6 +43,8 @@ interface Props {
     invoices: Invoice[];
     stats: {
         total_invoiced: number;
+        total_hpp: number;
+        total_margin: number;
         total_paid: number;
         total_outstanding: number;
         count: number;
@@ -176,7 +181,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
         {
             key: 'invoice_type',
             header: 'Kategori',
-            render: (invoice) => <div className="space-y-1"><StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimburse'} /><p className="text-[10px] text-[#52658E]">{invoice.items_count || 0} item</p></div>,
+            render: (invoice) => <div className="space-y-1"><StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement'} /><p className="text-[10px] text-[#52658E]">{invoice.items_count || 0} item</p></div>,
         },
         {
             key: 'company',
@@ -189,7 +194,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
             key: 'grand_total',
             header: 'Total',
             align: 'right',
-            render: (invoice) => <div className="font-mono font-bold tabular-nums">{formatRupiah(invoice.grand_total)}{invoice.outstanding_amount > 0 && invoice.paid_amount > 0 && <p className="text-[10px] font-normal text-[#C62840]">Sisa: {formatRupiah(invoice.outstanding_amount)}</p>}</div>,
+            render: (invoice) => <div className="font-mono font-bold tabular-nums">{formatRupiah(invoice.grand_total)}<p className="text-[10px] font-normal text-[#52658E]">HPP: {formatRupiah(invoice.total_hpp)}</p><p className={`text-[10px] font-bold ${invoice.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>Margin: {formatRupiah(invoice.margin)} ({invoice.margin_percentage.toLocaleString('id-ID')}%)</p>{invoice.outstanding_amount > 0 && invoice.paid_amount > 0 && <p className="text-[10px] font-normal text-[#C62840]">Sisa: {formatRupiah(invoice.outstanding_amount)}</p>}</div>,
         },
         {
             key: 'status',
@@ -208,7 +213,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                 <div className="hidden items-end justify-between gap-4 border-b border-[#DCEAF8] pb-4 md:flex dark:border-[#1E3A5F]">
                     <div>
                         <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">Invoice & Tagihan Klien</h1>
-                        <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">Invoice Jasa Keagenan dan Reimburse berdasarkan item pengajuan yang disetujui.</p>
+                        <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">Invoice Jasa Keagenan dan Reimbursement berdasarkan item pengajuan yang disetujui.</p>
                     </div>
                     {abilities.manage && (
                         <Link href="/invoices/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35">
@@ -217,9 +222,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
                     {[
-                        ['Total Nilai Tagihan', formatRupiah(stats.total_invoiced), `${stats.agency_count} Agency · ${stats.reimburse_count} Reimburse`, 'text-[#082870] dark:text-[#F1F5F9]'],
+                        ['Total Nilai Tagihan', formatRupiah(stats.total_invoiced), `${stats.agency_count} Agency · ${stats.reimburse_count} Reimbursement`, 'text-[#082870] dark:text-[#F1F5F9]'],
+                        ['Total HPP', formatRupiah(stats.total_hpp), 'Biaya sumber seluruh invoice', 'text-[#082870] dark:text-[#F1F5F9]'],
+                        ['Total Margin', formatRupiah(stats.total_margin), 'Nilai tagihan dikurangi HPP', stats.total_margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'],
                         ['Sudah Dibayar Klien', formatRupiah(stats.total_paid), 'Penerimaan kas terkonfirmasi', 'text-[#087443]'],
                         ['Sisa Piutang Berjalan', formatRupiah(stats.total_outstanding), 'Menunggu pelunasan klien', 'text-[#C62840]'],
                     ].map(([label, value, description, color]) => (
@@ -240,7 +247,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                         items={[
                             { id: 'all', label: 'Semua Invoice', count: stats.count },
                             { id: 'agency', label: 'Jasa Keagenan', count: stats.agency_count },
-                            { id: 'reimburse', label: 'Reimburse', count: stats.reimburse_count },
+                            { id: 'reimburse', label: 'Reimbursement', count: stats.reimburse_count },
                         ]}
                     />
                     <form onSubmit={(event) => { event.preventDefault(); updateFilters({}); }} className="flex min-w-0 gap-2 lg:w-[390px]">
@@ -264,9 +271,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                         statusRender: (invoice) => <StatusBadge {...invoiceStatus(invoice)} />,
                         fields: [
                             { label: 'Job', render: (invoice) => invoice.port_call?.job_number || '—' },
-                            { label: 'Kategori', render: (invoice) => invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimburse' },
+                            { label: 'Kategori', render: (invoice) => invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement' },
                             { label: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
                             { label: 'Total', render: (invoice) => formatRupiah(invoice.grand_total) },
+                            { label: 'HPP', render: (invoice) => formatRupiah(invoice.total_hpp) },
+                            { label: 'Margin', render: (invoice) => <span className={invoice.margin >= 0 ? 'text-emerald-700' : 'text-[#C62840]'}>{formatRupiah(invoice.margin)} ({invoice.margin_percentage.toLocaleString('id-ID')}%)</span> },
                             { label: 'Sisa Piutang', fullWidth: true, render: (invoice) => formatRupiah(invoice.outstanding_amount) },
                         ],
                         actionsRender: invoiceActions,

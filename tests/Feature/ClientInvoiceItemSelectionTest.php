@@ -23,6 +23,18 @@ function clientInvoiceAdmin(): User
     return $user;
 }
 
+/** @return array{description: string, quantity: string, unit: string, unit_price: string, source_item_ids: array<int, string>} */
+function clientInvoiceLine(RequestItem $item, int $unitPrice, ?string $description = null): array
+{
+    return [
+        'description' => $description ?? $item->item_name,
+        'quantity' => (string) $item->quantity,
+        'unit' => $item->unit,
+        'unit_price' => (string) $unitPrice,
+        'source_item_ids' => [$item->id],
+    ];
+}
+
 /**
  * @return array{company: ShipCompany, portCall: PortCall, request: ShipRequest, agencyItem: RequestItem, reimburseItem: RequestItem}
  */
@@ -121,9 +133,7 @@ test('admin creates a client invoice from selected approved items and optional s
     $response = $this->actingAs($admin)->post(route('invoices.store'), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
-        'request_id' => $workflow['request']->id,
-        'request_item_ids' => [$workflow['agencyItem']->id],
-        'item_prices' => [$workflow['agencyItem']->id => 500000],
+        'lines' => [clientInvoiceLine($workflow['agencyItem'], 500000)],
         'invoice_type' => 'agency',
         'addon_total' => 10000,
         'tax' => 20000,
@@ -166,14 +176,12 @@ test('an item already used by an invoice cannot be billed twice', function () {
     $response = $this->actingAs($admin)->post(route('invoices.store'), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
-        'request_id' => $workflow['request']->id,
-        'request_item_ids' => [$workflow['agencyItem']->id],
-        'item_prices' => [$workflow['agencyItem']->id => 450000],
+        'lines' => [clientInvoiceLine($workflow['agencyItem'], 450000)],
         'invoice_type' => 'agency',
         'due_date' => now()->addDays(14)->toDateString(),
     ]);
 
-    $response->assertSessionHasErrors('request_item_ids');
+    $response->assertSessionHasErrors('lines');
     $this->assertDatabaseCount('invoices', 0);
     $this->assertDatabaseCount('invoice_items', 0);
 });
@@ -185,14 +193,12 @@ test('backend rejects selected items whose billing type does not match the invoi
     $response = $this->actingAs($admin)->post(route('invoices.store'), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
-        'request_id' => $workflow['request']->id,
-        'request_item_ids' => [$workflow['reimburseItem']->id],
-        'item_prices' => [$workflow['reimburseItem']->id => 150000],
+        'lines' => [clientInvoiceLine($workflow['reimburseItem'], 150000)],
         'invoice_type' => 'agency',
         'due_date' => now()->addDays(14)->toDateString(),
     ]);
 
-    $response->assertSessionHasErrors('request_item_ids');
+    $response->assertSessionHasErrors('lines');
     $this->assertDatabaseCount('invoices', 0);
     expect($workflow['reimburseItem']->fresh()->is_invoiced)->toBeFalse();
 });
@@ -208,13 +214,14 @@ test('admin can open create and edit pages and update a draft item final price',
             ->component('Invoices/Form')
             ->where('portCalls.0.id', $workflow['portCall']->id)
             ->where('portCalls.0.client_spk_number', 'SPK/KLIEN/INVOICE/001')
-            ->where('shipRequests.0.items.0.id', $workflow['agencyItem']->id));
+            ->where('shipRequests.0.items.0.id', $workflow['agencyItem']->id)
+            ->where('shipRequests.0.items.0.hpp_unit_price', '300000.00')
+            ->where('shipRequests.0.items.0.hpp_total', '600000'));
 
     $this->actingAs($admin)->post(route('invoices.store'), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
-        'request_item_ids' => [$workflow['agencyItem']->id],
-        'item_prices' => [$workflow['agencyItem']->id => 450000],
+        'lines' => [clientInvoiceLine($workflow['agencyItem'], 450000)],
         'invoice_type' => 'agency',
         'due_date' => now()->addDays(14)->toDateString(),
     ])->assertSessionHasNoErrors();
@@ -222,18 +229,29 @@ test('admin can open create and edit pages and update a draft item final price',
     $invoice = Invoice::query()->sole();
 
     $this->actingAs($admin)
+        ->get(route('invoices.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Invoices/Index')
+            ->where('invoices.0.total_hpp', 600000)
+            ->where('invoices.0.margin', 300000)
+            ->where('stats.total_hpp', 600000)
+            ->where('stats.total_margin', 300000));
+
+    $this->actingAs($admin)
         ->get(route('invoices.edit', $invoice))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Invoices/Form')
             ->where('invoice.id', $invoice->id)
-            ->where("invoice.item_prices.{$workflow['agencyItem']->id}", '450000.00'));
+            ->where('invoice.lines.0.description', 'Jasa Keagenan Kapal')
+            ->where('invoice.lines.0.unit_price', '450000.00')
+            ->where('invoice.lines.0.source_item_ids.0', $workflow['agencyItem']->id));
 
     $this->actingAs($admin)->patch(route('invoices.update', $invoice), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
-        'request_item_ids' => [$workflow['agencyItem']->id],
-        'item_prices' => [$workflow['agencyItem']->id => 525000],
+        'lines' => [clientInvoiceLine($workflow['agencyItem'], 525000, 'Jasa Keagenan dan Clearance')],
         'invoice_type' => 'agency',
         'addon_total' => 0,
         'tax' => 0,
@@ -274,10 +292,9 @@ test('one client invoice can select approved items from multiple requests on the
     $this->actingAs($admin)->post(route('invoices.store'), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
-        'request_item_ids' => [$workflow['agencyItem']->id, $secondItem->id],
-        'item_prices' => [
-            $workflow['agencyItem']->id => 450000,
-            $secondItem->id => 350000,
+        'lines' => [
+            clientInvoiceLine($workflow['agencyItem'], 450000),
+            clientInvoiceLine($secondItem, 350000),
         ],
         'invoice_type' => 'agency',
         'due_date' => now()->addDays(14)->toDateString(),

@@ -37,8 +37,8 @@ class PortCall extends Model
     protected function casts(): array
     {
         return [
-            'eta_at' => 'datetime',
-            'etd_at' => 'datetime',
+            'eta_at' => 'date',
+            'etd_at' => 'date',
             'arrived_at' => 'datetime',
             'berthed_at' => 'datetime',
             'departed_at' => 'datetime',

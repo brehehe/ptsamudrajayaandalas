@@ -8,6 +8,14 @@ use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 
+function requestDetailUser(): User
+{
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+
+    return $user;
+}
+
 test('guests must sign in before viewing a request detail', function () {
     $user = User::factory()->create();
     $ship = Ship::create([
@@ -28,7 +36,7 @@ test('guests must sign in before viewing a request detail', function () {
 });
 
 test('authenticated users can view a request on its dedicated detail page', function () {
-    $user = User::factory()->create();
+    $user = requestDetailUser();
     $ship = Ship::create([
         'name' => 'MT Halaman Detail',
         'imo_number' => 'IMO1234567',
@@ -67,7 +75,7 @@ test('authenticated users can view a request on its dedicated detail page', func
 });
 
 test('authenticated users can view request detail by port call job number or id', function () {
-    $user = User::factory()->create();
+    $user = requestDetailUser();
     $ship = Ship::create([
         'name' => 'KM Job Test',
         'imo_number' => 'IMO7654321',
@@ -130,7 +138,7 @@ test('completed job detail does not offer another request', function () {
 });
 
 test('request detail lists the newest request first', function () {
-    $user = User::factory()->create();
+    $user = requestDetailUser();
     $ship = Ship::create([
         'name' => 'KM Urutan Pengajuan',
         'status' => 'Akan Datang',

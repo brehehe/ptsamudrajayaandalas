@@ -6,6 +6,7 @@ use App\Http\Requests\StoreInvoiceRequest;
 use App\Http\Requests\UpdateInvoiceRequest;
 use App\Http\Requests\UpdateInvoiceWorkflowRequest;
 use App\Models\Invoice;
+use App\Models\InvoiceItemSource;
 use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\ShipCompany;
@@ -41,7 +42,12 @@ class InvoiceController extends Controller
         $search = $validated['search'] ?? null;
 
         $query = Invoice::query()
-            ->with(['portCall.ship:id,name,imo_number', 'company:id,name', 'request:id,request_number'])
+            ->with([
+                'portCall.ship:id,name,imo_number',
+                'company:id,name',
+                'request:id,request_number',
+                'items.sources:id,invoice_item_id,source_cost',
+            ])
             ->withCount('items');
 
         if ($type !== 'all') {
@@ -61,10 +67,30 @@ class InvoiceController extends Controller
             });
         }
 
-        $invoices = $query->orderByDesc('invoice_date')->get();
+        $invoices = $query->orderByDesc('invoice_date')->get()
+            ->each(function (Invoice $invoice): void {
+                $totalHpp = (float) $invoice->items->sum(
+                    fn ($item): float => (float) $item->sources->sum('source_cost'),
+                );
+                $margin = (float) $invoice->grand_total - $totalHpp;
+
+                $invoice->setAttribute('total_hpp', $totalHpp);
+                $invoice->setAttribute('margin', $margin);
+                $invoice->setAttribute(
+                    'margin_percentage',
+                    (float) $invoice->grand_total > 0 ? round(($margin / (float) $invoice->grand_total) * 100, 2) : 0,
+                );
+            });
+
+        $totalInvoiceHpp = (float) InvoiceItemSource::query()
+            ->whereHas('invoiceItem.invoice')
+            ->sum('source_cost');
+        $totalInvoiced = (float) Invoice::sum('grand_total');
 
         $stats = [
-            'total_invoiced' => (float) Invoice::sum('grand_total'),
+            'total_invoiced' => $totalInvoiced,
+            'total_hpp' => $totalInvoiceHpp,
+            'total_margin' => $totalInvoiced - $totalInvoiceHpp,
             'total_paid' => (float) Invoice::sum('paid_amount'),
             'total_outstanding' => (float) Invoice::sum('outstanding_amount'),
             'count' => Invoice::count(),
@@ -110,17 +136,23 @@ class InvoiceController extends Controller
             ->with('success', "Invoice {$invoice->invoice_number} berhasil dibuat dari item terpilih.");
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         Gate::authorize('create', Invoice::class);
+        $validated = $request->validate([
+            'job' => ['nullable', 'uuid', 'exists:port_calls,id'],
+        ]);
 
-        return Inertia::render('Invoices/Form', $this->formData());
+        return Inertia::render('Invoices/Form', [
+            ...$this->formData(),
+            'initialPortCallId' => $validated['job'] ?? null,
+        ]);
     }
 
     public function edit(Invoice $invoice): Response
     {
         Gate::authorize('update', $invoice);
-        $invoice->load('items:id,invoice_id,request_item_id,unit_price');
+        $invoice->load(['items' => fn ($query) => $query->with('sources')->orderBy('sort_order')]);
 
         return Inertia::render('Invoices/Form', $this->formData($invoice));
     }
@@ -162,8 +194,25 @@ class InvoiceController extends Controller
     {
         $editingInvoiceId = $editingInvoice?->id;
         $editingPortCallId = $editingInvoice?->port_call_id;
-        $editingItemPrices = $editingInvoice?->items
-            ->mapWithKeys(fn ($item): array => [$item->request_item_id => (string) $item->unit_price])
+
+        $editingLines = $editingInvoice?->items
+            ->sortBy('sort_order')
+            ->values()
+            ->map(fn ($item): array => [
+                'id' => $item->id,
+                'description' => $item->description,
+                'quantity' => (string) $item->quantity,
+                'unit' => $item->unit,
+                'unit_price' => (string) $item->unit_price,
+                'source_item_ids' => $item->sources->pluck('request_item_id')
+                    ->when(
+                        $item->sources->isEmpty() && $item->request_item_id,
+                        fn ($ids) => $ids->push($item->request_item_id),
+                    )
+                    ->unique()
+                    ->values()
+                    ->all(),
+            ])
             ->all() ?? [];
 
         $portCalls = PortCall::query()
@@ -201,6 +250,8 @@ class InvoiceController extends Controller
                 'items.vendor:id,name',
                 'items.invoiceItem:id,invoice_id,request_item_id',
                 'items.invoiceItem.invoice:id,invoice_number,status',
+                'items.invoiceSources.invoiceItem:id,invoice_id',
+                'items.invoiceSources.invoiceItem.invoice:id,invoice_number,status',
             ])
             ->latest('request_date')
             ->latest('created_at')
@@ -209,9 +260,13 @@ class InvoiceController extends Controller
                 'id' => $shipRequest->id,
                 'request_number' => $shipRequest->request_number,
                 'port_call_id' => $shipRequest->port_call_id,
-                'items' => $shipRequest->items->map(function (RequestItem $item) use ($editingInvoiceId, $editingItemPrices, $shipRequest): array {
-                    $usedInvoice = $item->invoiceItem?->invoice;
-                    $belongsToEditingInvoice = $item->invoiceItem?->invoice_id === $editingInvoiceId;
+                'items' => $shipRequest->items->map(function (RequestItem $item) use ($editingInvoiceId, $shipRequest): array {
+                    $usedSource = $item->invoiceSources
+                        ->first(fn ($source) => $source->invoiceItem?->invoice_id !== $editingInvoiceId);
+                    $usedInvoice = $usedSource?->invoiceItem?->invoice ?? $item->invoiceItem?->invoice;
+                    $belongsToEditingInvoice = $item->invoiceSources
+                        ->contains(fn ($source) => $source->invoiceItem?->invoice_id === $editingInvoiceId)
+                        || $item->invoiceItem?->invoice_id === $editingInvoiceId;
                     $unavailableReason = match (true) {
                         $usedInvoice !== null && ! $belongsToEditingInvoice => "Sudah masuk invoice {$usedInvoice->invoice_number}",
                         $item->is_invoiced && ! $belongsToEditingInvoice => 'Sudah ditagihkan',
@@ -227,7 +282,9 @@ class InvoiceController extends Controller
                         'vendor_name' => $item->vendor?->name,
                         'quantity' => (string) $item->quantity,
                         'unit' => $item->unit ?: 'Paket',
-                        'selling_price' => $editingItemPrices[$item->id] ?? (string) ($item->selling_price ?? '0'),
+                        'hpp_unit_price' => (string) $item->hpp_price,
+                        'hpp_total' => (string) ((float) $item->hpp_price * (float) $item->quantity),
+                        'default_price' => '0',
                         'billing_type' => $item->isJasa() ? 'agency' : 'reimburse',
                         'unavailable_reason' => $unavailableReason,
                     ];
@@ -252,8 +309,7 @@ class InvoiceController extends Controller
                 'tax' => (string) $editingInvoice->tax,
                 'notes' => $editingInvoice->notes,
                 'supporting_document_path' => $editingInvoice->supporting_document_path,
-                'request_item_ids' => array_keys($editingItemPrices),
-                'item_prices' => $editingItemPrices,
+                'lines' => $editingLines,
             ] : null,
         ];
     }
@@ -291,8 +347,24 @@ class InvoiceController extends Controller
             throw ValidationException::withMessages(['company_id' => 'Perusahaan harus mengikuti SPK/Job yang dipilih.']);
         }
 
-        $selectedIds = collect($validated['request_item_ids'])->unique()->values();
-        $currentItemIds = $invoice?->items()->pluck('request_item_id') ?? collect();
+        $lines = collect($validated['lines']);
+        $selectedIds = $lines
+            ->flatMap(fn (array $line) => $line['source_item_ids'] ?? [])
+            ->unique()
+            ->values();
+
+        if ($selectedIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'lines' => 'Pilih minimal satu item sumber dari pengajuan agar HPP dan margin tetap dapat ditelusuri.',
+            ]);
+        }
+
+        $currentInvoiceItems = $invoice?->items()->with('sources')->get() ?? collect();
+        $currentItemIds = $currentInvoiceItems
+            ->flatMap(fn ($item) => $item->sources->pluck('request_item_id')->push($item->request_item_id))
+            ->filter()
+            ->unique()
+            ->values();
         $lockedItems = RequestItem::query()
             ->whereIn('id', $selectedIds->merge($currentItemIds)->unique())
             ->with([
@@ -300,6 +372,7 @@ class InvoiceController extends Controller
                 'product:id,item_type',
                 'vendor:id,name',
                 'invoiceItem:id,invoice_id,request_item_id',
+                'invoiceSources.invoiceItem:id,invoice_id',
             ])
             ->lockForUpdate()
             ->get()
@@ -307,7 +380,7 @@ class InvoiceController extends Controller
         $requestItems = $selectedIds->map(fn (string $id) => $lockedItems->get($id))->filter();
 
         if ($requestItems->count() !== $selectedIds->count()) {
-            throw ValidationException::withMessages(['request_item_ids' => 'Satu atau beberapa item pengajuan tidak tersedia.']);
+            throw ValidationException::withMessages(['lines' => 'Satu atau beberapa item pengajuan tidak tersedia.']);
         }
 
         $subtotal = BigDecimal::zero();
@@ -315,43 +388,43 @@ class InvoiceController extends Controller
 
         foreach ($requestItems as $item) {
             if ($item->request?->port_call_id !== $portCall->id) {
-                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} tidak berasal dari Job yang dipilih."]);
+                throw ValidationException::withMessages(['lines' => "Item {$item->item_name} tidak berasal dari Job yang dipilih."]);
             }
             if ($item->request?->company_id && $item->request->company_id !== $validated['company_id']) {
-                throw ValidationException::withMessages(['request_item_ids' => "Perusahaan pada item {$item->item_name} tidak sesuai dengan SPK."]);
+                throw ValidationException::withMessages(['lines' => "Perusahaan pada item {$item->item_name} tidak sesuai dengan SPK."]);
             }
             if ($item->director_status !== 'approved') {
-                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} belum disetujui Direktur."]);
+                throw ValidationException::withMessages(['lines' => "Item {$item->item_name} belum disetujui Direktur."]);
             }
-            if ($item->invoiceItem && $item->invoiceItem->invoice_id !== $invoice?->id) {
-                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} sudah dipakai pada invoice lain."]);
+            $usedByAnotherInvoice = $item->invoiceSources
+                ->contains(fn ($source) => $source->invoiceItem?->invoice_id !== $invoice?->id);
+            if ($usedByAnotherInvoice || ($item->invoiceItem && $item->invoiceItem->invoice_id !== $invoice?->id)) {
+                throw ValidationException::withMessages(['lines' => "Item {$item->item_name} sudah dipakai pada invoice lain."]);
             }
             if ($item->is_invoiced && ! $currentItemIds->contains($item->id)) {
-                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} sudah ditagihkan."]);
+                throw ValidationException::withMessages(['lines' => "Item {$item->item_name} sudah ditagihkan."]);
             }
 
             $billingType = $item->isJasa() ? 'agency' : 'reimburse';
             if ($billingType !== $validated['invoice_type']) {
-                $typeLabel = $billingType === 'agency' ? 'Jasa Keagenan' : 'Reimburse';
-                throw ValidationException::withMessages(['request_item_ids' => "Item {$item->item_name} hanya dapat masuk invoice {$typeLabel}."]);
+                $typeLabel = $billingType === 'agency' ? 'Jasa Keagenan' : 'Reimbursement';
+                throw ValidationException::withMessages(['lines' => "Item {$item->item_name} hanya dapat masuk invoice {$typeLabel}."]);
             }
+        }
 
-            $rawPrice = $validated['item_prices'][$item->id] ?? null;
-            if ($rawPrice === null) {
-                throw ValidationException::withMessages(["item_prices.{$item->id}" => "Harga jual item {$item->item_name} wajib diisi."]);
-            }
-            $unitPrice = BigDecimal::of((string) $rawPrice)->toScale(2, RoundingMode::HalfUp);
-            if ($unitPrice->isLessThanOrEqualTo(BigDecimal::zero())) {
-                throw ValidationException::withMessages(["item_prices.{$item->id}" => "Harga jual item {$item->item_name} harus lebih dari nol."]);
-            }
-            $lineSubtotal = $unitPrice
-                ->multipliedBy((string) $item->quantity)
-                ->toScale(2, RoundingMode::HalfUp);
+        foreach ($lines as $lineIndex => $line) {
+            $unitPrice = BigDecimal::of((string) $line['unit_price'])->toScale(2, RoundingMode::HalfUp);
+            $quantity = BigDecimal::of((string) $line['quantity'])->toScale(2, RoundingMode::HalfUp);
+            $lineSubtotal = $unitPrice->multipliedBy($quantity)->toScale(2, RoundingMode::HalfUp);
             $subtotal = $subtotal->plus($lineSubtotal);
             $lineSnapshots[] = [
-                'request_item' => $item,
+                'description' => trim($line['description']),
+                'quantity' => (string) $quantity,
+                'unit' => trim($line['unit']),
                 'unit_price' => (string) $unitPrice,
                 'subtotal' => (string) $lineSubtotal,
+                'source_item_ids' => collect($line['source_item_ids'] ?? [])->unique()->values(),
+                'sort_order' => $lineIndex,
             ];
         }
 
@@ -402,19 +475,53 @@ class InvoiceController extends Controller
         RequestItem::query()->whereIn('id', $currentItemIds)->update(['is_invoiced' => false]);
         $invoice->items()->delete();
 
+        $sourceUsageCounts = $lines
+            ->flatMap(fn (array $line) => collect($line['source_item_ids'] ?? [])->unique())
+            ->countBy();
+        $sourceUsagePositions = [];
+
         foreach ($lineSnapshots as $lineSnapshot) {
-            /** @var RequestItem $requestItem */
-            $requestItem = $lineSnapshot['request_item'];
-            $invoice->items()->create([
-                'request_item_id' => $requestItem->id,
-                'description' => $requestItem->item_name,
-                'vendor_name' => $requestItem->vendor?->name,
-                'quantity' => $requestItem->quantity,
-                'unit' => $requestItem->unit ?: 'Paket',
+            $sourceItems = $lineSnapshot['source_item_ids']
+                ->map(fn (string $sourceItemId) => $lockedItems->get($sourceItemId))
+                ->filter();
+            $invoiceItem = $invoice->items()->create([
+                'request_item_id' => $sourceItems->count() === 1 ? $sourceItems->first()->id : null,
+                'sort_order' => $lineSnapshot['sort_order'],
+                'is_custom' => $sourceItems->isEmpty(),
+                'description' => $lineSnapshot['description'],
+                'vendor_name' => $sourceItems->pluck('vendor.name')->filter()->unique()->implode(', ') ?: null,
+                'quantity' => $lineSnapshot['quantity'],
+                'unit' => $lineSnapshot['unit'],
                 'unit_price' => $lineSnapshot['unit_price'],
                 'subtotal' => $lineSnapshot['subtotal'],
             ]);
-            $requestItem->update(['is_invoiced' => true]);
+
+            foreach ($sourceItems as $requestItem) {
+                $usageCount = (int) $sourceUsageCounts->get($requestItem->id, 1);
+                $usagePosition = ($sourceUsagePositions[$requestItem->id] ?? 0) + 1;
+                $sourceUsagePositions[$requestItem->id] = $usagePosition;
+                $fullQuantity = BigDecimal::of((string) $requestItem->quantity)->toScale(2, RoundingMode::HalfUp);
+                $fullCost = BigDecimal::of((string) $requestItem->hpp_price)
+                    ->multipliedBy($fullQuantity)
+                    ->toScale(2, RoundingMode::HalfUp);
+                $quantityShare = $usagePosition === $usageCount
+                    ? $fullQuantity->minus(
+                        $fullQuantity->dividedBy($usageCount, 2, RoundingMode::HalfUp)->multipliedBy($usageCount - 1),
+                    )
+                    : $fullQuantity->dividedBy($usageCount, 2, RoundingMode::HalfUp);
+                $costShare = $usagePosition === $usageCount
+                    ? $fullCost->minus(
+                        $fullCost->dividedBy($usageCount, 2, RoundingMode::HalfUp)->multipliedBy($usageCount - 1),
+                    )
+                    : $fullCost->dividedBy($usageCount, 2, RoundingMode::HalfUp);
+
+                $invoiceItem->sources()->create([
+                    'request_item_id' => $requestItem->id,
+                    'allocated_quantity' => (string) $quantityShare,
+                    'source_cost' => (string) $costShare,
+                ]);
+                $requestItem->update(['is_invoiced' => true]);
+            }
         }
 
         activity('client-invoice')
@@ -424,6 +531,7 @@ class InvoiceController extends Controller
                 'port_call_id' => $portCall->id,
                 'type' => $validated['invoice_type'],
                 'request_item_ids' => $selectedIds->all(),
+                'invoice_lines' => count($lineSnapshots),
                 'grand_total' => (string) $grandTotal,
             ])
             ->log($existingInvoice ? 'Invoice klien diperbarui' : 'Invoice klien dibuat dari item kebutuhan');

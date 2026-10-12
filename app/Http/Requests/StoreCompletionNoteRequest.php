@@ -24,6 +24,8 @@ class StoreCompletionNoteRequest extends FormRequest
         return [
             'port_call_id' => ['required', 'uuid', 'exists:port_calls,id', 'unique:completion_notes,port_call_id'],
             'document' => ['required', 'file', 'mimes:doc,docx,pdf,jpg,jpeg,png', 'extensions:doc,docx,pdf,jpg,jpeg,png', 'max:10240'],
+            'actual_amount' => ['required', 'numeric', 'min:0', 'max:9999999999999.99'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ];
     }
 
@@ -36,6 +38,8 @@ class StoreCompletionNoteRequest extends FormRequest
             'document.required' => 'Dokumen Nota Rampung wajib diunggah.',
             'document.mimes' => 'Dokumen harus berupa Word, PDF, JPG, JPEG, atau PNG.',
             'document.max' => 'Ukuran dokumen maksimal 10 MB.',
+            'actual_amount.required' => 'Nilai tagihan resmi pada Nota Rampung wajib diisi.',
+            'actual_amount.numeric' => 'Nilai tagihan resmi harus berupa angka.',
         ];
     }
 }

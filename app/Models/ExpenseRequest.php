@@ -15,12 +15,21 @@ class ExpenseRequest extends Model
 
     protected $fillable = [
         'request_number',
+        'scope',
+        'category',
         'port_call_id',
         'version',
         'status',
         'currency',
         'total',
         'notes',
+        'supporting_document_path',
+        'realized_amount',
+        'realized_date',
+        'payment_reference',
+        'payment_proof_path',
+        'realized_by',
+        'realized_at',
         'created_by',
         'reviewed_by',
         'submitted_at',
@@ -33,6 +42,9 @@ class ExpenseRequest extends Model
             'total' => 'decimal:2',
             'submitted_at' => 'datetime',
             'reviewed_at' => 'datetime',
+            'realized_amount' => 'decimal:2',
+            'realized_date' => 'date',
+            'realized_at' => 'datetime',
         ];
     }
 
@@ -49,6 +61,11 @@ class ExpenseRequest extends Model
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function realizer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'realized_by');
     }
 
     public function items(): HasMany

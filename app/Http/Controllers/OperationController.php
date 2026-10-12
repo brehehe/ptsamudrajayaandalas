@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\ResolveClearanceProduct;
 use App\Http\Requests\StoreOperationalActivityRequest;
 use App\Http\Requests\UpdatePortCallStatusRequest;
 use App\Models\DailyReport;
@@ -23,6 +24,8 @@ use Inertia\Response;
 
 class OperationController extends Controller
 {
+    public function __construct(private readonly ResolveClearanceProduct $resolveClearanceProduct) {}
+
     public function index(Request $request): Response
     {
         $tab = $request->query('tab', 'aktivitas'); // 'aktivitas' | 'kunjungan' | 'laporan'
@@ -260,22 +263,7 @@ class OperationController extends Controller
             'notes' => "Pengajuan {$label} untuk kapal {$portCall->ship?->name} ({$portCall->job_number})",
         ]);
 
-        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-        $product = Product::where('name', $like, "%{$label}%")->first();
-        RequestItem::create([
-            'request_id' => $clearanceRequest->id,
-            'product_id' => $product?->id,
-            'item_type' => 'jasa',
-            'item_name' => "{$label} (Syahbandar & Karantina)",
-            'unit' => 'Dokumen',
-            'quantity' => 1,
-            'required_date' => now()->toDateString(),
-            'hpp_price' => $product?->hpp_default ?? 0,
-            'selling_price' => $product?->selling_price_default ?? 0,
-            'is_urgent' => true,
-            'status' => 'pending',
-            'director_status' => 'pending',
-        ]);
+        $this->createClearanceRequestItems($clearanceRequest, $serviceType, $nextStatus, $label);
 
         activity('clearance')->performedOn($portCall)->causedBy($request->user())
             ->withProperties([
@@ -290,5 +278,62 @@ class OperationController extends Controller
             'success',
             "Pengajuan {$label} {$portCall->job_number} berhasil dibuat.",
         );
+    }
+
+    private function createClearanceRequestItems(
+        ShipRequest $clearanceRequest,
+        string $serviceType,
+        string $nextStatus,
+        string $label,
+    ): void {
+        if ($serviceType === 'clearance_in' && $nextStatus === 'berthed') {
+            $products = Product::query()
+                ->whereIn('code', ['PRD-PLD-TAKTIS', 'PRD-PLD-EPB'])
+                ->where('is_active', true)
+                ->get()
+                ->keyBy('code');
+
+            foreach ([
+                ['code' => 'PRD-PLD-TAKTIS', 'name' => 'Taktis Penyandaran'],
+                ['code' => 'PRD-PLD-EPB', 'name' => 'Pembayaran EPB (Pandu Tunda)'],
+            ] as $definition) {
+                $product = $products->get($definition['code']);
+
+                RequestItem::create([
+                    'request_id' => $clearanceRequest->id,
+                    'product_id' => $product?->id,
+                    'vendor_id' => $product?->vendor_id,
+                    'item_type' => $product?->item_type ?? 'non_jasa',
+                    'item_name' => $definition['name'],
+                    'unit' => $product?->unit ?? 'Kegiatan',
+                    'quantity' => 1,
+                    'required_date' => now()->toDateString(),
+                    'hpp_price' => $product?->hpp_default ?? 0,
+                    'selling_price' => 0,
+                    'is_urgent' => true,
+                    'status' => 'pending',
+                    'director_status' => 'pending',
+                ]);
+            }
+
+            return;
+        }
+
+        $product = $this->resolveClearanceProduct->handle($serviceType);
+        RequestItem::create([
+            'request_id' => $clearanceRequest->id,
+            'product_id' => $product?->id,
+            'vendor_id' => $product?->vendor_id,
+            'item_type' => 'jasa',
+            'item_name' => "{$label} (Syahbandar & Karantina)",
+            'unit' => 'Dokumen',
+            'quantity' => 1,
+            'required_date' => now()->toDateString(),
+            'hpp_price' => $product?->hpp_default ?? 0,
+            'selling_price' => 0,
+            'is_urgent' => true,
+            'status' => 'pending',
+            'director_status' => 'pending',
+        ]);
     }
 }

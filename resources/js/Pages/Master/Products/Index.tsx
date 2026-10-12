@@ -297,7 +297,7 @@ export default function MasterProductsIndex({
                     <StatusBadge
                         size="sm"
                         status={product.item_type === 'jasa' ? 'info' : 'success'}
-                        label={product.item_type === 'jasa' ? 'Jasa (PPh 2%)' : 'Reimburse'}
+                        label={product.item_type === 'jasa' ? 'Jasa (PPh 2%)' : 'Reimbursement'}
                         showDot
                     />
                 ),
@@ -386,7 +386,7 @@ export default function MasterProductsIndex({
                         </h1>
                         <p className="text-xs md:text-sm text-[#52658E] mt-0.5">
                             Kelola HPP, harga jual Sandar & Labuh per pelabuhan, referensi vendor,
-                            dan kategori Jasa vs Reimburse.
+                            dan kategori Jasa vs Reimbursement.
                         </p>
                     </div>
 
@@ -502,7 +502,7 @@ export default function MasterProductsIndex({
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-xs font-bold text-[#52658E] uppercase tracking-wider">
-                                    Kategori Non-Jasa (Reimburse)
+                                    Kategori Non-Jasa (Reimbursement)
                                 </p>
                                 <p className="text-2xl font-black text-[#087443] mt-1">
                                     {stats.non_jasa}
@@ -541,7 +541,7 @@ export default function MasterProductsIndex({
                         items={[
                             { id: 'all', label: 'Semua', count: stats.total },
                             { id: 'jasa', label: 'Jasa & Keagenan', count: stats.jasa },
-                            { id: 'non_jasa', label: 'Reimburse', count: stats.non_jasa },
+                            { id: 'non_jasa', label: 'Reimbursement', count: stats.non_jasa },
                         ]}
                         activeId={selectedType}
                         onChange={handleTypeTabChange}
@@ -590,7 +590,7 @@ export default function MasterProductsIndex({
                             <StatusBadge
                                 size="sm"
                                 status={product.item_type === 'jasa' ? 'info' : 'success'}
-                                label={product.item_type === 'jasa' ? 'Jasa' : 'Reimburse'}
+                                label={product.item_type === 'jasa' ? 'Jasa' : 'Reimbursement'}
                             />
                         ),
                         imageRender: () => (
@@ -640,7 +640,7 @@ export default function MasterProductsIndex({
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Select required name="item_type" label="Tipe Invoice" value={data.item_type} onChange={(e) => setData('item_type', e.target.value as 'jasa' | 'non_jasa')} error={errors.item_type} options={[{ value: 'jasa', label: 'Jasa / Keagenan (PPh 2%)' }, { value: 'non_jasa', label: 'Non-Jasa / Reimburse' }]} />
+                        <Select required name="item_type" label="Tipe Invoice" value={data.item_type} onChange={(e) => setData('item_type', e.target.value as 'jasa' | 'non_jasa')} error={errors.item_type} options={[{ value: 'jasa', label: 'Jasa / Keagenan (PPh 2%)' }, { value: 'non_jasa', label: 'Non-Jasa / Reimbursement' }]} />
                         <Input required name="category" autoComplete="off" label="Kategori" value={data.category} onChange={(e) => setData('category', e.target.value)} placeholder="Air, BBM, Clearance…" error={errors.category} />
                         <Input required name="unit" autoComplete="off" label="Satuan" value={data.unit} onChange={(e) => setData('unit', e.target.value)} placeholder="Ton, Liter, Paket…" error={errors.unit} />
                     </div>

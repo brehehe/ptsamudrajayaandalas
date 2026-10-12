@@ -125,6 +125,7 @@ export interface VesselShowProps {
     canManageClearance?: boolean;
     canCreateRequests?: boolean;
     canProcessRequests?: boolean;
+    canCreateCompletionNotes?: boolean;
 }
 
 export interface SelectedVisit {
@@ -133,6 +134,15 @@ export interface SelectedVisit {
     status: string;
     client_pic_name?: string | null;
     client_pic_contact?: string | null;
+    total_hpp: number;
+    total_invoiced: number;
+    margin: number;
+    margin_available: boolean;
+    completion_note?: {
+        id: string;
+        document_number: string;
+        status: string;
+    } | null;
 }
 
 export interface ClearancePortCall {

@@ -20,8 +20,6 @@ import {
     ReceiptText,
     Ship,
     TrendingUp,
-    Users,
-    WalletCards,
     type LucideIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -47,13 +45,6 @@ interface Priority {
     tone: PriorityTone;
 }
 
-interface QuickAction {
-    label: string;
-    description: string;
-    href: string;
-    icon: string;
-}
-
 interface MobileDashboardData {
     role: DashboardRole;
     is_read_only: boolean;
@@ -63,7 +54,6 @@ interface MobileDashboardData {
     primary_action: { label: string; href: string };
     metrics: Metric[];
     priorities: Priority[];
-    quick_actions: QuickAction[];
 }
 
 interface RoleDashboardMobileViewProps {
@@ -76,7 +66,6 @@ interface RoleDashboardMobileViewProps {
     latestRequests: any[];
     needsToday: any[];
     pendingApprovals: any[];
-    recentInvoices: any[];
     receivablesOverview: ReceivablesOverviewData | null;
 }
 
@@ -172,22 +161,6 @@ const summaryTones: SummaryTone[] = [
         labelClass: 'text-[#51388C] dark:text-violet-100',
     },
 ];
-
-const quickActionIcons: Record<string, LucideIcon> = {
-    activity: Activity,
-    package: PackageCheck,
-    wallet: WalletCards,
-    ship: Ship,
-    approval: ClipboardCheck,
-    bank: Landmark,
-    receivable: HandCoins,
-    report: TrendingUp,
-    users: Users,
-    audit: ClipboardCheck,
-    work_order: FileText,
-    invoice: ReceiptText,
-    completion: CheckCircle2,
-};
 
 const priorityClasses: Record<PriorityTone, string> = {
     blue: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
@@ -598,81 +571,6 @@ function ApprovalList({ approvals }: { approvals: any[] }) {
     );
 }
 
-function InvoiceList({ invoices }: { invoices: any[] }) {
-    if (!invoices.length) {
-        return <EmptyState>Belum ada tagihan klien</EmptyState>;
-    }
-
-    return (
-        <div className="divide-y divide-[#EAF1F8] dark:divide-[#1E3A5F]">
-            {invoices.slice(0, 4).map((invoice) => (
-                <Link
-                    key={invoice.id}
-                    href="/receivables"
-                    className="grid min-h-[66px] touch-manipulation grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2.5 px-1 py-2.5 hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:bg-[#10243E]"
-                >
-                    <span className="flex size-10 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                        <ReceiptText aria-hidden="true" className="size-5" />
-                    </span>
-                    <span className="min-w-0">
-                        <span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">
-                            {invoice.invoice_number}
-                        </span>
-                        <span className="mt-1 block truncate text-[9px] text-[#52658E] dark:text-[#9FB0C6]">
-                            {invoice.company_name} · {invoice.ship_name}
-                        </span>
-                    </span>
-                    <span className="text-right">
-                        <span className="block text-[10px] font-black tabular-nums text-[#0B1F63] dark:text-white">
-                            {formatCurrency(invoice.outstanding_amount)}
-                        </span>
-                        <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${invoice.is_overdue ? 'bg-[#FFE7EC] text-[#C62840]' : 'bg-[#FFF0CC] text-[#A65300]'}`}>
-                            {invoice.is_overdue ? 'Jatuh tempo' : 'Belum lunas'}
-                        </span>
-                    </span>
-                </Link>
-            ))}
-        </div>
-    );
-}
-
-function QuickActions({ actions, isReadOnly }: { actions: QuickAction[]; isReadOnly: boolean }) {
-    return (
-        <section>
-            <header className="border-b border-[#E5EEF7] px-0.5 pb-3 dark:border-[#1E3A5F]">
-                <h2 className="text-[13px] font-extrabold text-[#0B1F63] dark:text-white">
-                    {isReadOnly ? 'Akses pemantauan' : 'Akses cepat'}
-                </h2>
-                <p className="mt-0.5 text-[10px] text-[#52658E] dark:text-[#9FB0C6]">
-                    {isReadOnly ? 'Seluruh menu Owner bersifat lihat saja' : 'Menu utama sesuai tanggung jawab Anda'}
-                </p>
-            </header>
-            <div className="grid grid-cols-2 gap-2 pt-2.5">
-                {actions.map((action) => {
-                    const Icon = quickActionIcons[action.icon] ?? FileText;
-
-                    return (
-                        <Link
-                            key={action.label}
-                            href={action.href}
-                            prefetch
-                            className="min-h-24 touch-manipulation rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 hover:border-[#9CC9F5] hover:bg-[#EAF4FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#10243E] dark:hover:bg-[#132847]"
-                        >
-                            <span className="flex size-8 items-center justify-center rounded-lg bg-[#0060F4] text-white">
-                                <Icon aria-hidden="true" className="size-4" />
-                            </span>
-                            <span className="mt-2 block text-[11px] font-extrabold text-[#0B1F63] dark:text-white">{action.label}</span>
-                            <span className="mt-0.5 block line-clamp-2 text-[9px] leading-3.5 text-[#52658E] dark:text-[#9FB0C6]">
-                                {action.description}
-                            </span>
-                        </Link>
-                    );
-                })}
-            </div>
-        </section>
-    );
-}
-
 export default function RoleDashboardMobileView({
     dashboard,
     userName,
@@ -683,7 +581,6 @@ export default function RoleDashboardMobileView({
     latestRequests,
     needsToday,
     pendingApprovals,
-    recentInvoices,
     receivablesOverview,
 }: RoleDashboardMobileViewProps) {
     const role = rolePresentation[dashboard.role];
@@ -773,7 +670,7 @@ export default function RoleDashboardMobileView({
                                     <span className={`flex size-9 items-center justify-center rounded-lg ${tone.iconClass}`}>
                                         <MetricIcon aria-hidden="true" className="size-5" />
                                     </span>
-                                    <span className={`mt-1.5 max-w-full truncate text-base font-black leading-none tabular-nums ${tone.valueClass}`}>
+                                    <span className={`mt-1.5 max-w-full whitespace-nowrap font-black leading-none tabular-nums ${metric.format === 'currency' ? 'text-[13px]' : 'text-base'} ${tone.valueClass}`}>
                                         {formatMetricValue(metric)}
                                     </span>
                                     <span className={`mt-1 line-clamp-2 text-[9px] font-bold leading-3 ${tone.labelClass}`}>
@@ -785,7 +682,7 @@ export default function RoleDashboardMobileView({
                     </div>
                 </section>
 
-                {dashboard.role !== 'operasional' && receivablesOverview && (
+                {(dashboard.role === 'direktur' || dashboard.role === 'owner') && receivablesOverview && (
                     <ReceivablesOverview data={receivablesOverview} headingId="mobile-receivables-overview-title" />
                 )}
 
@@ -818,16 +715,13 @@ export default function RoleDashboardMobileView({
 
                 {dashboard.role === 'admin' && (
                     <>
-                        <MobileSection icon={ClipboardCheck} title="Prioritas administrasi" subtitle="Pekerjaan yang perlu segera ditindaklanjuti" href="/work-orders" linkLabel="Buka alur">
-                            <PriorityList priorities={dashboard.priorities} />
-                        </MobileSection>
                         <MobileSection icon={ClipboardList} title="Pengajuan terbaru" subtitle="Kebutuhan kapal yang baru masuk" href="/requests" linkLabel="Lihat semua">
                             <RequestList requests={latestRequests} />
                         </MobileSection>
                         {needsToday.length > 0 && (
                             <MobileSection icon={PackageCheck} title="Kebutuhan hari ini" subtitle={`${needsToday.length} kebutuhan terjadwal hari ini`} href="/needs" linkLabel="Buka kebutuhan">
                                 <div className="divide-y divide-[#EAF1F8] dark:divide-[#1E3A5F]">
-                                    {needsToday.slice(0, 3).map((need, index) => (
+                                    {needsToday.slice(0, 2).map((need, index) => (
                                         <Link key={`${need.pengajuan}-${need.kebutuhan}-${index}`} href="/needs" className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">
                                             <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">{need.kapal}</span><span className="mt-0.5 block truncate text-[9px] text-[#52658E] dark:text-[#9FB0C6]">{need.kebutuhan} · {need.jumlah}</span></span>
                                             <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${statusClasses(need.status)}`}>{need.status}</span>
@@ -836,7 +730,6 @@ export default function RoleDashboardMobileView({
                                 </div>
                             </MobileSection>
                         )}
-                        <QuickActions actions={dashboard.quick_actions} isReadOnly={false} />
                     </>
                 )}
 
@@ -848,7 +741,6 @@ export default function RoleDashboardMobileView({
                         <MobileSection icon={Landmark} title="Prioritas pengawasan" subtitle="Tahapan pendanaan dan Kopra yang perlu diperhatikan" href="/funding" linkLabel="Lihat pendanaan">
                             <PriorityList priorities={dashboard.priorities} />
                         </MobileSection>
-                        <QuickActions actions={dashboard.quick_actions} isReadOnly={false} />
                     </>
                 )}
 
@@ -857,13 +749,9 @@ export default function RoleDashboardMobileView({
                         <MobileSection icon={Building2} title="Perlu dipantau" subtitle="Ringkasan strategis tanpa aksi pemrosesan" href="/reports" linkLabel="Lihat laporan">
                             <PriorityList priorities={dashboard.priorities} />
                         </MobileSection>
-                        <MobileSection icon={ReceiptText} title="Tagihan klien terbaru" subtitle="Saldo invoice yang masih perlu dipantau" href="/receivables" linkLabel="Lihat piutang">
-                            <InvoiceList invoices={recentInvoices} />
-                        </MobileSection>
                         <MobileSection icon={Ship} title="Kapal aktif" subtitle="Kunjungan yang sedang berjalan" href="/vessels" linkLabel="Lihat kapal">
                             <ShipList ships={activeShips} limit={3} />
                         </MobileSection>
-                        <QuickActions actions={dashboard.quick_actions} isReadOnly />
                     </>
                 )}
             </div>

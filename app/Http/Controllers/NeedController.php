@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateRequestItemsStatusRequest;
 use App\Http\Requests\UpdateShipRequestStatusRequest;
 use App\Models\PortCall;
+use App\Models\Product;
 use App\Models\RequestItem;
 use App\Models\Ship;
 use App\Models\ShipRequest;
@@ -97,6 +98,7 @@ class NeedController extends Controller
                 'items.*.required_date' => ['nullable', 'date_format:Y-m-d'],
                 'items.*.required_time' => ['nullable', 'date_format:H:i'],
                 'items.*.product_id' => ['nullable', 'uuid', 'exists:products,id'],
+                'items.*.attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'extensions:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
                 'photo' => ['nullable', 'image', 'max:5120'],
             ], [
                 'section.required' => 'Bagian wajib dipilih.',
@@ -107,6 +109,8 @@ class NeedController extends Controller
                 'items.*.is_urgent.required' => 'Prioritas setiap kebutuhan wajib dipilih.',
                 'photo.image' => 'File foto form kapal harus berupa gambar.',
                 'photo.max' => 'Ukuran foto form kapal maksimal 5 MB.',
+                'items.*.attachment.mimes' => 'Dokumen item harus berupa PDF, Word, JPG, JPEG, atau PNG.',
+                'items.*.attachment.max' => 'Ukuran dokumen item maksimal 10 MB.',
             ]);
 
             return DB::transaction(function () use ($request, $validated): RedirectResponse {
@@ -167,11 +171,31 @@ class NeedController extends Controller
                     'notes' => $notesText,
                 ]);
 
+                $products = Product::query()
+                    ->whereIn(
+                        'id',
+                        collect($validated['items'])
+                            ->pluck('product_id')
+                            ->filter()
+                            ->unique()
+                            ->values(),
+                    )
+                    ->get(['id', 'item_type', 'vendor_id', 'hpp_default'])
+                    ->keyBy('id');
+
                 foreach ($validated['items'] as $item) {
+                    $product = ! empty($item['product_id'])
+                        ? $products->get($item['product_id'])
+                        : null;
+                    $attachmentPath = isset($item['attachment'])
+                        ? $item['attachment']->store('sja/request-items', 'local')
+                        : $photoPath;
+
                     RequestItem::create([
                         'request_id' => $shipRequest->id,
-                        'product_id' => $item['product_id'] ?? null,
-                        'item_type' => 'product',
+                        'product_id' => $product?->id,
+                        'vendor_id' => $product?->vendor_id,
+                        'item_type' => $product?->item_type ?? 'non_jasa',
                         'item_name' => $item['item_name'],
                         'quantity' => $item['quantity'],
                         'unit' => $item['unit'],
@@ -179,7 +203,9 @@ class NeedController extends Controller
                         'is_urgent' => $item['is_urgent'],
                         'required_date' => ! empty($item['required_date']) ? $item['required_date'] : null,
                         'required_time' => ! empty($item['required_time']) ? $item['required_time'] : null,
-                        'attachment_path' => $photoPath,
+                        'hpp_price' => $product?->hpp_default ?? 0,
+                        'selling_price' => 0,
+                        'attachment_path' => $attachmentPath,
                         'status' => 'Pending',
                     ]);
                 }

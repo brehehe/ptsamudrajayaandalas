@@ -8,7 +8,10 @@ use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Models\WorkOrder;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 
 test('operational user can view request wizard creation page', function () {
@@ -73,6 +76,8 @@ test('request contact defaults from spk and fills blank spk pic from a submitted
 });
 
 test('lapangan user can submit wizard request with multiple items', function () {
+    Storage::fake('local');
+
     $user = User::factory()->create();
     $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
     $port = Port::create([
@@ -131,6 +136,7 @@ test('lapangan user can submit wizard request with multiple items', function () 
                 'required_time' => '09:00',
                 'is_urgent' => true,
                 'notes' => 'Harap proses clearance secepatnya',
+                'attachment' => UploadedFile::fake()->create('bukti-jasa.pdf', 128, 'application/pdf'),
             ],
             [
                 'product_id' => $nonJasaProduct->id,
@@ -142,6 +148,7 @@ test('lapangan user can submit wizard request with multiple items', function () 
                 'required_time' => '10:00',
                 'is_urgent' => false,
                 'notes' => 'Dermaga 03 utara',
+                'attachment' => UploadedFile::fake()->image('bukti-air.jpg'),
             ],
         ],
     ];
@@ -174,9 +181,18 @@ test('lapangan user can submit wizard request with multiple items', function () 
         'quantity' => 50,
         'is_urgent' => false,
     ]);
+
+    $storedItems = RequestItem::query()
+        ->whereIn('item_name', ['Jasa Keagenan Kapal', 'Air Tawar (Fresh Water)'])
+        ->get();
+
+    expect($storedItems)->toHaveCount(2)
+        ->and($storedItems->pluck('attachment_path')->filter()->unique())->toHaveCount(2);
+
+    $storedItems->each(fn (RequestItem $item) => Storage::disk('local')->assertExists($item->attachment_path));
 });
 
-test('admin can forward selected items to director and split invoices', function () {
+test('admin can forward selected items and open the flexible invoice composer after approval', function () {
     $admin = User::factory()->create();
     $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
     $director = User::factory()->create();
@@ -210,6 +226,7 @@ test('admin can forward selected items to director and split invoices', function
         'status' => 'Menunggu Approval',
         'request_date' => now()->toDateString(),
     ]);
+    $vendor = Vendor::create(['code' => 'VD-WIZARD', 'name' => 'PT Vendor Workflow Wizard', 'is_active' => true]);
 
     $itemJasa = RequestItem::create([
         'request_id' => $shipRequest->id,
@@ -221,6 +238,12 @@ test('admin can forward selected items to director and split invoices', function
         'hpp_price' => 3000000,
         'status' => 'pending',
         'director_status' => 'pending',
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => 'INV-WIZARD-JASA-001',
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_path' => 'tests/inv-wizard-jasa.pdf',
+        'supplier_invoice_uploaded_by' => $admin->id,
     ]);
 
     $itemReimburse = RequestItem::create([
@@ -233,6 +256,12 @@ test('admin can forward selected items to director and split invoices', function
         'hpp_price' => 14000000,
         'status' => 'pending',
         'director_status' => 'pending',
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => 'INV-WIZARD-REIMBURSE-001',
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_path' => 'tests/inv-wizard-reimburse.pdf',
+        'supplier_invoice_uploaded_by' => $admin->id,
     ]);
 
     // 1. Admin forwards to director
@@ -271,23 +300,14 @@ test('admin can forward selected items to director and split invoices', function
     expect($itemJasa->director_status)->toBe('approved');
     expect($itemReimburse->director_status)->toBe('approved');
 
-    // 3. Admin splits invoices into Keagenan and Reimburse
+    // 3. Admin is directed to the flexible composer instead of generating fixed invoice lines.
     $splitResponse = $this->actingAs($admin)->post("/requests/{$shipRequest->id}/split-invoices", [
         'invoice_type' => 'both',
         'materai' => 10000,
     ]);
 
-    $splitResponse->assertRedirect();
-
-    $this->assertDatabaseHas('invoices', [
-        'company_id' => $company->id,
-        'invoice_type' => 'agency',
-    ]);
-
-    $this->assertDatabaseHas('invoices', [
-        'company_id' => $company->id,
-        'invoice_type' => 'reimburse',
-    ]);
+    $splitResponse->assertRedirect(route('invoices.create'));
+    $this->assertDatabaseCount('invoices', 0);
 });
 
 test('user can append additional need items to an existing active request', function () {

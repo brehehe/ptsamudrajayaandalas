@@ -11,6 +11,7 @@ import {
     FileText,
     History,
     MapPin,
+    Pencil,
     ReceiptText,
     Ship,
     UserRound,
@@ -205,6 +206,7 @@ interface Props {
     history: HistoryItem[];
     capabilities: {
         can_view_financial: boolean;
+        can_update: boolean;
     };
 }
 
@@ -343,6 +345,15 @@ export default function WorkOrderShow({
                         </div>
 
                         <div className="flex flex-wrap gap-2">
+                            {capabilities.can_update && (
+                                <Link
+                                    href={route('work-orders.edit', workOrder.id)}
+                                    className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] px-3 text-sm font-semibold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#132847]"
+                                >
+                                    <Pencil aria-hidden="true" className="size-4" />
+                                    Edit SPK
+                                </Link>
+                            )}
                             {vesselHref && (
                                 <Link
                                     href={vesselHref}
@@ -443,8 +454,8 @@ export default function WorkOrderShow({
                         {[
                             ['Tanggal dokumen', formatDate(workOrder.document_date)],
                             ['Diterima', formatDateTime(workOrder.received_at)],
-                            ['ETA', formatDateTime(workOrder.planned_eta_at)],
-                            ['ETD', formatDateTime(workOrder.planned_etd_at)],
+                            ['ETA', formatDate(workOrder.planned_eta_at)],
+                            ['ETD', formatDate(workOrder.planned_etd_at)],
                             ['Dibuat oleh', workOrder.creator?.name || '-'],
                             ['Penanggung jawab', workOrder.assignee?.name || '-'],
                             ['Status kunjungan', workOrder.port_call?.status || '-'],

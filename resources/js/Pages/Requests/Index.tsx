@@ -1,19 +1,45 @@
-import React, { useMemo, useState } from 'react';
-import { Head, Link, router } from '@inertiajs/react';
-import { ArrowRight, CalendarDays, FilePlus2, FileText, MapPin, Search, Ship, X } from 'lucide-react';
+import React, { FormEvent, useMemo, useState } from 'react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { ArrowRight, CalendarDays, FilePlus2, FileText, FileUp, ListChecks, MapPin, Search, Send, Ship, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
+import Button from '../../Components/ui/Button';
+import Checkbox from '../../Components/forms/Checkbox';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import Input from '../../Components/forms/Input';
+import MoneyInput, { normalizeRupiahInput } from '../../Components/forms/MoneyInput';
+import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Tabs from '../../Components/ui/Tabs';
 import Table, { Column } from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
+import Modal from '../../Components/overlays/Modal';
+import Select from '../../Components/selects/Select';
 
 interface RequestItem {
     id: string;
+    item_name?: string;
     quantity: number | string;
+    unit?: string;
     hpp_price?: number | string;
-    selling_price?: number | string;
     status: string;
     director_status?: string;
+    attachment_url?: string | null;
+    supplier_invoice_number?: string | null;
+    supplier_invoice_date?: string | null;
+    supplier_invoice_received_date?: string | null;
+    supplier_invoice_due_date?: string | null;
+    supplier_invoice_url?: string | null;
+    supplier_invoice_complete?: boolean;
+    is_invoiced?: boolean;
+    vendor?: {
+        id: string;
+        name: string;
+    };
+}
+
+interface VendorOption {
+    id: string;
+    name: string;
 }
 
 interface ShipRequest {
@@ -69,6 +95,7 @@ interface RequestsIndexProps {
     };
     activeTab: string;
     search: string;
+    vendors?: VendorOption[];
     capabilities?: {
         can_review_prices: boolean;
         can_decide_items: boolean;
@@ -87,11 +114,31 @@ interface JobRow {
     portName: string;
     requests: ShipRequest[];
     totalItems: number;
+    evidenceCount: number;
     totalHpp: number;
-    totalSelling: number;
     status: string;
     updatedAt: string;
     isNew: boolean;
+    forwardableItemCount: number;
+    readyItemIds: string[];
+    forwardableItems: ForwardableItem[];
+}
+
+interface ForwardableItem {
+    id: string;
+    itemName: string;
+    requestNumber: string;
+    quantity: number | string;
+    unit?: string;
+    hppPrice: number;
+    isReady: boolean;
+    readinessLabel: string;
+    requestItem: RequestItem;
+}
+
+interface SupplierInvoiceTarget {
+    jobKey: string;
+    item: ForwardableItem;
 }
 
 const DEFAULT_CAPABILITIES = {
@@ -125,6 +172,9 @@ const formatDate = (value?: string): string => {
 
 const normalizeStatus = (status?: string): string => (status || '').trim().toLowerCase();
 
+const requestStatusLabel = (status: string): string =>
+    normalizeStatus(status) === 'menunggu approval' ? 'Menunggu Approval Admin' : status;
+
 const statusPriority = (status: string): number => {
     const normalized = normalizeStatus(status);
     if (normalized.includes('tolak')) return 5;
@@ -140,9 +190,24 @@ export default function RequestsIndex({
     counts,
     activeTab,
     search: initialSearch,
+    vendors = [],
     capabilities = DEFAULT_CAPABILITIES,
 }: RequestsIndexProps) {
     const [search, setSearch] = useState(initialSearch);
+    const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+    const [itemPickerJobKey, setItemPickerJobKey] = useState<string | null>(null);
+    const [isBatchForwarding, setIsBatchForwarding] = useState(false);
+    const [batchError, setBatchError] = useState('');
+    const [supplierInvoiceTarget, setSupplierInvoiceTarget] = useState<SupplierInvoiceTarget | null>(null);
+    const supplierInvoiceForm = useForm({
+        vendor_id: '',
+        hpp_price: '',
+        supplier_invoice_number: '',
+        supplier_invoice_date: '',
+        supplier_invoice_received_date: '',
+        supplier_invoice_due_date: '',
+        supplier_invoice_document: null as File | null,
+    });
 
     const requestNeedsAction = (request: ShipRequest): boolean => {
         const status = normalizeStatus(request.status);
@@ -186,11 +251,14 @@ export default function RequestsIndex({
                 portName: portCall.port?.name || '-',
                 requests: [],
                 totalItems: 0,
+                evidenceCount: 0,
                 totalHpp: 0,
-                totalSelling: 0,
                 status: 'Belum Ada Pengajuan',
                 updatedAt: portCall.updated_at || portCall.eta_at || portCall.created_at || '',
                 isNew: capabilities.can_create_requests,
+                forwardableItemCount: 0,
+                readyItemIds: [],
+                forwardableItems: [],
             });
         });
 
@@ -203,12 +271,7 @@ export default function RequestsIndex({
                 (total, item) => total + Number(item.hpp_price || 0) * Number(item.quantity || 0),
                 0
             );
-            const requestSelling = items.reduce(
-                (total, item) =>
-                    total + Number(item.selling_price || 0) * Number(item.quantity || 0),
-                0
-            );
-
+            const evidenceCount = items.filter((item) => item.attachment_url || item.supplier_invoice_url).length;
             if (!existing) {
                 groups.set(key, {
                     key,
@@ -222,11 +285,14 @@ export default function RequestsIndex({
                     portName: request.port_call?.port?.name || request.port?.name || '-',
                     requests: [request],
                     totalItems: items.length,
+                    evidenceCount,
                     totalHpp: requestHpp,
-                    totalSelling: requestSelling,
                     status: request.status,
                     updatedAt,
                     isNew: requestNeedsAction(request),
+                    forwardableItemCount: 0,
+                    readyItemIds: [],
+                    forwardableItems: [],
                 });
                 return;
             }
@@ -234,8 +300,8 @@ export default function RequestsIndex({
             const hadRequests = existing.requests.length > 0;
             existing.requests.push(request);
             existing.totalItems += items.length;
+            existing.evidenceCount += evidenceCount;
             existing.totalHpp += requestHpp;
-            existing.totalSelling += requestSelling;
             existing.isNew = hadRequests
                 ? existing.isNew || requestNeedsAction(request)
                 : requestNeedsAction(request);
@@ -248,7 +314,56 @@ export default function RequestsIndex({
             }
         });
 
-        return Array.from(groups.values()).sort((a, b) => {
+        return Array.from(groups.values()).map((row) => {
+            const forwardableItems: ForwardableItem[] = row.requests.flatMap((request) => {
+                if (['selesai', 'dibatalkan'].includes(normalizeStatus(request.status))) {
+                    return [];
+                }
+
+                return (request.items || [])
+                    .filter((item) => {
+                        const itemStatus = normalizeStatus(item.status);
+
+                        return item.director_status !== 'approved' &&
+                            !item.is_invoiced &&
+                            itemStatus !== 'diajukan_ke_direktur';
+                    })
+                    .map((item) => {
+                        const hasSupplierInvoice = Boolean(item.supplier_invoice_complete);
+                        const hppPrice = Number(item.hpp_price || 0);
+                        const hasValidHpp = hppPrice > 0;
+                        const readinessLabel = !hasSupplierInvoice && !hasValidHpp
+                            ? 'Lengkapi nota supplier dan HPP'
+                            : !hasSupplierInvoice
+                              ? 'Nota supplier belum lengkap'
+                              : !hasValidHpp
+                                ? 'HPP belum diisi'
+                                : 'Siap diajukan ke Direktur';
+
+                        return {
+                            id: item.id,
+                            itemName: item.item_name || 'Item kebutuhan',
+                            requestNumber: request.request_number,
+                            quantity: item.quantity,
+                            unit: item.unit,
+                            hppPrice,
+                            isReady: hasSupplierInvoice && hasValidHpp,
+                            readinessLabel,
+                            requestItem: item,
+                        };
+                    });
+            });
+            const readyItemIds = forwardableItems
+                .filter((item) => item.isReady)
+                .map((item) => item.id);
+
+            return {
+                ...row,
+                forwardableItemCount: forwardableItems.length,
+                readyItemIds,
+                forwardableItems,
+            };
+        }).sort((a, b) => {
             if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
             return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
         });
@@ -302,6 +417,18 @@ export default function RequestsIndex({
                     <div className="whitespace-nowrap">
                         <strong>{row.requests.length}</strong> surat · <strong>{row.totalItems}</strong>{' '}
                         item
+                        <p className="mt-1 text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                            {row.evidenceCount} bukti item
+                        </p>
+                        {capabilities.can_review_prices && row.forwardableItemCount > 0 && (
+                            <p className={`mt-1 text-[11px] font-bold ${
+                                row.readyItemIds.length > 0
+                                    ? 'text-[#087A45] dark:text-[#34D399]'
+                                    : 'text-[#B85C00] dark:text-[#FBBF24]'
+                            }`}>
+                                {row.readyItemIds.length}/{row.forwardableItemCount} item siap dikirim
+                            </p>
+                        )}
                     </div>
                 ),
             },
@@ -310,21 +437,18 @@ export default function RequestsIndex({
                 header: 'Status',
                 width: '180px',
                 render: (row) => (
-                    <StatusBadge status={row.status} label={row.status} size="sm" showDot />
+                    <StatusBadge status={row.status} label={requestStatusLabel(row.status)} size="sm" showDot />
                 ),
             },
             {
                 key: 'value',
-                header: capabilities.can_view_hpp ? 'HPP / Jual' : 'Nilai Jual',
+                header: 'Total HPP',
                 align: 'right',
                 width: '190px',
                 render: (row) => (
                     <div className="whitespace-nowrap font-mono tabular-nums">
-                        {capabilities.can_view_hpp && (
-                            <p className="text-[#52658E]">{formatCurrency(row.totalHpp)}</p>
-                        )}
                         <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                            {formatCurrency(row.totalSelling)}
+                            {formatCurrency(row.totalHpp)}
                         </p>
                     </div>
                 ),
@@ -343,23 +467,176 @@ export default function RequestsIndex({
                 key: 'action',
                 header: 'Aksi',
                 align: 'right',
-                width: '110px',
-                render: (row) => (
-                    <Link
-                        href={route('requests.detail', row.jobNumber)}
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] bg-white px-3 font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
-                        aria-label={`Buka ${row.jobNumber}`}
-                    >
-                        Buka <ArrowRight aria-hidden="true" className="size-3.5" />
-                    </Link>
-                ),
+                width: '250px',
+                render: (row) => {
+                    const selectedCount = row.forwardableItems.filter((item) => selectedItemIds.includes(item.id)).length;
+
+                    return (
+                        <div className="flex items-center justify-end gap-2">
+                            {capabilities.can_review_prices && (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={selectedCount > 0 ? 'primary' : 'outline'}
+                                    disabled={row.forwardableItemCount === 0}
+                                    leftIcon={<ListChecks aria-hidden="true" className="size-4" />}
+                                    onClick={() => setItemPickerJobKey(row.key)}
+                                >
+                                    {selectedCount > 0 ? `${selectedCount} Item Dipilih` : 'Pilih Item'}
+                                </Button>
+                            )}
+                            <Link
+                                href={route('requests.detail', row.jobNumber)}
+                                className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] border border-[#DCEAF8] bg-white px-3 font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                                aria-label={`Buka ${row.jobNumber}`}
+                            >
+                                Buka <ArrowRight aria-hidden="true" className="size-3.5" />
+                            </Link>
+                        </div>
+                    );
+                },
             },
         ],
-        [capabilities.can_view_hpp]
+        [capabilities.can_review_prices, selectedItemIds]
     );
 
     const visit = (tab = activeTab, query = search): void => {
-        router.get('/requests', { tab, search: query || undefined }, { preserveState: true });
+        setSelectedItemIds([]);
+        setItemPickerJobKey(null);
+        setBatchError('');
+        router.get(route('requests.index'), { tab, search: query || undefined }, { preserveState: true });
+    };
+
+    const selectedRows = useMemo(
+        () => rows.filter((row) => row.forwardableItems.some((item) => selectedItemIds.includes(item.id))),
+        [rows, selectedItemIds]
+    );
+    const itemPickerRow = useMemo(
+        () => rows.find((row) => row.key === itemPickerJobKey) || null,
+        [rows, itemPickerJobKey]
+    );
+
+    const toggleItemSelection = (itemId: string, selected: boolean): void => {
+        setBatchError('');
+        setSelectedItemIds((current) =>
+            selected ? Array.from(new Set([...current, itemId])) : current.filter((id) => id !== itemId)
+        );
+    };
+
+    const openSupplierInvoiceModal = (item: ForwardableItem, jobKey: string): void => {
+        const requestItem = item.requestItem;
+
+        setItemPickerJobKey(null);
+        setSupplierInvoiceTarget({ item, jobKey });
+        supplierInvoiceForm.setData({
+            vendor_id: requestItem.vendor?.id ?? '',
+            hpp_price: normalizeRupiahInput(requestItem.hpp_price ?? 0),
+            supplier_invoice_number: requestItem.supplier_invoice_number ?? '',
+            supplier_invoice_date: requestItem.supplier_invoice_date?.slice(0, 10) ?? '',
+            supplier_invoice_received_date: requestItem.supplier_invoice_received_date?.slice(0, 10) ?? '',
+            supplier_invoice_due_date: requestItem.supplier_invoice_due_date?.slice(0, 10) ?? '',
+            supplier_invoice_document: null,
+        });
+        supplierInvoiceForm.clearErrors();
+    };
+
+    const closeSupplierInvoiceModal = (restoreItemPicker = true): void => {
+        const jobKey = supplierInvoiceTarget?.jobKey;
+
+        setSupplierInvoiceTarget(null);
+        supplierInvoiceForm.reset();
+        supplierInvoiceForm.clearErrors();
+
+        if (restoreItemPicker && jobKey) {
+            setItemPickerJobKey(jobKey);
+        }
+    };
+
+    const submitSupplierInvoice = (event: FormEvent<HTMLFormElement>): void => {
+        event.preventDefault();
+        if (!supplierInvoiceTarget) return;
+
+        const { item, jobKey } = supplierInvoiceTarget;
+
+        supplierInvoiceForm.post(route('request-items.supplier-invoice.store', item.id), {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                setSelectedItemIds((current) => Array.from(new Set([...current, item.id])));
+                setSupplierInvoiceTarget(null);
+                supplierInvoiceForm.reset();
+                supplierInvoiceForm.clearErrors();
+                setItemPickerJobKey(jobKey);
+            },
+        });
+    };
+
+    const submitSelectedItems = (): void => {
+        if (selectedItemIds.length === 0 || isBatchForwarding) return;
+
+        setBatchError('');
+        router.post(
+            route('requests.batch-forward-director'),
+            {
+                selected_items: selectedItemIds,
+                admin_notes: `${selectedItemIds.length} item pilihan dari ${selectedRows.length} kapal diajukan ke Direktur.`,
+            },
+            {
+                preserveScroll: true,
+                onStart: () => setIsBatchForwarding(true),
+                onSuccess: () => {
+                    setSelectedItemIds([]);
+                    setItemPickerJobKey(null);
+                },
+                onError: (errors) => {
+                    const message = Object.values(errors).find((error) => typeof error === 'string');
+                    setBatchError(message || 'Pengajuan belum dapat dikirim. Periksa kembali data item.');
+                },
+                onFinish: () => setIsBatchForwarding(false),
+            }
+        );
+    };
+
+    const renderBatchActionBar = (mobile = false) => {
+        if (!capabilities.can_review_prices) return null;
+
+        return (
+            <section
+                aria-label="Kirim item pilihan ke Direktur"
+                className={`rounded-2xl border border-[#B9D9FF] bg-[#EAF5FF] p-3 dark:border-[#285585] dark:bg-[#102B4A] ${
+                    mobile ? 'mb-3' : ''
+                }`}
+            >
+                <div className={`flex gap-3 ${mobile ? 'flex-col' : 'items-center justify-between'}`}>
+                    <div className="min-w-0">
+                        <p className="text-sm font-bold text-[#082870] dark:text-white">
+                            Kirim item pilihan ke Direktur
+                        </p>
+                        <p className="mt-0.5 text-xs text-[#52658E] dark:text-[#B5C8DC]" aria-live="polite">
+                            {selectedRows.length > 0
+                                ? `${selectedItemIds.length} item dari ${selectedRows.length} kapal dipilih.`
+                                : 'Buka “Pilih Item” pada kapal, lalu centang item yang akan dikirim.'}
+                        </p>
+                    </div>
+                    <Button
+                        type="button"
+                        size="sm"
+                        isLoading={isBatchForwarding}
+                        disabled={selectedItemIds.length === 0}
+                        leftIcon={<Send aria-hidden="true" className="size-4" />}
+                        onClick={submitSelectedItems}
+                        className={mobile ? 'w-full' : 'shrink-0'}
+                    >
+                        Kirim {selectedItemIds.length > 0 ? `${selectedItemIds.length} Item` : 'ke Direktur'}
+                    </Button>
+                </div>
+                {batchError && (
+                    <p className="mt-2 text-xs font-semibold text-[#C62840] dark:text-[#F87171]" role="alert">
+                        {batchError}
+                    </p>
+                )}
+            </section>
+        );
     };
 
     return (
@@ -454,20 +731,50 @@ export default function RequestsIndex({
                         ]}
                     />
 
+                    {renderBatchActionBar(true)}
+
                     {rows.length > 0 ? (
                         <div className="space-y-2.5">
-                            {rows.map((row) => (
-                                <Link
-                                    key={row.key}
-                                    href={route('requests.detail', row.jobNumber)}
-                                    prefetch
-                                    aria-label={`Buka pengajuan ${row.jobNumber} untuk ${row.shipName}`}
-                                    className={`group grid min-h-28 touch-manipulation grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-x-3 gap-y-2 rounded-2xl border bg-white p-2.5 shadow-2xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#0C1D36] ${
-                                        row.isNew
-                                            ? 'border-[#0060F4] ring-1 ring-[#0060F4]/15 dark:border-[#38BDF8]'
-                                            : 'border-[#E2EEF9] hover:border-[#0060F4]/40 dark:border-[#1E3A5F]'
-                                    }`}
-                                >
+                            {rows.map((row) => {
+                                const selectedCount = row.forwardableItems.filter((item) => selectedItemIds.includes(item.id)).length;
+
+                                return (
+                                    <article
+                                        key={row.key}
+                                        className={`overflow-hidden rounded-2xl border bg-white shadow-2xs dark:bg-[#0C1D36] ${
+                                            selectedCount > 0
+                                                ? 'border-[#0060F4] ring-2 ring-[#0060F4]/20 dark:border-[#38BDF8]'
+                                                : row.isNew
+                                                  ? 'border-[#0060F4] ring-1 ring-[#0060F4]/15 dark:border-[#38BDF8]'
+                                                  : 'border-[#E2EEF9] dark:border-[#1E3A5F]'
+                                        }`}
+                                    >
+                                        {capabilities.can_review_prices && (
+                                            <div className="flex items-center justify-between gap-3 border-b border-[#E2EEF9] bg-[#F8FBFF] px-3 py-2 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                <p className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                                    {row.forwardableItemCount > 0
+                                                        ? `${row.readyItemIds.length}/${row.forwardableItemCount} item siap dipilih`
+                                                        : 'Tidak ada item yang dapat diajukan'}
+                                                </p>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant={selectedCount > 0 ? 'primary' : 'outline'}
+                                                    disabled={row.forwardableItemCount === 0}
+                                                    leftIcon={<ListChecks aria-hidden="true" className="size-4" />}
+                                                    onClick={() => setItemPickerJobKey(row.key)}
+                                                    className="shrink-0"
+                                                >
+                                                    {selectedCount > 0 ? `${selectedCount} Dipilih` : 'Pilih Item'}
+                                                </Button>
+                                            </div>
+                                        )}
+                                        <Link
+                                            href={route('requests.detail', row.jobNumber)}
+                                            prefetch
+                                            aria-label={`Buka pengajuan ${row.jobNumber} untuk ${row.shipName}`}
+                                            className="group grid min-h-28 touch-manipulation grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-x-3 gap-y-2 p-2.5 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
+                                        >
                                     <ShipImage
                                         src={row.shipImage}
                                         alt={`Foto ${row.shipName}`}
@@ -491,7 +798,7 @@ export default function RequestsIndex({
 
                                         <StatusBadge
                                             status={row.status}
-                                            label={row.status}
+                                            label={requestStatusLabel(row.status)}
                                             size="sm"
                                             className="max-w-full shrink-0 whitespace-nowrap"
                                         />
@@ -508,11 +815,10 @@ export default function RequestsIndex({
                                         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                             <span><strong className="text-[#082870] dark:text-white">{row.requests.length}</strong> surat</span>
                                             <span><strong className="text-[#0060F4]">{row.totalItems}</strong> item</span>
-                                            {capabilities.can_view_hpp && (
-                                                <span className="font-semibold tabular-nums text-[#082870] dark:text-white">
-                                                    {formatCurrency(row.totalSelling)}
-                                                </span>
-                                            )}
+                                            <span><strong className="text-[#0060F4]">{row.evidenceCount}</strong> bukti</span>
+                                            <span className="font-semibold tabular-nums text-[#082870] dark:text-white">
+                                                {formatCurrency(row.totalHpp)}
+                                            </span>
                                         </div>
                                     </div>
 
@@ -525,8 +831,10 @@ export default function RequestsIndex({
                                         </span>
                                         <ArrowRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#0060F4]" />
                                     </div>
-                                </Link>
-                            ))}
+                                        </Link>
+                                    </article>
+                                );
+                            })}
                         </div>
                     ) : (
                         <div className="border-y border-[#DCEAF8] py-10 text-center dark:border-[#1E3A5F]">
@@ -614,10 +922,13 @@ export default function RequestsIndex({
                     />
                 </section>
 
+                {renderBatchActionBar()}
+
                 <Table
                     columns={columns}
                     data={rows}
                     keyExtractor={(row) => row.key}
+                    isLoading={isBatchForwarding}
                     compact
                     minWidth="1180px"
                     emptyIcon={<FileText aria-hidden="true" className="mx-auto size-7" />}
@@ -635,6 +946,207 @@ export default function RequestsIndex({
                     oleh role Anda.
                 </p>
             </div>
+
+            <Modal
+                isOpen={itemPickerRow !== null}
+                onClose={() => setItemPickerJobKey(null)}
+                title="Pilih Item untuk Direktur"
+                subtitle={itemPickerRow
+                    ? `${itemPickerRow.jobNumber} · ${itemPickerRow.shipName}`
+                    : undefined}
+                size="lg"
+                footer={(
+                    <div className="flex w-full items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]" role="status">
+                            {itemPickerRow?.forwardableItems.filter((item) => selectedItemIds.includes(item.id)).length || 0} item dipilih dari kapal ini
+                        </p>
+                        <Button type="button" onClick={() => setItemPickerJobKey(null)}>
+                            Selesai Pilih Item
+                        </Button>
+                    </div>
+                )}
+            >
+                <div className="space-y-3">
+                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 text-xs text-[#52658E] dark:border-[#285585] dark:bg-[#102B4A] dark:text-[#B5C8DC]">
+                        Centang hanya item yang ingin diajukan. Jika nota supplier atau HPP belum lengkap, unggah dan lengkapi datanya langsung dari item tersebut.
+                    </div>
+
+                    <div className="space-y-2">
+                        {itemPickerRow?.forwardableItems.map((item) => {
+                            const isSelected = selectedItemIds.includes(item.id);
+
+                            return (
+                                <div
+                                    key={item.id}
+                                    className={`rounded-xl border p-3 transition-colors ${
+                                        isSelected
+                                            ? 'border-[#0060F4] bg-[#F0F8FF] dark:border-[#38BDF8] dark:bg-[#102B4A]'
+                                            : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#071322]'
+                                    }`}
+                                >
+                                    <Checkbox
+                                        id={`select-item-${item.id}`}
+                                        checked={isSelected}
+                                        disabled={!item.isReady || isBatchForwarding}
+                                        label={item.itemName}
+                                        description={`${item.requestNumber} · ${item.quantity} ${item.unit || ''} · HPP ${formatCurrency(item.hppPrice)}`}
+                                        onChange={(event) => toggleItemSelection(item.id, event.target.checked)}
+                                    />
+                                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 pl-7">
+                                        <p className={`text-[11px] font-bold ${
+                                            item.isReady
+                                                ? 'text-[#087A45] dark:text-[#34D399]'
+                                                : 'text-[#B85C00] dark:text-[#FBBF24]'
+                                        }`}>
+                                            {item.readinessLabel}
+                                        </p>
+                                        {!item.isReady && itemPickerRow && (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => openSupplierInvoiceModal(item, itemPickerRow.key)}
+                                                disabled={isBatchForwarding}
+                                                leftIcon={<FileUp aria-hidden="true" className="size-3.5" />}
+                                            >
+                                                {item.requestItem.supplier_invoice_url
+                                                    ? 'Lengkapi Data Nota'
+                                                    : 'Unggah Nota Supplier'}
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={supplierInvoiceTarget !== null}
+                onClose={() => closeSupplierInvoiceModal()}
+                title="Nota Invoice Supplier"
+                subtitle={supplierInvoiceTarget
+                    ? `${supplierInvoiceTarget.item.requestNumber} · ${supplierInvoiceTarget.item.itemName}`
+                    : undefined}
+                size="lg"
+                footer={(
+                    <>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => closeSupplierInvoiceModal()}
+                            disabled={supplierInvoiceForm.processing}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="submit"
+                            form="supplier-invoice-index-form"
+                            isLoading={supplierInvoiceForm.processing}
+                        >
+                            Simpan Nota Supplier
+                        </Button>
+                    </>
+                )}
+            >
+                <form
+                    id="supplier-invoice-index-form"
+                    noValidate
+                    onSubmit={submitSupplierInvoice}
+                    className="space-y-4"
+                >
+                    <FormErrorSummary errors={supplierInvoiceForm.errors} />
+
+                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            {supplierInvoiceTarget?.item.itemName}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                            Setelah tersimpan, item otomatis dipilih dan siap dikirim ke Direktur.
+                        </p>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Select
+                            required
+                            name="supplier_vendor_id"
+                            label="Vendor Supplier"
+                            value={supplierInvoiceForm.data.vendor_id}
+                            onChange={(event) => supplierInvoiceForm.setData('vendor_id', event.target.value)}
+                            options={[
+                                { value: '', label: 'Pilih vendor supplier' },
+                                ...vendors.map((vendor) => ({ value: vendor.id, label: vendor.name })),
+                            ]}
+                            error={supplierInvoiceForm.errors.vendor_id}
+                        />
+                        <MoneyInput
+                            required
+                            id="supplier_index_hpp_price"
+                            label="HPP per Satuan"
+                            value={supplierInvoiceForm.data.hpp_price}
+                            onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
+                            error={supplierInvoiceForm.errors.hpp_price}
+                        />
+                    </div>
+
+                    <Input
+                        required
+                        name="supplier_invoice_number"
+                        autoComplete="off"
+                        label="Nomor Invoice Supplier"
+                        value={supplierInvoiceForm.data.supplier_invoice_number}
+                        onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_number', event.target.value)}
+                        error={supplierInvoiceForm.errors.supplier_invoice_number}
+                        placeholder="Contoh: INV/VENDOR/2026/001"
+                    />
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                        <Input
+                            required
+                            type="date"
+                            name="supplier_invoice_date"
+                            label="Tanggal Invoice"
+                            value={supplierInvoiceForm.data.supplier_invoice_date}
+                            onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_date', event.target.value)}
+                            error={supplierInvoiceForm.errors.supplier_invoice_date}
+                        />
+                        <Input
+                            required
+                            type="date"
+                            name="supplier_invoice_received_date"
+                            label="Tanggal Diterima"
+                            value={supplierInvoiceForm.data.supplier_invoice_received_date}
+                            onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_received_date', event.target.value)}
+                            error={supplierInvoiceForm.errors.supplier_invoice_received_date}
+                        />
+                        <Input
+                            type="date"
+                            name="supplier_invoice_due_date"
+                            label="Jatuh Tempo (Opsional)"
+                            value={supplierInvoiceForm.data.supplier_invoice_due_date}
+                            onChange={(event) => supplierInvoiceForm.setData('supplier_invoice_due_date', event.target.value)}
+                            error={supplierInvoiceForm.errors.supplier_invoice_due_date}
+                        />
+                    </div>
+
+                    <PhotoUploadPicker
+                        required={!supplierInvoiceTarget?.item.requestItem.supplier_invoice_url}
+                        label={supplierInvoiceTarget?.item.requestItem.supplier_invoice_url
+                            ? 'Ganti Dokumen Nota (Opsional)'
+                            : 'Dokumen Nota Invoice Supplier'}
+                        value={supplierInvoiceForm.data.supplier_invoice_document}
+                        onChange={(file) => supplierInvoiceForm.setData('supplier_invoice_document', file)}
+                        mode="gallery"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        maxSizeMb={10}
+                        variant="compact"
+                        resizeImages={false}
+                        error={supplierInvoiceForm.errors.supplier_invoice_document}
+                        helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB. Setiap item wajib memiliki dokumen sendiri."
+                    />
+                </form>
+            </Modal>
         </AppLayout>
     );
 }

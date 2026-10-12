@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreCompletionNoteRequest;
 use App\Models\CompletionNote;
+use App\Models\OutgoingPayment;
 use App\Models\PortCall;
 use App\Models\ShipCompany;
 use Illuminate\Http\RedirectResponse;
@@ -38,6 +39,7 @@ class CompletionNoteController extends Controller
                 'portCall.workOrder:id,company_id',
                 'portCall.workOrder.company:id,name',
                 'uploader:id,name',
+                'reconciliation:id,completion_note_id,initial_total,actual_total,variance,status',
             ])
             ->when($status !== 'all' && $status !== 'waiting' && $status !== 'overdue', fn ($query) => $query->where('status', $status))
             ->when($status === 'waiting', fn ($query) => $query->whereRaw('1 = 0'))
@@ -59,11 +61,15 @@ class CompletionNoteController extends Controller
         ]);
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         Gate::authorize('create', CompletionNote::class);
+        $validated = $request->validate([
+            'port_call_id' => ['nullable', 'uuid'],
+        ]);
 
         $portCalls = PortCall::query()
+            ->select(['id', 'job_number', 'ship_id', 'port_id', 'work_order_id', 'departed_at'])
             ->with([
                 'ship:id,name,ship_company_id',
                 'ship.company:id,name',
@@ -71,10 +77,14 @@ class CompletionNoteController extends Controller
                 'workOrder:id,company_id,client_number',
                 'workOrder.company:id,name',
             ])
+            ->withSum([
+                'outgoingPayments as initial_paid_total' => fn ($query) => $query
+                    ->where('verification_status', 'verified'),
+            ], 'amount')
             ->where('status', 'departed')
             ->whereDoesntHave('completionNote')
             ->latest('departed_at')
-            ->get(['id', 'job_number', 'ship_id', 'port_id', 'work_order_id', 'departed_at'])
+            ->get()
             ->map(fn (PortCall $portCall): array => [
                 'id' => $portCall->id,
                 'job_number' => $portCall->job_number,
@@ -84,7 +94,13 @@ class CompletionNoteController extends Controller
                 'ship' => $portCall->ship?->only(['id', 'name']),
                 'port' => $portCall->port?->only(['id', 'name']),
                 'departed_at' => $portCall->departed_at?->toISOString(),
+                'initial_paid_total' => (float) $portCall->getAttribute('initial_paid_total'),
             ]);
+
+        $requestedPortCallId = $validated['port_call_id'] ?? null;
+        $preselectedPortCallId = $requestedPortCallId && $portCalls->contains('id', $requestedPortCallId)
+            ? $requestedPortCallId
+            : null;
 
         return Inertia::render('CompletionNotes/Create', [
             'companies' => ShipCompany::query()
@@ -92,6 +108,7 @@ class CompletionNoteController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name']),
             'portCalls' => $portCalls,
+            'preselectedPortCallId' => $preselectedPortCallId,
         ]);
     }
 
@@ -124,18 +141,51 @@ class CompletionNoteController extends Controller
                     'uploaded_at' => now(),
                     'due_at' => $portCall->completion_note_due_at,
                     'document_path' => $documentPath,
-                    'actual_amount' => '0.00',
-                    'status' => 'uploaded',
+                    'actual_amount' => $validated['actual_amount'],
+                    'status' => 'reconciled',
+                    'notes' => $validated['notes'] ?? null,
                     'uploaded_by' => $request->user()->id,
                 ]);
 
-                $portCall->update(['financial_status' => 'billing']);
+                $initialTotal = (float) OutgoingPayment::query()
+                    ->where('port_call_id', $portCall->id)
+                    ->where('verification_status', 'verified')
+                    ->sum('amount');
+                $actualTotal = (float) $validated['actual_amount'];
+                $variance = $actualTotal - $initialTotal;
+                $reconciliationStatus = match (true) {
+                    $variance > 0 => 'shortfall',
+                    $variance < 0 => 'overpayment',
+                    default => 'settled',
+                };
+
+                $note->reconciliation()->create([
+                    'port_call_id' => $portCall->id,
+                    'initial_total' => $initialTotal,
+                    'actual_total' => $actualTotal,
+                    'variance' => $variance,
+                    'adjustment' => '0.00',
+                    'status' => $reconciliationStatus,
+                    'notes' => $validated['notes'] ?? null,
+                    'reconciled_by' => $request->user()->id,
+                    'reconciled_at' => now(),
+                ]);
+
+                $portCall->update([
+                    'financial_status' => $variance > 0 ? 'reconciliation_shortfall' : 'billing',
+                    'reconciled_at' => now(),
+                ]);
                 $portCall->workOrder?->update(['status' => 'billing']);
 
                 activity('completion-note')
                     ->performedOn($note)
                     ->causedBy($request->user())
-                    ->withProperties(['original_filename' => $request->file('document')->getClientOriginalName()])
+                    ->withProperties([
+                        'original_filename' => $request->file('document')->getClientOriginalName(),
+                        'initial_total' => $initialTotal,
+                        'actual_total' => $actualTotal,
+                        'variance' => $variance,
+                    ])
                     ->log('Nota Rampung diunggah untuk Job');
 
                 return $note;
