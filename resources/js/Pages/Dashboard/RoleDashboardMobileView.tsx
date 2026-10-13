@@ -27,7 +27,6 @@ import ShipImage from '@/Components/vessels/ShipImage';
 
 type DashboardRole = 'admin' | 'operasional' | 'direktur' | 'owner';
 type MetricFormat = 'number' | 'currency' | 'percentage';
-type PriorityTone = 'blue' | 'amber' | 'green' | 'red';
 
 interface Metric {
     key: string;
@@ -35,14 +34,6 @@ interface Metric {
     value: number;
     format: MetricFormat;
     hint: string;
-}
-
-interface Priority {
-    title: string;
-    description: string;
-    count: number;
-    href: string;
-    tone: PriorityTone;
 }
 
 interface MobileDashboardData {
@@ -53,7 +44,6 @@ interface MobileDashboardData {
     subtitle: string;
     primary_action: { label: string; href: string };
     metrics: Metric[];
-    priorities: Priority[];
 }
 
 interface RoleDashboardMobileViewProps {
@@ -161,13 +151,6 @@ const summaryTones: SummaryTone[] = [
         labelClass: 'text-[#51388C] dark:text-violet-100',
     },
 ];
-
-const priorityClasses: Record<PriorityTone, string> = {
-    blue: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
-    amber: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
-    green: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200',
-    red: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200',
-};
 
 const formatMetricValue = (metric: Metric): string => {
     if (metric.format === 'currency') {
@@ -475,29 +458,6 @@ function OperationalActivityTimeline({ activities }: { activities: any[] }) {
     );
 }
 
-function PriorityList({ priorities }: { priorities: Priority[] }) {
-    return (
-        <div className="grid gap-2">
-            {priorities.map((priority) => (
-                <Link
-                    key={priority.title}
-                    href={priority.href}
-                    className={`grid min-h-16 touch-manipulation grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl border px-3 py-2.5 hover:brightness-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:brightness-110 ${priorityClasses[priority.tone]}`}
-                >
-                    <span className="flex size-10 items-center justify-center rounded-lg bg-white/85 text-sm font-black tabular-nums shadow-sm dark:bg-black/15">
-                        {new Intl.NumberFormat('id-ID').format(priority.count)}
-                    </span>
-                    <span className="min-w-0">
-                        <span className="block truncate text-[11px] font-extrabold">{priority.title}</span>
-                        <span className="mt-0.5 block truncate text-[9px] opacity-80">{priority.description}</span>
-                    </span>
-                    <ArrowRight aria-hidden="true" className="size-3.5" />
-                </Link>
-            ))}
-        </div>
-    );
-}
-
 function RequestList({ requests }: { requests: any[] }) {
     if (!requests.length) {
         return <EmptyState>Belum ada pengajuan terbaru</EmptyState>;
@@ -734,25 +694,15 @@ export default function RoleDashboardMobileView({
                 )}
 
                 {dashboard.role === 'direktur' && (
-                    <>
-                        <MobileSection icon={ClipboardCheck} title="Antrean keputusan" subtitle="Pengajuan yang memerlukan keputusan Direktur" href="/approvals" linkLabel="Buka approval">
-                            <ApprovalList approvals={pendingApprovals} />
-                        </MobileSection>
-                        <MobileSection icon={Landmark} title="Prioritas pengawasan" subtitle="Tahapan pendanaan dan Kopra yang perlu diperhatikan" href="/funding" linkLabel="Lihat pendanaan">
-                            <PriorityList priorities={dashboard.priorities} />
-                        </MobileSection>
-                    </>
+                    <MobileSection icon={ClipboardCheck} title="Antrean keputusan" subtitle="Pengajuan yang memerlukan keputusan Direktur" href="/approvals" linkLabel="Buka approval">
+                        <ApprovalList approvals={pendingApprovals} />
+                    </MobileSection>
                 )}
 
                 {dashboard.role === 'owner' && (
-                    <>
-                        <MobileSection icon={Building2} title="Perlu dipantau" subtitle="Ringkasan strategis tanpa aksi pemrosesan" href="/reports" linkLabel="Lihat laporan">
-                            <PriorityList priorities={dashboard.priorities} />
-                        </MobileSection>
-                        <MobileSection icon={Ship} title="Kapal aktif" subtitle="Kunjungan yang sedang berjalan" href="/vessels" linkLabel="Lihat kapal">
-                            <ShipList ships={activeShips} limit={3} />
-                        </MobileSection>
-                    </>
+                    <MobileSection icon={Ship} title="Kapal aktif" subtitle="Kunjungan yang sedang berjalan" href="/vessels" linkLabel="Lihat kapal">
+                        <ShipList ships={activeShips} limit={3} />
+                    </MobileSection>
                 )}
             </div>
         </div>

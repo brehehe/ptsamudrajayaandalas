@@ -260,7 +260,7 @@ function ActiveShips({ ships }: { ships: any[] }) {
     }
 
     return (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2">
             {ships.slice(0, 6).map((shipItem) => (
                 <Link key={shipItem.id} href={`/vessels/${shipItem.ship_id}?visit=${shipItem.id}`} className="group grid min-h-[74px] grid-cols-[54px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[#E5EEF7] p-2.5 hover:border-[#9CC9F5] hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#10243E]">
                     <ShipImage src={shipItem.image_url} width="54" height="54" loading="lazy" alt={`Foto ${shipItem.name}`} className="size-[54px] rounded-lg object-cover" placeholderIconClassName="size-6" />
@@ -404,9 +404,9 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
     const RoleIcon = meta.icon;
     const receivablesOverview: ReceivablesOverviewData | null = financialOverview
         ? {
-              aging: financialOverview.aging,
-              receivables_by_company: financialOverview.receivables_by_company ?? [],
-          }
+            aging: financialOverview.aging,
+            receivables_by_company: financialOverview.receivables_by_company ?? [],
+        }
         : null;
     const processPanel = {
         admin: {
@@ -443,78 +443,78 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
             />
 
             <div className="mx-auto hidden w-full max-w-[1680px] space-y-3 sm:space-y-4 md:block">
-            <section className="relative isolate min-h-[210px] overflow-hidden rounded-2xl bg-[#082870] text-white shadow-sm md:min-h-[190px]">
-                <img src="/images/background-kapal.png" width="1600" height="230" fetchPriority="high" alt="" className="absolute inset-0 -z-20 size-full object-cover" />
-                <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#061B3D]/90 via-[#082870]/50 to-[#061B3D]/70" />
-                <div className="grid min-h-[210px] md:min-h-[190px] md:grid-cols-[minmax(0,1fr)_260px]">
-                    <div className="flex flex-col justify-center px-5 py-5 sm:px-7 lg:px-8">
-                        <p className="text-sm font-medium text-white/85">Selamat datang,</p>
-                        <h1 className="mt-1 text-balance text-3xl font-black leading-none text-white sm:text-4xl">{userName}</h1>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-white/90">
-                            <RoleIcon aria-hidden="true" className="size-4" />
-                            {meta.label}
-                            {dashboard.is_read_only && (
-                                <span className="rounded-full border border-white/25 bg-white/15 px-2.5 py-1 text-[10px] font-bold text-white">
-                                    Mode lihat saja
-                                </span>
-                            )}
+                <section className="relative isolate min-h-[210px] overflow-hidden rounded-2xl bg-[#082870] text-white shadow-sm md:min-h-[190px]">
+                    <img src="/images/background-kapal.png" width="1600" height="230" fetchPriority="high" alt="" className="absolute inset-0 -z-20 size-full object-cover" />
+                    <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#061B3D]/90 via-[#082870]/50 to-[#061B3D]/70" />
+                    <div className="grid min-h-[210px] md:min-h-[190px] md:grid-cols-[minmax(0,1fr)_260px]">
+                        <div className="flex flex-col justify-center px-5 py-5 sm:px-7 lg:px-8">
+                            <p className="text-sm font-medium text-white/85">Selamat datang,</p>
+                            <h1 className="mt-1 text-balance text-3xl font-black leading-none text-white sm:text-4xl">{userName}</h1>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-white/90">
+                                <RoleIcon aria-hidden="true" className="size-4" />
+                                {meta.label}
+                                {dashboard.is_read_only && (
+                                    <span className="rounded-full border border-white/25 bg-white/15 px-2.5 py-1 text-[10px] font-bold text-white">
+                                        Mode lihat saja
+                                    </span>
+                                )}
+                            </div>
+                            <p className="mt-3 max-w-2xl text-pretty text-xs italic leading-5 text-white/80 sm:text-sm">“{dashboard.subtitle}”</p>
                         </div>
-                        <p className="mt-3 max-w-2xl text-pretty text-xs italic leading-5 text-white/80 sm:text-sm">“{dashboard.subtitle}”</p>
+                        <div className="flex items-end justify-between gap-3 border-t border-white/15 bg-[#061B3D]/25 px-5 py-4 md:flex-col md:items-end md:justify-center md:border-l md:border-t-0 md:px-6 md:text-right">
+                            <div><p className="text-[11px] font-semibold text-white/80">{liveDate}</p><p className="mt-1 text-2xl font-black tabular-nums text-white sm:text-3xl">{liveTime}</p></div>
+                            <Link href={dashboard.primary_action.href} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-[11px] font-extrabold text-[#082870] shadow-sm hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+                                {dashboard.primary_action.label}<ArrowRight aria-hidden="true" className="size-4" />
+                            </Link>
+                        </div>
                     </div>
-                    <div className="flex items-end justify-between gap-3 border-t border-white/15 bg-[#061B3D]/25 px-5 py-4 md:flex-col md:items-end md:justify-center md:border-l md:border-t-0 md:px-6 md:text-right">
-                        <div><p className="text-[11px] font-semibold text-white/80">{liveDate}</p><p className="mt-1 text-2xl font-black tabular-nums text-white sm:text-3xl">{liveTime}</p></div>
-                        <Link href={dashboard.primary_action.href} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-[11px] font-extrabold text-[#082870] shadow-sm hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-                            {dashboard.primary_action.label}<ArrowRight aria-hidden="true" className="size-4" />
-                        </Link>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <section aria-label="Ringkasan utama" className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
-                {dashboard.metrics.map((metric) => {
-                    const Icon = metricIcons[metric.key] ?? Gauge;
+                <section aria-label="Ringkasan utama" className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
+                    {dashboard.metrics.map((metric) => {
+                        const Icon = metricIcons[metric.key] ?? Gauge;
 
-                    return (
-                        <article key={metric.key} className="grid min-h-[104px] min-w-0 grid-cols-[40px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-[#DCEAF8] bg-white p-3 shadow-sm sm:grid-cols-[48px_minmax(0,1fr)] sm:p-4 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
-                            <span className="flex size-10 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] sm:size-12 dark:bg-[#132847] dark:text-[#60A5FA]"><Icon aria-hidden="true" className="size-5 sm:size-6" /></span>
-                            <div className="min-w-0"><p className="text-pretty text-[10px] font-semibold text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">{metric.label}</p><p className="mt-0.5 break-words text-lg font-black leading-tight tabular-nums text-[#0B1F63] sm:text-xl dark:text-white">{formatValue(metric.value, metric.format)}</p><p className="mt-1 line-clamp-2 text-[9px] leading-3.5 text-[#7C91AC] dark:text-[#9FB0C6]">{metric.hint}</p></div>
-                        </article>
-                    );
-                })}
-            </section>
+                        return (
+                            <article key={metric.key} className="grid min-h-[104px] min-w-0 grid-cols-[40px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-[#DCEAF8] bg-white p-3 shadow-sm sm:grid-cols-[48px_minmax(0,1fr)] sm:p-4 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                <span className="flex size-10 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] sm:size-12 dark:bg-[#132847] dark:text-[#60A5FA]"><Icon aria-hidden="true" className="size-5 sm:size-6" /></span>
+                                <div className="min-w-0"><p className="text-pretty text-[10px] font-semibold text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">{metric.label}</p><p className="mt-0.5 break-words text-lg font-black leading-tight tabular-nums text-[#0B1F63] sm:text-xl dark:text-white">{formatValue(metric.value, metric.format)}</p><p className="mt-1 line-clamp-2 text-[9px] leading-3.5 text-[#7C91AC] dark:text-[#9FB0C6]">{metric.hint}</p></div>
+                            </article>
+                        );
+                    })}
+                </section>
 
-            <div className="grid gap-3 xl:grid-cols-12">
-                {dashboard.role === 'admin' && <><Panel title="Pengajuan terbaru" subtitle="Status kebutuhan kapal yang baru masuk" href="/requests" className="xl:col-span-7"><LatestRequests requests={latestRequests} /></Panel><Panel title="Kebutuhan hari ini" subtitle="Barang dan layanan berdasarkan jadwal kebutuhan" href="/needs" className="xl:col-span-5"><NeedsToday needs={needsToday} /></Panel></>}
-                {dashboard.role === 'operasional' && <><Panel title="Kapal yang dipantau" subtitle="Jadwal, posisi, dan kunjungan aktif" href="/vessels" className="xl:col-span-7"><ActiveShips ships={activeShips} /></Panel><Panel title="Kebutuhan hari ini" subtitle="Kebutuhan kapal yang perlu ditindaklanjuti" href="/needs" className="xl:col-span-5"><NeedsToday needs={needsToday} /></Panel></>}
-                {dashboard.role === 'direktur' && <><Panel title="Antrean keputusan Direktur" subtitle="Pengajuan yang telah diperiksa Admin" href="/approvals" linkLabel="Buka approval" className="xl:col-span-7"><Approvals approvals={pendingApprovals} /></Panel><Panel title="Kapal dalam pemantauan" subtitle="Kunjungan aktif perusahaan" href="/vessels" className="xl:col-span-5"><ActiveShips ships={activeShips} /></Panel></>}
-                {dashboard.role === 'owner' && <><Panel title="Tagihan klien terbaru" subtitle="Invoice dan saldo yang masih harus ditagih" href="/receivables" className="xl:col-span-7"><RecentInvoices invoices={financialOverview?.recent_invoices ?? []} /></Panel><Panel title="Kapal dalam pemantauan" subtitle="Kunjungan aktif di seluruh kegiatan" href="/vessels" className="xl:col-span-5"><ActiveShips ships={activeShips} /></Panel></>}
-            </div>
-
-            {dashboard.role !== 'operasional' && receivablesOverview && (
-                <ReceivablesOverview data={receivablesOverview} headingId="desktop-receivables-overview-title" />
-            )}
-
-            <DashboardAnalytics charts={dashboard.charts} />
-
-            {dashboard.role === 'operasional' ? (
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
-                    <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="md:col-span-2 xl:col-span-6"><RecentActivities activities={recentActivities} /></Panel>
-                    <Panel title="Prioritas Anda" subtitle="Pekerjaan lapangan yang perlu ditindaklanjuti" className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
-                    <Panel title="Akses cepat" subtitle={`Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
-                </div>
-            ) : (
                 <div className="grid gap-3 xl:grid-cols-12">
-                    <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="xl:col-span-7"><RecentActivities activities={recentActivities} /></Panel>
-                    <Panel title={processPanel?.title ?? 'Status proses'} subtitle={processPanel?.subtitle} className="xl:col-span-5"><ProcessPipeline items={dashboard.pipeline} /></Panel>
+                    {dashboard.role === 'admin' && <><Panel title="Pengajuan terbaru" subtitle="Status kebutuhan kapal yang baru masuk" href="/requests" className="xl:col-span-7"><LatestRequests requests={latestRequests} /></Panel><Panel title="Kebutuhan hari ini" subtitle="Barang dan layanan berdasarkan jadwal kebutuhan" href="/needs" className="xl:col-span-5"><NeedsToday needs={needsToday} /></Panel></>}
+                    {dashboard.role === 'operasional' && <><Panel title="Kapal yang dipantau" subtitle="Jadwal, posisi, dan kunjungan aktif" href="/vessels" className="xl:col-span-7"><ActiveShips ships={activeShips} /></Panel><Panel title="Kebutuhan hari ini" subtitle="Kebutuhan kapal yang perlu ditindaklanjuti" href="/needs" className="xl:col-span-5"><NeedsToday needs={needsToday} /></Panel></>}
+                    {dashboard.role === 'direktur' && <><Panel title="Antrean keputusan Direktur" subtitle="Pengajuan yang telah diperiksa Admin" href="/approvals" linkLabel="Buka approval" className="xl:col-span-7"><Approvals approvals={pendingApprovals} /></Panel><Panel title="Kapal dalam pemantauan" subtitle="Kunjungan aktif perusahaan" href="/vessels" className="xl:col-span-5"><ActiveShips ships={activeShips} /></Panel></>}
+                    {dashboard.role === 'owner' && <><Panel title="Tagihan klien terbaru" subtitle="Invoice dan saldo yang masih harus ditagih" href="/receivables" className="xl:col-span-7"><RecentInvoices invoices={financialOverview?.recent_invoices ?? []} /></Panel><Panel title="Kapal dalam pemantauan" subtitle="Kunjungan aktif di seluruh kegiatan" href="/vessels" className="xl:col-span-5"><ActiveShips ships={activeShips} /></Panel></>}
                 </div>
-            )}
 
-            {dashboard.role === 'admin' && (
-                <div className="flex items-start gap-3 rounded-2xl border border-[#B8DCFF] bg-[#EAF4FF] p-4 dark:border-[#174B7B] dark:bg-[#0A2340]">
-                    <Banknote aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[#0060F4] dark:text-[#60A5FA]" />
-                    <div><h2 className="text-sm font-extrabold text-[#0B1F63] dark:text-white">Kontrol dokumen sampai pembayaran</h2><p className="mt-1 text-pretty text-[11px] leading-4 text-[#52658E] dark:text-[#9FB0C6]">Pastikan invoice vendor, bukti pembayaran, Nota Rampung, dan invoice klien terhubung dengan SPK serta kunjungan yang benar.</p></div>
-                </div>
-            )}
+                {dashboard.role !== 'operasional' && receivablesOverview && (
+                    <ReceivablesOverview data={receivablesOverview} headingId="desktop-receivables-overview-title" />
+                )}
+
+                <DashboardAnalytics charts={dashboard.charts} />
+
+                {dashboard.role === 'operasional' ? (
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
+                        <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="md:col-span-2 xl:col-span-6"><RecentActivities activities={recentActivities} /></Panel>
+                        <Panel title="Prioritas Anda" subtitle="Pekerjaan lapangan yang perlu ditindaklanjuti" className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
+                        <Panel title="Akses cepat" subtitle={`Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
+                    </div>
+                ) : (
+                    <div className="grid gap-3 xl:grid-cols-12">
+                        <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="xl:col-span-7"><RecentActivities activities={recentActivities} /></Panel>
+                        <Panel title={processPanel?.title ?? 'Status proses'} subtitle={processPanel?.subtitle} className="xl:col-span-5"><ProcessPipeline items={dashboard.pipeline} /></Panel>
+                    </div>
+                )}
+
+                {dashboard.role === 'admin' && (
+                    <div className="flex items-start gap-3 rounded-2xl border border-[#B8DCFF] bg-[#EAF4FF] p-4 dark:border-[#174B7B] dark:bg-[#0A2340]">
+                        <Banknote aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[#0060F4] dark:text-[#60A5FA]" />
+                        <div><h2 className="text-sm font-extrabold text-[#0B1F63] dark:text-white">Kontrol dokumen sampai pembayaran</h2><p className="mt-1 text-pretty text-[11px] leading-4 text-[#52658E] dark:text-[#9FB0C6]">Pastikan invoice vendor, bukti pembayaran, Nota Rampung, dan invoice klien terhubung dengan SPK serta kunjungan yang benar.</p></div>
+                    </div>
+                )}
             </div>
         </>
     );
