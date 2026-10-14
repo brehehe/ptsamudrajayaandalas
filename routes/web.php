@@ -66,6 +66,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/ship-arrivals', [VesselController::class, 'storeArrival'])->name('ship-arrivals.store');
     Route::post('/companies', [VesselController::class, 'storeCompany'])->name('companies.store');
     Route::get('/vessels/{id}', [VesselController::class, 'show'])->name('vessels.show');
+    Route::post('/vessels/{ship}/photo', [VesselController::class, 'updatePhoto'])->name('vessels.photo.update');
+    Route::delete('/vessels/{ship}/photo', [VesselController::class, 'deletePhoto'])->name('vessels.photo.delete');
     Route::redirect('/master/ships', '/master/vessels')->name('master.ships.index');
 
     // Kebutuhan (Logistik Armada)

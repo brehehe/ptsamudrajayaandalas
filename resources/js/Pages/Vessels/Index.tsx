@@ -109,6 +109,7 @@ interface VesselsIndexProps {
     ports?: Port[];
     allMasterShips?: MasterShip[];
     canCreateShip?: boolean;
+    canViewFinancials?: boolean;
     activeStatus: string;
     selectedCompanyId?: string;
     search: string;
@@ -143,6 +144,7 @@ export default function VesselsIndex({
     ports = [],
     allMasterShips = [],
     canCreateShip = false,
+    canViewFinancials = false,
     activeStatus = 'Semua',
     selectedCompanyId = '',
     search = '',
@@ -1803,16 +1805,20 @@ export default function VesselsIndex({
                                                                 {vessel.requests_count || '-'}
                                                             </strong>
                                                         </span>
-                                                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                                                            <span>HPP:</span>
-                                                            <strong className="text-[#082870] dark:text-white">{formatRupiah(vessel.total_hpp)}</strong>
-                                                        </span>
-                                                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                                                            <span>Margin:</span>
-                                                            <strong className={vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}>
-                                                                {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
-                                                            </strong>
-                                                        </span>
+                                                        {canViewFinancials && (
+                                                            <>
+                                                                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                                                    <span>HPP:</span>
+                                                                    <strong className="text-[#082870] dark:text-white">{formatRupiah(vessel.total_hpp)}</strong>
+                                                                </span>
+                                                                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                                                    <span>Margin:</span>
+                                                                    <strong className={vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}>
+                                                                        {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
+                                                                    </strong>
+                                                                </span>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>

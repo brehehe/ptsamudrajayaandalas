@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, CircleAlert, ExternalLink, FileCheck2, FileUp, MapPin, Plus, RefreshCw, Ship as ShipIcon } from 'lucide-react';
+import { ArrowLeft, Camera, CircleAlert, ExternalLink, FileCheck2, FileUp, MapPin, Plus, RefreshCw, Ship as ShipIcon, Trash2, Upload } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button, { getButtonClassName } from '../../Components/ui/Button';
@@ -49,6 +49,8 @@ export default function VesselShow({
     canCreateRequests = false,
     canProcessRequests = false,
     canCreateCompletionNotes = false,
+    canViewFinancials = false,
+    canUpdateShip = false,
 }: VesselShowProps) {
     const requests = vessel.requests || [];
     const visitRequests = selectedVisit
@@ -66,7 +68,72 @@ export default function VesselShow({
     const [clearanceDirection, setClearanceDirection] = useState<'in' | 'out' | null>(null);
     const [clearanceToast, setClearanceToast] = useState<AlertToastMessage | null>(null);
 
-    const financialSummary = selectedVisit ? (
+    // Photo Management for Vessel
+    const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+    const [photoFile, setPhotoFile] = useState<File | null>(null);
+    const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setPhotoFile(file);
+        const url = URL.createObjectURL(file);
+        setPhotoPreview(url);
+        setIsPhotoModalOpen(true);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
+    const handleUploadPhoto = () => {
+        if (!photoFile) return;
+        setIsUploadingPhoto(true);
+        const formData = new FormData();
+        formData.append('image', photoFile);
+
+        router.post(`/vessels/${vessel.id}/photo`, formData, {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                setIsUploadingPhoto(false);
+                setIsPhotoModalOpen(false);
+                setPhotoFile(null);
+                setPhotoPreview(null);
+            },
+            onError: () => {
+                setIsUploadingPhoto(false);
+            },
+        });
+    };
+
+    const handleDeletePhoto = () => {
+        if (!confirm(`Hapus foto kapal ${vessel.name}?`)) return;
+        setIsUploadingPhoto(true);
+        router.delete(`/vessels/${vessel.id}/photo`, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setIsUploadingPhoto(false);
+                setIsPhotoModalOpen(false);
+                setPhotoFile(null);
+                setPhotoPreview(null);
+            },
+            onError: () => {
+                setIsUploadingPhoto(false);
+            },
+        });
+    };
+
+    useEffect(() => {
+        return () => {
+            if (photoPreview && photoPreview.startsWith('blob:')) {
+                URL.revokeObjectURL(photoPreview);
+            }
+        };
+    }, [photoPreview]);
+
+    const financialSummary = selectedVisit && canViewFinancials ? (
         <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-[#DCEAF8] bg-[#DCEAF8] dark:border-[#1E3A5F] dark:bg-[#1E3A5F]">
             <div className="min-w-0 bg-white p-3 dark:bg-[#0C1D36]">
                 <p className="text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">Total HPP</p>
@@ -320,15 +387,40 @@ export default function VesselShow({
                 {needFlowStep === 'none' && (
                     <div>
                         {/* Ship Hero Photo starts below the shared mobile header. */}
-                        <div className="relative h-52 w-full overflow-hidden bg-[#DCEAF8]">
-                            <ShipImage
-                                src={vessel.image}
-                                alt={vessel.name}
-                                width={1280}
-                                height={720}
-                                fetchPriority="high"
-                                className="size-full object-cover"
-                            />
+                        <div
+                            className={
+                                'relative h-52 w-full overflow-hidden ' +
+                                (vessel.image
+                                    ? 'bg-slate-900'
+                                    : 'bg-gradient-to-br from-[#082870] via-[#0D3880] to-[#0060F4] dark:from-[#071322] dark:via-[#0B1E38] dark:to-[#173B5C]')
+                            }
+                        >
+                            {vessel.image ? (
+                                <img
+                                    src={vessel.image}
+                                    alt={vessel.name}
+                                    width={1280}
+                                    height={720}
+                                    fetchPriority="high"
+                                    className="size-full object-cover"
+                                />
+                            ) : (
+                                <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-25 dark:opacity-30">
+                                    <ShipIcon aria-hidden="true" className="size-36 text-white dark:text-[#38BDF8]" strokeWidth={1.25} />
+                                </div>
+                            )}
+
+                            {canUpdateShip && (
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/40 hover:bg-black/60 border border-white/20 text-white text-[11px] font-semibold backdrop-blur-md shadow-xs transition-all cursor-pointer"
+                                >
+                                    <Camera aria-hidden="true" className="size-3" />
+                                    <span>{vessel.image ? 'Ganti Foto' : 'Unggah Foto'}</span>
+                                </button>
+                            )}
+
                             <div className="absolute bottom-3 right-3 z-10">
                                 {renderStatusBadge(vessel.status)}
                             </div>
@@ -545,32 +637,101 @@ export default function VesselShow({
                     {/* Vessel Hero Image Banner */}
                     <div
                         className={
-                            'relative h-48 overflow-hidden rounded-2xl border border-[#DCEAF8] ' +
-                            'bg-[#E0F0FF] shadow-sm dark:border-[#1E3A5F] dark:bg-[#132847] lg:h-52'
+                            'relative h-52 lg:h-60 overflow-hidden rounded-2xl border border-[#DCEAF8] shadow-sm dark:border-[#1E3A5F] ' +
+                            (vessel.image
+                                ? 'bg-slate-900'
+                                : 'bg-gradient-to-br from-[#082870] via-[#0D3880] to-[#0060F4] dark:from-[#071322] dark:via-[#0B1E38] dark:to-[#173B5C]')
                         }
                     >
-                        <ShipImage
-                            src={vessel.image}
-                            alt={vessel.name}
-                            width={1600}
-                            height={520}
-                            fetchPriority="high"
-                            className="size-full object-cover"
+                        {/* Hidden File Input */}
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={handleFileSelected}
                         />
-                        <div className="absolute inset-x-0 bottom-0 flex items-end bg-[#082870]/90 p-4 sm:p-5">
-                            <div className="min-w-0 space-y-1 text-white">
-                                <span
-                                    className={
-                                        'inline-block rounded-full border border-white/20 bg-white/15 px-2.5 py-0.5 ' +
-                                        'text-xs font-bold'
-                                    }
+
+                        {vessel.image ? (
+                            <>
+                                <img
+                                    src={vessel.image}
+                                    alt={vessel.name}
+                                    width={1600}
+                                    height={520}
+                                    fetchPriority="high"
+                                    className="size-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-[#082870]/95 via-[#082870]/40 via-45% to-transparent dark:from-[#071322]/95 dark:via-[#071322]/40" />
+                            </>
+                        ) : (
+                            <>
+                                {/* Subtle Ambient Maritime Circles */}
+                                <div className="pointer-events-none absolute -right-16 -top-16 size-80 rounded-full border border-white/10 dark:border-[#38BDF8]/10" />
+                                <div className="pointer-events-none absolute -right-32 -top-32 size-112 rounded-full border border-white/5 dark:border-[#38BDF8]/5" />
+                                <div className="pointer-events-none absolute right-24 bottom-0 size-48 rounded-full bg-cyan-400/10 blur-2xl dark:bg-sky-400/10" />
+
+                                {/* Prominent Ship Watermark Illustration */}
+                                <div className="pointer-events-none absolute right-4 sm:right-10 top-1/2 -translate-y-1/2 opacity-25 dark:opacity-30">
+                                    <ShipIcon aria-hidden="true" className="size-44 sm:size-52 text-white dark:text-[#38BDF8]" strokeWidth={1.25} />
+                                </div>
+                            </>
+                        )}
+
+                        {/* Top-Right Quick Action: Ganti / Unggah Foto */}
+                        {canUpdateShip && (
+                            <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/35 hover:bg-black/50 border border-white/20 text-white text-xs font-semibold backdrop-blur-md shadow-sm transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                                    title={vessel.image ? 'Ganti foto kapal' : 'Unggah foto kapal'}
                                 >
-                                    {vessel.ship_type || 'Tipe belum diisi'}
-                                </span>
-                                <h2 className="truncate text-xl font-black sm:text-2xl">{vessel.name}</h2>
-                                <p className="truncate text-xs text-white/80">
+                                    <Camera aria-hidden="true" className="size-3.5" />
+                                    <span>{vessel.image ? 'Ganti Foto' : 'Unggah Foto'}</span>
+                                </button>
+                                {vessel.image && (
+                                    <button
+                                        type="button"
+                                        onClick={handleDeletePhoto}
+                                        disabled={isUploadingPhoto}
+                                        className="inline-flex size-8 items-center justify-center rounded-xl bg-black/35 hover:bg-[#C62840] border border-white/20 text-white text-xs backdrop-blur-md shadow-sm transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                                        title="Hapus foto kapal"
+                                    >
+                                        <Trash2 aria-hidden="true" className="size-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Bottom Metadata Content */}
+                        <div className="absolute inset-x-0 bottom-0 z-10 p-4 sm:p-5">
+                            <div className="min-w-0 space-y-1.5 text-white">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                        className={
+                                            'inline-flex items-center rounded-full border border-white/25 bg-white/20 px-2.5 py-0.5 ' +
+                                            'text-xs font-bold backdrop-blur-xs'
+                                        }
+                                    >
+                                        {vessel.ship_type || 'Tipe belum diisi'}
+                                    </span>
+                                    <span
+                                        className={
+                                            'inline-flex items-center rounded-full bg-white/15 px-2 py-0.5 ' +
+                                            'text-[11px] font-semibold text-white/90'
+                                        }
+                                    >
+                                        Status: {vessel.status}
+                                    </span>
+                                </div>
+                                <h2 className="truncate text-xl font-black sm:text-2xl lg:text-3xl tracking-tight drop-shadow-xs">
+                                    {vessel.name}
+                                </h2>
+                                <p className="truncate text-xs sm:text-sm text-white/85 font-medium">
                                     Perusahaan: {vessel.company?.name || 'Belum diisi'}{' '}
                                     • Pelabuhan: {vessel.port?.name || 'Belum diisi'}
+                                    {vessel.imo_number ? ` • IMO: ${vessel.imo_number}` : ''}
                                 </p>
                             </div>
                         </div>
@@ -920,6 +1081,62 @@ export default function VesselShow({
                         error={activityErrors.photos || activityErrors['photos.0']}
                     />
                 </form>
+            </Modal>
+
+            {/* Modal Upload / Ganti Foto Kapal */}
+            <Modal
+                isOpen={isPhotoModalOpen}
+                onClose={() => {
+                    if (!isUploadingPhoto) {
+                        setIsPhotoModalOpen(false);
+                        setPhotoFile(null);
+                        setPhotoPreview(null);
+                    }
+                }}
+                title="Unggah Foto Kapal"
+                subtitle={`Pilih foto terbaik untuk ${vessel.name}`}
+                size="md"
+            >
+                <div className="space-y-4">
+                    {photoPreview && (
+                        <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-slate-100 dark:bg-slate-800">
+                            <img
+                                src={photoPreview}
+                                alt="Pratinjau Foto Kapal"
+                                className="size-full object-cover"
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs text-[#52658E] dark:text-[#94A3B8]">
+                        <span className="truncate max-w-[200px]">File: {photoFile?.name}</span>
+                        <span>{photoFile ? `${(photoFile.size / (1024 * 1024)).toFixed(2)} MB` : ''}</span>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => {
+                                setIsPhotoModalOpen(false);
+                                setPhotoFile(null);
+                                setPhotoPreview(null);
+                            }}
+                            disabled={isUploadingPhoto}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="primary"
+                            onClick={handleUploadPhoto}
+                            disabled={!photoFile || isUploadingPhoto}
+                            leftIcon={<Upload aria-hidden="true" className="size-4" />}
+                        >
+                            {isUploadingPhoto ? 'Menyimpan…' : 'Simpan Foto'}
+                        </Button>
+                    </div>
+                </div>
             </Modal>
         </AppLayout>
     );

@@ -126,6 +126,8 @@ export interface VesselShowProps {
     canCreateRequests?: boolean;
     canProcessRequests?: boolean;
     canCreateCompletionNotes?: boolean;
+    canViewFinancials?: boolean;
+    canUpdateShip?: boolean;
 }
 
 export interface SelectedVisit {

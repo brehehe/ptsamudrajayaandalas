@@ -178,7 +178,7 @@ export default function NotificationCenter() {
 
     return (
         <>
-            <button
+            {/* <button
                 type="button"
                 onClick={() => setIsOpen(true)}
                 className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-40 flex size-12 touch-manipulation items-center justify-center rounded-full bg-[#0060F4] text-white shadow-[0_10px_30px_rgba(0,96,244,0.35)] transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] motion-reduce:transition-none md:bottom-6 md:right-6"
@@ -194,7 +194,7 @@ export default function NotificationCenter() {
                         {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                 )}
-            </button>
+            </button> */}
 
             <Modal
                 isOpen={isOpen}

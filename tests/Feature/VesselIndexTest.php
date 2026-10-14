@@ -8,6 +8,7 @@ use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\WorkOrder;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
@@ -286,6 +287,7 @@ test('vessels index filters by status and search', function () {
 
 test('authenticated user can view vessel show page with products from master', function () {
     $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
 
     $company = ShipCompany::create([
         'name' => 'PT. Intan Borneo Wisesa Test',
@@ -322,5 +324,87 @@ test('authenticated user can view vessel show page with products from master', f
         ->has('vessel')
         ->has('products')
         ->where('vessel.name', 'KM Sarana Sukses')
+        ->where('canViewFinancials', true)
+        ->where('canUpdateShip', true)
     );
+});
+
+test('staff operasional cannot view financials on vessel show page', function () {
+    $company = ShipCompany::create([
+        'code' => 'KSS',
+        'name' => 'PT Pelayaran Sarana Sukses',
+        'is_active' => true,
+    ]);
+    $port = Port::create([
+        'name' => 'Pelabuhan Tanjung Priok',
+        'code' => 'IDTPP',
+        'city' => 'Jakarta',
+        'is_active' => true,
+    ]);
+    $staffRole = Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']);
+    $staffUser = User::factory()->create();
+    $staffUser->assignRole($staffRole);
+
+    $ship = Ship::create([
+        'name' => 'KM Sarana Staff',
+        'imo_number' => 'IMO-9812349',
+        'ship_type' => 'Cargo Ship',
+        'status' => 'Labuh',
+        'eta' => now(),
+        'port_id' => $port->id,
+        'ship_company_id' => $company->id,
+        'is_active' => true,
+    ]);
+
+    $response = $this->actingAs($staffUser)->get(route('vessels.show', $ship->id));
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('Vessels/Show')
+        ->where('canViewFinancials', false)
+    );
+});
+
+test('authorized users can upload and delete vessel photo', function () {
+    Storage::fake('public');
+
+    $company = ShipCompany::create([
+        'code' => 'FTO',
+        'name' => 'PT Armada Foto',
+        'is_active' => true,
+    ]);
+    $port = Port::create([
+        'name' => 'Pelabuhan Tanjung Perak',
+        'code' => 'IDTPR',
+        'city' => 'Surabaya',
+        'is_active' => true,
+    ]);
+    $adminRole = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+    $adminUser = User::factory()->create();
+    $adminUser->assignRole($adminRole);
+
+    $ship = Ship::create([
+        'name' => 'KM Foto Test',
+        'imo_number' => 'IMO-9812340',
+        'ship_type' => 'Supply Vessel',
+        'status' => 'Sandar',
+        'port_id' => $port->id,
+        'ship_company_id' => $company->id,
+        'is_active' => true,
+    ]);
+
+    $photo = UploadedFile::fake()->image('kapal.jpg');
+
+    $response = $this->actingAs($adminUser)->post(route('vessels.photo.update', $ship->id), [
+        'image' => $photo,
+    ]);
+
+    $response->assertRedirect();
+    $ship->refresh();
+    expect($ship->image)->toStartWith('/storage/sja/vessels/');
+
+    $delResponse = $this->actingAs($adminUser)->delete(route('vessels.photo.delete', $ship->id));
+    $delResponse->assertRedirect();
+    $ship->refresh();
+    expect($ship->image)->toBeNull();
 });

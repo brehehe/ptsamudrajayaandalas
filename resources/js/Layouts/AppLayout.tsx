@@ -285,7 +285,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </main>
 
                 {/* Mobile Bottom Navigation */}
-                {/* <NotificationCenter /> */}
+                <NotificationCenter />
                 <RoleMobileBottomNavigation />
             </div>
         </div>

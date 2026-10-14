@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
+import { Building2, Calendar, Check, Filter, RotateCcw, Search, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
@@ -13,6 +14,7 @@ import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Select from '../../Components/selects/Select';
+import DateRangePicker, { type DateRange } from '../../Components/forms/DateRangePicker';
 
 interface Invoice {
     id: string;
@@ -51,6 +53,17 @@ interface ClientReceipt {
     allocations?: Array<{ invoice?: { invoice_number: string } }>;
 }
 
+export interface CompanyReceivable {
+    company_id: string | null;
+    company_name: string;
+    company_code: string;
+    invoice_count: number;
+    overdue_count: number;
+    total_outstanding: number;
+    overdue_amount: number;
+    oldest_due_date?: string | null;
+}
+
 interface ReceivablesIndexProps {
     unpaidInvoices: Invoice[];
     receipts: ClientReceipt[];
@@ -60,8 +73,16 @@ interface ReceivablesIndexProps {
         overdue_60: number;
         total: number;
     };
+    companyReceivables?: CompanyReceivable[];
     companies: Array<{ id: string; name: string }>;
     search: string;
+    filters?: {
+        search: string;
+        company_id: string;
+        status: string;
+        start_date: string;
+        end_date: string;
+    };
     abilities: { manage: boolean };
 }
 
@@ -69,11 +90,19 @@ export default function ReceivablesIndex({
     unpaidInvoices,
     receipts,
     aging,
+    companyReceivables = [],
     companies,
     search: initialSearch,
+    filters,
     abilities,
 }: ReceivablesIndexProps) {
-    const [search, setSearch] = useState(initialSearch);
+    const [search, setSearch] = useState(filters?.search ?? initialSearch ?? '');
+    const [selectedCompanyId, setSelectedCompanyId] = useState(filters?.company_id ?? '');
+    const [selectedStatus, setSelectedStatus] = useState(filters?.status ?? 'all');
+    const [dateRange, setDateRange] = useState<DateRange>({
+        startDate: filters?.start_date ?? '',
+        endDate: filters?.end_date ?? '',
+    });
     const [activeTab, setActiveTab] = useState<'invoices' | 'receipts'>('invoices');
     const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
 
@@ -89,10 +118,66 @@ export default function ReceivablesIndex({
         proof: null as File | null,
     });
 
+    const applyFilter = (overrides?: {
+        search?: string;
+        company_id?: string;
+        status?: string;
+        start_date?: string;
+        end_date?: string;
+    }) => {
+        const queryParams: Record<string, string> = {};
+        const qSearch = overrides?.search !== undefined ? overrides.search : search;
+        const qCompany = overrides?.company_id !== undefined ? overrides.company_id : selectedCompanyId;
+        const qStatus = overrides?.status !== undefined ? overrides.status : selectedStatus;
+        const qStart = overrides?.start_date !== undefined ? overrides.start_date : dateRange.startDate;
+        const qEnd = overrides?.end_date !== undefined ? overrides.end_date : dateRange.endDate;
+
+        if (qSearch) queryParams.search = qSearch;
+        if (qCompany) queryParams.company_id = qCompany;
+        if (qStatus && qStatus !== 'all') queryParams.status = qStatus;
+        if (qStart) queryParams.start_date = qStart;
+        if (qEnd) queryParams.end_date = qEnd;
+
+        router.get('/receivables', queryParams, { preserveState: true, replace: true });
+    };
+
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        router.get('/receivables', { search }, { preserveState: true });
+        applyFilter();
     };
+
+    const handleSelectCompany = (companyId: string | null) => {
+        const newCompanyId = selectedCompanyId === companyId ? '' : (companyId || '');
+        setSelectedCompanyId(newCompanyId);
+        applyFilter({ company_id: newCompanyId });
+    };
+
+    const handleSelectStatus = (statusKey: string) => {
+        const newStatus = selectedStatus === statusKey ? 'all' : statusKey;
+        setSelectedStatus(newStatus);
+        applyFilter({ status: newStatus });
+    };
+
+    const handleDateRangeChange = (range: DateRange) => {
+        setDateRange(range);
+        applyFilter({ start_date: range.startDate, end_date: range.endDate });
+    };
+
+    const handleResetAllFilters = () => {
+        setSearch('');
+        setSelectedCompanyId('');
+        setSelectedStatus('all');
+        setDateRange({ startDate: '', endDate: '' });
+        router.get('/receivables', {}, { preserveState: true, replace: true });
+    };
+
+    const hasActiveFilters = Boolean(
+        search ||
+        selectedCompanyId ||
+        (selectedStatus && selectedStatus !== 'all') ||
+        dateRange.startDate ||
+        dateRange.endDate
+    );
 
     const handleReceiptSubmit = (e: React.FormEvent) => {
         e.preventDefault();

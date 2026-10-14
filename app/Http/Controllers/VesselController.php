@@ -15,6 +15,7 @@ use App\Models\WorkOrder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -151,6 +152,7 @@ class VesselController extends Controller
             'ports' => $ports,
             'allMasterShips' => $allMasterShips,
             'canCreateShip' => $canCreateShip,
+            'canViewFinancials' => ! $request->user()?->isStaff(),
             'activeStatus' => $status,
             'selectedCompanyId' => $companyId ?? '',
             'search' => $search ?? '',
@@ -275,10 +277,10 @@ class VesselController extends Controller
                 'status' => $selectedVisit->status,
                 'client_pic_name' => $selectedVisit->workOrder?->client_pic_name,
                 'client_pic_contact' => $selectedVisit->workOrder?->client_pic_contact,
-                'total_hpp' => $selectedVisitHpp,
-                'total_invoiced' => $selectedVisitInvoiced,
-                'margin' => $selectedVisitInvoiced - $selectedVisitHpp,
-                'margin_available' => $selectedVisit->invoices->isNotEmpty(),
+                'total_hpp' => ! $request->user()?->isStaff() ? $selectedVisitHpp : 0,
+                'total_invoiced' => ! $request->user()?->isStaff() ? $selectedVisitInvoiced : 0,
+                'margin' => ! $request->user()?->isStaff() ? ($selectedVisitInvoiced - $selectedVisitHpp) : 0,
+                'margin_available' => ! $request->user()?->isStaff() ? $selectedVisit->invoices->isNotEmpty() : false,
                 'eta_at' => $selectedVisit->eta_at?->toISOString(),
                 'etd_at' => $selectedVisit->etd_at?->toISOString(),
                 'port' => $selectedVisit->port?->only(['id', 'name', 'code', 'city']),
@@ -293,6 +295,8 @@ class VesselController extends Controller
                 && ($selectedVisit?->acceptsNewRequests() ?? false),
             'canProcessRequests' => $request->user()->isOperationalAdmin(),
             'canCreateCompletionNotes' => $request->user()->can('create', CompletionNote::class),
+            'canViewFinancials' => ! $request->user()?->isStaff(),
+            'canUpdateShip' => $request->user()?->isOperationalAdmin() || $request->user()?->isStaff(),
         ]);
     }
 
@@ -531,5 +535,49 @@ class VesselController extends Controller
         ]);
 
         return redirect()->back()->with('success', "Data kedatangan kapal {$ship->name} berhasil dicatat dan status disetel ke 'Akan Datang'.");
+    }
+
+    public function updatePhoto(Request $request, Ship $ship): RedirectResponse
+    {
+        abort_unless($request->user()?->isOperationalAdmin() || $request->user()?->isStaff(), 403);
+
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ]);
+
+        $previousImage = $ship->image;
+        $imagePath = $request->file('image')?->store('sja/vessels', 'public');
+
+        $ship->update([
+            'image' => $imagePath ? '/storage/'.$imagePath : null,
+        ]);
+
+        $this->deleteManagedImage($previousImage);
+
+        return redirect()->back()->with('success', "Foto kapal {$ship->name} berhasil diperbarui.");
+    }
+
+    public function deletePhoto(Request $request, Ship $ship): RedirectResponse
+    {
+        abort_unless($request->user()?->isOperationalAdmin() || $request->user()?->isStaff(), 403);
+
+        $previousImage = $ship->image;
+        $ship->update([
+            'image' => null,
+        ]);
+
+        $this->deleteManagedImage($previousImage);
+
+        return redirect()->back()->with('success', "Foto kapal {$ship->name} berhasil dihapus.");
+    }
+
+    private function deleteManagedImage(?string $path): void
+    {
+        if (! $path || ! str_starts_with($path, '/storage/sja/vessels/')) {
+            return;
+        }
+
+        $relative = str_replace('/storage/', '', $path);
+        Storage::disk('public')->delete($relative);
     }
 }

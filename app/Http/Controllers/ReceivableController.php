@@ -21,23 +21,95 @@ class ReceivableController extends Controller
     {
         abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $search = $request->query('search');
+        $companyId = $request->query('company_id');
+        $status = $request->query('status');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
-        $unpaidInvoicesQuery = Invoice::query()
+        $now = now();
+        $today = today();
+
+        $baseUnpaidQuery = Invoice::query()
             ->with(['company', 'portCall.ship'])
             ->where('outstanding_amount', '>', 0)
             ->whereIn('status', ['released', 'sent']);
 
+        $allUnpaidInvoices = (clone $baseUnpaidQuery)->get();
+
+        // Calculate company receivables across all unpaid invoices
+        $companyReceivables = $allUnpaidInvoices
+            ->groupBy(fn (Invoice $inv): string => (string) ($inv->company_id ?? 'unassigned'))
+            ->map(function ($invs) use ($today): array {
+                /** @var Invoice $first */
+                $first = $invs->first();
+                $company = $first->company;
+                $overdueInvoices = $invs->filter(fn (Invoice $inv): bool => $inv->due_date?->lt($today) ?? false);
+                $oldestDue = $invs->filter(fn (Invoice $inv): bool => $inv->due_date !== null)->sortBy('due_date')->first();
+
+                return [
+                    'company_id' => $company?->id ? (string) $company->id : null,
+                    'company_name' => $company?->name ?? 'Perusahaan tidak tersedia',
+                    'company_code' => $company?->code ?? '-',
+                    'invoice_count' => $invs->count(),
+                    'overdue_count' => $overdueInvoices->count(),
+                    'total_outstanding' => (float) $invs->sum('outstanding_amount'),
+                    'overdue_amount' => (float) $overdueInvoices->sum('outstanding_amount'),
+                    'oldest_due_date' => $oldestDue?->due_date?->format('d M Y'),
+                ];
+            })
+            ->sortByDesc('total_outstanding')
+            ->values();
+
+        // Calculate Aging across all unpaid invoices
+        $aging = [
+            'current' => 0.0, // < 30 days
+            'overdue_30' => 0.0, // 30 - 60 days
+            'overdue_60' => 0.0, // > 60 days
+            'total' => 0.0,
+        ];
+
+        foreach ($allUnpaidInvoices as $inv) {
+            $amt = (float) $inv->outstanding_amount;
+            $aging['total'] += $amt;
+            $daysPastDue = $inv->due_date ? $now->diffInDays($inv->due_date, false) : 0;
+
+            if ($daysPastDue >= -30) {
+                $aging['current'] += $amt;
+            } elseif ($daysPastDue >= -60) {
+                $aging['overdue_30'] += $amt;
+            } else {
+                $aging['overdue_60'] += $amt;
+            }
+        }
+
+        $unpaidInvoicesQuery = clone $baseUnpaidQuery;
         $receiptsQuery = ClientReceipt::query()
             ->with(['company', 'recorder', 'allocations.invoice:id,invoice_number'])
             ->orderByDesc('received_date');
 
+        if ($companyId) {
+            $unpaidInvoicesQuery->where('company_id', $companyId);
+            $receiptsQuery->where('company_id', $companyId);
+        }
+
+        if ($startDate) {
+            $unpaidInvoicesQuery->whereDate('due_date', '>=', $startDate);
+            $receiptsQuery->whereDate('received_date', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $unpaidInvoicesQuery->whereDate('due_date', '<=', $endDate);
+            $receiptsQuery->whereDate('received_date', '<=', $endDate);
+        }
+
         if ($search) {
-            $unpaidInvoicesQuery->where(function ($q) use ($search) {
+            $unpaidInvoicesQuery->where(function ($q) use ($search): void {
                 $q->where('invoice_number', 'ilike', "%{$search}%")
-                    ->orWhereHas('company', fn ($cq) => $cq->where('name', 'ilike', "%{$search}%"));
+                    ->orWhereHas('company', fn ($cq) => $cq->where('name', 'ilike', "%{$search}%"))
+                    ->orWhereHas('portCall.ship', fn ($sq) => $sq->where('name', 'ilike', "%{$search}%"));
             });
 
-            $receiptsQuery->where(function ($q) use ($search) {
+            $receiptsQuery->where(function ($q) use ($search): void {
                 $q->where('bank_reference', 'ilike', "%{$search}%")
                     ->orWhereHas('company', fn ($cq) => $cq->where('name', 'ilike', "%{$search}%"));
             });
@@ -54,39 +126,37 @@ class ReceivableController extends Controller
                     default => 'current',
                 });
             });
-        $receipts = $receiptsQuery->get();
 
-        // Calculate Aging
-        $now = now();
-        $aging = [
-            'current' => 0.0, // < 30 days
-            'overdue_30' => 0.0, // 30 - 60 days
-            'overdue_60' => 0.0, // > 60 days
-            'total' => 0.0,
-        ];
+        if ($status && $status !== 'all') {
+            $unpaidInvoices = $unpaidInvoices->filter(function (Invoice $inv) use ($status, $now): bool {
+                $daysPastDue = $inv->due_date ? $now->diffInDays($inv->due_date, false) : 0;
 
-        foreach ($unpaidInvoices as $inv) {
-            $amt = (float) $inv->outstanding_amount;
-            $aging['total'] += $amt;
-            $daysPastDue = $inv->due_date ? $now->diffInDays($inv->due_date, false) : 0;
-
-            if ($daysPastDue >= -30) {
-                $aging['current'] += $amt;
-            } elseif ($daysPastDue >= -60) {
-                $aging['overdue_30'] += $amt;
-            } else {
-                $aging['overdue_60'] += $amt;
-            }
+                return match ($status) {
+                    'current' => $daysPastDue >= -30,
+                    'overdue_30' => $daysPastDue < -30 && $daysPastDue >= -60,
+                    'overdue_60' => $daysPastDue < -60,
+                    default => true,
+                };
+            })->values();
         }
 
+        $receipts = $receiptsQuery->get();
         $companies = ShipCompany::orderBy('name')->get();
 
         return Inertia::render('Receivables/Index', [
             'unpaidInvoices' => $unpaidInvoices,
             'receipts' => $receipts,
             'aging' => $aging,
+            'companyReceivables' => $companyReceivables,
             'companies' => $companies,
             'search' => $search ?? '',
+            'filters' => [
+                'search' => $search ?? '',
+                'company_id' => $companyId ?? '',
+                'status' => $status ?? 'all',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
             'abilities' => [
                 'manage' => $request->user()->isOperationalAdmin(),
             ],
