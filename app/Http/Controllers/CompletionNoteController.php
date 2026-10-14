@@ -141,7 +141,7 @@ class CompletionNoteController extends Controller
                     'uploaded_at' => now(),
                     'due_at' => $portCall->completion_note_due_at,
                     'document_path' => $documentPath,
-                    'actual_amount' => $validated['actual_amount'],
+                    'actual_amount' => '0.00',
                     'status' => 'reconciled',
                     'notes' => $validated['notes'] ?? null,
                     'uploaded_by' => $request->user()->id,
@@ -151,7 +151,7 @@ class CompletionNoteController extends Controller
                     ->where('port_call_id', $portCall->id)
                     ->where('verification_status', 'verified')
                     ->sum('amount');
-                $actualTotal = (float) $validated['actual_amount'];
+                $actualTotal = 0.0;
                 $variance = $actualTotal - $initialTotal;
                 $reconciliationStatus = match (true) {
                     $variance > 0 => 'shortfall',

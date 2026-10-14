@@ -47,7 +47,7 @@ function completionWorkflowPortCall(string $status, User $creator): PortCall
     ]);
 }
 
-test('completion note is uploaded once and reconciled against prior job payments', function () {
+test('completion note is uploaded once without requiring a nominal amount', function () {
     Storage::fake('local');
     $admin = completionWorkflowUser('Admin');
     $portCall = completionWorkflowPortCall('departed', $admin);
@@ -63,7 +63,6 @@ test('completion note is uploaded once and reconciled against prior job payments
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
-        'actual_amount' => 1250000,
         'document' => UploadedFile::fake()->create('nota-rampung.pdf', 100, 'application/pdf'),
     ])->assertRedirect()->assertSessionHasNoErrors();
 
@@ -71,11 +70,11 @@ test('completion note is uploaded once and reconciled against prior job payments
     Storage::disk('local')->assertExists($note->document_path);
     expect($note->document_number)->toStartWith('NR-SJA-')
         ->and($note->status)->toBe('reconciled')
-        ->and((float) $note->actual_amount)->toBe(1250000.0)
+        ->and((float) $note->actual_amount)->toBe(0.0)
         ->and((float) $note->reconciliation->initial_total)->toBe(0.0)
-        ->and((float) $note->reconciliation->variance)->toBe(1250000.0)
-        ->and($note->reconciliation->status)->toBe('shortfall')
-        ->and($portCall->fresh()->financial_status)->toBe('reconciliation_shortfall');
+        ->and((float) $note->reconciliation->variance)->toBe(0.0)
+        ->and($note->reconciliation->status)->toBe('settled')
+        ->and($portCall->fresh()->financial_status)->toBe('billing');
 
     $this->actingAs($admin)
         ->get(route('completion-notes.index'))
@@ -87,7 +86,6 @@ test('completion note is uploaded once and reconciled against prior job payments
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
-        'actual_amount' => 1250000,
         'document' => UploadedFile::fake()->create('nota-rampung-2.pdf', 100, 'application/pdf'),
     ])->assertSessionHasErrors('port_call_id');
 
@@ -136,7 +134,6 @@ test('completion note cannot be uploaded before the ship departs', function () {
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
-        'actual_amount' => 500000,
         'document' => UploadedFile::fake()->create('nota.pdf', 20, 'application/pdf'),
     ])->assertSessionHasErrors('port_call_id');
 
@@ -150,7 +147,6 @@ test('word completion note document can be uploaded and viewed inline', function
 
     $this->actingAs($admin)->post(route('completion-notes.store'), [
         'port_call_id' => $portCall->id,
-        'actual_amount' => 750000,
         'document' => UploadedFile::fake()->create(
             'nota-rampung.docx',
             100,

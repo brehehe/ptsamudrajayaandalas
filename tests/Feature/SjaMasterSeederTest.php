@@ -25,9 +25,15 @@ test('master seeder creates related companies ships and ports without duplicates
         ->and($ship->port_id)->toBe($port->id)
         ->and($ship->imo_number)->toBeNull()
         ->and($tacticalBerthing->name)->toBe('Taktis Penyandaran')
+        ->and($tacticalBerthing->category)->toBe('Jasa Keagenan')
+        ->and($tacticalBerthing->item_type)->toBe('jasa')
+        ->and((float) $tacticalBerthing->tax_rate)->toBe(2.0)
         ->and((float) $tacticalBerthing->hpp_default)->toBe(0.0)
         ->and($tacticalBerthing->vendor_id)->toBe($pelindo->id)
         ->and($epbPayment->name)->toBe('Pembayaran EPB (Pandu Tunda)')
+        ->and($epbPayment->category)->toBe('Jasa Keagenan')
+        ->and($epbPayment->item_type)->toBe('jasa')
+        ->and((float) $epbPayment->tax_rate)->toBe(2.0)
         ->and((float) $epbPayment->hpp_default)->toBe(0.0)
         ->and($epbPayment->vendor_id)->toBe($pelindo->id);
 });

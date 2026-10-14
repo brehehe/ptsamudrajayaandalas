@@ -92,6 +92,12 @@ interface ApprovalRow {
     isNew: boolean;
 }
 
+interface ApprovalTargetItem {
+    jobKey: string;
+    requestNumber: string;
+    item: RequestItem;
+}
+
 interface ApprovalsIndexProps {
     requests: ShipRequest[];
     payments: OutgoingPayment[];
@@ -163,7 +169,8 @@ export default function ApprovalsIndex({
     const [section, setSection] = useState<'requests' | 'payments'>('requests');
     const [verifyingId, setVerifyingId] = useState<string | null>(null);
     const [approvalTarget, setApprovalTarget] = useState<ApprovalRow | null>(null);
-    const [selectedApprovalRequestIds, setSelectedApprovalRequestIds] = useState<string[]>([]);
+    const [isBatchApprovalOpen, setIsBatchApprovalOpen] = useState(false);
+    const [selectedApprovalItemIds, setSelectedApprovalItemIds] = useState<string[]>([]);
     const [approvingJobKey, setApprovingJobKey] = useState<string | null>(null);
 
     const requestNeedsAction = (request: ShipRequest): boolean => {
@@ -388,65 +395,114 @@ export default function ApprovalsIndex({
         router.get('/approvals', { tab, search: query || undefined, date: selectedDate || undefined }, { preserveState: true });
     };
 
-    const approvalTargetRequests = useMemo(
-        () => approvalTarget?.requests.filter((shipRequest) =>
-            (shipRequest.items || []).some(isPendingDirectorItem)
-        ) || [],
-        [approvalTarget]
+    const approvalSelectionRows = useMemo(
+        () => isBatchApprovalOpen
+            ? approvalRows.filter((row) => row.pendingCount > 0)
+            : approvalTarget
+                ? [approvalTarget]
+                : [],
+        [approvalRows, approvalTarget, isBatchApprovalOpen]
+    );
+    const approvalTargetItems = useMemo<ApprovalTargetItem[]>(
+        () => approvalSelectionRows.flatMap((row) =>
+            row.requests.flatMap((shipRequest) =>
+                (shipRequest.items || [])
+                    .filter(isPendingDirectorItem)
+                    .map((item) => ({
+                        jobKey: row.key,
+                        requestNumber: shipRequest.request_number,
+                        item,
+                    }))
+            )
+        ),
+        [approvalSelectionRows]
     );
     const selectedApprovalItems = useMemo(() => {
-        const selectedRequestIds = new Set(selectedApprovalRequestIds);
+        const selectedItemIds = new Set(selectedApprovalItemIds);
 
-        return approvalTargetRequests.flatMap((shipRequest) =>
-            selectedRequestIds.has(shipRequest.id)
-                ? (shipRequest.items || []).filter(isPendingDirectorItem)
-                : []
-        );
-    }, [approvalTargetRequests, selectedApprovalRequestIds]);
+        return approvalTargetItems.filter(({ item }) => selectedItemIds.has(item.id));
+    }, [approvalTargetItems, selectedApprovalItemIds]);
     const selectedApprovalHpp = useMemo(
-        () => selectedApprovalItems.reduce((total, item) => total + itemHppTotal(item), 0),
+        () => selectedApprovalItems.reduce((total, { item }) => total + itemHppTotal(item), 0),
         [selectedApprovalItems]
     );
+    const selectedApprovalJobKeys = useMemo(
+        () => new Set(selectedApprovalItems.map(({ jobKey }) => jobKey)),
+        [selectedApprovalItems]
+    );
+    const processedApprovalItems = useMemo(
+        () => approvalTargetItems.filter(({ jobKey }) => selectedApprovalJobKeys.has(jobKey)),
+        [approvalTargetItems, selectedApprovalJobKeys]
+    );
+    const returnedApprovalItemCount = processedApprovalItems.length - selectedApprovalItems.length;
+    const isApprovalSelectionOpen = approvalTarget !== null || isBatchApprovalOpen;
 
     const openApprovalSelection = (row: ApprovalRow): void => {
-        setSelectedApprovalRequestIds([]);
+        setSelectedApprovalItemIds([]);
+        setIsBatchApprovalOpen(false);
         setApprovalTarget(row);
     };
 
-    const toggleApprovalRequest = (requestId: string): void => {
-        setSelectedApprovalRequestIds((current) =>
-            current.includes(requestId)
-                ? current.filter((id) => id !== requestId)
-                : [...current, requestId]
+    const openBatchApprovalSelection = (): void => {
+        setSelectedApprovalItemIds([]);
+        setApprovalTarget(null);
+        setIsBatchApprovalOpen(true);
+    };
+
+    const closeApprovalSelection = (): void => {
+        setApprovalTarget(null);
+        setIsBatchApprovalOpen(false);
+        setSelectedApprovalItemIds([]);
+    };
+
+    const toggleApprovalItem = (itemId: string): void => {
+        setSelectedApprovalItemIds((current) =>
+            current.includes(itemId)
+                ? current.filter((id) => id !== itemId)
+                : [...current, itemId]
         );
     };
 
-    const toggleAllApprovalRequests = (): void => {
-        const actionableRequestIds = approvalTargetRequests.map((shipRequest) => shipRequest.id);
-        const allSelected = actionableRequestIds.length > 0
-            && actionableRequestIds.every((id) => selectedApprovalRequestIds.includes(id));
+    const toggleApprovalJob = (jobKey: string): void => {
+        const jobItemIds = approvalTargetItems
+            .filter((targetItem) => targetItem.jobKey === jobKey)
+            .map(({ item }) => item.id);
 
-        setSelectedApprovalRequestIds(allSelected ? [] : actionableRequestIds);
+        setSelectedApprovalItemIds((current) => {
+            const allSelected = jobItemIds.length > 0
+                && jobItemIds.every((itemId) => current.includes(itemId));
+
+            if (allSelected) {
+                return current.filter((itemId) => !jobItemIds.includes(itemId));
+            }
+
+            return Array.from(new Set([...current, ...jobItemIds]));
+        });
     };
 
-    const approveSelectedRequestsForJob = (): void => {
-        if (!approvalTarget || selectedApprovalRequestIds.length === 0) return;
+    const toggleAllApprovalItems = (): void => {
+        const actionableItemIds = approvalTargetItems.map(({ item }) => item.id);
+        const allSelected = actionableItemIds.length > 0
+            && actionableItemIds.every((id) => selectedApprovalItemIds.includes(id));
 
-        const selectedRequestIds = new Set(selectedApprovalRequestIds);
-        const pendingItems = approvalTargetRequests.flatMap((shipRequest) =>
-            (shipRequest.items || []).filter(isPendingDirectorItem).map((item) => ({
-                item,
-                isSelected: selectedRequestIds.has(shipRequest.id),
-            }))
-        );
+        setSelectedApprovalItemIds(allSelected ? [] : actionableItemIds);
+    };
+
+    const approveSelectedItems = (): void => {
+        if (!isApprovalSelectionOpen || selectedApprovalItemIds.length === 0) return;
+
+        const selectedItemIds = new Set(selectedApprovalItemIds);
+        const pendingItems = processedApprovalItems.map(({ item }) => ({
+            item,
+            isSelected: selectedItemIds.has(item.id),
+        }));
 
         if (pendingItems.length === 0) {
-            setApprovalTarget(null);
-            setSelectedApprovalRequestIds([]);
+            closeApprovalSelection();
             return;
         }
 
-        setApprovingJobKey(approvalTarget.key);
+        setApprovingJobKey(isBatchApprovalOpen ? 'batch' : approvalTarget?.key || 'selection');
         router.post(
             route('approvals.requests.batch-item-decision'),
             {
@@ -460,10 +516,7 @@ export default function ApprovalsIndex({
             },
             {
                 preserveScroll: true,
-                onSuccess: () => {
-                    setApprovalTarget(null);
-                    setSelectedApprovalRequestIds([]);
-                },
+                onSuccess: closeApprovalSelection,
                 onFinish: () => setApprovingJobKey(null),
             }
         );
@@ -718,9 +771,23 @@ export default function ApprovalsIndex({
                                     Pengajuan yang dikirim bersamaan dikelompokkan per job. Rincian setiap REQ tetap dipisahkan agar keputusan mudah diperiksa.
                                 </p>
                             </div>
-                            <div className="flex items-center gap-2 rounded-xl border border-[#BCE0FD] bg-white px-3 py-2 text-xs font-bold text-[#0060F4] dark:border-[#285585] dark:bg-[#071322] dark:text-[#60A5FA]">
-                                <Layers3 aria-hidden="true" className="size-4" />
-                                {queueSummary.itemCount} item menunggu
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <div className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#BCE0FD] bg-white px-3 py-2 text-xs font-bold text-[#0060F4] dark:border-[#285585] dark:bg-[#071322] dark:text-[#60A5FA]">
+                                    <Layers3 aria-hidden="true" className="size-4" />
+                                    {queueSummary.itemCount} item menunggu
+                                </div>
+                                {capabilities.can_decide_items && queueSummary.jobCount > 1 && (
+                                    <Button
+                                        type="button"
+                                        size="md"
+                                        leftIcon={<CheckCircle2 aria-hidden="true" className="size-4" />}
+                                        disabled={approvingJobKey !== null}
+                                        onClick={openBatchApprovalSelection}
+                                        className="min-h-11 w-full bg-[#0060F4] px-4 font-bold text-white hover:bg-[#0050D0] sm:w-auto"
+                                    >
+                                        Setujui Beberapa Job
+                                    </Button>
+                                )}
                             </div>
                         </div>
 
@@ -882,36 +949,41 @@ export default function ApprovalsIndex({
             </div>
 
             <ConfirmDialog
-                isOpen={approvalTarget !== null}
-                title="Pilih REQ yang Disetujui"
-                description="REQ yang tidak dipilih otomatis kembali ke Admin untuk ditinjau dan diajukan ulang."
-                confirmLabel={`Setujui ${selectedApprovalRequestIds.length} REQ (${selectedApprovalItems.length} Item)`}
-                onConfirm={approveSelectedRequestsForJob}
+                isOpen={isApprovalSelectionOpen}
+                title={isBatchApprovalOpen ? 'Pilih Item dari Beberapa Job' : 'Pilih Item yang Disetujui'}
+                description={isBatchApprovalOpen
+                    ? 'Pilih item secara kondisional dari beberapa kapal. Job tanpa item terpilih tetap menunggu keputusan Direktur.'
+                    : 'Setiap item diputuskan terpisah. Item yang tidak dipilih otomatis kembali ke Admin untuk ditinjau dan diajukan ulang.'}
+                confirmLabel={isBatchApprovalOpen
+                    ? `Setujui ${selectedApprovalItems.length} Item (${selectedApprovalJobKeys.size} Job)`
+                    : `Setujui ${selectedApprovalItems.length} Item`}
+                onConfirm={approveSelectedItems}
                 onClose={() => {
                     if (approvingJobKey === null) {
-                        setApprovalTarget(null);
-                        setSelectedApprovalRequestIds([]);
+                        closeApprovalSelection();
                     }
                 }}
-                processing={approvalTarget !== null && approvingJobKey === approvalTarget.key}
-                disabled={!approvalTarget || selectedApprovalRequestIds.length === 0}
+                processing={isApprovalSelectionOpen && approvingJobKey !== null}
+                disabled={!isApprovalSelectionOpen || selectedApprovalItemIds.length === 0}
             >
-                {approvalTarget && (
+                {isApprovalSelectionOpen && (
                     <div className="space-y-3">
                         <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-4 dark:border-[#285585] dark:bg-[#102B4A]">
                             <p className="break-all font-mono text-xs font-extrabold text-[#0060F4]">
-                                {approvalTarget.jobNumber}
+                                {isBatchApprovalOpen ? 'APPROVAL LINTAS JOB' : approvalTarget?.jobNumber}
                             </p>
                             <p className="mt-1 text-base font-extrabold text-[#0B1F63] dark:text-white">
-                                {approvalTarget.shipName}
+                                {isBatchApprovalOpen
+                                    ? `${selectedApprovalJobKeys.size} dari ${approvalSelectionRows.length} job akan diproses`
+                                    : approvalTarget?.shipName}
                             </p>
-                            <dl className="mt-3 grid grid-cols-3 gap-2">
+                            <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                                 <div>
                                     <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
                                         Dipilih
                                     </dt>
                                     <dd className="mt-0.5 font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">
-                                        {selectedApprovalRequestIds.length} REQ
+                                        {selectedApprovalItems.length} Item
                                     </dd>
                                 </div>
                                 <div>
@@ -919,7 +991,15 @@ export default function ApprovalsIndex({
                                         Kembali
                                     </dt>
                                     <dd className="mt-0.5 font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">
-                                        {approvalTargetRequests.length - selectedApprovalRequestIds.length} REQ
+                                        {returnedApprovalItemCount} Item
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                        Job Diproses
+                                    </dt>
+                                    <dd className="mt-0.5 font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                        {selectedApprovalJobKeys.size} Job
                                     </dd>
                                 </div>
                                 <div>
@@ -936,128 +1016,156 @@ export default function ApprovalsIndex({
                         <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-[#DCEAF8] bg-white px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
                             <input
                                 type="checkbox"
-                                checked={approvalTargetRequests.length > 0
-                                    && approvalTargetRequests.every((shipRequest) =>
-                                        selectedApprovalRequestIds.includes(shipRequest.id)
+                                checked={approvalTargetItems.length > 0
+                                    && approvalTargetItems.every(({ item }) =>
+                                        selectedApprovalItemIds.includes(item.id)
                                     )}
-                                onChange={toggleAllApprovalRequests}
+                                onChange={toggleAllApprovalItems}
                                 className="size-5 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
                             />
                             <span>
                                 <span className="block text-sm font-extrabold text-[#0B1F63] dark:text-white">
-                                    Pilih semua REQ
+                                    Pilih semua item
                                 </span>
                                 <span className="block text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                    {selectedApprovalRequestIds.length} dari {approvalTargetRequests.length} dipilih
+                                    {selectedApprovalItems.length} dari {approvalTargetItems.length} item dipilih
                                 </span>
                             </span>
                         </label>
 
-                        <div className="max-h-64 space-y-2 overflow-y-auto pr-1" aria-label="Daftar REQ yang dapat disetujui">
-                            {approvalTargetRequests.map((shipRequest) => {
-                                const requestItems = (shipRequest.items || []).filter(isPendingDirectorItem);
-                                const requestHpp = requestItems.reduce(
-                                    (total, item) => total + itemHppTotal(item),
-                                    0
-                                );
-                                const isSelected = selectedApprovalRequestIds.includes(shipRequest.id);
+                        <div className="max-h-80 space-y-3 overflow-y-auto pr-1 sm:max-h-96" aria-label="Daftar item yang dapat disetujui">
+                            {approvalSelectionRows.map((row) => {
+                                const jobItems = approvalTargetItems.filter(({ jobKey }) => jobKey === row.key);
+                                const selectedJobItemCount = jobItems.filter(({ item }) =>
+                                    selectedApprovalItemIds.includes(item.id)
+                                ).length;
+                                const allJobItemsSelected = jobItems.length > 0
+                                    && selectedJobItemCount === jobItems.length;
 
                                 return (
-                                    <div
-                                        key={shipRequest.id}
-                                        className={`rounded-xl border px-3 py-2.5 transition-colors ${
-                                            isSelected
-                                                ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
-                                                : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] dark:border-[#1E3A5F] dark:bg-[#071322]'
-                                        }`}
+                                    <section
+                                        key={row.key}
+                                        className="overflow-hidden rounded-xl border border-[#BCE0FD] bg-[#F8FBFF] dark:border-[#285585] dark:bg-[#071322]"
+                                        aria-label={`Item approval ${row.jobNumber}`}
                                     >
-                                        <label className="flex min-h-11 cursor-pointer items-center gap-3">
-                                            <input
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={() => toggleApprovalRequest(shipRequest.id)}
-                                                aria-label={`Pilih ${shipRequest.request_number}`}
-                                                className="size-5 shrink-0 rounded border-[#B7C9DF] text-emerald-600 focus:ring-emerald-500"
-                                            />
-                                            <span className="min-w-0 flex-1">
-                                                <span className="block break-all font-mono text-xs font-extrabold text-[#0060F4]">
-                                                    {shipRequest.request_number}
+                                        <div className="flex items-center justify-between gap-3 border-b border-[#DCEAF8] bg-[#F0F8FF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#102B4A]">
+                                            <label className="flex min-w-0 cursor-pointer items-center gap-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={allJobItemsSelected}
+                                                    onChange={() => toggleApprovalJob(row.key)}
+                                                    aria-label={`Pilih semua item ${row.jobNumber}`}
+                                                    className="size-5 shrink-0 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
+                                                />
+                                                <span className="min-w-0">
+                                                    <span className="block break-all font-mono text-[11px] font-extrabold text-[#0060F4]">
+                                                        {row.jobNumber}
+                                                    </span>
+                                                    <span className="block truncate text-xs font-bold text-[#0B1F63] dark:text-white">
+                                                        {row.shipName}
+                                                    </span>
                                                 </span>
-                                                <span className="mt-0.5 block text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                                    {requestItems.length} item menunggu keputusan
-                                                </span>
+                                            </label>
+                                            <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-[#52658E] dark:bg-[#071322] dark:text-[#94A3B8]">
+                                                {selectedJobItemCount}/{jobItems.length} item
                                             </span>
-                                            <span className="shrink-0 font-mono text-xs font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                                {formatCurrency(requestHpp)}
-                                            </span>
-                                        </label>
-
-                                        <div className="mt-2 space-y-2 border-t border-[#DCEAF8]/80 pt-2 dark:border-[#1E3A5F]/80">
-                                            {requestItems.map((item) => (
-                                                <div
-                                                    key={item.id}
-                                                    className="flex flex-col gap-2 rounded-lg bg-white/80 p-2 dark:bg-[#071322]/70 sm:flex-row sm:items-center sm:justify-between"
-                                                >
-                                                    <div className="min-w-0">
-                                                        <p className="break-words text-xs font-bold text-[#0B1F63] dark:text-white">
-                                                            {item.item_name || 'Item pengajuan'}
-                                                        </p>
-                                                        <p className="mt-0.5 break-words text-[10px] text-[#52658E] dark:text-[#94A3B8]">
-                                                            {item.vendor?.name || 'Vendor belum ditentukan'}
-                                                            {item.supplier_invoice_number
-                                                                ? ` · ${item.supplier_invoice_number}`
-                                                                : ''}
-                                                        </p>
-                                                    </div>
-
-                                                    {item.supplier_invoice_url ? (
-                                                        <a
-                                                            href={`${item.supplier_invoice_url}?view=1`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            aria-label={`Buka bukti invoice supplier untuk ${item.item_name || 'item pengajuan'}`}
-                                                            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#F0F8FF] px-2.5 text-[11px] font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#285585] dark:bg-[#102B4A] dark:text-[#60A5FA]"
-                                                        >
-                                                            {item.supplier_invoice_is_image ? (
-                                                                <img
-                                                                    src={`${item.supplier_invoice_url}?view=1`}
-                                                                    alt=""
-                                                                    className="size-8 rounded object-cover"
-                                                                    loading="lazy"
-                                                                />
-                                                            ) : (
-                                                                <FileText aria-hidden="true" className="size-3.5" />
-                                                            )}
-                                                            <span>{item.supplier_invoice_number || 'Buka invoice'}</span>
-                                                            <ExternalLink aria-hidden="true" className="size-3" />
-                                                        </a>
-                                                    ) : item.attachment_url ? (
-                                                        <a
-                                                            href={`${item.attachment_url}?view=1`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            aria-label={`Buka bukti upload untuk ${item.item_name || 'item pengajuan'}`}
-                                                            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-700 hover:border-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-                                                        >
-                                                            <FileText aria-hidden="true" className="size-3.5" />
-                                                            Bukti upload
-                                                            <ExternalLink aria-hidden="true" className="size-3" />
-                                                        </a>
-                                                    ) : (
-                                                        <span className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-dashed border-[#D7A334] bg-amber-50 px-2.5 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                                                            Invoice belum tersedia
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ))}
                                         </div>
-                                    </div>
+
+                                        <div className="space-y-2 p-2.5">
+                                            {jobItems.map(({ requestNumber, item }) => {
+                                                const isSelected = selectedApprovalItemIds.includes(item.id);
+
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        className={`rounded-xl border px-3 py-2.5 transition-colors ${
+                                                            isSelected
+                                                                ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                                                                : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] dark:border-[#1E3A5F] dark:bg-[#0C1D36]'
+                                                        }`}
+                                                    >
+                                                        <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleApprovalItem(item.id)}
+                                                                aria-label={`Pilih ${item.item_name || 'item pengajuan'} dari ${requestNumber}`}
+                                                                className="mt-0.5 size-5 shrink-0 rounded border-[#B7C9DF] text-emerald-600 focus:ring-emerald-500"
+                                                            />
+                                                            <span className="min-w-0 flex-1">
+                                                                <span className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                                                    <span className="break-words text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                                                        {item.item_name || 'Item pengajuan'}
+                                                                    </span>
+                                                                    <span className="shrink-0 font-mono text-xs font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                                                        {formatCurrency(itemHppTotal(item))}
+                                                                    </span>
+                                                                </span>
+                                                                <span className="mt-1 block break-all font-mono text-[10px] font-semibold text-[#0060F4]">
+                                                                    {requestNumber}
+                                                                </span>
+                                                                <span className="mt-1 block break-words text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                    {item.vendor?.name || 'Vendor belum ditentukan'} · Qty {item.quantity}
+                                                                    {item.supplier_invoice_number
+                                                                        ? ` · ${item.supplier_invoice_number}`
+                                                                        : ''}
+                                                                </span>
+                                                            </span>
+                                                        </label>
+
+                                                        <div className="mt-2 border-t border-[#DCEAF8]/80 pt-2 dark:border-[#1E3A5F]/80 sm:pl-8">
+                                                            {item.supplier_invoice_url ? (
+                                                                <a
+                                                                    href={`${item.supplier_invoice_url}?view=1`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    aria-label={`Buka bukti invoice supplier untuk ${item.item_name || 'item pengajuan'}`}
+                                                                    className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#F0F8FF] px-2.5 text-[11px] font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#285585] dark:bg-[#102B4A] dark:text-[#60A5FA] sm:w-auto"
+                                                                >
+                                                                    {item.supplier_invoice_is_image ? (
+                                                                        <img
+                                                                            src={`${item.supplier_invoice_url}?view=1`}
+                                                                            alt=""
+                                                                            className="size-8 rounded object-cover"
+                                                                            loading="lazy"
+                                                                        />
+                                                                    ) : (
+                                                                        <FileText aria-hidden="true" className="size-3.5" />
+                                                                    )}
+                                                                    <span>{item.supplier_invoice_number || 'Buka invoice'}</span>
+                                                                    <ExternalLink aria-hidden="true" className="size-3" />
+                                                                </a>
+                                                            ) : item.attachment_url ? (
+                                                                <a
+                                                                    href={`${item.attachment_url}?view=1`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    aria-label={`Buka bukti upload untuk ${item.item_name || 'item pengajuan'}`}
+                                                                    className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-700 hover:border-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300 sm:w-auto"
+                                                                >
+                                                                    <FileText aria-hidden="true" className="size-3.5" />
+                                                                    Bukti upload
+                                                                    <ExternalLink aria-hidden="true" className="size-3" />
+                                                                </a>
+                                                            ) : (
+                                                                <span className="inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-dashed border-[#D7A334] bg-amber-50 px-2.5 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300 sm:w-auto">
+                                                                    Invoice belum tersedia
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
                                 );
                             })}
                         </div>
 
                         <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                            REQ terpilih disetujui dan HPP-nya dikunci. REQ yang tidak dipilih dikembalikan ke Admin dengan status menunggu pengajuan ulang.
+                            {isBatchApprovalOpen
+                                ? 'Hanya job yang memiliki item terpilih yang diproses. Item lain dalam job tersebut kembali ke Admin, sedangkan job tanpa pilihan tetap menunggu Direktur.'
+                                : 'Item terpilih disetujui dan HPP-nya dikunci. Item yang tidak dipilih dikembalikan ke Admin dengan status menunggu pengajuan ulang.'}
                         </p>
                     </div>
                 )}

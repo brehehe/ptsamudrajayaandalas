@@ -303,7 +303,7 @@ class OperationController extends Controller
                     'request_id' => $clearanceRequest->id,
                     'product_id' => $product?->id,
                     'vendor_id' => $product?->vendor_id,
-                    'item_type' => $product?->item_type ?? 'non_jasa',
+                    'item_type' => $product?->item_type ?? 'jasa',
                     'item_name' => $definition['name'],
                     'unit' => $product?->unit ?? 'Kegiatan',
                     'quantity' => 1,

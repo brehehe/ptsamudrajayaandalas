@@ -14,6 +14,7 @@ import Table, { Column } from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
 import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
+import { toDateInputValue } from '../../lib/formatDate';
 
 interface RequestItem {
     id: string;
@@ -203,8 +204,8 @@ export default function RequestsIndex({
         vendor_id: '',
         hpp_price: '',
         supplier_invoice_number: '',
-        supplier_invoice_date: '',
-        supplier_invoice_received_date: '',
+        supplier_invoice_date: toDateInputValue(),
+        supplier_invoice_received_date: toDateInputValue(),
         supplier_invoice_due_date: '',
         supplier_invoice_document: null as File | null,
     });
@@ -525,6 +526,7 @@ export default function RequestsIndex({
 
     const openSupplierInvoiceModal = (item: ForwardableItem, jobKey: string): void => {
         const requestItem = item.requestItem;
+        const currentDate = toDateInputValue();
 
         setItemPickerJobKey(null);
         setSupplierInvoiceTarget({ item, jobKey });
@@ -532,8 +534,8 @@ export default function RequestsIndex({
             vendor_id: requestItem.vendor?.id ?? '',
             hpp_price: normalizeRupiahInput(requestItem.hpp_price ?? 0),
             supplier_invoice_number: requestItem.supplier_invoice_number ?? '',
-            supplier_invoice_date: requestItem.supplier_invoice_date?.slice(0, 10) ?? '',
-            supplier_invoice_received_date: requestItem.supplier_invoice_received_date?.slice(0, 10) ?? '',
+            supplier_invoice_date: requestItem.supplier_invoice_date?.slice(0, 10) || currentDate,
+            supplier_invoice_received_date: requestItem.supplier_invoice_received_date?.slice(0, 10) || currentDate,
             supplier_invoice_due_date: requestItem.supplier_invoice_due_date?.slice(0, 10) ?? '',
             supplier_invoice_document: null,
         });

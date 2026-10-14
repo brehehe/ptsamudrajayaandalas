@@ -5,7 +5,6 @@ import AppLayout from '../../Layouts/AppLayout';
 import Button, { getButtonClassName } from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
-import MoneyInput from '../../Components/forms/MoneyInput';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import SelectSearch from '../../Components/selects/SelectSearch';
 import Textarea from '../../Components/forms/Textarea';
@@ -36,7 +35,6 @@ export default function CompletionNoteCreate({ companies, portCalls, preselected
     const form = useForm({
         port_call_id: preselectedJob?.id ?? '',
         document: null as File | null,
-        actual_amount: '',
         notes: '',
     });
     const ships = useMemo(() => {
@@ -178,18 +176,8 @@ export default function CompletionNoteCreate({ companies, portCalls, preselected
                             </div>
                         </Card>
 
-                        <Card title="Dokumen Nota Rampung" titleLevel={2} subtitle="Nomor arsip dibuat otomatis oleh sistem." padding="none">
+                        <Card title="Dokumen Nota Rampung" titleLevel={2} subtitle="Cukup unggah bukti Nota Rampung. Nomor arsip dibuat otomatis oleh sistem." padding="none">
                             <div className="space-y-4 p-4 sm:p-5">
-                                <MoneyInput
-                                    required
-                                    name="actual_amount"
-                                    autoComplete="off"
-                                    label="Nilai Tagihan Resmi"
-                                    value={form.data.actual_amount}
-                                    onChange={(value) => form.setData('actual_amount', value)}
-                                    error={form.errors.actual_amount}
-                                    helperText="Nilai ini dibandingkan dengan pembayaran awal untuk menampilkan kekurangan atau kelebihan bayar."
-                                />
                                 <PhotoUploadPicker
                                     required
                                     label="Bukti Nota Rampung"

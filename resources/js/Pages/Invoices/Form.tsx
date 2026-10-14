@@ -79,6 +79,27 @@ const money = (value: number | string) => new Intl.NumberFormat('id-ID', {
     style: 'currency', currency: 'IDR', maximumFractionDigits: 0,
 }).format(Number(value || 0));
 const lineKey = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const invoiceLineTotal = (line: Pick<InvoiceLine, 'quantity' | 'unit_price'>): number =>
+    Math.max(0, Math.round(Number(line.quantity || 0) * Number(line.unit_price || 0)));
+const allocateWholeRupiah = (total: number, weights: number[]): number[] => {
+    const roundedTotal = Math.max(0, Math.round(total));
+    const normalizedWeights = weights.map((weight) => Number.isFinite(weight) && weight > 0 ? weight : 0);
+    const weightTotal = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+    const effectiveWeights = weightTotal > 0 ? normalizedWeights : weights.map(() => 1);
+    const effectiveTotal = effectiveWeights.reduce((sum, weight) => sum + weight, 0);
+    let allocated = 0;
+
+    return effectiveWeights.map((weight, index) => {
+        if (index === effectiveWeights.length - 1) {
+            return roundedTotal - allocated;
+        }
+
+        const share = Math.floor((roundedTotal * weight) / effectiveTotal);
+        allocated += share;
+
+        return share;
+    });
+};
 
 export default function InvoiceForm({ companies, portCalls, shipRequests, invoice = null, initialPortCallId = null }: Props) {
     const initialJob = portCalls.find((portCall) => portCall.id === (invoice?.port_call_id || initialPortCallId));
@@ -186,10 +207,19 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
     const addCustomLine = () => form.setData('lines', [...form.data.lines, {
         key: lineKey(), description: '', quantity: '1', unit: 'Paket', unit_price: '', source_item_ids: [], is_custom: true,
     }]);
-    const duplicateLine = (index: number) => {
-        const nextLines = [...form.data.lines];
-        nextLines.splice(index + 1, 0, { ...form.data.lines[index], key: lineKey() });
-        form.setData('lines', nextLines);
+    const splitLine = (index: number) => {
+        const line = form.data.lines[index];
+        const [firstTotal, secondTotal] = allocateWholeRupiah(invoiceLineTotal(line), [1, 1]);
+        const splitLines: InvoiceLine[] = [firstTotal, secondTotal].map((lineTotal, splitIndex) => ({
+            ...line,
+            key: lineKey(),
+            description: `${line.description} (Bagian ${splitIndex + 1})`,
+            quantity: '1',
+            unit: 'Paket',
+            unit_price: String(lineTotal),
+        }));
+
+        form.setData('lines', form.data.lines.flatMap((current, lineIndex) => lineIndex === index ? splitLines : [current]));
     };
     const mergeWithPrevious = (index: number) => {
         if (index < 1) return;
@@ -199,7 +229,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
             ...previous,
             description: `${previous.description} & ${current.description}`,
             quantity: '1', unit: 'Paket',
-            unit_price: String((Number(previous.quantity) * Number(previous.unit_price)) + (Number(current.quantity) * Number(current.unit_price)) || ''),
+            unit_price: String(invoiceLineTotal(previous) + invoiceLineTotal(current)),
             source_item_ids: Array.from(new Set([...previous.source_item_ids, ...current.source_item_ids])),
             is_custom: previous.is_custom && current.is_custom,
         };
@@ -216,7 +246,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
         const title = hasClearanceIn && hasClearanceOut
             ? 'Clearance In & Clearance Out'
             : isClearanceIn ? 'Clearance In' : 'Paket Tagihan';
-        const combinedTotal = sourceLines.reduce((total, line) => total + Number(line.quantity || 0) * Number(line.unit_price || 0), 0);
+        const combinedTotal = sourceLines.reduce((total, line) => total + invoiceLineTotal(line), 0);
         const merged: InvoiceLine = {
             key: lineKey(),
             description: `${title}\n${sourceItems.map((item) => `- ${item.item_name}`).join('\n')}`,
@@ -232,20 +262,19 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
         const line = form.data.lines[index];
         const sources = line.source_item_ids.map((sourceId) => jobItems.find((item) => item.id === sourceId)).filter((item): item is SourceItem => Boolean(item));
         if (sources.length < 2) return;
-        const combinedTotal = Number(line.quantity || 0) * Number(line.unit_price || 0);
-        const combinedHpp = sources.reduce((total, source) => total + Number(source.hpp_total || 0), 0);
-        const expanded = sources.map((source): InvoiceLine => {
-            const share = combinedHpp > 0 ? Number(source.hpp_total || 0) / combinedHpp : 1 / sources.length;
-            return {
-                key: lineKey(),
-                description: source.item_name,
-                quantity: source.quantity || '1',
-                unit: source.unit || 'Paket',
-                unit_price: String((combinedTotal * share) / Number(source.quantity || 1)),
-                source_item_ids: [source.id],
-                is_custom: false,
-            };
-        });
+        const allocations = allocateWholeRupiah(
+            invoiceLineTotal(line),
+            sources.map((source) => Number(source.hpp_total || 0)),
+        );
+        const expanded = sources.map((source, sourceIndex): InvoiceLine => ({
+            key: lineKey(),
+            description: source.item_name,
+            quantity: '1',
+            unit: 'Paket',
+            unit_price: String(allocations[sourceIndex]),
+            source_item_ids: [source.id],
+            is_custom: false,
+        }));
         form.setData('lines', form.data.lines.flatMap((current, lineIndex) => lineIndex === index ? expanded : [current]));
     };
     const submit = (event: React.FormEvent) => {
@@ -321,7 +350,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                                         <div className="flex flex-wrap gap-1.5">
                                             {index > 0 && <Button type="button" variant="ghost" size="sm" onClick={() => mergeWithPrevious(index)} aria-label={`Gabungkan baris ${index + 1} dengan baris sebelumnya`}><Merge aria-hidden="true" className="size-4" /> Gabung</Button>}
                                             {line.source_item_ids.length > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => expandSourceLine(index)} aria-label={`Jadikan baris ${index + 1} rincian per item`}><ListTree aria-hidden="true" className="size-4" /> Jadikan Rinci</Button>}
-                                            <Button type="button" variant="ghost" size="sm" onClick={() => duplicateLine(index)} aria-label={`Pecah atau duplikat baris ${index + 1}`}><CopyPlus aria-hidden="true" className="size-4" /> Pecah</Button>
+                                            <Button type="button" variant="ghost" size="sm" onClick={() => splitLine(index)} aria-label={`Pecah baris ${index + 1} menjadi dua tanpa mengubah total harga jual`}><CopyPlus aria-hidden="true" className="size-4" /> Pecah</Button>
                                             <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(index)} aria-label={`Hapus baris ${index + 1}`}><Trash2 aria-hidden="true" className="size-4" /> Hapus</Button>
                                         </div>
                                     </div>

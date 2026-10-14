@@ -52,6 +52,7 @@ import Textarea from '../../Components/forms/Textarea';
 import Checkbox from '../../Components/forms/Checkbox';
 import Select from '../../Components/selects/Select';
 import RequirementDate from '../../Components/ui/RequirementDate';
+import { toDateInputValue } from '../../lib/formatDate';
 
 interface ProductOption {
     id: string;
@@ -697,8 +698,8 @@ export default function RequestShow({
         vendor_id: '',
         hpp_price: '',
         supplier_invoice_number: '',
-        supplier_invoice_date: '',
-        supplier_invoice_received_date: '',
+        supplier_invoice_date: toDateInputValue(),
+        supplier_invoice_received_date: toDateInputValue(),
         supplier_invoice_due_date: '',
         supplier_invoice_document: null as File | null,
     });
@@ -716,13 +717,15 @@ export default function RequestShow({
     };
 
     const openSupplierInvoiceModal = (item: RequestItem) => {
+        const currentDate = toDateInputValue();
+
         setSupplierInvoiceItem(item);
         supplierInvoiceForm.setData({
             vendor_id: item.vendor?.id ?? '',
             hpp_price: normalizeRupiahInput(item.hpp_price ?? 0),
             supplier_invoice_number: item.supplier_invoice_number ?? '',
-            supplier_invoice_date: item.supplier_invoice_date?.slice(0, 10) ?? '',
-            supplier_invoice_received_date: item.supplier_invoice_received_date?.slice(0, 10) ?? '',
+            supplier_invoice_date: item.supplier_invoice_date?.slice(0, 10) || currentDate,
+            supplier_invoice_received_date: item.supplier_invoice_received_date?.slice(0, 10) || currentDate,
             supplier_invoice_due_date: item.supplier_invoice_due_date?.slice(0, 10) ?? '',
             supplier_invoice_document: null,
         });

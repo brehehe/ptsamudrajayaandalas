@@ -100,6 +100,8 @@ test('clearance in sandar creates tactical berthing and epb payment items only',
     $items = $clearanceRequest->items()->orderBy('created_at')->get();
 
     expect($items)->toHaveCount(2)
+        ->and($items->pluck('item_type')->all())->toBe(['jasa', 'jasa'])
+        ->and($items->every(fn (RequestItem $item): bool => $item->isJasa()))->toBeTrue()
         ->and($items->pluck('selling_price')->map(fn ($price): float => (float) $price)->all())->toBe([0.0, 0.0]);
     expect($items->pluck('item_name'))
         ->toContain('Taktis Penyandaran')
