@@ -102,6 +102,13 @@ class MaritimeAudioService {
     public isEnabled(): boolean {
         return this.soundEnabled;
     }
+
+    public init(): void {
+        const ctx = this.getContext();
+        if (ctx && ctx.state === 'suspended') {
+            void ctx.resume();
+        }
+    }
 }
 
 export const maritimeAudio = new MaritimeAudioService();
@@ -112,6 +119,16 @@ export const playSjaChime = (type: 'success' | 'alert' | 'info' | 'chime' = 'inf
 
 if (typeof window !== 'undefined') {
     (window as any).playSjaChime = playSjaChime;
+
+    const unlockAudio = () => {
+        maritimeAudio.init();
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('keydown', unlockAudio);
+        window.removeEventListener('touchstart', unlockAudio);
+    };
+    window.addEventListener('click', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
 }
 
 export default maritimeAudio;

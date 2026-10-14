@@ -53,6 +53,7 @@ interface RoleDashboardMobileViewProps {
     liveTime: string;
     activeShips: any[];
     recentActivities: any[];
+    todayActivities?: any[];
     latestRequests: any[];
     needsToday: any[];
     pendingApprovals: any[];
@@ -167,6 +168,18 @@ const formatMetricValue = (metric: Metric): string => {
     }
 
     return new Intl.NumberFormat('id-ID').format(Number(metric.value ?? 0));
+};
+
+const formatAccessibleMetricValue = (metric: Metric): string => {
+    if (metric.format === 'currency') {
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            maximumFractionDigits: 0,
+        }).format(Number(metric.value ?? 0));
+    }
+
+    return formatMetricValue(metric);
 };
 
 const formatCurrency = (value: number): string =>
@@ -414,10 +427,10 @@ const formatActivityTime = (value?: string | null): string => {
 
 function OperationalActivityTimeline({ activities }: { activities: any[] }) {
     if (!activities.length) {
-        return <EmptyState>Belum ada pembaruan lapangan</EmptyState>;
+        return <EmptyState>Belum ada pembaruan aktivitas lapangan hari ini</EmptyState>;
     }
 
-    const visibleActivities = activities.slice(0, 3);
+    const visibleActivities = activities.slice(0, 5);
 
     return (
         <div className="divide-y divide-[#EAF1F8] dark:divide-[#1E3A5F]">
@@ -449,6 +462,11 @@ function OperationalActivityTimeline({ activities }: { activities: any[] }) {
                             <span className="line-clamp-2 break-words text-[9px] leading-3.5 text-[#52658E] dark:text-[#9FB0C6]">
                                 {activityItem.subtitle}
                             </span>
+                            {activityItem.creator_name && (
+                                <span className="mt-0.5 block text-[8.5px] font-semibold text-[#0060F4] dark:text-[#60A5FA]">
+                                    Oleh: {activityItem.creator_name}
+                                </span>
+                            )}
                         </span>
                         <ChevronRight aria-hidden="true" className="size-5 self-center justify-self-center text-[#0B1F63] group-hover:text-[#0060F4] dark:text-[#8BA4C1]" />
                     </Link>
@@ -538,6 +556,7 @@ export default function RoleDashboardMobileView({
     liveTime,
     activeShips,
     recentActivities,
+    todayActivities = [],
     latestRequests,
     needsToday,
     pendingApprovals,
@@ -550,7 +569,7 @@ export default function RoleDashboardMobileView({
 
     return (
         <div className="bg-white dark:bg-[#0C1D36] md:hidden">
-            <section className="mobile-photo-copy relative flex min-h-[330px] flex-col justify-between overflow-hidden bg-[#8FCDF4] px-4 pb-14 pt-20 text-white">
+            <section className="mobile-photo-copy relative flex min-h-[210px] flex-col justify-between overflow-hidden bg-[#8FCDF4] px-4 pb-10 pt-16 text-white">
                 <img
                     src={heroImage}
                     alt=""
@@ -561,9 +580,9 @@ export default function RoleDashboardMobileView({
                     className="absolute inset-0 size-full object-cover object-center"
                 />
                 <div className="relative z-10 flex items-start justify-between gap-3">
-                    {/* <div className="min-w-0">
-                        <p className="text-xs font-semibold text-white">Selamat datang,</p>
-                        <h1 className="mt-0.5 truncate text-balance text-[28px] font-black leading-tight text-white">
+                    <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-white/90">Selamat datang,</p>
+                        <h1 className="mt-0.5 truncate text-balance text-2xl font-black leading-tight text-white">
                             {userName}
                         </h1>
                         <p className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-white">
@@ -576,19 +595,18 @@ export default function RoleDashboardMobileView({
                             </span>
                         )}
                     </div>
-                    <p className="flex max-w-[9.5rem] items-start justify-end gap-1 text-right text-[10px] font-semibold leading-4 text-white">
+                    <p className="flex max-w-[8.5rem] items-start justify-end gap-1 text-right text-[9px] font-semibold leading-4 text-white/90">
                         <CalendarDays aria-hidden="true" className="mt-0.5 size-3 shrink-0 text-[#38BDF8]" />
                         <span>{liveDate}</span>
-                    </p> */}
+                    </p>
                 </div>
 
                 <div className="relative z-10 mt-auto">
-                    {/* <p className="max-w-sm text-pretty text-xs font-medium italic leading-5 text-white">“{dashboard.subtitle}”</p> */}
-                    {/* <div className="mt-5 flex items-end justify-between gap-3 border-t border-white/20 pt-4">
+                    <div className="mt-3 flex items-end justify-between gap-3 border-t border-white/20 pt-3">
                         <div>
-                            <p className="text-[10px] font-semibold text-white/70">Waktu sekarang</p>
-                            <p className="mt-0.5 flex items-center gap-1.5 text-xl font-black tabular-nums text-white">
-                                <Clock aria-hidden="true" className="size-4 text-[#38BDF8]" />
+                            <p className="text-[9px] font-semibold text-white/75">Waktu sekarang</p>
+                            <p className="mt-0.5 flex items-center gap-1.5 text-lg font-black tabular-nums text-white">
+                                <Clock aria-hidden="true" className="size-3.5 text-[#38BDF8]" />
                                 {liveTime}
                             </p>
                         </div>
@@ -600,17 +618,17 @@ export default function RoleDashboardMobileView({
                             {dashboard.primary_action.label}
                             <ArrowRight aria-hidden="true" className="size-4" />
                         </Link>
-                    </div> */}
+                    </div>
                 </div>
             </section>
 
-            <div className="relative z-10 -mt-8 space-y-4 rounded-t-[28px] bg-white px-3.5 pb-5 pt-4 dark:bg-[#0C1D36]">
+            <div className="relative z-10 -mt-6 space-y-4 rounded-t-[28px] bg-white px-3.5 pb-5 pt-4 dark:bg-[#0C1D36]">
                 <section aria-labelledby="mobile-summary-heading" className="rounded-2xl bg-[#082870] p-3 shadow-sm dark:bg-[#071A33]">
                     <div className="mb-3 flex items-center gap-2 px-0.5 text-white">
                         <RoleIcon aria-hidden="true" className="size-4 text-[#38BDF8]" />
                         <h2 id="mobile-summary-heading" className="text-balance text-sm font-extrabold">{role.summary}</h2>
                     </div>
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className="grid grid-cols-2 gap-2">
                         {dashboard.metrics.slice(0, 4).map((metric, index) => {
                             const presentation = metricPresentation[metric.key] ?? {
                                 href: '/dashboard',
@@ -624,17 +642,20 @@ export default function RoleDashboardMobileView({
                                     key={metric.key}
                                     href={presentation.href}
                                     prefetch
-                                    aria-label={`${metric.label}: ${formatMetricValue(metric)}`}
-                                    className={`flex min-h-[104px] min-w-0 touch-manipulation flex-col items-center justify-center rounded-xl border px-1.5 py-2 text-center shadow-sm hover:brightness-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${tone.surfaceClass}`}
+                                    aria-label={`${metric.label}: ${formatAccessibleMetricValue(metric)}`}
+                                    title={formatAccessibleMetricValue(metric)}
+                                    className={`grid min-h-[78px] min-w-0 touch-manipulation grid-cols-[36px_minmax(0,1fr)] items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left shadow-sm hover:brightness-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${tone.surfaceClass}`}
                                 >
                                     <span className={`flex size-9 items-center justify-center rounded-lg ${tone.iconClass}`}>
                                         <MetricIcon aria-hidden="true" className="size-5" />
                                     </span>
-                                    <span className={`mt-1.5 max-w-full whitespace-nowrap font-black leading-none tabular-nums ${metric.format === 'currency' ? 'text-[13px]' : 'text-base'} ${tone.valueClass}`}>
-                                        {formatMetricValue(metric)}
-                                    </span>
-                                    <span className={`mt-1 line-clamp-2 text-[9px] font-bold leading-3 ${tone.labelClass}`}>
-                                        {metric.label}
+                                    <span className="min-w-0">
+                                        <span className={`block max-w-full whitespace-nowrap text-lg font-black leading-none tabular-nums ${tone.valueClass}`}>
+                                            {formatMetricValue(metric)}
+                                        </span>
+                                        <span className={`mt-1 block line-clamp-2 text-[10px] font-bold leading-3.5 ${tone.labelClass}`}>
+                                            {metric.label}
+                                        </span>
                                     </span>
                                 </Link>
                             );
@@ -651,8 +672,8 @@ export default function RoleDashboardMobileView({
                         <OperationalSection headingId="operational-ships-heading" icon={Ship} title="Kapal Hari Ini" href="/vessels">
                             <OperationalShipList ships={activeShips} />
                         </OperationalSection>
-                        <OperationalSection headingId="operational-activities-heading" icon={Clock} title="Aktivitas Terbaru" href="/operations">
-                            <OperationalActivityTimeline activities={recentActivities} />
+                        <OperationalSection headingId="operational-activities-heading" icon={Clock} title="History Aktivitas Hari Ini" href="/operations">
+                            <OperationalActivityTimeline activities={todayActivities.length > 0 ? todayActivities : recentActivities} />
                         </OperationalSection>
                         {Number(requestMetric?.value ?? 0) > 0 && (
                             <section className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-[#B8DCFF] bg-[#EAF4FF] p-3 dark:border-[#174B7B] dark:bg-[#0A2340]">
@@ -690,19 +711,32 @@ export default function RoleDashboardMobileView({
                                 </div>
                             </MobileSection>
                         )}
+                        <MobileSection icon={Clock} title="History Aktivitas Hari Ini" subtitle="Aktivitas lapangan yang dicatat hari ini" href="/operations" linkLabel="Lihat semua">
+                            <OperationalActivityTimeline activities={todayActivities.length > 0 ? todayActivities : recentActivities} />
+                        </MobileSection>
                     </>
                 )}
 
                 {dashboard.role === 'direktur' && (
-                    <MobileSection icon={ClipboardCheck} title="Antrean keputusan" subtitle="Pengajuan yang memerlukan keputusan Direktur" href="/approvals" linkLabel="Buka approval">
-                        <ApprovalList approvals={pendingApprovals} />
-                    </MobileSection>
+                    <>
+                        <MobileSection icon={ClipboardCheck} title="Antrean keputusan" subtitle="Pengajuan yang memerlukan keputusan Direktur" href="/approvals" linkLabel="Buka approval">
+                            <ApprovalList approvals={pendingApprovals} />
+                        </MobileSection>
+                        <MobileSection icon={Clock} title="History Aktivitas Hari Ini" subtitle="Aktivitas lapangan yang dicatat hari ini" href="/operations" linkLabel="Lihat semua">
+                            <OperationalActivityTimeline activities={todayActivities.length > 0 ? todayActivities : recentActivities} />
+                        </MobileSection>
+                    </>
                 )}
 
                 {dashboard.role === 'owner' && (
-                    <MobileSection icon={Ship} title="Kapal aktif" subtitle="Kunjungan yang sedang berjalan" href="/vessels" linkLabel="Lihat kapal">
-                        <ShipList ships={activeShips} limit={3} />
-                    </MobileSection>
+                    <>
+                        <MobileSection icon={Ship} title="Kapal aktif" subtitle="Kunjungan yang sedang berjalan" href="/vessels" linkLabel="Lihat kapal">
+                            <ShipList ships={activeShips} limit={3} />
+                        </MobileSection>
+                        <MobileSection icon={Clock} title="History Aktivitas Hari Ini" subtitle="Aktivitas lapangan yang dicatat hari ini" href="/operations" linkLabel="Lihat semua">
+                            <OperationalActivityTimeline activities={todayActivities.length > 0 ? todayActivities : recentActivities} />
+                        </MobileSection>
+                    </>
                 )}
             </div>
         </div>

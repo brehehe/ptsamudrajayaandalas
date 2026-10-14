@@ -36,10 +36,9 @@ const navigationByRole: Record<NavigationRole, NavigationItem[]> = {
     ],
     admin: [
         { label: 'Beranda', href: '/dashboard', icon: Home, activePaths: ['/dashboard', '/'] },
-        // { label: 'SPK', href: '/work-orders', icon: FileText, activePaths: ['/work-orders', '/vessels'] },
         { label: 'SPK', href: '/work-orders', icon: FileText, activePaths: ['/work-orders'] },
+        { label: 'Aktivitas', href: '/operations', icon: Activity, activePaths: ['/operations'], isPrimary: true },
         { label: 'Kebutuhan', href: '/requests', icon: ClipboardList, activePaths: ['/requests', '/needs'] },
-        { label: 'Pembayaran', href: '/expenses', icon: WalletCards, activePaths: ['/expenses', '/vendor-invoices'] },
         { label: 'Profil', href: '/profile', icon: UserRound, activePaths: ['/profile'] },
     ],
     direktur: [

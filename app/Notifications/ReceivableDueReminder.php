@@ -5,11 +5,10 @@ namespace App\Notifications;
 use App\Models\Invoice;
 use App\Notifications\Channels\FirebaseCloudMessagingChannel;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Notification;
 
-class ReceivableDueReminder extends Notification implements ShouldQueueAfterCommit
+class ReceivableDueReminder extends Notification
 {
     use Queueable;
 

@@ -51,6 +51,7 @@ export default function VesselShow({
     canCreateCompletionNotes = false,
     canViewFinancials = false,
     canUpdateShip = false,
+    users = [],
 }: VesselShowProps) {
     const requests = vessel.requests || [];
     const visitRequests = selectedVisit
@@ -571,6 +572,7 @@ export default function VesselShow({
                     clientPicContact={selectedVisit?.client_pic_contact}
                     step={needFlowStep}
                     section={selectedSection}
+                    users={users}
                     onSectionChange={setSelectedSection}
                     onStepChange={setNeedFlowStep}
                     onReturnToOverview={() => setMobileTab('overview')}

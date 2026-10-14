@@ -132,7 +132,7 @@ export default function NotificationCenter() {
     useEchoNotification<WorkflowNotification>(
         `App.Models.User.${auth.user.id}`,
         handleRealtimeNotification,
-        undefined,
+        [],
         [handleRealtimeNotification],
     );
 

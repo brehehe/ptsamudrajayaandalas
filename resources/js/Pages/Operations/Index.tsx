@@ -14,10 +14,11 @@ import RadioGroup from '../../Components/forms/Radio';
 import DateTimePicker from '../../Components/forms/DateTimePicker';
 import DateRangePicker, { DateRange } from '../../Components/forms/DateRangePicker';
 import Select from '../../Components/selects/Select';
+import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { OperationalActivityData } from '../../Components/vessels/types';
 import { PageProps } from '@/types';
-import { ListChecks, MapPin, Send } from 'lucide-react';
+import { ListChecks, MapPin, RotateCcw, Search, Send, SlidersHorizontal, X } from 'lucide-react';
 import Table from '../../Components/tables/Table';
 import Tabs from '../../Components/ui/Tabs';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
@@ -67,7 +68,8 @@ interface DailyReport {
 interface OperationsIndexProps {
     portCalls: PortCall[];
     dailyReports: DailyReport[];
-    ships: Array<{ id: string; name: string }>;
+    ships: Array<{ id: string; name: string; ship_company_id?: string }>;
+    companies?: Array<{ id: string; name: string }>;
     ports: Array<{ id: string; name: string }>;
     requests: Array<{ id: string; request_number: string; ship_id?: string; port_call_id?: string; ship?: { id: string; name: string } }>;
     operationalActivities: OperationalActivityData[];
@@ -80,6 +82,14 @@ interface OperationsIndexProps {
     };
     activeTab: string;
     search: string;
+    filters?: {
+        search?: string;
+        company_id?: string;
+        ship_id?: string;
+        job?: string;
+        start_date?: string;
+        end_date?: string;
+    };
 }
 
 const getCurrentLocalDateTime = (): { date: string; time: string } => {
@@ -201,11 +211,13 @@ export default function OperationsIndex({
     portCalls,
     dailyReports,
     ships,
+    companies = [],
     requests,
     operationalActivities,
     counts,
     activeTab: initialTab,
     search: initialSearch,
+    filters,
 }: OperationsIndexProps) {
     const page = usePage<PageProps>();
     const { auth, flash } = page.props as PageProps & { flash?: { success?: string; error?: string } };
@@ -231,12 +243,90 @@ export default function OperationsIndex({
 
     /* ── Desktop state ── */
     const [tab, setTab] = useState(initialTab || 'aktivitas');
-    const [search, setSearch] = useState(initialSearch);
+    const [search, setSearch] = useState(filters?.search || initialSearch || '');
+    const [companyId, setCompanyId] = useState(filters?.company_id || '');
+    const [shipId, setShipId] = useState(filters?.ship_id || '');
+    const [jobNumber, setJobNumber] = useState(filters?.job || '');
+    const [dateRange, setDateRange] = useState<DateRange>({
+        startDate: filters?.start_date || '',
+        endDate: filters?.end_date || '',
+    });
+
+    // Modal state for filters
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [modalCompanyId, setModalCompanyId] = useState(filters?.company_id || '');
+    const [modalShipId, setModalShipId] = useState(filters?.ship_id || '');
+    const [modalJobNumber, setModalJobNumber] = useState(filters?.job || '');
+    const [modalDateRange, setModalDateRange] = useState<DateRange>({
+        startDate: filters?.start_date || '',
+        endDate: filters?.end_date || '',
+    });
+
     const [actSearchQuery, setActSearchQuery] = useState('');
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
     const [departurePortCall, setDeparturePortCall] = useState<PortCall | null>(null);
     const [completionNoteDueAt, setCompletionNoteDueAt] = useState('');
     const [departureErrors, setDepartureErrors] = useState<Record<string, string>>({});
+
+    const availableShips = useMemo(() => {
+        if (!companyId) return ships;
+        return ships.filter((s) => s.ship_company_id === companyId);
+    }, [ships, companyId]);
+
+    const modalAvailableShips = useMemo(() => {
+        if (!modalCompanyId) return ships;
+        return ships.filter((s) => s.ship_company_id === modalCompanyId);
+    }, [ships, modalCompanyId]);
+
+    const companyOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Perusahaan' },
+        ...(companies || []).map((c) => ({ value: c.id, label: c.name })),
+    ], [companies]);
+
+    const shipOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Kapal' },
+        ...availableShips.map((s) => ({ value: s.id, label: s.name })),
+    ], [availableShips]);
+
+    const modalShipOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Kapal' },
+        ...modalAvailableShips.map((s) => ({ value: s.id, label: s.name })),
+    ], [modalAvailableShips]);
+
+    const activeFilterCount = [
+        companyId,
+        shipId,
+        jobNumber,
+        dateRange.startDate || dateRange.endDate ? 'date' : '',
+    ].filter(Boolean).length;
+
+    const applyFilters = (overrides?: Record<string, string | undefined>) => {
+        const nextFilters = {
+            tab,
+            search: search || undefined,
+            company_id: companyId || undefined,
+            ship_id: shipId || undefined,
+            job: jobNumber || undefined,
+            start_date: dateRange.startDate || undefined,
+            end_date: dateRange.endDate || undefined,
+            ...overrides,
+        };
+        router.get('/operations', nextFilters, { preserveState: true });
+    };
+
+    const handleResetAllFilters = () => {
+        setSearch('');
+        setCompanyId('');
+        setShipId('');
+        setJobNumber('');
+        const emptyRange: DateRange = { startDate: '', endDate: '' };
+        setDateRange(emptyRange);
+        router.get('/operations', { tab }, { preserveState: true });
+    };
+
+    const hasActiveFilters = Boolean(
+        search || companyId || shipId || jobNumber || dateRange.startDate || dateRange.endDate
+    );
 
     /* ── Mobile state: Staf operasional bisa 'form' & 'riwayat', role lain otomatis hanya 'riwayat' ── */
     const [mobileTab, setMobileTab] = useState<'form' | 'riwayat'>('form');
@@ -271,7 +361,6 @@ export default function OperationsIndex({
 
     /* ── Lightbox & Detail state ── */
     const [selectedActivity, setSelectedActivity] = useState<OperationalActivityData | null>(null);
-    const [dateRange, setDateRange] = useState<DateRange>({ startDate: '', endDate: '' });
 
     /* ── Geolocation ── */
     const geo = useGeolocation('');
@@ -1125,32 +1214,116 @@ export default function OperationsIndex({
                     ))}
                 </div>
 
-                {/* ── Search Bar (Kunjungan & Laporan) ── */}
+                {/* ── Filter Bar (Kunjungan & Laporan) with Modal ── */}
                 {tab !== 'aktivitas' && (
-                    <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#8C9BB9]">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                <circle cx="11" cy="11" r="8" />
-                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                            </svg>
-                        </div>
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Cari job number, nama kapal, atau pelabuhan..."
-                            className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-[#0C1D36] border border-[#DCEAF8] dark:border-[#1E3A5F] rounded-xl text-xs sm:text-sm text-[#0B1F63] dark:text-[#F1F5F9] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] shadow-xs"
-                        />
-                        {search && (
-                            <button
-                                type="button"
-                                onClick={() => { setSearch(''); router.get('/operations', { tab }); }}
-                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#8C9BB9] hover:text-[#C62840]"
+                    <div className="rounded-2xl border border-[#DCEAF8] bg-white p-3.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] space-y-3">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                            {/* Search Input (Roomy) */}
+                            <form
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    applyFilters();
+                                }}
+                                className="relative flex-1"
                             >
-                                ✕
-                            </button>
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8C9BB9]" />
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="Cari job, kapal, pelabuhan..."
+                                    className="w-full pl-9 pr-8 h-11 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                />
+                                {search && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSearch('');
+                                            applyFilters({ search: undefined });
+                                        }}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                    >
+                                        <X className="size-3.5" />
+                                    </button>
+                                )}
+                            </form>
+
+                            {/* Action Buttons: Filter Modal Trigger & Reset */}
+                            <div className="flex items-center gap-2 shrink-0">
+                                <Button
+                                    type="button"
+                                    variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                                    onClick={() => {
+                                        setModalCompanyId(companyId);
+                                        setModalShipId(shipId);
+                                        setModalJobNumber(jobNumber);
+                                        setModalDateRange(dateRange);
+                                        setIsFilterModalOpen(true);
+                                    }}
+                                    leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                                    className="h-11 px-4 text-xs font-bold"
+                                >
+                                    <span>Filter</span>
+                                    {activeFilterCount > 0 && (
+                                        <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                            {activeFilterCount}
+                                        </span>
+                                    )}
+                                </Button>
+
+                                {hasActiveFilters && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleResetAllFilters}
+                                        className="h-11 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                                    >
+                                        <RotateCcw aria-hidden="true" className="size-3.5 mr-1" />
+                                        Reset
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Active Filter Badges */}
+                        {hasActiveFilters && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-[#EAF2FA] dark:border-[#1E3A5F]/60 text-xs">
+                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+                                {companyId && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
+                                        <button type="button" onClick={() => { setCompanyId(''); applyFilters({ company_id: undefined }); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                                {shipId && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Kapal: {ships.find((s) => s.id === shipId)?.name || shipId}
+                                        <button type="button" onClick={() => { setShipId(''); applyFilters({ ship_id: undefined }); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                                {jobNumber && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Job: {jobNumber}
+                                        <button type="button" onClick={() => { setJobNumber(''); applyFilters({ job: undefined }); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                                {(dateRange.startDate || dateRange.endDate) && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Tanggal: {dateRange.startDate || '...'} s/d {dateRange.endDate || '...'}
+                                        <button type="button" onClick={() => { const empty = { startDate: '', endDate: '' }; setDateRange(empty); applyFilters({ start_date: undefined, end_date: undefined }); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
                         )}
-                    </form>
+                    </div>
                 )}
 
                 {/* ── Tab: Port Calls ── */}
@@ -2010,6 +2183,108 @@ export default function OperationsIndex({
                         )}
                     </div>
                 )}
+            </Modal>
+
+            {/* Filter Modal */}
+            <Modal
+                isOpen={isFilterModalOpen}
+                onClose={() => setIsFilterModalOpen(false)}
+                title="Filter Operasional Kapal"
+                size="lg"
+                asBottomSheetOnMobile
+                footer={(
+                    <div className="flex w-full items-center justify-between gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setModalCompanyId('');
+                                setModalShipId('');
+                                setModalJobNumber('');
+                                setModalDateRange({ startDate: '', endDate: '' });
+                            }}
+                            className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
+                        >
+                            Reset Pilihan
+                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setIsFilterModalOpen(false)}
+                            >
+                                Batal
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={() => {
+                                    setCompanyId(modalCompanyId);
+                                    setShipId(modalShipId);
+                                    setJobNumber(modalJobNumber);
+                                    setDateRange(modalDateRange);
+                                    setIsFilterModalOpen(false);
+                                    applyFilters({
+                                        company_id: modalCompanyId || undefined,
+                                        ship_id: modalShipId || undefined,
+                                        job: modalJobNumber || undefined,
+                                        start_date: modalDateRange.startDate || undefined,
+                                        end_date: modalDateRange.endDate || undefined,
+                                    });
+                                }}
+                            >
+                                Terapkan Filter
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            >
+                <div className="space-y-4 py-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <SelectSearch
+                            label="Perusahaan"
+                            value={modalCompanyId}
+                            onChange={(val) => {
+                                const nextVal = String(val || '');
+                                setModalCompanyId(nextVal);
+                                setModalShipId('');
+                            }}
+                            options={companyOptions}
+                            placeholder="Pilih Perusahaan"
+                        />
+                        <SelectSearch
+                            label="Armada Kapal"
+                            value={modalShipId}
+                            onChange={(val) => setModalShipId(String(val || ''))}
+                            options={modalShipOptions}
+                            placeholder="Pilih Kapal"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#94A3B8] mb-1.5">
+                            Nomor Job / SPK
+                        </label>
+                        <input
+                            type="text"
+                            value={modalJobNumber}
+                            onChange={(e) => setModalJobNumber(e.target.value)}
+                            placeholder="Ketik nomor job (contoh: JOB-SPK-...)"
+                            className="w-full h-11 px-3.5 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                        />
+                    </div>
+
+                    <div className="pt-2 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
+                        <p className="mb-2 text-xs font-bold text-[#0B1F63] dark:text-[#94A3B8]">
+                            Rentang Tanggal Kegiatan:
+                        </p>
+                        <DateRangePicker
+                            inline
+                            value={modalDateRange}
+                            onChange={setModalDateRange}
+                            placeholder="Rentang Tanggal"
+                        />
+                    </div>
+                </div>
             </Modal>
 
         </AppLayout>

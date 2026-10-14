@@ -116,7 +116,7 @@ export default function Pagination({
 
             {/* Pagination Controls */}
             <nav
-                className="flex items-center gap-1 self-center sm:self-auto"
+                className="flex max-w-full items-center gap-1 self-stretch overflow-x-auto overscroll-x-contain pb-1 sm:self-auto"
                 aria-label="Navigasi Halaman"
             >
                 {links && links.length > 0 ? (

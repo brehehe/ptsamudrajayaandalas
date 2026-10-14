@@ -27,6 +27,8 @@ class VesselController extends Controller
         $status = $request->query('status', 'Semua');
         $search = $request->query('search');
         $companyId = $request->query('company_id');
+        $shipId = $request->query('ship_id');
+        $job = $request->query('job');
 
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
@@ -54,6 +56,16 @@ class VesselController extends Controller
 
         if ($companyId) {
             $query->whereHas('ship', fn ($shipQuery) => $shipQuery->where('ship_company_id', $companyId));
+        }
+
+        if ($shipId) {
+            $query->where('ship_id', $shipId);
+        }
+
+        if ($job) {
+            $query->where(function ($q) use ($job, $like) {
+                $q->where('job_number', $like, "%{$job}%")->orWhere('id', $job);
+            });
         }
 
         if ($search) {
@@ -145,16 +157,21 @@ class VesselController extends Controller
             ->get();
         $canCreateShip = $request->user()?->isOperationalAdmin() ?? false;
 
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
+
         return Inertia::render('Vessels/Index', [
             'vessels' => $vessels,
             'companies' => $companies,
             'counts' => $counts,
             'ports' => $ports,
             'allMasterShips' => $allMasterShips,
+            'jobs' => $jobs,
             'canCreateShip' => $canCreateShip,
             'canViewFinancials' => ! $request->user()?->isStaff(),
             'activeStatus' => $status,
             'selectedCompanyId' => $companyId ?? '',
+            'selectedShipId' => $shipId ?? '',
+            'selectedJob' => $job ?? '',
             'search' => $search ?? '',
         ]);
     }
@@ -165,7 +182,7 @@ class VesselController extends Controller
             'company',
             'port',
             'requests' => function ($q) {
-                $q->with('items')->orderByDesc('created_at');
+                $q->with(['items', 'creator:id,name'])->orderByDesc('created_at');
             },
         ])->findOrFail($id);
 
@@ -239,6 +256,10 @@ class VesselController extends Controller
                     'service_type' => $shipRequest->service_type,
                     'notes' => $shipRequest->notes,
                     'created_at' => $shipRequest->created_at?->toISOString(),
+                    'creator' => $shipRequest->creator ? [
+                        'id' => $shipRequest->creator->id,
+                        'name' => $shipRequest->creator->name,
+                    ] : null,
                     'items' => $shipRequest->items->map(fn (RequestItem $item) => [
                         'id' => $item->id,
                         'item_name' => $item->item_name,
@@ -297,6 +318,16 @@ class VesselController extends Controller
             'canCreateCompletionNotes' => $request->user()->can('create', CompletionNote::class),
             'canViewFinancials' => ! $request->user()?->isStaff(),
             'canUpdateShip' => $request->user()?->isOperationalAdmin() || $request->user()?->isStaff(),
+            'users' => User::query()
+                ->where('is_active', true)
+                ->with('roles:id,name')
+                ->orderBy('name')
+                ->get(['id', 'name', 'email'])
+                ->map(fn (User $user) => [
+                    'id' => (string) $user->id,
+                    'name' => $user->name,
+                    'role' => $user->roles->first()?->name ?? 'Staff',
+                ]),
         ]);
     }
 

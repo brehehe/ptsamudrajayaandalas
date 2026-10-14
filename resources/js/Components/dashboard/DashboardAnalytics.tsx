@@ -46,6 +46,19 @@ const formatValue = (value: number, format: ChartFormat): string => {
     return new Intl.NumberFormat('id-ID').format(Number(value ?? 0));
 };
 
+const formatCompactValue = (value: number, format: ChartFormat): string => {
+    if (format !== 'currency') {
+        return formatValue(value, format);
+    }
+
+    const compactValue = new Intl.NumberFormat('id-ID', {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+    }).format(Number(value ?? 0)).replace(/\s+/g, '');
+
+    return `Rp ${compactValue}`;
+};
+
 function ChartHeader({ chart }: { chart: DashboardChartData }) {
     const Icon = chart.type === 'donut' ? CircleGauge : chart.type === 'flow' ? Workflow : BarChart3;
 
@@ -99,8 +112,11 @@ function DonutChart({ chart }: { chart: DonutChartData }) {
                 <figcaption className="absolute inset-5 flex flex-col items-center justify-center text-center">
                     {chart.format === 'currency' ? (
                         <span className="flex flex-col items-center gap-0.5 font-black leading-none tabular-nums text-[#0B1F63] dark:text-white">
-                            <span className="text-[9px]">{currencySymbol}</span>
-                            <span className="whitespace-nowrap text-xs">{currencyAmount}</span>
+                            <span aria-hidden="true" className="whitespace-nowrap text-xs sm:hidden">{formatCompactValue(total, chart.format)}</span>
+                            <span aria-hidden="true" className="hidden flex-col items-center gap-0.5 sm:flex">
+                                <span className="text-[9px]">{currencySymbol}</span>
+                                <span className="whitespace-nowrap text-xs">{currencyAmount}</span>
+                            </span>
                         </span>
                     ) : (
                         <span className="whitespace-nowrap text-xs font-black leading-none tabular-nums text-[#0B1F63] dark:text-white">{formattedTotal}</span>
@@ -117,8 +133,14 @@ function DonutChart({ chart }: { chart: DonutChartData }) {
                         <div key={segment.label} className="grid min-h-10 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl bg-[#F8FBFF] px-3 py-2 text-[11px] dark:bg-[#091A2E]">
                             <span className="size-2.5 rounded-full" style={{ backgroundColor: segment.color }} aria-hidden="true" />
                             <dt className="min-w-0 font-semibold text-[#425A7D] dark:text-[#C7D5E7]">{segment.label}</dt>
-                            <dd className="text-right font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                {formatValue(segment.value, chart.format)} <span className="font-medium text-[#7C91AC]">({percentage}%)</span>
+                            <dd
+                                className="min-w-0 text-right font-extrabold tabular-nums text-[#0B1F63] dark:text-white"
+                                aria-label={`${formatValue(segment.value, chart.format)}, ${percentage}%`}
+                                title={formatValue(segment.value, chart.format)}
+                            >
+                                <span aria-hidden="true" className="sm:hidden">{formatCompactValue(segment.value, chart.format)}</span>
+                                <span aria-hidden="true" className="hidden sm:inline">{formatValue(segment.value, chart.format)}</span>{' '}
+                                <span className="font-medium text-[#7C91AC]">({percentage}%)</span>
                             </dd>
                         </div>
                     );
@@ -152,7 +174,12 @@ function BarChart({ chart }: { chart: BarChartData }) {
             </div>
 
             <div className="mt-3 overflow-x-auto pb-1">
-                <div className="flex h-36 min-w-[420px] items-end gap-3 border-b border-[#DCEAF8] px-1 dark:border-[#1E3A5F]" role="img" aria-label={chart.title}>
+                <div
+                    className="flex h-36 items-end gap-3 border-b border-[#DCEAF8] px-1 dark:border-[#1E3A5F]"
+                    style={{ minWidth: `${Math.max(300, chart.points.length * 56)}px` }}
+                    role="img"
+                    aria-label={chart.title}
+                >
                     {chart.points.map((point) => (
                         <div key={point.label} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
                             <div className="flex h-24 w-full items-end justify-center gap-1">
@@ -186,7 +213,10 @@ function BarChart({ chart }: { chart: BarChartData }) {
                     return (
                         <div key={series.key} className="rounded-xl bg-[#F3F8FD] px-2.5 py-2 dark:bg-[#091A2E]">
                             <p className="truncate text-[9px] font-semibold text-[#52658E] dark:text-[#9FB0C6]">Total {series.label}</p>
-                            <p className="mt-0.5 truncate text-[11px] font-black tabular-nums text-[#0B1F63] dark:text-white">{formatValue(total, chart.format)}</p>
+                            <p className="mt-0.5 truncate text-[11px] font-black tabular-nums text-[#0B1F63] dark:text-white" aria-label={formatValue(total, chart.format)} title={formatValue(total, chart.format)}>
+                                <span aria-hidden="true" className="sm:hidden">{formatCompactValue(total, chart.format)}</span>
+                                <span aria-hidden="true" className="hidden sm:inline">{formatValue(total, chart.format)}</span>
+                            </p>
                         </div>
                     );
                 })}
@@ -252,13 +282,19 @@ function ChartCard({ chart }: { chart: DashboardChartData }) {
 }
 
 export default function DashboardAnalytics({ charts }: { charts: DashboardChartData[] }) {
+    const gridClassName = charts.length === 1
+        ? ''
+        : charts.length === 2
+            ? 'lg:grid-cols-2'
+            : 'lg:grid-cols-2 xl:grid-cols-3';
+
     return (
         <section aria-labelledby="dashboard-analytics-title">
             <div className="mb-2 flex items-center justify-between gap-3 px-0.5">
                 <h2 id="dashboard-analytics-title" className="text-balance text-base font-extrabold text-[#0B1F63] dark:text-white">Analisis & laporan</h2>
                 <span className="hidden text-[11px] text-[#52658E] sm:block dark:text-[#9FB0C6]">Mengikuti data dan alur kerja PT SJA</span>
             </div>
-            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            <div className={`grid gap-3 ${gridClassName}`}>
                 {charts.map((chart) => <ChartCard key={chart.key} chart={chart} />)}
             </div>
         </section>

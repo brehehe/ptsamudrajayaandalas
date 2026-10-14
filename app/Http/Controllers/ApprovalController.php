@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\CreateVendorInvoiceFromApprovedItem;
+use App\Models\ExpenseRequest;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
 use App\Models\RequestItem;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -54,9 +56,18 @@ class ApprovalController extends Controller
             'verifier',
         ]);
 
+        $companyExpensesQuery = ExpenseRequest::query()->where('scope', 'company')->with([
+            'creator:id,name',
+            'reviewer:id,name',
+            'realizer:id,name',
+            // 'items:id,expense_request_id,description,amount,currency',
+            'items:id,expense_request_id,description,amount',
+        ]);
+
         if ($date) {
             $requestsQuery->whereDate('request_date', $date);
             $paymentsQuery->whereDate('payment_date', $date);
+            $companyExpensesQuery->whereDate('created_at', $date);
         }
 
         if ($tab === 'menunggu') {
@@ -67,12 +78,15 @@ class ApprovalController extends Controller
                         ->where('director_status', 'pending'));
             });
             $paymentsQuery->where('verification_status', 'pending');
+            $companyExpensesQuery->where('status', 'waiting_director');
         } elseif ($tab === 'disetujui') {
             $requestsQuery->whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai']);
             $paymentsQuery->where('verification_status', 'verified');
+            $companyExpensesQuery->whereIn('status', ['approved', 'realized']);
         } elseif ($tab === 'ditolak') {
             $requestsQuery->where('status', 'Ditolak');
             $paymentsQuery->where('verification_status', 'rejected');
+            $companyExpensesQuery->where('status', 'rejected');
         }
 
         if ($search) {
@@ -90,10 +104,17 @@ class ApprovalController extends Controller
                     ->orWhere('recipient', $like, "%{$search}%")
                     ->orWhere('payment_type', $like, "%{$search}%");
             });
+
+            $companyExpensesQuery->where(function ($q) use ($search, $like) {
+                $q->where('request_number', $like, "%{$search}%")
+                    ->orWhere('category', $like, "%{$search}%")
+                    ->orWhere('notes', $like, "%{$search}%");
+            });
         }
 
         $pendingRequests = $requestsQuery->orderByDesc('created_at')->get();
         $pendingPayments = $paymentsQuery->orderByDesc('created_at')->get();
+        $pendingCompanyExpenses = $companyExpensesQuery->orderByDesc('created_at')->get();
         $this->prepareApprovalItems($pendingRequests);
 
         $summaryDate = $date ?? now()->toDateString();
@@ -115,7 +136,7 @@ class ApprovalController extends Controller
         ];
 
         $counts = [
-            'semua' => ShipRequest::count() + OutgoingPayment::count(),
+            'semua' => ShipRequest::count() + OutgoingPayment::count() + ExpenseRequest::where('scope', 'company')->count(),
             'menunggu' => ShipRequest::query()
                 ->where(function ($query) {
                     $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
@@ -123,14 +144,15 @@ class ApprovalController extends Controller
                             ->where('status', 'diajukan_ke_direktur')
                             ->where('director_status', 'pending'));
                 })
-                ->count() + OutgoingPayment::where('verification_status', 'pending')->count(),
-            'disetujui' => ShipRequest::whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai'])->count() + OutgoingPayment::where('verification_status', 'verified')->count(),
-            'ditolak' => ShipRequest::where('status', 'Ditolak')->count() + OutgoingPayment::where('verification_status', 'rejected')->count(),
+                ->count() + OutgoingPayment::where('verification_status', 'pending')->count() + ExpenseRequest::where('scope', 'company')->where('status', 'waiting_director')->count(),
+            'disetujui' => ShipRequest::whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai'])->count() + OutgoingPayment::where('verification_status', 'verified')->count() + ExpenseRequest::where('scope', 'company')->whereIn('status', ['approved', 'realized'])->count(),
+            'ditolak' => ShipRequest::where('status', 'Ditolak')->count() + OutgoingPayment::where('verification_status', 'rejected')->count() + ExpenseRequest::where('scope', 'company')->where('status', 'rejected')->count(),
         ];
 
         return Inertia::render('Approvals/Index', [
             'requests' => $pendingRequests,
             'payments' => $pendingPayments,
+            'companyExpenses' => $pendingCompanyExpenses,
             'counts' => $counts,
             'activeTab' => $tab,
             'search' => $search ?? '',
@@ -711,5 +733,40 @@ class ApprovalController extends Controller
 
             return redirect()->back()->with('success', $message);
         });
+    }
+
+    public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest): RedirectResponse
+    {
+        abort_unless($request->user()?->isDirector(), 403);
+        $validated = $request->validate([
+            'decision' => ['required', 'in:approve,reject'],
+            'notes' => ['nullable', 'required_if:decision,reject', 'string', 'max:1000'],
+        ]);
+
+        $decidedExpense = DB::transaction(function () use ($request, $expenseRequest, $validated): ExpenseRequest {
+            $lockedExpense = ExpenseRequest::query()->lockForUpdate()->findOrFail($expenseRequest->id);
+            if ($lockedExpense->scope !== 'company' || $lockedExpense->status !== 'waiting_director') {
+                throw ValidationException::withMessages(['decision' => 'Pengajuan ini sudah diputuskan atau tidak lagi tersedia.']);
+            }
+
+            $lockedExpense->update([
+                'status' => $validated['decision'] === 'approve' ? 'approved' : 'rejected',
+                'notes' => $validated['notes'] ?? $lockedExpense->notes,
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
+
+            activity('company-expense')
+                ->performedOn($lockedExpense)
+                ->causedBy($request->user())
+                ->withProperties(['decision' => $validated['decision'], 'notes' => $validated['notes'] ?? null])
+                ->log($validated['decision'] === 'approve' ? 'Biaya nonkapal disetujui Direktur dari menu Approval' : 'Biaya nonkapal ditolak Direktur dari menu Approval');
+
+            return $lockedExpense;
+        }, attempts: 3);
+
+        $this->workflowNotifier->notifyCompanyExpenseDecision($decidedExpense, $request->user());
+
+        return redirect()->back()->with('success', 'Keputusan pengajuan biaya perusahaan berhasil disimpan.');
     }
 }

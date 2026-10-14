@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import {
     CalendarDays,
     CheckCircle2,
@@ -91,6 +91,11 @@ interface VesselNeedFlowProps {
     clientPicContact?: string | null;
     step: NeedFlowStep;
     section?: string;
+    users?: Array<{
+        id: string;
+        name: string;
+        role: string;
+    }>;
     onSectionChange?: (section: string) => void;
     onStepChange: (step: NeedFlowStep) => void;
     onReturnToOverview: () => void;
@@ -104,16 +109,27 @@ export default function VesselNeedFlow({
     clientPicContact,
     step: needFlowStep,
     section: initialSection,
+    users = [],
     onSectionChange,
     onStepChange,
     onReturnToOverview,
 }: VesselNeedFlowProps) {
+    const page = usePage();
+    const authUser = (page.props as any).auth?.user as { id: number | string; name: string; role?: string } | undefined;
+
     // Form state for Tambah Kebutuhan
     const [formSection, setFormSection] = useState<'Deck' | 'Engine' | 'Lainnya'>('Deck');
     const [formSectionOther, setFormSectionOther] = useState('');
     const [formDate, setFormDate] = useState(getTodayDateInputValue);
     const [formOrderedByName, setFormOrderedByName] = useState(clientPicName || vessel.captain_name || '');
     const [formOrderedByPhone, setFormOrderedByPhone] = useState(clientPicContact || vessel.captain_phone || '');
+    const [formCreatedBy, setFormCreatedBy] = useState<string>(() => (authUser?.id ? String(authUser.id) : ''));
+
+    useEffect(() => {
+        if (!formCreatedBy && authUser?.id) {
+            setFormCreatedBy(String(authUser.id));
+        }
+    }, [authUser?.id, formCreatedBy]);
 
     useEffect(() => {
         setFormOrderedByName(clientPicName || vessel.captain_name || '');
@@ -372,6 +388,9 @@ export default function VesselNeedFlow({
         formData.append('ordered_by_phone', formOrderedByPhone);
         formData.append('request_date', formDate);
         formData.append('status', 'Menunggu Approval');
+        if (formCreatedBy) {
+            formData.append('created_by', formCreatedBy);
+        }
 
         itemsList.forEach((it, idx) => {
             formData.append(`items[${idx}][item_name]`, it.item_name);
@@ -728,6 +747,27 @@ export default function VesselNeedFlow({
                                     sizeVariant="sm"
                                     error={headerErrors.orderedByPhone}
                                 />
+
+                                {/* Pembuat Pengajuan / Diajukan Oleh */}
+                                {users && users.length > 0 ? (
+                                    <Select
+                                        label="Pembuat Pengajuan (Staf SJA)"
+                                        options={users.map((u) => ({
+                                            value: u.id,
+                                            label: `${u.name} (${u.role})`,
+                                        }))}
+                                        value={formCreatedBy}
+                                        onChange={(val) => setFormCreatedBy(String(val))}
+                                        sizeVariant="sm"
+                                    />
+                                ) : (
+                                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                        <span className="block font-semibold text-[#52658E] dark:text-[#94A3B8]">Pembuat Pengajuan</span>
+                                        <p className="mt-0.5 font-bold text-[#0B1F63] dark:text-white">
+                                            {authUser?.name || 'Staff Lapangan'}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </section>
 
@@ -1165,6 +1205,12 @@ export default function VesselNeedFlow({
                                 <span className="text-[#52658E]">Nomor Telepon (Nomor HP)</span>
                                 <span className="font-bold text-[#082870] dark:text-white">
                                     {formOrderedByPhone || '-'}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between border-t border-[#DCEAF8]/60 pt-2 py-1 dark:border-[#1E3A5F]/60">
+                                <span className="text-[#52658E]">Pembuat Pengajuan</span>
+                                <span className="font-bold text-[#0060F4] dark:text-[#38BDF8]">
+                                    {users?.find((u) => u.id === formCreatedBy)?.name || authUser?.name || 'Staff Lapangan'}
                                 </span>
                             </div>
                         </div>

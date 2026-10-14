@@ -8,6 +8,7 @@ use App\Models\PortCall;
 use App\Models\Product;
 use App\Models\RequestItem;
 use App\Models\Ship;
+use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\WorkOrder;
 use App\Support\WorkflowNotifier;
@@ -26,6 +27,11 @@ class NeedController extends Controller
     {
         $status = $request->query('status', 'semua');
         $search = $request->query('search');
+        $companyId = $request->query('company_id');
+        $shipId = $request->query('ship_id');
+        $job = $request->query('job');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
         $query = ShipRequest::query()->with(['ship.company', 'creator', 'portCall.port']);
 
@@ -35,6 +41,26 @@ class NeedController extends Controller
             $query->whereIn('status', ['Dalam Proses', 'Disetujui', 'Diproses']);
         } elseif ($status === 'selesai') {
             $query->whereIn('status', ['Selesai', 'Dibatalkan']);
+        }
+
+        if ($companyId) {
+            $query->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+        }
+
+        if ($shipId) {
+            $query->where('ship_id', $shipId);
+        }
+
+        if ($job) {
+            $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', 'ilike', "%{$job}%")->orWhere('id', $job));
+        }
+
+        if ($startDate) {
+            $query->whereDate('request_date', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('request_date', '<=', $endDate);
         }
 
         if ($search) {
@@ -49,12 +75,16 @@ class NeedController extends Controller
 
         $needs = $query->orderByDesc('created_at')->get();
 
-        $ships = Ship::where('is_active', true)->orderBy('name')->get();
+        $companies = ShipCompany::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $ships = Ship::where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
         $portCalls = PortCall::with(['ship', 'port'])->whereIn('status', ['scheduled', 'anchored', 'berthed'])->get();
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
 
         return Inertia::render('Needs/Index', [
             'needs' => $needs,
+            'companies' => $companies,
             'ships' => $ships,
+            'jobs' => $jobs,
             'portCalls' => $portCalls,
             'counts' => [
                 'semua' => ShipRequest::count(),
@@ -64,6 +94,15 @@ class NeedController extends Controller
             ],
             'activeStatus' => $status,
             'search' => $search ?? '',
+            'filters' => [
+                'status' => $status,
+                'search' => $search ?? '',
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $job ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
             'capabilities' => [
                 'can_create' => $request->user()?->can('create', ShipRequest::class) ?? false,
                 'can_process' => $request->user()?->isOperationalAdmin() ?? false,
@@ -88,6 +127,7 @@ class NeedController extends Controller
                 'required_at' => ['nullable', 'string', 'max:255'],
                 'status' => ['nullable', 'string', 'in:Draft,Menunggu Approval,Dalam Proses,Selesai'],
                 'request_date' => ['required', 'date_format:Y-m-d'],
+                'created_by' => ['nullable', 'exists:users,id'],
                 'notes' => ['nullable', 'string'],
                 'items' => ['required', 'array', 'min:1'],
                 'items.*.item_name' => ['required', 'string', 'max:255'],
@@ -161,11 +201,15 @@ class NeedController extends Controller
                     $notesText .= " | Catatan: {$validated['notes']}";
                 }
 
+                $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                    ? $validated['created_by']
+                    : $request->user()?->id;
+
                 $shipRequest = ShipRequest::create([
                     'request_number' => $reqNumber,
                     'ship_id' => $validated['ship_id'],
                     'port_call_id' => $validated['port_call_id'],
-                    'created_by' => $request->user()?->id,
+                    'created_by' => $createdBy,
                     'status' => $status,
                     'request_date' => $validated['request_date'],
                     'notes' => $notesText,

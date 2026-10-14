@@ -145,12 +145,19 @@ export default function NeedsTab({
                                                 {formatDate(need.request_date || need.created_at)} · {items.length} item
                                             </span>
                                         </div>
-                                        <p
-                                            className="mt-1 truncate font-mono text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]"
-                                            translate="no"
-                                        >
-                                            {need.request_number}
-                                        </p>
+                                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
+                                            <span
+                                                className="truncate font-mono font-semibold text-[#52658E] dark:text-[#94A3B8]"
+                                                translate="no"
+                                            >
+                                                {need.request_number}
+                                            </span>
+                                            {need.creator?.name && (
+                                                <span className="text-[#0060F4] dark:text-[#38BDF8]">
+                                                    • Diajukan oleh: <strong className="font-semibold">{need.creator.name}</strong>
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <StatusBadge status={need.status} label={need.status} size="sm" />
                                 </header>

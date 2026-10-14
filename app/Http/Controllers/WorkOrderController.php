@@ -33,15 +33,20 @@ class WorkOrderController extends Controller
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'string', 'in:all,draft,active,in_progress,operational_completed,awaiting_completion_note,billing,completed,closed'],
+            'company_id' => ['nullable', 'string'],
+            'ship_id' => ['nullable', 'string'],
+            'job' => ['nullable', 'string'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
         ]);
         $search = $validated['search'] ?? null;
         $status = $validated['status'] ?? 'all';
+        $companyId = $validated['company_id'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $job = $validated['job'] ?? null;
+        $startDate = $validated['start_date'] ?? null;
+        $endDate = $validated['end_date'] ?? null;
         $user = $request->user();
-
-        // $visibleWorkOrders = WorkOrder::query()
-        //     ->when($user->isStaff(), fn ($query) => $query->where(function ($scope) use ($user) {
-        //         $scope->where('assigned_to', $user->id)->orWhere('created_by', $user->id);
-        //     }));
 
         $visibleWorkOrders = WorkOrder::query();
 
@@ -65,6 +70,16 @@ class WorkOrderController extends Controller
                 'portCall:id,work_order_id,job_number,status',
             ])
             ->when($status !== 'all', fn ($query) => $query->where('status', $status))
+            ->when($companyId, fn ($query, $val) => $query->where('company_id', $val))
+            ->when($shipId, fn ($query, $val) => $query->where('ship_id', $val))
+            ->when($job, fn ($query, $val) => $query->where(function ($q) use ($val) {
+                $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                $q->where('system_number', $like, "%{$val}%")
+                    ->orWhere('client_number', $like, "%{$val}%")
+                    ->orWhereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$val}%"));
+            }))
+            ->when($startDate, fn ($query, $val) => $query->whereDate('received_at', '>=', $val))
+            ->when($endDate, fn ($query, $val) => $query->whereDate('received_at', '<=', $val))
             ->when($search, fn ($query, $value) => $query->where(function ($scope) use ($value) {
                 $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
                 $scope->where('system_number', $like, "%{$value}%")
@@ -86,8 +101,15 @@ class WorkOrderController extends Controller
             );
         });
 
+        $companies = ShipCompany::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $ships = Ship::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
+
         return Inertia::render('WorkOrders/Index', [
             'workOrders' => $workOrders,
+            'companies' => $companies,
+            'ships' => $ships,
+            'jobs' => $jobs,
             'stats' => [
                 'total' => (int) ($stats?->total ?? 0),
                 'draft' => (int) ($stats?->draft ?? 0),
@@ -96,7 +118,15 @@ class WorkOrderController extends Controller
                 'billing' => (int) ($stats?->billing ?? 0),
                 'closed' => (int) ($stats?->closed ?? 0),
             ],
-            'filters' => ['search' => $search ?? '', 'status' => $status],
+            'filters' => [
+                'search' => $search ?? '',
+                'status' => $status,
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $job ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
             'canCreate' => Gate::allows('create', WorkOrder::class),
         ]);
     }

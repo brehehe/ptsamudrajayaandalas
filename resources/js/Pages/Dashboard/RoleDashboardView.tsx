@@ -85,6 +85,7 @@ interface RoleDashboardViewProps {
     needsToday: any[];
     activeShips: any[];
     recentActivities: any[];
+    todayActivities?: any[];
     pendingApprovals: any[];
     financialOverview?: any;
 }
@@ -147,6 +148,19 @@ const formatValue = (value: number, format: MetricFormat): string => {
     }
 
     return new Intl.NumberFormat('id-ID').format(Number(value ?? 0));
+};
+
+const formatCompactValue = (value: number, format: MetricFormat): string => {
+    if (format !== 'currency') {
+        return formatValue(value, format);
+    }
+
+    const compactValue = new Intl.NumberFormat('id-ID', {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+    }).format(Number(value ?? 0));
+
+    return `Rp${compactValue}`;
 };
 
 const statusStyle = (status: string): string => {
@@ -314,12 +328,19 @@ function RecentActivities({ activities }: { activities: any[] }) {
     }
 
     return (
-        <div className="grid gap-x-5 gap-y-1 lg:grid-cols-2">
+        <div className="grid gap-x-5 gap-y-1">
             {activities.slice(0, 8).map((item) => (
                 <Link key={item.id} href={item.link || '/operations'} className="group grid min-h-14 grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#EAF1F8] py-2 last:border-b-0 hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] lg:[&:nth-last-child(-n+2)]:border-b-0 dark:border-[#1E3A5F]">
                     {item.photos?.[0] ? <img src={item.photos[0]} width="42" height="42" loading="lazy" alt="" className="size-[42px] rounded-lg object-cover" /> : <span className="flex size-[42px] items-center justify-center rounded-lg bg-[#DCF7E8] text-[#087443] dark:bg-emerald-950/45 dark:text-emerald-300"><Activity aria-hidden="true" className="size-[18px]" /></span>}
-                    <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white">{item.title}</span><span className="mt-0.5 block truncate text-[10px] text-[#52658E] dark:text-[#9FB0C6]">{item.subtitle}</span></span>
-                    <span className="text-right text-[9px] tabular-nums text-[#7C91AC]"><span className="block">{item.time}</span><span className="mt-0.5 block">{item.activity_date}</span></span>
+                    <span className="min-w-0">
+                        <span className="block truncate text-[11px] font-extrabold text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white">{item.title}</span>
+                        <span className="mt-0.5 block truncate text-[10px] text-[#52658E] dark:text-[#9FB0C6]">{item.subtitle}</span>
+                        {item.creator_name && <span className="mt-0.5 block text-[9.5px] font-semibold text-[#0060F4] dark:text-[#60A5FA]">Oleh: {item.creator_name}</span>}
+                    </span>
+                    <span className="text-right text-[9px] tabular-nums text-[#7C91AC]">
+                        <span className="block font-bold text-[#0B1F63] dark:text-white">{item.time}</span>
+                        <span className="mt-0.5 block">{item.activity_date}</span>
+                    </span>
                 </Link>
             ))}
         </div>
@@ -399,7 +420,19 @@ function ProcessPipeline({ items }: { items: PipelineItem[] }) {
     );
 }
 
-export default function RoleDashboardView({ dashboard, userName, liveDate, liveTime, latestRequests, needsToday, activeShips, recentActivities, pendingApprovals, financialOverview }: RoleDashboardViewProps) {
+export default function RoleDashboardView({
+    dashboard,
+    userName,
+    liveDate,
+    liveTime,
+    latestRequests,
+    needsToday,
+    activeShips,
+    recentActivities,
+    todayActivities = [],
+    pendingApprovals,
+    financialOverview,
+}: RoleDashboardViewProps) {
     const meta = roleMeta[dashboard.role];
     const RoleIcon = meta.icon;
     const receivablesOverview: ReceivablesOverviewData | null = financialOverview
@@ -436,6 +469,7 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
                 liveTime={liveTime}
                 activeShips={activeShips}
                 recentActivities={recentActivities}
+                todayActivities={todayActivities}
                 latestRequests={latestRequests}
                 needsToday={needsToday}
                 pendingApprovals={pendingApprovals}
@@ -477,7 +511,14 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
                         return (
                             <article key={metric.key} className="grid min-h-[104px] min-w-0 grid-cols-[40px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-[#DCEAF8] bg-white p-3 shadow-sm sm:grid-cols-[48px_minmax(0,1fr)] sm:p-4 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
                                 <span className="flex size-10 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] sm:size-12 dark:bg-[#132847] dark:text-[#60A5FA]"><Icon aria-hidden="true" className="size-5 sm:size-6" /></span>
-                                <div className="min-w-0"><p className="text-pretty text-[10px] font-semibold text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">{metric.label}</p><p className="mt-0.5 break-words text-lg font-black leading-tight tabular-nums text-[#0B1F63] sm:text-xl dark:text-white">{formatValue(metric.value, metric.format)}</p><p className="mt-1 line-clamp-2 text-[9px] leading-3.5 text-[#7C91AC] dark:text-[#9FB0C6]">{metric.hint}</p></div>
+                                <div className="min-w-0">
+                                    <p className="text-pretty text-[10px] font-semibold text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">{metric.label}</p>
+                                    <p className="mt-0.5 whitespace-nowrap text-lg font-black leading-tight tabular-nums text-[#0B1F63] sm:text-xl dark:text-white" aria-label={formatValue(metric.value, metric.format)} title={formatValue(metric.value, metric.format)}>
+                                        <span aria-hidden="true" className="xl:hidden">{formatCompactValue(metric.value, metric.format)}</span>
+                                        <span aria-hidden="true" className="hidden xl:inline">{formatValue(metric.value, metric.format)}</span>
+                                    </p>
+                                    <p className="mt-1 line-clamp-2 text-[9px] leading-3.5 text-[#7C91AC] dark:text-[#9FB0C6]">{metric.hint}</p>
+                                </div>
                             </article>
                         );
                     })}
@@ -498,14 +539,36 @@ export default function RoleDashboardView({ dashboard, userName, liveDate, liveT
 
                 {dashboard.role === 'operasional' ? (
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-12">
-                        <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="md:col-span-2 xl:col-span-6"><RecentActivities activities={recentActivities} /></Panel>
-                        <Panel title="Prioritas Anda" subtitle="Pekerjaan lapangan yang perlu ditindaklanjuti" className="xl:col-span-3"><PriorityList priorities={dashboard.priorities} /></Panel>
-                        <Panel title="Akses cepat" subtitle={`Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3"><QuickActions actions={dashboard.quick_actions} /></Panel>
+                        <Panel
+                            title="History Aktivitas Hari Ini"
+                            subtitle="Catatan progres dan kegiatan operasional yang dibuat hari ini"
+                            href="/operations"
+                            linkLabel="Lihat semua"
+                            className="md:col-span-2 xl:col-span-6"
+                        >
+                            <RecentActivities activities={todayActivities.length > 0 ? todayActivities : recentActivities} />
+                        </Panel>
+                        <Panel title="Prioritas Anda" subtitle="Pekerjaan lapangan yang perlu ditindaklanjuti" className="xl:col-span-3">
+                            <PriorityList priorities={dashboard.priorities} />
+                        </Panel>
+                        <Panel title="Akses cepat" subtitle={`Menu utama ${dashboard.eyebrow.toLowerCase()}`} className="xl:col-span-3">
+                            <QuickActions actions={dashboard.quick_actions} />
+                        </Panel>
                     </div>
                 ) : (
                     <div className="grid gap-3 xl:grid-cols-12">
-                        <Panel title="Update lapangan terbaru" subtitle="Catatan aktivitas operasional yang paling baru" href="/operations" className="xl:col-span-7"><RecentActivities activities={recentActivities} /></Panel>
-                        <Panel title={processPanel?.title ?? 'Status proses'} subtitle={processPanel?.subtitle} className="xl:col-span-5"><ProcessPipeline items={dashboard.pipeline} /></Panel>
+                        <Panel
+                            title="History Aktivitas Hari Ini"
+                            subtitle="Catatan aktivitas lapangan terbaru dari tim operasional"
+                            href="/operations"
+                            linkLabel="Buka operasional"
+                            className="xl:col-span-7"
+                        >
+                            <RecentActivities activities={todayActivities.length > 0 ? todayActivities : recentActivities} />
+                        </Panel>
+                        <Panel title={processPanel?.title ?? 'Status proses'} subtitle={processPanel?.subtitle} className="xl:col-span-5">
+                            <ProcessPipeline items={dashboard.pipeline} />
+                        </Panel>
                     </div>
                 )}
 

@@ -12,7 +12,9 @@ use App\Models\PortCall;
 use App\Models\Product;
 use App\Models\RequestItem;
 use App\Models\Ship;
+use App\Models\ShipCompany;
 use App\Models\ShipRequest;
+use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -24,12 +26,20 @@ use Inertia\Response;
 
 class OperationController extends Controller
 {
-    public function __construct(private readonly ResolveClearanceProduct $resolveClearanceProduct) {}
+    public function __construct(
+        private readonly ResolveClearanceProduct $resolveClearanceProduct,
+        private readonly WorkflowNotifier $workflowNotifier,
+    ) {}
 
     public function index(Request $request): Response
     {
         $tab = $request->query('tab', 'aktivitas'); // 'aktivitas' | 'kunjungan' | 'laporan'
         $search = $request->query('search');
+        $companyId = $request->query('company_id');
+        $shipId = $request->query('ship_id');
+        $jobNumber = $request->query('job');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
         $portCallsQuery = PortCall::query()
             ->with(['ship.company', 'port', 'workOrder', 'dailyReports.officer'])
@@ -40,31 +50,71 @@ class OperationController extends Controller
             ->orderByDesc('report_date')
             ->orderByDesc('created_at');
 
+        $operationalActivitiesQuery = OperationalActivity::with(['ship.company', 'creator', 'request.portCall'])
+            ->orderByDesc('activity_date')
+            ->orderByDesc('activity_time')
+            ->orderByDesc('created_at');
+
+        if ($companyId) {
+            $portCallsQuery->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+            $dailyReportsQuery->whereHas('portCall.ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+            $operationalActivitiesQuery->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+        }
+
+        if ($shipId) {
+            $portCallsQuery->where('ship_id', $shipId);
+            $dailyReportsQuery->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $shipId));
+            $operationalActivitiesQuery->where('ship_id', $shipId);
+        }
+
+        if ($jobNumber) {
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $portCallsQuery->where('job_number', $like, "%{$jobNumber}%");
+            $dailyReportsQuery->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"));
+            $operationalActivitiesQuery->whereHas('request.portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"));
+        }
+
+        if ($startDate) {
+            $portCallsQuery->whereDate('created_at', '>=', $startDate);
+            $dailyReportsQuery->whereDate('report_date', '>=', $startDate);
+            $operationalActivitiesQuery->whereDate('activity_date', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $portCallsQuery->whereDate('created_at', '<=', $endDate);
+            $dailyReportsQuery->whereDate('report_date', '<=', $endDate);
+            $operationalActivitiesQuery->whereDate('activity_date', '<=', $endDate);
+        }
+
         if ($search) {
-            $portCallsQuery->where(function ($q) use ($search) {
-                $q->where('job_number', 'ilike', "%{$search}%")
-                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', 'ilike', "%{$search}%"))
-                    ->orWhereHas('port', fn ($pq) => $pq->where('name', 'ilike', "%{$search}%"));
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $portCallsQuery->where(function ($q) use ($search, $like) {
+                $q->where('job_number', $like, "%{$search}%")
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"))
+                    ->orWhereHas('port', fn ($pq) => $pq->where('name', $like, "%{$search}%"));
             });
 
-            $dailyReportsQuery->where(function ($q) use ($search) {
-                $q->where('summary', 'ilike', "%{$search}%")
-                    ->orWhereHas('portCall.ship', fn ($sq) => $sq->where('name', 'ilike', "%{$search}%"))
-                    ->orWhereHas('officer', fn ($oq) => $oq->where('name', 'ilike', "%{$search}%"));
+            $dailyReportsQuery->where(function ($q) use ($search, $like) {
+                $q->where('summary', $like, "%{$search}%")
+                    ->orWhereHas('portCall.ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"))
+                    ->orWhereHas('officer', fn ($oq) => $oq->where('name', $like, "%{$search}%"));
+            });
+
+            $operationalActivitiesQuery->where(function ($q) use ($search, $like) {
+                $q->where('activity_name', $like, "%{$search}%")
+                    ->orWhere('description', $like, "%{$search}%")
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"));
             });
         }
 
         $portCalls = $portCallsQuery->get();
         $dailyReports = $dailyReportsQuery->get();
+        $operationalActivities = $operationalActivitiesQuery->get();
         $ships = Ship::where('is_active', true)->orderBy('name')->get();
+        $companies = ShipCompany::where('is_active', true)->orderBy('name')->get();
         $ports = Port::where('is_active', true)->orderBy('name')->get();
         $requests = ShipRequest::with('ship')
             ->whereIn('status', ['Menunggu Approval', 'Dalam Proses', 'Selesai', 'Draft'])
-            ->orderByDesc('created_at')
-            ->get();
-        $operationalActivities = OperationalActivity::with(['ship', 'creator', 'request'])
-            ->orderByDesc('activity_date')
-            ->orderByDesc('activity_time')
             ->orderByDesc('created_at')
             ->get();
 
@@ -73,6 +123,7 @@ class OperationController extends Controller
             'dailyReports' => $dailyReports,
             'operationalActivities' => $operationalActivities,
             'ships' => $ships,
+            'companies' => $companies,
             'requests' => $requests,
             'ports' => $ports,
             'counts' => [
@@ -84,6 +135,14 @@ class OperationController extends Controller
             ],
             'activeTab' => $tab,
             'search' => $search ?? '',
+            'filters' => [
+                'search' => $search ?? '',
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $jobNumber ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
         ]);
     }
 
@@ -264,6 +323,8 @@ class OperationController extends Controller
         ]);
 
         $this->createClearanceRequestItems($clearanceRequest, $serviceType, $nextStatus, $label);
+
+        $this->workflowNotifier->notifyClearanceSubmission($clearanceRequest, $request->user(), $label);
 
         activity('clearance')->performedOn($portCall)->causedBy($request->user())
             ->withProperties([

@@ -13,6 +13,7 @@ use App\Models\ServiceType;
 use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
+use App\Models\User;
 use App\Models\Vendor;
 use App\Models\WorkOrder;
 use App\Support\WorkflowNotifier;
@@ -41,6 +42,11 @@ class RequestController extends Controller
     {
         $tab = $request->query('tab', 'semua');
         $search = $request->query('search');
+        $companyId = $request->query('company_id');
+        $shipId = $request->query('ship_id');
+        $jobNumber = $request->query('job');
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
         $includedStatuses = match ($tab) {
             'menunggu' => ['Menunggu Approval', 'Menunggu', 'pending'],
@@ -69,6 +75,33 @@ class RequestController extends Controller
             $query->whereNotIn('status', $excludedStatuses);
         }
 
+        if ($companyId) {
+            $query->where(function ($q) use ($companyId) {
+                $q->where('company_id', $companyId)
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+            });
+        }
+
+        if ($shipId) {
+            $query->where('ship_id', $shipId);
+        }
+
+        if ($jobNumber) {
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $query->where(function ($q) use ($jobNumber, $like) {
+                $q->where('request_number', $like, "%{$jobNumber}%")
+                    ->orWhereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"));
+            });
+        }
+
+        if ($startDate) {
+            $query->whereDate('created_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('created_at', '<=', $endDate);
+        }
+
         if ($search) {
             $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
             $query->where(function ($q) use ($search, $like) {
@@ -93,6 +126,27 @@ class RequestController extends Controller
             $portCallsQuery->whereHas('requests', fn ($query) => $query->whereIn('status', $includedStatuses));
         } elseif ($excludedStatuses) {
             $portCallsQuery->whereHas('requests', fn ($query) => $query->whereNotIn('status', $excludedStatuses));
+        }
+
+        if ($companyId) {
+            $portCallsQuery->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+        }
+
+        if ($shipId) {
+            $portCallsQuery->where('ship_id', $shipId);
+        }
+
+        if ($jobNumber) {
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $portCallsQuery->where('job_number', $like, "%{$jobNumber}%");
+        }
+
+        if ($startDate) {
+            $portCallsQuery->whereDate('created_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $portCallsQuery->whereDate('created_at', '<=', $endDate);
         }
 
         if ($search) {
@@ -156,6 +210,8 @@ class RequestController extends Controller
         $this->prepareRequestItems($requests);
         $products->each->makeHidden('selling_price_default');
 
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
+
         return Inertia::render('Requests/Index', [
             'requests' => $requests,
             'portCalls' => $portCalls,
@@ -164,6 +220,7 @@ class RequestController extends Controller
             'ports' => $ports,
             'products' => $products,
             'vendors' => $vendors,
+            'jobs' => $jobs,
             'capabilities' => [
                 'can_review_prices' => $canReviewPrices,
                 'can_decide_items' => $canDecideItems,
@@ -181,6 +238,14 @@ class RequestController extends Controller
             ],
             'activeTab' => $tab,
             'search' => $search ?? '',
+            'filters' => [
+                'search' => $search ?? '',
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $jobNumber ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
         ]);
     }
 
@@ -343,6 +408,17 @@ class RequestController extends Controller
         $serviceTypes = ServiceType::where('is_active', true)->orderByDesc('is_default')->orderBy('name')->get();
         $products = Product::where('is_active', true)->with(['vendor', 'portPrices'])->orderBy('item_type')->orderBy('name')->get();
 
+        $users = User::query()
+            ->where('is_active', true)
+            ->with('roles:id,name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email'])
+            ->map(fn (User $user) => [
+                'id' => (string) $user->id,
+                'name' => $user->name,
+                'role' => $user->roles->first()?->name ?? 'Staff',
+            ]);
+
         return Inertia::render('Requests/Create', [
             'companies' => $companies,
             'ships' => $ships,
@@ -350,6 +426,7 @@ class RequestController extends Controller
             'ports' => $ports,
             'serviceTypes' => $serviceTypes,
             'products' => $products,
+            'users' => $users,
         ]);
     }
 
@@ -385,8 +462,9 @@ class RequestController extends Controller
             'items.*.is_urgent' => ['nullable', 'boolean'],
             'items.*.attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'extensions:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
 
-            // General notes
+            // General notes & creator
             'notes' => ['nullable', 'string', 'max:1000'],
+            'created_by' => ['nullable', 'exists:users,id'],
         ]);
 
         return DB::transaction(function () use ($validated, $request) {
@@ -450,6 +528,10 @@ class RequestController extends Controller
                     'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
                 ]);
             }
+            $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                ? $validated['created_by']
+                : $request->user()->id;
+
             $newRequest = ShipRequest::create([
                 'request_number' => $reqNumber,
                 'ship_id' => $shipId,
@@ -457,7 +539,7 @@ class RequestController extends Controller
                 'port_id' => $validated['port_id'],
                 'port_call_id' => $portCall?->id,
                 'service_type' => $validated['service_type'],
-                'created_by' => $request->user()->id,
+                'created_by' => $createdBy,
                 'status' => 'Menunggu Approval',
                 'request_date' => now()->toDateString(),
                 'notes' => $validated['notes'] ?? null,
@@ -565,6 +647,7 @@ class RequestController extends Controller
             'ships.*.items.*.notes' => ['nullable', 'string', 'max:1000'],
             'ships.*.items.*.attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'extensions:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'created_by' => ['nullable', 'exists:users,id'],
         ]);
 
         return DB::transaction(function () use ($validated, $request) {
@@ -700,6 +783,10 @@ class RequestController extends Controller
                 }
                 $combinedNotes = trim($notesPrefix.(! empty($validated['notes']) ? ' — Catatan Bu Titik: '.$validated['notes'] : ''));
 
+                $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                    ? $validated['created_by']
+                    : $request->user()->id;
+
                 $newRequest = ShipRequest::create([
                     'request_number' => $reqNumber,
                     'batch_number' => $batchCode,
@@ -710,7 +797,7 @@ class RequestController extends Controller
                     'service_type' => $serviceType,
                     'requested_port_call_status' => $requestedPortCallStatus,
                     'operational_occurred_at' => $operationalOccurredAt,
-                    'created_by' => $request->user()->id,
+                    'created_by' => $createdBy,
                     'status' => 'Menunggu Approval',
                     'request_date' => $shipData['required_date'] ?? now()->toDateString(),
                     'notes' => $combinedNotes,
@@ -814,6 +901,7 @@ class RequestController extends Controller
             'unit' => ['required', 'string'],
             'required_at' => ['required', 'string'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'created_by' => ['nullable', 'exists:users,id'],
         ]);
 
         $lastReq = ShipRequest::orderByDesc('created_at')->first();
@@ -823,10 +911,14 @@ class RequestController extends Controller
         }
         $reqNumber = sprintf('REQ-%05d', $nextNum);
 
+        $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+            ? $validated['created_by']
+            : $request->user()->id;
+
         $newRequest = ShipRequest::create([
             'request_number' => $reqNumber,
             'ship_id' => $validated['ship_id'],
-            'created_by' => $request->user()->id,
+            'created_by' => $createdBy,
             'status' => 'Menunggu Approval',
             'request_date' => now()->toDateString(),
             'notes' => "{$validated['need_type']} {$validated['quantity']} {$validated['unit']} - Dibutuhkan: {$validated['required_at']}. Catatan: ".($validated['notes'] ?? '-'),

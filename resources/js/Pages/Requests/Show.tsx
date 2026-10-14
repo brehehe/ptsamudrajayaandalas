@@ -470,6 +470,10 @@ function ItemEvidenceLinks({
 function RequestEvidenceGallery({ request }: { request: ShipRequest }) {
     const evidenceItems = (request.items || []).filter((item) => item.attachment_url);
 
+    if (evidenceItems.length === 0) {
+        return null;
+    }
+
     return (
         <section
             aria-labelledby={`request-evidence-${request.id}`}
@@ -494,45 +498,39 @@ function RequestEvidenceGallery({ request }: { request: ShipRequest }) {
                     </p>
                 </div>
 
-                {evidenceItems.length > 0 ? (
-                    <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-3">
-                        {evidenceItems.map((item) => (
-                            <a
-                                key={item.id}
-                                href={`${item.attachment_url}?view=1`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="group flex min-h-16 min-w-0 items-center gap-2.5 rounded-xl border border-[#DCEAF8] bg-white p-2 text-left shadow-2xs transition hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]"
-                                aria-label={`Buka bukti upload REQ untuk ${item.item_name}`}
-                            >
-                                {item.attachment_is_image ? (
-                                    <img
-                                        src={`${item.attachment_url}?view=1`}
-                                        alt=""
-                                        className="size-12 shrink-0 rounded-lg border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
-                                        loading="lazy"
-                                    />
-                                ) : (
-                                    <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        <FileText aria-hidden="true" className="size-5" />
-                                    </span>
-                                )}
-                                <span className="min-w-0">
-                                    <span className="line-clamp-2 block text-xs font-bold leading-4 text-[#0B1F63] group-hover:text-[#0060F4] dark:text-[#F1F5F9]">
-                                        {item.item_name}
-                                    </span>
-                                    <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
-                                        Lihat bukti <ExternalLink aria-hidden="true" className="size-2.5" />
-                                    </span>
+                <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-3">
+                    {evidenceItems.map((item) => (
+                        <a
+                            key={item.id}
+                            href={`${item.attachment_url}?view=1`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group flex min-h-16 min-w-0 items-center gap-2.5 rounded-xl border border-[#DCEAF8] bg-white p-2 text-left shadow-2xs transition hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]"
+                            aria-label={`Buka bukti upload REQ untuk ${item.item_name}`}
+                        >
+                            {item.attachment_is_image ? (
+                                <img
+                                    src={`${item.attachment_url}?view=1`}
+                                    alt=""
+                                    className="size-12 shrink-0 rounded-lg border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
+                                    loading="lazy"
+                                />
+                            ) : (
+                                <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                    <FileText aria-hidden="true" className="size-5" />
                                 </span>
-                            </a>
-                        ))}
-                    </div>
-                ) : (
-                    <p className="rounded-xl border border-dashed border-[#BCE0FD] bg-white px-3 py-2 text-xs font-semibold text-[#52658E] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#94A3B8]">
-                        Belum ada bukti upload pada REQ ini.
-                    </p>
-                )}
+                            )}
+                            <span className="min-w-0">
+                                <span className="line-clamp-2 block text-xs font-bold leading-4 text-[#0B1F63] group-hover:text-[#0060F4] dark:text-[#F1F5F9]">
+                                    {item.item_name}
+                                </span>
+                                <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                    Lihat bukti <ExternalLink aria-hidden="true" className="size-2.5" />
+                                </span>
+                            </span>
+                        </a>
+                    ))}
+                </div>
             </div>
         </section>
     );
@@ -1599,7 +1597,7 @@ export default function RequestShow({
                                 tabIndex={0}
                                 className="focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0060F4]"
                             >
-                                <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="hidden md:flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="min-w-0">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <button
@@ -1629,10 +1627,12 @@ export default function RequestShow({
                                         )}
                                     </div>
 
-                                    <div className="rounded-xl bg-[#F0F8FF] px-3 py-2 text-[11px] font-semibold text-[#52658E] dark:bg-[#132847] dark:text-[#94A3B8]">
-                                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Pilihan lintas tab tetap tersimpan</p>
-                                        <p>{totalSelectedCount} item dari seluruh REQ siap diajukan sekaligus.</p>
-                                    </div>
+                                    {totalSelectedCount > 0 && (
+                                        <div className="rounded-xl bg-[#F0F8FF] px-3 py-2 text-[11px] font-semibold text-[#52658E] dark:bg-[#132847] dark:text-[#94A3B8]">
+                                            <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Pilihan lintas tab tetap tersimpan</p>
+                                            <p>{totalSelectedCount} item dari seluruh REQ siap diajukan sekaligus.</p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <RequestEvidenceGallery request={activeRequest} />
@@ -2565,56 +2565,49 @@ export default function RequestShow({
                                                                 )}
 
                                                                 {/* Pricing Inputs / Details */}
-                                                                <div className="rounded-xl bg-[#F8FBFF] dark:bg-[#071322]/60 p-2.5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-2">
-                                                                    {canUseAdminActions && isEditable ? (
-                                                                        <div className="space-y-2">
-                                                                            {capabilities.can_view_hpp && (
-                                                                                <div className="flex items-center justify-between gap-2 text-xs">
-                                                                                    <label
-                                                                                        htmlFor={`mobile-hpp-${item.id}`}
-                                                                                        className="shrink-0 text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]"
-                                                                                    >
-                                                                                        HPP:
-                                                                                    </label>
-                                                                                    <div className={`flex min-h-11 w-44 max-w-[68%] items-center rounded-lg border bg-white px-2.5 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemHpp <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                                                                        }`}>
-                                                                                        <span className="text-[10.5px] font-bold text-[#52658E] mr-1">Rp</span>
-                                                                                        <input
-                                                                                            id={`mobile-hpp-${item.id}`}
-                                                                                            name={`mobile_hpp_${item.id}`}
-                                                                                            type="text"
-                                                                                            inputMode="numeric"
-                                                                                            autoComplete="off"
-                                                                                            value={formatRupiahInput(priceDrafts[item.id]?.hpp_price ?? '0')}
-                                                                                            onChange={(e) =>
-                                                                                                setPriceDrafts((cur) => ({
-                                                                                                    ...cur,
-                                                                                                    [item.id]: {
-                                                                                                        ...cur[item.id],
-                                                                                                        hpp_price: normalizeRupiahInput(e.target.value),
-                                                                                                    },
-                                                                                                }))
-                                                                                            }
-                                                                                            className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold tabular-nums text-[#0B1F63] focus:ring-0 dark:text-[#F1F5F9]"
-                                                                                        />
-                                                                                    </div>
+                                                                {capabilities.can_view_hpp && (
+                                                                    <div className="rounded-xl bg-[#F8FBFF] dark:bg-[#071322]/60 p-2.5 border border-[#DCEAF8] dark:border-[#1E3A5F] space-y-2">
+                                                                        {canUseAdminActions && isEditable ? (
+                                                                            <div className="flex items-center justify-between gap-2 text-xs">
+                                                                                <label
+                                                                                    htmlFor={`mobile-hpp-${item.id}`}
+                                                                                    className="shrink-0 text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]"
+                                                                                >
+                                                                                    HPP:
+                                                                                </label>
+                                                                                <div className={`flex min-h-11 w-44 max-w-[68%] items-center rounded-lg border bg-white px-2.5 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemHpp <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
+                                                                                    }`}>
+                                                                                    <span className="text-[10.5px] font-bold text-[#52658E] mr-1">Rp</span>
+                                                                                    <input
+                                                                                        id={`mobile-hpp-${item.id}`}
+                                                                                        name={`mobile_hpp_${item.id}`}
+                                                                                        type="text"
+                                                                                        inputMode="numeric"
+                                                                                        autoComplete="off"
+                                                                                        value={formatRupiahInput(priceDrafts[item.id]?.hpp_price ?? '0')}
+                                                                                        onChange={(e) =>
+                                                                                            setPriceDrafts((cur) => ({
+                                                                                                ...cur,
+                                                                                                [item.id]: {
+                                                                                                    ...cur[item.id],
+                                                                                                    hpp_price: normalizeRupiahInput(e.target.value),
+                                                                                                },
+                                                                                            }))
+                                                                                        }
+                                                                                        className="w-full border-0 bg-transparent p-0 text-right font-mono text-xs font-bold tabular-nums text-[#0B1F63] focus:ring-0 dark:text-[#F1F5F9]"
+                                                                                    />
                                                                                 </div>
-                                                                            )}
-
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="space-y-1 text-xs">
-                                                                            {capabilities.can_view_hpp && (
-                                                                                <div className="flex items-center justify-between">
-                                                                                    <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">HPP:</span>
-                                                                                    <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                                                                        {formatRupiah(item.hpp_price)}
-                                                                                    </span>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="flex items-center justify-between text-xs">
+                                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">HPP:</span>
+                                                                                <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                                                    {formatRupiah(item.hpp_price)}
+                                                                                </span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
 
                                                                 {/* Aksi langsung per item */}
                                                                 {(canUseAdminActions || capabilities.can_process_requests) && (

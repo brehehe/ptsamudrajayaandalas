@@ -7,6 +7,7 @@ use App\Http\Requests\VerifyVendorInvoiceRequest;
 use App\Models\CostDocument;
 use App\Models\PortCall;
 use App\Models\RequestItem;
+use App\Models\Ship;
 use App\Models\ShipCompany;
 use App\Models\Vendor;
 use Illuminate\Http\RedirectResponse;
@@ -27,21 +28,23 @@ class VendorInvoiceController extends Controller
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'in:all,received,verified,rejected,unpaid,partially_paid,paid'],
+            'company_id' => ['nullable', 'string'],
+            'ship_id' => ['nullable', 'string'],
+            'job' => ['nullable', 'string'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
         ]);
         $search = $validated['search'] ?? null;
         $status = $validated['status'] ?? 'all';
+        $companyId = $validated['company_id'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $job = $validated['job'] ?? null;
+        $startDate = $validated['start_date'] ?? null;
+        $endDate = $validated['end_date'] ?? null;
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
-        $invoices = CostDocument::query()
+        $baseQuery = CostDocument::query()
             ->where('document_type', 'vendor_invoice')
-            ->with([
-                'portCall.ship:id,name',
-                'portCall.port:id,name',
-                'vendor:id,name',
-                'recorder:id,name',
-                'paymentAllocations:id,outgoing_payment_id,cost_document_id,amount',
-                'paymentAllocations.payment:id,payment_date,amount,recipient,reference_number,proof_path,verification_status,verified_by,verified_at',
-            ])
             ->when($status !== 'all', function ($query) use ($status) {
                 if (in_array($status, ['unpaid', 'partially_paid', 'paid'], true)) {
                     $query->where('payment_status', $status);
@@ -49,19 +52,66 @@ class VendorInvoiceController extends Controller
                     $query->where('status', $status);
                 }
             })
+            ->when($companyId, fn ($query, $cid) => $query->whereHas('portCall', function ($pq) use ($cid) {
+                $pq->where(function ($sub) use ($cid) {
+                    $sub->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $cid))
+                        ->orWhereHas('workOrder', fn ($wq) => $wq->where('company_id', $cid));
+                });
+            }))
+            ->when($shipId, fn ($query, $sid) => $query->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $sid)))
+            ->when($job, fn ($query, $val) => $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$val}%")->orWhere('id', $val)))
+            ->when($startDate, fn ($query, $val) => $query->whereDate('received_date', '>=', $val))
+            ->when($endDate, fn ($query, $val) => $query->whereDate('received_date', '<=', $val))
             ->when($search, fn ($query, $value) => $query->where(function ($scope) use ($like, $value) {
                 $scope->where('document_number', $like, "%{$value}%")
                     ->orWhere('issuer_name', $like, "%{$value}%")
                     ->orWhereHas('vendor', fn ($vendor) => $vendor->where('name', $like, "%{$value}%"))
                     ->orWhereHas('portCall.ship', fn ($ship) => $ship->where('name', $like, "%{$value}%"));
-            }))
+            }));
+
+        $stats = [
+            'total_count' => (int) CostDocument::where('document_type', 'vendor_invoice')->count(),
+            'total_amount' => (float) CostDocument::where('document_type', 'vendor_invoice')->sum('verified_total'),
+            'received_count' => (int) CostDocument::where('document_type', 'vendor_invoice')->where('status', 'received')->count(),
+            'verified_count' => (int) CostDocument::where('document_type', 'vendor_invoice')->where('status', 'verified')->count(),
+            'unpaid_count' => (int) CostDocument::where('document_type', 'vendor_invoice')->whereIn('payment_status', ['unpaid', 'partially_paid'])->count(),
+            'unpaid_amount' => (float) CostDocument::where('document_type', 'vendor_invoice')->whereIn('payment_status', ['unpaid', 'partially_paid'])->sum(DB::raw('COALESCE(verified_total, 0) - COALESCE(paid_amount, 0)')),
+            'paid_count' => (int) CostDocument::where('document_type', 'vendor_invoice')->where('payment_status', 'paid')->count(),
+            'paid_amount' => (float) CostDocument::where('document_type', 'vendor_invoice')->where('payment_status', 'paid')->sum('paid_amount'),
+        ];
+
+        $invoices = (clone $baseQuery)
+            ->with([
+                'portCall.ship:id,name,ship_company_id',
+                'portCall.port:id,name',
+                'vendor:id,name',
+                'recorder:id,name',
+                'paymentAllocations:id,outgoing_payment_id,cost_document_id,amount',
+                'paymentAllocations.payment:id,payment_date,amount,recipient,reference_number,proof_path,verification_status,verified_by,verified_at',
+            ])
             ->latest('received_date')
             ->paginate(15)
             ->withQueryString();
 
+        $companies = ShipCompany::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $ships = Ship::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
+
         return Inertia::render('VendorInvoices/Index', [
             'invoices' => $invoices,
-            'filters' => ['search' => $search ?? '', 'status' => $status],
+            'companies' => $companies,
+            'ships' => $ships,
+            'jobs' => $jobs,
+            'stats' => $stats,
+            'filters' => [
+                'search' => $search ?? '',
+                'status' => $status,
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $job ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
             'abilities' => [
                 'create' => Gate::allows('create', CostDocument::class),
                 'verify' => $request->user()->isOperationalAdmin(),

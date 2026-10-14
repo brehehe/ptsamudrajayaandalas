@@ -48,9 +48,14 @@ export default function RequestsTab({ requests, canProcess, headingLevel = 3 }: 
                             </div>
 
                             <div className="mt-4 flex flex-col gap-3 border-t border-[#DCEAF8] pt-3 dark:border-[#1E3A5F] sm:flex-row sm:items-center sm:justify-between">
-                                <span className="text-[11px] tabular-nums text-[#52658E] dark:text-[#94A3B8]">
-                                    Tanggal {formatDate(r.request_date)}
-                                </span>
+                                <div className="flex flex-wrap items-center gap-x-2 text-[11px] tabular-nums text-[#52658E] dark:text-[#94A3B8]">
+                                    <span>Tanggal {formatDate(r.request_date)}</span>
+                                    {r.creator?.name && (
+                                        <span className="text-[#0060F4] dark:text-[#38BDF8]">
+                                            • Diajukan oleh: <strong className="font-semibold">{r.creator.name}</strong>
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                                     <RequestWorkflowPanel
                                         request={r}

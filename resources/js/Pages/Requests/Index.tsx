@@ -1,8 +1,9 @@
 import React, { FormEvent, useMemo, useState } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ArrowRight, CalendarDays, FilePlus2, FileText, FileUp, ListChecks, MapPin, Search, Send, Ship, X } from 'lucide-react';
+import { ArrowRight, CalendarDays, CheckCircle2, Clock, FilePlus2, FileText, FileUp, Filter, ListChecks, MapPin, RotateCcw, Search, Send, Ship, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Button from '../../Components/ui/Button';
+import Card from '../../Components/ui/Card';
 import Checkbox from '../../Components/forms/Checkbox';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
@@ -14,6 +15,8 @@ import Table, { Column } from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
 import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
+import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
+import DateRangePicker, { DateRange } from '../../Components/forms/DateRangePicker';
 import { toDateInputValue } from '../../lib/formatDate';
 
 interface RequestItem {
@@ -66,6 +69,10 @@ interface ShipRequest {
         work_order?: { system_number: string };
     };
     items?: RequestItem[];
+    creator?: {
+        id: number | string;
+        name: string;
+    };
 }
 
 interface PortCall {
@@ -97,6 +104,17 @@ interface RequestsIndexProps {
     activeTab: string;
     search: string;
     vendors?: VendorOption[];
+    ships?: Array<{ id: string; name: string; ship_company_id?: string; company?: { id?: string; name: string } }>;
+    companies?: Array<{ id: string; name: string }>;
+    jobs?: Array<{ id: string; job_number?: string; ship_id?: string }>;
+    filters?: {
+        search?: string;
+        company_id?: string;
+        ship_id?: string;
+        job?: string;
+        start_date?: string;
+        end_date?: string;
+    };
     capabilities?: {
         can_review_prices: boolean;
         can_decide_items: boolean;
@@ -120,6 +138,7 @@ interface JobRow {
     status: string;
     updatedAt: string;
     isNew: boolean;
+    creatorNames: string[];
     forwardableItemCount: number;
     readyItemIds: string[];
     forwardableItems: ForwardableItem[];
@@ -192,9 +211,51 @@ export default function RequestsIndex({
     activeTab,
     search: initialSearch,
     vendors = [],
+    ships = [],
+    companies = [],
+    jobs = [],
+    filters,
     capabilities = DEFAULT_CAPABILITIES,
 }: RequestsIndexProps) {
-    const [search, setSearch] = useState(initialSearch);
+    const [search, setSearch] = useState(filters?.search || initialSearch || '');
+    const [companyId, setCompanyId] = useState(filters?.company_id || '');
+    const [shipId, setShipId] = useState(filters?.ship_id || '');
+    const [jobNumber, setJobNumber] = useState(filters?.job || '');
+    const [dateRange, setDateRange] = useState<DateRange>({
+        startDate: filters?.start_date || '',
+        endDate: filters?.end_date || '',
+    });
+    const [isFilterExpandedMobile, setIsFilterExpandedMobile] = useState(false);
+
+    const availableShips = useMemo(() => {
+        if (!companyId) return ships;
+        return ships.filter((s) => (s.ship_company_id || s.company?.id) === companyId);
+    }, [ships, companyId]);
+
+    const companyOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Perusahaan' },
+            ...companies.map((c) => ({ value: c.id, label: c.name })),
+        ],
+        [companies]
+    );
+
+    const shipOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Kapal' },
+            ...availableShips.map((s) => ({ value: s.id, label: s.name })),
+        ],
+        [availableShips]
+    );
+
+    const jobOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Job' },
+            ...jobs.map((j) => ({ value: j.job_number || j.id, label: j.job_number || j.id })),
+        ],
+        [jobs]
+    );
+
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
     const [itemPickerJobKey, setItemPickerJobKey] = useState<string | null>(null);
     const [isBatchForwarding, setIsBatchForwarding] = useState(false);
@@ -257,6 +318,7 @@ export default function RequestsIndex({
                 status: 'Belum Ada Pengajuan',
                 updatedAt: portCall.updated_at || portCall.eta_at || portCall.created_at || '',
                 isNew: capabilities.can_create_requests,
+                creatorNames: [],
                 forwardableItemCount: 0,
                 readyItemIds: [],
                 forwardableItems: [],
@@ -273,6 +335,7 @@ export default function RequestsIndex({
                 0
             );
             const evidenceCount = items.filter((item) => item.attachment_url || item.supplier_invoice_url).length;
+            const creatorName = request.creator?.name;
             if (!existing) {
                 groups.set(key, {
                     key,
@@ -291,6 +354,7 @@ export default function RequestsIndex({
                     status: request.status,
                     updatedAt,
                     isNew: requestNeedsAction(request),
+                    creatorNames: creatorName ? [creatorName] : [],
                     forwardableItemCount: 0,
                     readyItemIds: [],
                     forwardableItems: [],
@@ -303,6 +367,9 @@ export default function RequestsIndex({
             existing.totalItems += items.length;
             existing.evidenceCount += evidenceCount;
             existing.totalHpp += requestHpp;
+            if (creatorName && !existing.creatorNames.includes(creatorName)) {
+                existing.creatorNames.push(creatorName);
+            }
             existing.isNew = hadRequests
                 ? existing.isNew || requestNeedsAction(request)
                 : requestNeedsAction(request);
@@ -393,6 +460,11 @@ export default function RequestsIndex({
                             <p className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                 {row.shipName}
                             </p>
+                            {row.creatorNames.length > 0 && (
+                                <p className="mt-0.5 text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
+                                    Diajukan: <span className="font-semibold">{row.creatorNames.join(', ')}</span>
+                                </p>
+                            )}
                         </div>
                     </div>
                 ),
@@ -501,12 +573,45 @@ export default function RequestsIndex({
         [capabilities.can_review_prices, selectedItemIds]
     );
 
-    const visit = (tab = activeTab, query = search): void => {
+    const visit = (
+        tab = activeTab,
+        query = search,
+        comp = companyId,
+        ship = shipId,
+        job = jobNumber,
+        dRange = dateRange
+    ): void => {
         setSelectedItemIds([]);
         setItemPickerJobKey(null);
         setBatchError('');
-        router.get(route('requests.index'), { tab, search: query || undefined }, { preserveState: true });
+        router.get(
+            route('requests.index'),
+            {
+                tab,
+                search: query || undefined,
+                company_id: comp || undefined,
+                ship_id: ship || undefined,
+                job: job || undefined,
+                start_date: dRange.startDate || undefined,
+                end_date: dRange.endDate || undefined,
+            },
+            { preserveState: true }
+        );
     };
+
+    const handleResetAllFilters = (): void => {
+        setSearch('');
+        setCompanyId('');
+        setShipId('');
+        setJobNumber('');
+        const emptyRange: DateRange = { startDate: '', endDate: '' };
+        setDateRange(emptyRange);
+        visit(activeTab, '', '', '', '', emptyRange);
+    };
+
+    const hasActiveFilters = Boolean(
+        search || companyId || shipId || jobNumber || dateRange.startDate || dateRange.endDate
+    );
 
     const selectedRows = useMemo(
         () => rows.filter((row) => row.forwardableItems.some((item) => selectedItemIds.includes(item.id))),
@@ -698,7 +803,7 @@ export default function RequestsIndex({
                                     type="button"
                                     onClick={() => {
                                         setSearch('');
-                                        visit(activeTab, '');
+                                        visit(activeTab, '', companyId, shipId, jobNumber, dateRange);
                                     }}
                                     className="absolute inset-y-0 right-0 flex w-11 touch-manipulation items-center justify-center rounded-r-xl text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
                                     aria-label="Hapus pencarian"
@@ -707,6 +812,19 @@ export default function RequestsIndex({
                                 </button>
                             )}
                         </form>
+
+                        <button
+                            type="button"
+                            onClick={() => setIsFilterExpandedMobile(!isFilterExpandedMobile)}
+                            className={`flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border text-xs font-bold transition-colors ${
+                                hasActiveFilters || isFilterExpandedMobile
+                                    ? 'bg-[#EAF4FF] border-[#0060F4] text-[#0060F4] dark:bg-[#132847] dark:border-[#38BDF8] dark:text-[#60A5FA]'
+                                    : 'bg-white border-[#DCEAF8] text-[#52658E] dark:bg-[#0C1D36] dark:border-[#1E3A5F]'
+                            }`}
+                            aria-label="Toggle Filter"
+                        >
+                            <Filter className="size-4" />
+                        </button>
 
                         {capabilities.can_create_requests && (
                             <Link
@@ -719,6 +837,70 @@ export default function RequestsIndex({
                             </Link>
                         )}
                     </div>
+
+                    {/* Mobile Collapsible Filter Controls */}
+                    {isFilterExpandedMobile && (
+                        <div className="mt-2.5 rounded-2xl border border-[#DCEAF8] bg-white p-3 space-y-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36] shadow-xs">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-[#0B1F63] dark:text-white">Filter Pengajuan</span>
+                                {hasActiveFilters && (
+                                    <button
+                                        type="button"
+                                        onClick={handleResetAllFilters}
+                                        className="text-[11px] font-bold text-rose-600 dark:text-rose-400"
+                                    >
+                                        Reset Semua
+                                    </button>
+                                )}
+                            </div>
+
+                            <SelectSearch
+                                options={companyOptions}
+                                value={companyId}
+                                onChange={(val) => {
+                                    const nextVal = String(val || '');
+                                    setCompanyId(nextVal);
+                                    setShipId('');
+                                    visit(activeTab, search, nextVal, '', jobNumber, dateRange);
+                                }}
+                                placeholder="Semua Perusahaan"
+                                searchPlaceholder="Cari perusahaan..."
+                            />
+
+                            <SelectSearch
+                                options={shipOptions}
+                                value={shipId}
+                                onChange={(val) => {
+                                    const nextVal = String(val || '');
+                                    setShipId(nextVal);
+                                    visit(activeTab, search, companyId, nextVal, jobNumber, dateRange);
+                                }}
+                                placeholder="Semua Kapal"
+                                searchPlaceholder="Cari kapal..."
+                            />
+
+                            <SelectSearch
+                                options={jobOptions}
+                                value={jobNumber}
+                                onChange={(val) => {
+                                    const nextVal = String(val || '');
+                                    setJobNumber(nextVal);
+                                    visit(activeTab, search, companyId, shipId, nextVal, dateRange);
+                                }}
+                                placeholder="Semua Job"
+                                searchPlaceholder="Cari nomor job..."
+                            />
+
+                            <DateRangePicker
+                                value={dateRange}
+                                onChange={(range) => {
+                                    setDateRange(range);
+                                    visit(activeTab, search, companyId, shipId, jobNumber, range);
+                                }}
+                                placeholder="Rentang Tanggal"
+                            />
+                        </div>
+                    )}
 
                     <Tabs
                         className="py-1"
@@ -814,6 +996,12 @@ export default function RequestsIndex({
                                             <span className="tabular-nums">{formatDate(row.updatedAt)}</span>
                                         </div>
 
+                                        {row.creatorNames.length > 0 && (
+                                            <p className="text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
+                                                Diajukan oleh: <span className="font-semibold">{row.creatorNames.join(', ')}</span>
+                                            </p>
+                                        )}
+
                                         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                             <span><strong className="text-[#082870] dark:text-white">{row.requests.length}</strong> surat</span>
                                             <span><strong className="text-[#0060F4]">{row.totalItems}</strong> item</span>
@@ -874,42 +1062,214 @@ export default function RequestsIndex({
                     )}
                 </header>
 
+                {/* KPI Summary Cards */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-2xl border border-[#DCEAF8] bg-white p-4 shadow-2xs dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">Total Pengajuan</span>
+                            <div className="flex size-8 items-center justify-center rounded-lg bg-[#EAF4FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                <FileText className="size-4" />
+                            </div>
+                        </div>
+                        <p className="mt-2 text-2xl font-black text-[#0B1F63] dark:text-white">
+                            {counts.semua || 0}
+                        </p>
+                        <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">Semua pengajuan</span>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-2xs dark:border-amber-900/60 dark:bg-amber-950/20">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Menunggu Approval</span>
+                            <div className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300">
+                                <Clock className="size-4" />
+                            </div>
+                        </div>
+                        <p className="mt-2 text-2xl font-black text-amber-900 dark:text-amber-200">
+                            {counts.menunggu || 0}
+                        </p>
+                        <span className="text-[11px] text-amber-700/80 dark:text-amber-400/80">Perlu tindak lanjut</span>
+                    </div>
+
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4 shadow-2xs dark:border-blue-900/60 dark:bg-blue-950/20">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">Sedang Diproses</span>
+                            <div className="flex size-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300">
+                                <Send className="size-4" />
+                            </div>
+                        </div>
+                        <p className="mt-2 text-2xl font-black text-blue-900 dark:text-blue-200">
+                            {counts.diproses || 0}
+                        </p>
+                        <span className="text-[11px] text-blue-700/80 dark:text-blue-400/80">Pembelian & verifikasi</span>
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-2xs dark:border-emerald-900/60 dark:bg-emerald-950/20">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Selesai</span>
+                            <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                <CheckCircle2 className="size-4" />
+                            </div>
+                        </div>
+                        <p className="mt-2 text-2xl font-black text-emerald-900 dark:text-emerald-200">
+                            {counts.selesai || 0}
+                        </p>
+                        <span className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80">Tuntas dipenuhi</span>
+                    </div>
+                </div>
+
                 <section className="space-y-3" aria-label="Filter pengajuan">
-                    <form
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            visit();
-                        }}
-                        className="relative"
-                    >
-                        <Search
-                            aria-hidden="true"
-                            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#0060F4]"
-                        />
-                        <input
-                            type="search"
-                            name="search"
-                            autoComplete="off"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Cari job, kapal, klien, atau nomor pengajuan…"
-                            aria-label="Cari pengajuan"
-                            className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-10 pr-11 text-sm text-[#0B1F63] shadow-xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
-                        />
-                        {search && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setSearch('');
-                                    visit(activeTab, '');
+                    <div className="rounded-2xl border border-[#DCEAF8] bg-white p-3.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                            {/* Search Input */}
+                            <form
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    visit();
                                 }}
-                                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
-                                aria-label="Hapus pencarian"
+                                className="md:col-span-3 relative"
                             >
-                                <X aria-hidden="true" className="size-4" />
-                            </button>
+                                <Search
+                                    aria-hidden="true"
+                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]"
+                                />
+                                <input
+                                    type="search"
+                                    name="search"
+                                    autoComplete="off"
+                                    value={search}
+                                    onChange={(event) => setSearch(event.target.value)}
+                                    placeholder="Cari job, kapal, nomor..."
+                                    aria-label="Cari pengajuan"
+                                    className="w-full pl-9 pr-8 h-10 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                />
+                                {search && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSearch('');
+                                            visit(activeTab, '', companyId, shipId, jobNumber, dateRange);
+                                        }}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                        aria-label="Hapus pencarian"
+                                    >
+                                        <X aria-hidden="true" className="size-3.5" />
+                                    </button>
+                                )}
+                            </form>
+
+                            {/* Filter Perusahaan */}
+                            <div className="md:col-span-2">
+                                <SelectSearch
+                                    options={companyOptions}
+                                    value={companyId}
+                                    onChange={(val) => {
+                                        const nextVal = String(val || '');
+                                        setCompanyId(nextVal);
+                                        setShipId('');
+                                        visit(activeTab, search, nextVal, '', jobNumber, dateRange);
+                                    }}
+                                    placeholder="Semua Perusahaan"
+                                    searchPlaceholder="Cari perusahaan..."
+                                />
+                            </div>
+
+                            {/* Filter Kapal */}
+                            <div className="md:col-span-2">
+                                <SelectSearch
+                                    options={shipOptions}
+                                    value={shipId}
+                                    onChange={(val) => {
+                                        const nextVal = String(val || '');
+                                        setShipId(nextVal);
+                                        visit(activeTab, search, companyId, nextVal, jobNumber, dateRange);
+                                    }}
+                                    placeholder="Semua Kapal"
+                                    searchPlaceholder="Cari kapal..."
+                                />
+                            </div>
+
+                            {/* Filter Nomor Job */}
+                            <div className="md:col-span-2">
+                                <SelectSearch
+                                    options={jobOptions}
+                                    value={jobNumber}
+                                    onChange={(val) => {
+                                        const nextVal = String(val || '');
+                                        setJobNumber(nextVal);
+                                        visit(activeTab, search, companyId, shipId, nextVal, dateRange);
+                                    }}
+                                    placeholder="Semua Job"
+                                    searchPlaceholder="Cari nomor job..."
+                                />
+                            </div>
+
+                            {/* Date Range Picker Responsif */}
+                            <div className="md:col-span-2">
+                                <DateRangePicker
+                                    value={dateRange}
+                                    onChange={(range) => {
+                                        setDateRange(range);
+                                        visit(activeTab, search, companyId, shipId, jobNumber, range);
+                                    }}
+                                    placeholder="Rentang Tanggal"
+                                />
+                            </div>
+
+                            {/* Reset Filter Button */}
+                            <div className="md:col-span-1 flex justify-end">
+                                {hasActiveFilters && (
+                                    <button
+                                        type="button"
+                                        onClick={handleResetAllFilters}
+                                        title="Reset semua filter"
+                                        className="flex h-10 w-full items-center justify-center gap-1 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 cursor-pointer"
+                                    >
+                                        <RotateCcw className="size-4" />
+                                        <span className="md:hidden text-xs font-bold">Reset</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Active Filter Badges */}
+                        {hasActiveFilters && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#EAF2FA] dark:border-[#1E3A5F]/60 text-xs">
+                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+                                {companyId && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
+                                        <button type="button" onClick={() => { setCompanyId(''); visit(activeTab, search, '', shipId, jobNumber, dateRange); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                                {shipId && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Kapal: {ships.find((s) => s.id === shipId)?.name || shipId}
+                                        <button type="button" onClick={() => { setShipId(''); visit(activeTab, search, companyId, '', jobNumber, dateRange); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                                {jobNumber && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Job: {jobNumber}
+                                        <button type="button" onClick={() => { setJobNumber(''); visit(activeTab, search, companyId, shipId, '', dateRange); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                                {(dateRange.startDate || dateRange.endDate) && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                        Tanggal: {dateRange.startDate || '...'} s/d {dateRange.endDate || '...'}
+                                        <button type="button" onClick={() => { const emptyRange = { startDate: '', endDate: '' }; setDateRange(emptyRange); visit(activeTab, search, companyId, shipId, jobNumber, emptyRange); }}>
+                                            <X className="size-3" />
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
                         )}
-                    </form>
+                    </div>
 
                     <Tabs
                         ariaLabel="Filter status pengajuan"

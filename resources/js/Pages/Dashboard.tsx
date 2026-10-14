@@ -10,6 +10,7 @@ interface DashboardProps {
     needs_today?: any[];
     attention_ships?: any[];
     recent_activities?: any[];
+    today_activities?: any[];
     pending_approvals?: any[];
     financial_overview?: any;
     role_dashboard: RoleDashboardData;
@@ -21,6 +22,7 @@ export default function Dashboard({
     needs_today = [],
     attention_ships = [],
     recent_activities = [],
+    today_activities = [],
     pending_approvals = [],
     financial_overview,
     role_dashboard,
@@ -67,6 +69,7 @@ export default function Dashboard({
                 needsToday={needs_today}
                 activeShips={attention_ships}
                 recentActivities={recent_activities}
+                todayActivities={today_activities}
                 pendingApprovals={pending_approvals}
                 financialOverview={financial_overview}
             />

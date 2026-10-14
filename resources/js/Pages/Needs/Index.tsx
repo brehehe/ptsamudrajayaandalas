@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
-import { ChevronRight, ClipboardList, Plus, Ship, UserRound } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ClipboardList, Clock, FileText, Filter, Plus, RotateCcw, Search, Send, Ship, UserRound, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
-import FilterBar from '../../Components/filters/FilterBar';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
+import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
+import DateRangePicker, { type DateRange } from '../../Components/forms/DateRangePicker';
 import Table from '../../Components/tables/Table';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
@@ -21,6 +22,7 @@ interface Ship {
     imo_number: string;
     ship_type?: string;
     image?: string | null;
+    ship_company_id?: string;
     company?: {
         id: string;
         name: string;
@@ -59,6 +61,8 @@ interface NeedItem {
 interface NeedsIndexProps {
     needs: NeedItem[];
     ships: Ship[];
+    companies?: Array<{ id: string; name: string }>;
+    jobs?: Array<{ id: string; job_number?: string; ship_id?: string }>;
     portCalls: PortCall[];
     counts: {
         semua: number;
@@ -68,6 +72,15 @@ interface NeedsIndexProps {
     };
     activeStatus: string;
     search: string;
+    filters?: {
+        search?: string;
+        status?: string;
+        company_id?: string;
+        ship_id?: string;
+        job?: string;
+        start_date?: string;
+        end_date?: string;
+    };
     capabilities: {
         can_create: boolean;
         can_process: boolean;
@@ -87,16 +100,28 @@ const NEED_TYPES = [
 
 export default function NeedsIndex({
     needs,
-    ships,
+    ships = [],
+    companies = [],
+    jobs = [],
     portCalls,
     counts,
     activeStatus,
     search: initialSearch,
+    filters,
     capabilities,
 }: NeedsIndexProps) {
     const canCreateNeeds = capabilities.can_create;
     const canProcessRequests = capabilities.can_process;
-    const [search, setSearch] = useState(initialSearch);
+    const [search, setSearch] = useState(filters?.search || initialSearch || '');
+    const [status, setStatus] = useState(filters?.status || activeStatus || 'semua');
+    const [companyId, setCompanyId] = useState(filters?.company_id || '');
+    const [shipId, setShipId] = useState(filters?.ship_id || '');
+    const [jobNumber, setJobNumber] = useState(filters?.job || '');
+    const [dateRange, setDateRange] = useState<DateRange>({
+        startDate: filters?.start_date || '',
+        endDate: filters?.end_date || '',
+    });
+    const [isFilterExpandedMobile, setIsFilterExpandedMobile] = useState(false);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedNeed, setSelectedNeed] = useState<NeedItem | null>(null);
 
@@ -110,13 +135,82 @@ export default function NeedsIndex({
         notes: '',
     });
 
-    const handleSearch = () => {
-        router.get('/needs', { status: activeStatus, search }, { preserveState: true });
+    const visit = (
+        st = status,
+        q = search,
+        comp = companyId,
+        shp = shipId,
+        jb = jobNumber,
+        dRange = dateRange
+    ) => {
+        router.get(
+            '/needs',
+            {
+                status: st === 'semua' ? undefined : st,
+                search: q || undefined,
+                company_id: comp || undefined,
+                ship_id: shp || undefined,
+                job: jb || undefined,
+                start_date: dRange.startDate || undefined,
+                end_date: dRange.endDate || undefined,
+            },
+            { preserveState: true }
+        );
     };
 
-    const handleStatusTab = (st: string) => {
-        router.get('/needs', { status: st, search }, { preserveState: true });
+    const handleResetAllFilters = () => {
+        setSearch('');
+        setStatus('semua');
+        setCompanyId('');
+        setShipId('');
+        setJobNumber('');
+        const emptyRange = { startDate: '', endDate: '' };
+        setDateRange(emptyRange);
+        visit('semua', '', '', '', '', emptyRange);
     };
+
+    const hasActiveFilters = Boolean(
+        search || (status && status !== 'semua') || companyId || shipId || jobNumber || dateRange.startDate || dateRange.endDate
+    );
+
+    const availableShips = useMemo(() => {
+        if (!companyId) return ships;
+        return ships.filter((s) => (s.ship_company_id || s.company?.id) === companyId);
+    }, [ships, companyId]);
+
+    const companyOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Perusahaan' },
+            ...companies.map((c) => ({ value: c.id, label: c.name })),
+        ],
+        [companies]
+    );
+
+    const shipOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Kapal' },
+            ...availableShips.map((s) => ({ value: s.id, label: s.name })),
+        ],
+        [availableShips]
+    );
+
+    const jobOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Job' },
+            ...jobs.map((j) => ({ value: j.job_number || j.id, label: j.job_number || j.id })),
+        ],
+        [jobs]
+    );
+
+    const statusOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: 'semua', label: 'Semua Status' },
+            { value: 'menunggu', label: `Menunggu Review (${counts.menunggu || 0})` },
+            { value: 'proses', label: `Dalam Proses (${counts.proses || 0})` },
+            { value: 'selesai', label: `Selesai (${counts.selesai || 0})` },
+        ],
+        [counts]
+    );
 
     const handleCreateSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -195,30 +289,244 @@ export default function NeedsIndex({
                     </button>
                 )}
 
-                <FilterBar
-                    searchValue={search}
-                    onSearchChange={setSearch}
-                    onSearchSubmit={handleSearch}
-                    searchPlaceholder="Cari kapal, nomor, atau rincian…"
-                    searchAriaLabel="Cari kebutuhan kapal"
-                    chips={statusTabs}
-                    activeChipId={activeStatus}
-                    onChipChange={handleStatusTab}
-                    filterCountBadge={activeStatus === 'semua' ? 0 : 1}
-                    filterTitle="Pilih status kebutuhan"
-                    filterControls={(
-                        <Select
-                            aria-label="Filter status kebutuhan kapal"
-                            value={activeStatus}
-                            onChange={(event) => handleStatusTab(event.target.value)}
-                            options={statusTabs.map((tab) => ({
-                                value: tab.id,
-                                label: `${tab.label} (${tab.count})`,
-                            }))}
-                        />
-                    )}
-                    className="!border-0 !bg-transparent !p-0 !shadow-none dark:!bg-transparent"
-                />
+                {/* ── KPI Summary Cards ── */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <Card padding="md">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Total Kebutuhan</p>
+                                <p className="mt-1 text-xl font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                    {counts.semua || 0}
+                                </p>
+                                <p className="mt-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">Semua pengajuan</p>
+                            </div>
+                            <span className="flex size-10 items-center justify-center rounded-xl bg-[#EAF4FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                <FileText aria-hidden="true" className="size-5" />
+                            </span>
+                        </div>
+                    </Card>
+
+                    <Card padding="md">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs text-amber-700 dark:text-amber-400">Menunggu Review</p>
+                                <p className="mt-1 text-xl font-extrabold tabular-nums text-amber-800 dark:text-amber-300">
+                                    {counts.menunggu || 0}
+                                </p>
+                                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Perlu ditinjau</p>
+                            </div>
+                            <span className="flex size-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+                                <Clock aria-hidden="true" className="size-5" />
+                            </span>
+                        </div>
+                    </Card>
+
+                    <Card padding="md">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs text-blue-700 dark:text-blue-400">Dalam Proses</p>
+                                <p className="mt-1 text-xl font-extrabold tabular-nums text-blue-800 dark:text-blue-300">
+                                    {counts.proses || 0}
+                                </p>
+                                <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-400">Sedang dipenuhi</p>
+                            </div>
+                            <span className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                                <Send aria-hidden="true" className="size-5" />
+                            </span>
+                        </div>
+                    </Card>
+
+                    <Card padding="md">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs text-emerald-700 dark:text-emerald-400">Selesai Dipenuhi</p>
+                                <p className="mt-1 text-xl font-extrabold tabular-nums text-emerald-800 dark:text-emerald-300">
+                                    {counts.selesai || 0}
+                                </p>
+                                <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">Tuntas disuplai</p>
+                            </div>
+                            <span className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                                <CheckCircle2 aria-hidden="true" className="size-5" />
+                            </span>
+                        </div>
+                    </Card>
+                </div>
+
+                {/* ── Modern Filter Bar using SelectSearch ── */}
+                <Card padding="md">
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-12 items-center">
+                            {/* Search Input */}
+                            <div className="lg:col-span-3">
+                                <form
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        visit();
+                                    }}
+                                    className="relative"
+                                >
+                                    <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]" />
+                                    <input
+                                        type="search"
+                                        name="search"
+                                        autoComplete="off"
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        placeholder="Cari kapal, nomor, rincian…"
+                                        aria-label="Cari kebutuhan kapal"
+                                        className="w-full h-11 pl-9 pr-8 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                    />
+                                    {search && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSearch('');
+                                                visit(status, '', companyId, shipId, jobNumber, dateRange);
+                                            }}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                            aria-label="Hapus pencarian"
+                                        >
+                                            <X aria-hidden="true" className="size-3.5" />
+                                        </button>
+                                    )}
+                                </form>
+                            </div>
+
+                            {/* Filter Perusahaan */}
+                            <div className="lg:col-span-2">
+                                <SelectSearch
+                                    placeholder="Semua Perusahaan"
+                                    value={companyId}
+                                    onChange={(val) => {
+                                        const newVal = String(val || '');
+                                        setCompanyId(newVal);
+                                        setShipId('');
+                                        visit(status, search, newVal, '', jobNumber, dateRange);
+                                    }}
+                                    options={companyOptions}
+                                />
+                            </div>
+
+                            {/* Filter Kapal */}
+                            <div className="lg:col-span-2">
+                                <SelectSearch
+                                    placeholder="Semua Kapal"
+                                    value={shipId}
+                                    onChange={(val) => {
+                                        const newVal = String(val || '');
+                                        setShipId(newVal);
+                                        visit(status, search, companyId, newVal, jobNumber, dateRange);
+                                    }}
+                                    options={shipOptions}
+                                />
+                            </div>
+
+                            {/* Filter Job */}
+                            <div className="lg:col-span-2">
+                                <SelectSearch
+                                    placeholder="Semua Job"
+                                    value={jobNumber}
+                                    onChange={(val) => {
+                                        const newVal = String(val || '');
+                                        setJobNumber(newVal);
+                                        visit(status, search, companyId, shipId, newVal, dateRange);
+                                    }}
+                                    options={jobOptions}
+                                />
+                            </div>
+
+                            {/* Filter Status */}
+                            <div className="lg:col-span-2">
+                                <SelectSearch
+                                    placeholder="Semua Status"
+                                    value={status}
+                                    onChange={(val) => {
+                                        const newVal = String(val || 'semua');
+                                        setStatus(newVal);
+                                        visit(newVal, search, companyId, shipId, jobNumber, dateRange);
+                                    }}
+                                    options={statusOptions}
+                                />
+                            </div>
+
+                            {/* Reset Button */}
+                            <div className="lg:col-span-1 flex justify-end">
+                                {hasActiveFilters && (
+                                    <button
+                                        type="button"
+                                        onClick={handleResetAllFilters}
+                                        title="Reset semua filter"
+                                        className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 cursor-pointer"
+                                    >
+                                        <RotateCcw className="size-4" />
+                                        <span className="lg:hidden text-xs font-bold">Reset</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Date Range Picker row */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-[#EAF2FA] dark:border-[#1E3A5F]/60">
+                            <div className="w-full sm:w-72">
+                                <DateRangePicker
+                                    value={dateRange}
+                                    onChange={(range) => {
+                                        setDateRange(range);
+                                        visit(status, search, companyId, shipId, jobNumber, range);
+                                    }}
+                                    placeholder="Rentang Tanggal Pengajuan"
+                                />
+                            </div>
+
+                            {/* Active Filter Badges */}
+                            {hasActiveFilters && (
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                    <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+                                    {companyId && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
+                                            <button type="button" onClick={() => { setCompanyId(''); visit(status, search, '', shipId, jobNumber, dateRange); }}>
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {shipId && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            Kapal: {availableShips.find((s) => s.id === shipId)?.name || shipId}
+                                            <button type="button" onClick={() => { setShipId(''); visit(status, search, companyId, '', jobNumber, dateRange); }}>
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {jobNumber && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            Job: {jobNumber}
+                                            <button type="button" onClick={() => { setJobNumber(''); visit(status, search, companyId, shipId, '', dateRange); }}>
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {status && status !== 'semua' && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            Status: {status}
+                                            <button type="button" onClick={() => { setStatus('semua'); visit('semua', search, companyId, shipId, jobNumber, dateRange); }}>
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {(dateRange.startDate || dateRange.endDate) && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            Tanggal: {dateRange.startDate} - {dateRange.endDate}
+                                            <button type="button" onClick={() => { const empty = { startDate: '', endDate: '' }; setDateRange(empty); visit(status, search, companyId, shipId, jobNumber, empty); }}>
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </Card>
 
                 {/* ── Main Data Card / Table ── */}
                 <div>

@@ -2,12 +2,15 @@
 
 namespace App\Support;
 
+use App\Models\ExpenseRequest;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Notifications\WorkflowActionNotification;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 
 class WorkflowNotifier
 {
@@ -22,6 +25,23 @@ class WorkflowNotifier
             ...$this->requestPayload($shipRequest),
             'title' => "Pengajuan baru {$shipRequest->request_number}",
             'message' => "{$actor->name} mengirim pengajuan untuk {$shipRequest->ship?->name} dan menunggu pemeriksaan Admin.",
+            'action_label' => 'Periksa pengajuan',
+            'action_required' => true,
+            'tone' => 'blue',
+        ]);
+    }
+
+    public function notifyClearanceSubmission(ShipRequest $shipRequest, User $actor, string $label): void
+    {
+        $shipRequest->loadMissing(['ship', 'portCall']);
+
+        $recipients = $this->usersWithRoles(['Admin', 'Admin Sistem'])
+            ->where('id', '!=', $actor->id);
+
+        $this->send($recipients, [
+            ...$this->requestPayload($shipRequest),
+            'title' => "Pengajuan {$label} {$shipRequest->request_number}",
+            'message' => "{$actor->name} mengirim {$label} untuk {$shipRequest->ship?->name} ({$shipRequest->portCall?->job_number}).",
             'action_label' => 'Periksa pengajuan',
             'action_required' => true,
             'tone' => 'blue',
@@ -74,6 +94,54 @@ class WorkflowNotifier
                 'tone' => $shipRequest->status === 'Ditolak' ? 'red' : 'green',
             ]);
         }
+    }
+
+    public function notifyCompanyExpenseSubmission(ExpenseRequest $expenseRequest, User $actor): void
+    {
+        $directors = $this->usersWithRoles(['Direktur']);
+        $formattedAmount = 'Rp '.number_format((float) $expenseRequest->total, 0, ',', '.');
+
+        $this->send($directors, [
+            'title' => "Pengajuan biaya perusahaan {$expenseRequest->request_number}",
+            'message' => "{$actor->name} mengajukan biaya perusahaan {$expenseRequest->category} ({$formattedAmount}) menunggu keputusan Direktur.",
+            'url' => route('approvals.index', ['tab' => 'menunggu'], false),
+            'action_label' => 'Buka persetujuan',
+            'action_required' => true,
+            'tone' => 'blue',
+            'entity_type' => 'company_expense',
+            'entity_id' => (string) $expenseRequest->id,
+            'request_number' => $expenseRequest->request_number,
+            'status' => 'Menunggu Direktur',
+            'created_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function notifyCompanyExpenseDecision(ExpenseRequest $expenseRequest, User $actor): void
+    {
+        $expenseRequest->loadMissing(['creator']);
+        $decisionLabel = $expenseRequest->status === 'approved' ? 'disetujui' : 'ditolak';
+        $formattedAmount = 'Rp '.number_format((float) $expenseRequest->total, 0, ',', '.');
+
+        $recipients = $this->usersWithRoles(['Admin', 'Admin Sistem'])
+            ->where('id', '!=', $actor->id);
+
+        if ($expenseRequest->creator && ! $recipients->contains('id', $expenseRequest->creator->id) && $expenseRequest->creator->id !== $actor->id) {
+            $recipients = $recipients->push($expenseRequest->creator);
+        }
+
+        $this->send($recipients, [
+            'title' => "Biaya perusahaan {$decisionLabel} {$expenseRequest->request_number}",
+            'message' => "Direktur telah memutuskan pengajuan {$expenseRequest->category} ({$formattedAmount}): {$decisionLabel}.",
+            'url' => route('expenses.index', ['tab' => 'company_expenses'], false),
+            'action_label' => 'Lihat pengajuan',
+            'action_required' => $expenseRequest->status === 'approved',
+            'tone' => $expenseRequest->status === 'approved' ? 'green' : 'red',
+            'entity_type' => 'company_expense',
+            'entity_id' => (string) $expenseRequest->id,
+            'request_number' => $expenseRequest->request_number,
+            'status' => $expenseRequest->status === 'approved' ? 'Disetujui' : 'Ditolak',
+            'created_at' => now()->toIso8601String(),
+        ]);
     }
 
     public function notifyStatusUpdated(ShipRequest $shipRequest, User $actor): void
@@ -148,6 +216,22 @@ class WorkflowNotifier
             return;
         }
 
-        Notification::send($recipients, new WorkflowActionNotification($payload));
+        try {
+            Notification::sendNow($recipients, new WorkflowActionNotification($payload));
+        } catch (\Throwable $e) {
+            Log::warning('Workflow notification broadcast failed: '.$e->getMessage());
+            try {
+                foreach ($recipients as $recipient) {
+                    $recipient->notifications()->create([
+                        'id' => (string) Str::uuid(),
+                        'type' => 'workflow-action',
+                        'data' => $payload,
+                        'read_at' => null,
+                    ]);
+                }
+            } catch (\Throwable $dbException) {
+                Log::error('Fallback notification storage failed: '.$dbException->getMessage());
+            }
+        }
     }
 }

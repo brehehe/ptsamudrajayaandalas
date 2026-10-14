@@ -1,8 +1,12 @@
 <?php
 
+use App\Models\ClientReceipt;
 use App\Models\CompletionNote;
+use App\Models\DailyReport;
 use App\Models\ExpenseRequest;
 use App\Models\Invoice;
+use App\Models\OperationalActivity;
+use App\Models\OutgoingPayment;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Ship;
@@ -312,10 +316,204 @@ test('company report subtracts vessel hpp and realized non-vessel expenses from 
             ->where('summary.ship_margin', 600000)
             ->where('summary.non_vessel_expenses', 200000)
             ->where('summary.company_net_result', 400000)
-            ->where('portCalls.0.margin', 600000)
-            ->where('portCalls.0.margin_percentage', 42.86)
-            ->where('portCalls.0.agency_invoiced', 1400000)
-            ->where('portCalls.0.reimbursement_invoiced', 0)
-            ->where('portCalls.0.invoice_count', 1)
-            ->where('portCalls.0.request_count', 1));
+            ->where('portCalls.data.0.margin', 600000)
+            ->where('portCalls.data.0.margin_percentage', 42.86)
+            ->where('portCalls.data.0.agency_invoiced', 1400000)
+            ->where('portCalls.data.0.reimbursement_invoiced', 0)
+            ->where('portCalls.data.0.invoice_count', 1)
+            ->where('portCalls.data.0.request_count', 1));
+});
+
+test('report search includes client SPK while field staff remains unauthorized', function () {
+    $owner = zoomRevisionUser('Owner');
+    $fieldStaff = zoomRevisionUser('Lapangan');
+    $job = zoomRevisionJob($owner, 'SEARCH');
+
+    Invoice::create([
+        'invoice_number' => 'INV-REV-SEARCH',
+        'port_call_id' => $job['portCall']->id,
+        'company_id' => $job['company']->id,
+        'invoice_type' => 'agency',
+        'invoice_date' => today(),
+        'due_date' => today()->addDays(14),
+        'subtotal' => 2000000,
+        'grand_total' => 2000000,
+        'outstanding_amount' => 2000000,
+        'status' => 'released',
+    ]);
+
+    $this->actingAs($fieldStaff)
+        ->get(route('reports.index'))
+        ->assertForbidden();
+
+    $this->actingAs($owner)
+        ->get(route('reports.index', [
+            'from' => today()->startOfMonth()->toDateString(),
+            'to' => today()->endOfMonth()->toDateString(),
+            'search' => 'SPK/KLIEN/REV/SEARCH',
+        ]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Reports/Index')
+            ->has('portCalls.data', 1)
+            ->where('portCalls.data.0.client_spk', 'SPK/KLIEN/REV/SEARCH')
+            ->has('invoiceReport.rows.data', 1)
+            ->where('invoiceReport.rows.data.0.invoice_number', 'INV-REV-SEARCH')
+            ->where('filters.search', 'SPK/KLIEN/REV/SEARCH'));
+});
+
+test('company report finance summary uses confirmed cash records and the active company filter', function () {
+    $owner = zoomRevisionUser('Owner');
+    $selectedJob = zoomRevisionJob($owner, 'CASH-A');
+    $otherJob = zoomRevisionJob($owner, 'CASH-B');
+
+    Invoice::create([
+        'invoice_number' => 'INV-REV-CASH-A',
+        'port_call_id' => $selectedJob['portCall']->id,
+        'company_id' => $selectedJob['company']->id,
+        'invoice_type' => 'agency',
+        'invoice_date' => today(),
+        'due_date' => today()->addDays(14),
+        'subtotal' => 1000000,
+        'grand_total' => 1000000,
+        'paid_amount' => 600000,
+        'outstanding_amount' => 400000,
+        'status' => 'released',
+    ]);
+    Invoice::create([
+        'invoice_number' => 'INV-REV-CASH-B',
+        'port_call_id' => $otherJob['portCall']->id,
+        'company_id' => $otherJob['company']->id,
+        'invoice_type' => 'agency',
+        'invoice_date' => today(),
+        'due_date' => today()->addDays(14),
+        'subtotal' => 2000000,
+        'grand_total' => 2000000,
+        'paid_amount' => 0,
+        'outstanding_amount' => 2000000,
+        'status' => 'released',
+    ]);
+    ClientReceipt::create([
+        'company_id' => $selectedJob['company']->id,
+        'received_date' => today(),
+        'amount' => 600000,
+        'bank_reference' => 'BANK-REV-CASH-A',
+        'status' => 'confirmed',
+        'recorded_by' => $owner->id,
+    ]);
+    ClientReceipt::create([
+        'company_id' => $otherJob['company']->id,
+        'received_date' => today(),
+        'amount' => 900000,
+        'bank_reference' => 'BANK-REV-CASH-B',
+        'status' => 'confirmed',
+        'recorded_by' => $owner->id,
+    ]);
+    OutgoingPayment::create([
+        'port_call_id' => $selectedJob['portCall']->id,
+        'payment_type' => 'Vendor',
+        'payment_date' => today(),
+        'amount' => 250000,
+        'recipient' => 'Vendor A',
+        'reference_number' => 'OUT-REV-CASH-A',
+        'verification_status' => 'verified',
+        'recorded_by' => $owner->id,
+    ]);
+    OperationalActivity::create([
+        'activity_date' => today(),
+        'activity_time' => '09:30',
+        'location_name' => 'Dermaga A',
+        'is_vessel_related' => true,
+        'ship_id' => $selectedJob['ship']->id,
+        'port_call_id' => $selectedJob['portCall']->id,
+        'category' => 'Kegiatan Kapal',
+        'title' => 'Pemeriksaan dokumen kapal',
+        'detail' => 'Dokumen kedatangan diperiksa.',
+        'created_by' => $owner->id,
+        'progress_percent' => 75,
+    ]);
+    DailyReport::create([
+        'port_call_id' => $selectedJob['portCall']->id,
+        'officer_id' => $owner->id,
+        'report_date' => today(),
+        'status' => 'submitted',
+        'no_activity' => false,
+        'summary' => 'Pemeriksaan dokumen selesai dicatat.',
+        'submitted_at' => now(),
+    ]);
+    OutgoingPayment::create([
+        'port_call_id' => $selectedJob['portCall']->id,
+        'payment_type' => 'Vendor',
+        'payment_date' => today(),
+        'amount' => 750000,
+        'recipient' => 'Vendor Pending',
+        'reference_number' => 'OUT-REV-CASH-PENDING',
+        'verification_status' => 'pending',
+        'recorded_by' => $owner->id,
+    ]);
+    OutgoingPayment::create([
+        'port_call_id' => $otherJob['portCall']->id,
+        'payment_type' => 'Vendor',
+        'payment_date' => today(),
+        'amount' => 400000,
+        'recipient' => 'Vendor B',
+        'reference_number' => 'OUT-REV-CASH-B',
+        'verification_status' => 'verified',
+        'recorded_by' => $owner->id,
+    ]);
+
+    $this->actingAs($owner)
+        ->get(route('reports.index', [
+            'from' => today()->startOfMonth()->toDateString(),
+            'to' => today()->endOfMonth()->toDateString(),
+            'company_id' => $selectedJob['company']->id,
+        ]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Reports/Index')
+            ->has('portCalls.data', 1)
+            ->where('summary.total_invoiced', 1000000)
+            ->where('summary.ar_paid', 600000)
+            ->where('summary.ar_outstanding', 400000)
+            ->where('summary.cash_in', 600000)
+            ->where('summary.cash_out', 250000)
+            ->where('summary.net_cash_flow', 350000)
+            ->where('financialTrend.key', 'report_financial_trend')
+            ->where('financialTrend.series.0.key', 'invoiced')
+            ->where('financialTrend.series.1.key', 'cash_in')
+            ->where('financialTrend.series.2.key', 'cash_out')
+            ->where('financialTrend.points', fn ($points): bool => collect($points)->sum(fn (array $point): float => (float) $point['values']['invoiced']) === 1000000.0)
+            ->where('invoiceReport.summary.total_documents', 1)
+            ->where('invoiceReport.summary.outstanding_amount', 400000)
+            ->has('invoiceReport.rows.data', 1)
+            ->where('invoiceReport.chart.key', 'report_invoice_status')
+            ->where('receivableReport.summary.open_documents', 1)
+            ->where('receivableReport.summary.outstanding_amount', 400000)
+            ->has('receivableReport.rows.data', 1)
+            ->where('receivableReport.chart.key', 'report_receivable_aging')
+            ->where('expenseReport.summary.total_documents', 2)
+            ->where('expenseReport.summary.verified_amount', 250000)
+            ->where('expenseReport.summary.pending_amount', 750000)
+            ->has('expenseReport.rows.data', 2)
+            ->where('expenseReport.chart.key', 'report_expense_status')
+            ->where('activityReport.summary.total_activities', 1)
+            ->where('activityReport.summary.daily_reports', 1)
+            ->where('activityReport.summary.ships_covered', 1)
+            ->has('activityReport.rows.data', 1)
+            ->where('activityReport.chart.key', 'report_activity_trend')
+            ->where('filters.company_id', $selectedJob['company']->id));
+
+    $this->actingAs($owner)
+        ->get(route('reports.index', [
+            'from' => today()->startOfMonth()->toDateString(),
+            'to' => today()->endOfMonth()->toDateString(),
+            'company_id' => $selectedJob['company']->id,
+            'tab' => 'pengeluaran',
+            'sort' => 'amount',
+            'direction' => 'asc',
+        ]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('filters.tab', 'pengeluaran')
+            ->where('filters.sort', 'amount')
+            ->where('filters.direction', 'asc')
+            ->where('expenseReport.rows.data.0.amount', 250000)
+            ->where('expenseReport.rows.data.1.amount', 750000));
 });

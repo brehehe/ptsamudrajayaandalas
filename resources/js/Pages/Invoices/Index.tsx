@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { Pencil, Plus, Search } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
@@ -8,6 +8,7 @@ import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
+import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import Button from '../../Components/ui/Button';
 import DocumentActions from '../../Components/ui/DocumentActions';
@@ -85,6 +86,33 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
     const [search, setSearch] = useState(filters.search || '');
     const [workflowInvoice, setWorkflowInvoice] = useState<Invoice | null>(null);
     const [workflowAction, setWorkflowAction] = useState<'release' | 'mark_sent'>('release');
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [modalStatus, setModalStatus] = useState(filters.status || 'all');
+    const [modalType, setModalType] = useState(filters.type || 'all');
+
+    const statusOptions: SelectSearchOption[] = [
+        { value: 'all', label: 'Semua Status' },
+        { value: 'draft', label: 'Draft' },
+        { value: 'released', label: 'Dirilis' },
+        { value: 'sent', label: 'Terkirim ke Klien' },
+        { value: 'paid', label: 'Lunas' },
+    ];
+
+    const typeOptions: SelectSearchOption[] = [
+        { value: 'all', label: 'Semua Tipe Invoice' },
+        { value: 'agency', label: 'Jasa Keagenan' },
+        { value: 'reimburse', label: 'Reimbursement' },
+    ];
+
+    const activeFilterCount = [
+        filters.status && filters.status !== 'all' ? filters.status : '',
+        filters.type && filters.type !== 'all' ? filters.type : '',
+    ].filter(Boolean).length;
+
+    const hasActiveFilters = Boolean(
+        search || (filters.status && filters.status !== 'all') || (filters.type && filters.type !== 'all')
+    );
+
     const workflowForm = useForm({
         action: 'release',
         document_source: 'generated',
@@ -238,26 +266,87 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     ))}
                 </div>
 
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-                    <Tabs
-                        className="min-w-0 flex-1"
-                        ariaLabel="Filter tipe invoice"
-                        activeId={filters.type}
-                        onChange={(type) => updateFilters({ type })}
-                        items={[
-                            { id: 'all', label: 'Semua Invoice', count: stats.count },
-                            { id: 'agency', label: 'Jasa Keagenan', count: stats.agency_count },
-                            { id: 'reimburse', label: 'Reimbursement', count: stats.reimburse_count },
-                        ]}
-                    />
-                    <form onSubmit={(event) => { event.preventDefault(); updateFilters({}); }} className="flex min-w-0 gap-2 lg:w-[390px]">
-                        <Input name="search" autoComplete="off" aria-label="Cari invoice" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari invoice, klien, atau kapal…" leftIcon={<Search aria-hidden="true" className="size-4" />} clearable onClear={() => { setSearch(''); router.get('/invoices', { ...filters, search: '' }, { preserveState: true, replace: true }); }} />
-                        <Button type="submit" variant="secondary">Cari</Button>
-                    </form>
-                    {abilities.manage && (
-                        <Link href="/invoices/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 md:hidden">
-                            <Plus aria-hidden="true" className="size-4" /> Buat Invoice
-                        </Link>
+                <div className="space-y-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                        <Tabs
+                            className="min-w-0 flex-1"
+                            ariaLabel="Filter tipe invoice"
+                            activeId={filters.type}
+                            onChange={(type) => updateFilters({ type })}
+                            items={[
+                                { id: 'all', label: 'Semua Invoice', count: stats.count },
+                                { id: 'agency', label: 'Jasa Keagenan', count: stats.agency_count },
+                                { id: 'reimburse', label: 'Reimbursement', count: stats.reimburse_count },
+                            ]}
+                        />
+                        <div className="flex items-center gap-2">
+                            <form onSubmit={(event) => { event.preventDefault(); updateFilters({}); }} className="flex min-w-0 gap-2 sm:w-[320px]">
+                                <Input name="search" autoComplete="off" aria-label="Cari invoice" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari invoice, klien, atau kapal…" leftIcon={<Search aria-hidden="true" className="size-4" />} clearable onClear={() => { setSearch(''); router.get('/invoices', { ...filters, search: '' }, { preserveState: true, replace: true }); }} />
+                                <Button type="submit" variant="secondary">Cari</Button>
+                            </form>
+                            <Button
+                                type="button"
+                                variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                                onClick={() => {
+                                    setModalStatus(filters.status || 'all');
+                                    setModalType(filters.type || 'all');
+                                    setIsFilterModalOpen(true);
+                                }}
+                                leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                                className="h-10 px-3 text-xs font-bold shrink-0"
+                            >
+                                <span>Filter</span>
+                                {activeFilterCount > 0 && (
+                                    <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                        {activeFilterCount}
+                                    </span>
+                                )}
+                            </Button>
+                            {hasActiveFilters && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setSearch('');
+                                        router.get('/invoices', {}, { preserveState: true, replace: true });
+                                    }}
+                                    className="h-10 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30 shrink-0"
+                                >
+                                    <RotateCcw aria-hidden="true" className="size-3.5 mr-1" />
+                                    Reset
+                                </Button>
+                            )}
+                            {abilities.manage && (
+                                <Link href="/invoices/create" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[12px] bg-[#0060F4] px-3.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 md:hidden shrink-0">
+                                    <Plus aria-hidden="true" className="size-4" /> Buat
+                                </Link>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Active Filter Chips */}
+                    {hasActiveFilters && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+                            <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+                            {search && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                    Cari: "{search}"
+                                    <button type="button" onClick={() => { setSearch(''); router.get('/invoices', { ...filters, search: '' }, { preserveState: true, replace: true }); }}><X className="size-3" /></button>
+                                </span>
+                            )}
+                            {filters.status && filters.status !== 'all' && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                    Status: {statusOptions.find((s) => s.value === filters.status)?.label || filters.status}
+                                    <button type="button" onClick={() => updateFilters({ status: 'all' })}><X className="size-3" /></button>
+                                </span>
+                            )}
+                            {filters.type && filters.type !== 'all' && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                    Kategori: {typeOptions.find((t) => t.value === filters.type)?.label || filters.type}
+                                    <button type="button" onClick={() => updateFilters({ type: 'all' })}><X className="size-3" /></button>
+                                </span>
+                            )}
+                        </div>
                     )}
                 </div>
 
@@ -329,6 +418,68 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     )}
                     <p className="rounded-xl bg-[#F0F8FF] p-3 text-xs text-[#52658E] dark:bg-[#071322] dark:text-[#94A3B8]">Status hanya mencatat kejadian yang sudah berlangsung. Sistem tidak mengirim invoice atau memindahkan dana secara otomatis.</p>
                 </form>
+            </Modal>
+
+            {/* Filter Modal */}
+            <Modal
+                isOpen={isFilterModalOpen}
+                onClose={() => setIsFilterModalOpen(false)}
+                title="Filter Invoice & Tagihan"
+                size="md"
+                asBottomSheetOnMobile
+                footer={(
+                    <div className="flex w-full items-center justify-between gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setModalStatus('all');
+                                setModalType('all');
+                            }}
+                            className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
+                        >
+                            Reset Pilihan
+                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setIsFilterModalOpen(false)}
+                            >
+                                Batal
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={() => {
+                                    setIsFilterModalOpen(false);
+                                    updateFilters({
+                                        status: modalStatus,
+                                        type: modalType,
+                                    });
+                                }}
+                            >
+                                Terapkan Filter
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            >
+                <div className="space-y-4 py-1">
+                    <SelectSearch
+                        label="Status Invoice"
+                        value={modalStatus}
+                        onChange={(val) => setModalStatus(String(val || 'all'))}
+                        options={statusOptions}
+                        placeholder="Pilih Status Invoice"
+                    />
+                    <SelectSearch
+                        label="Kategori / Tipe Invoice"
+                        value={modalType}
+                        onChange={(val) => setModalType(String(val || 'all'))}
+                        options={typeOptions}
+                        placeholder="Pilih Kategori"
+                    />
+                </div>
             </Modal>
         </AppLayout>
     );

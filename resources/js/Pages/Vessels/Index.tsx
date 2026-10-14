@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { Anchor, Building2, Clock, RotateCcw, Search, Ship as ShipIcon, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
@@ -8,6 +9,7 @@ import Modal from '../../Components/overlays/Modal';
 import Input from '../../Components/forms/Input';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import Select from '../../Components/selects/Select';
+import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import ShipImage from '../../Components/vessels/ShipImage';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 
@@ -99,6 +101,7 @@ export interface MasterShip {
 interface VesselsIndexProps {
     vessels: Vessel[];
     companies?: ShipCompany[];
+    jobs?: Array<{ id: string; job_number?: string; ship_id?: string }>;
     counts: {
         semua: number;
         akan_datang: number;
@@ -112,7 +115,15 @@ interface VesselsIndexProps {
     canViewFinancials?: boolean;
     activeStatus: string;
     selectedCompanyId?: string;
+    selectedShipId?: string;
+    selectedJob?: string;
     search: string;
+    stats?: {
+        total: number;
+        active_jobs: number;
+        under_maintenance: number;
+        companies_count: number;
+    };
 }
 
 export const formatEtaDateTime = (dateStr?: string | null): string => {
@@ -140,6 +151,7 @@ const formatRupiah = (value: number): string => new Intl.NumberFormat('id-ID', {
 export default function VesselsIndex({
     vessels,
     companies = [],
+    jobs = [],
     counts = { semua: 0, akan_datang: 0, labuh: 0, sandar: 0, selesai: 0 },
     ports = [],
     allMasterShips = [],
@@ -147,15 +159,95 @@ export default function VesselsIndex({
     canViewFinancials = false,
     activeStatus = 'Semua',
     selectedCompanyId = '',
+    selectedShipId = '',
+    selectedJob = '',
     search = '',
+    stats,
 }: VesselsIndexProps) {
     // Active Master Module: 'kapal' | 'perusahaan' (Desktop)
     const [activeModule, setActiveModule] = useState<'kapal' | 'perusahaan'>('kapal');
 
     const [searchTerm, setSearchTerm] = useState(search);
     const [companyFilter, setCompanyFilter] = useState(selectedCompanyId);
+    const [shipFilter, setShipFilter] = useState(selectedShipId || '');
+    const [jobFilter, setJobFilter] = useState(selectedJob || '');
     const [sortBy, setSortBy] = useState<'terdekat' | 'terbaru' | 'nama'>('terdekat');
     const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false);
+
+    // Filter Options
+    const companyOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Perusahaan' },
+            ...companies.map((c) => ({
+                value: c.id,
+                label: `${c.name}${c.code ? ` (${c.code})` : ''}`,
+            })),
+        ],
+        [companies]
+    );
+
+    const availableShipsForFilter = useMemo(() => {
+        if (!companyFilter) return allMasterShips;
+        return allMasterShips.filter((s) => s.ship_company_id === companyFilter);
+    }, [allMasterShips, companyFilter]);
+
+    const shipOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Kapal' },
+            ...availableShipsForFilter.map((s) => ({
+                value: s.id,
+                label: s.name,
+            })),
+        ],
+        [availableShipsForFilter]
+    );
+
+    const jobOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: '', label: 'Semua Job' },
+            ...jobs.map((j) => ({
+                value: j.job_number || j.id,
+                label: j.job_number || j.id,
+            })),
+        ],
+        [jobs]
+    );
+
+    const applyVesselsFilter = (overrides?: {
+        search?: string;
+        status?: string;
+        company_id?: string;
+        ship_id?: string;
+        job?: string;
+    }) => {
+        const q = overrides?.search !== undefined ? overrides.search : searchTerm;
+        const st = overrides?.status !== undefined ? overrides.status : activeStatus;
+        const comp = overrides?.company_id !== undefined ? overrides.company_id : companyFilter;
+        const shp = overrides?.ship_id !== undefined ? overrides.ship_id : shipFilter;
+        const jb = overrides?.job !== undefined ? overrides.job : jobFilter;
+
+        router.get(
+            '/vessels',
+            {
+                status: st,
+                search: q || undefined,
+                company_id: comp || undefined,
+                ship_id: shp || undefined,
+                job: jb || undefined,
+            },
+            { preserveState: true }
+        );
+    };
+
+    const handleResetFilters = () => {
+        setSearchTerm('');
+        setCompanyFilter('');
+        setShipFilter('');
+        setJobFilter('');
+        router.get('/vessels', { status: activeStatus }, { preserveState: true });
+    };
+
+    const hasActiveFilters = Boolean(searchTerm || companyFilter || shipFilter || jobFilter);
 
     // Modal state for Kapal & Kunjungan Baru
     const [showAddModal, setShowAddModal] = useState(false);
@@ -197,28 +289,17 @@ export default function VesselsIndex({
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        router.get(
-            '/vessels',
-            { search: searchTerm, status: activeStatus, company_id: companyFilter },
-            { preserveState: true }
-        );
+        applyVesselsFilter();
     };
 
     const handleFilterStatus = (status: string) => {
-        router.get(
-            '/vessels',
-            { status, search: searchTerm, company_id: companyFilter },
-            { preserveState: true }
-        );
+        applyVesselsFilter({ status });
     };
 
     const handleCompanyFilterChange = (compId: string) => {
         setCompanyFilter(compId);
-        router.get(
-            '/vessels',
-            { status: activeStatus, search: searchTerm, company_id: compId },
-            { preserveState: true }
-        );
+        setShipFilter('');
+        applyVesselsFilter({ company_id: compId, ship_id: '' });
     };
 
     // Sort vessels locally based on selection
@@ -1435,168 +1516,174 @@ export default function VesselsIndex({
                                 )} */}
                             </div>
 
-                            {/* Search Bar, Company Filter Dropdown, and Sort */}
-                            <div
-                                className={
-                                    'grid grid-cols-2 items-center gap-2.5 ' +
-                                    'xl:grid-cols-[minmax(0,1fr)_minmax(0,18rem)_auto]'
-                                }
-                            >
-                                <form
-                                    onSubmit={handleSearch}
-                                    className="col-span-2 min-w-0 relative xl:col-span-1"
-                                >
-                                    <div
-                                        className={
-                                            'absolute inset-y-0 left-0 pl-3.5 flex items-center ' +
-                                            'pointer-events-none text-[#8C9BB9] dark:text-[#64748B]'
-                                        }
-                                    >
-                                        <svg
-                                            className="w-4 h-4"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <circle cx="11" cy="11" r="8" />
-                                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                        </svg>
+                            {/* KPI Stat Cards for Vessels */}
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                <Card padding="md">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">Total Armada Kapal</p>
+                                            <p className="mt-1 text-xl font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                                {stats?.total ?? allMasterShips.length}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">Kapal terdaftar</p>
+                                        </div>
+                                        <span className="flex size-10 items-center justify-center rounded-xl bg-[#EAF4FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            <ShipIcon aria-hidden="true" className="size-5" />
+                                        </span>
                                     </div>
-                                    <input
-                                        type="text"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        placeholder="Cari nama kapal, nomor IMO, agen, atau lokasi..."
-                                        aria-label="Cari kapal"
-                                        className={
-                                            'w-full pl-10 pr-9 py-2.5 bg-white ' +
-                                            'dark:bg-[#0C1D36] border border-[#DCEAF8] ' +
-                                            'dark:border-[#1E3A5F] rounded-xl text-xs ' +
-                                            'sm:text-sm text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                            'placeholder-[#8C9BB9] focus:outline-none ' +
-                                            'focus:ring-2 focus:ring-[#0060F4]/30 ' +
-                                            'focus:border-[#0060F4] shadow-xs'
-                                        }
-                                    />
-                                    {searchTerm && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setSearchTerm('');
-                                                router.get('/vessels', {
-                                                    status: activeStatus,
-                                                    company_id: companyFilter,
-                                                });
-                                            }}
-                                            className={
-                                                'absolute inset-y-0 right-0 pr-3 flex ' +
-                                                'items-center text-[#8C9BB9] ' +
-                                                'hover:text-[#C62840]'
-                                            }
-                                        >
-                                            ✕
-                                        </button>
-                                    )}
-                                </form>
+                                </Card>
 
-                                {/* Company Filter */}
-                                <div className="relative min-w-0">
-                                    <select
-                                        aria-label="Filter perusahaan pelayaran"
-                                        value={companyFilter}
-                                        onChange={(e) => handleCompanyFilterChange(e.target.value)}
-                                        className={
-                                            'w-full appearance-none bg-white dark:bg-[#0C1D36] ' +
-                                            'border border-[#DCEAF8] dark:border-[#1E3A5F] ' +
-                                            'rounded-xl pl-8 pr-8 py-2.5 text-xs font-bold ' +
-                                            'text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                            'hover:bg-[#F0F8FF] focus:outline-none ' +
-                                            'focus:ring-2 focus:ring-[#0060F4]/30 shadow-xs ' +
-                                            'cursor-pointer'
-                                        }
-                                    >
-                                        <option value="">
-                                            Semua Perusahaan ({companies.length})
-                                        </option>
-                                        {companies.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.name} {c.code ? `(${c.code})` : ''} —{' '}
-                                                {c.ships_count ?? c.ships?.length ?? 0} Kapal
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <span
-                                        className={
-                                            'absolute left-2.5 top-1/2 -translate-y-1/2 ' +
-                                            'pointer-events-none text-xs'
-                                        }
-                                    >
-                                        🏢
-                                    </span>
-                                    <svg
-                                        className={
-                                            'w-3 h-3 text-[#52658E] absolute right-2.5 top-1/2 ' +
-                                            '-translate-y-1/2 pointer-events-none'
-                                        }
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <polyline
-                                            points="6 9 12 15 18 9"
-                                            strokeWidth={2.5}
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                        />
-                                    </svg>
-                                </div>
+                                <Card padding="md">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-xs text-blue-700 dark:text-blue-400">Sedang Sandar / Labuh</p>
+                                            <p className="mt-1 text-xl font-extrabold tabular-nums text-blue-800 dark:text-blue-300">
+                                                {(counts.sandar || 0) + (counts.labuh || 0)}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-400">Di pelabuhan saat ini</p>
+                                        </div>
+                                        <span className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                                            <Anchor aria-hidden="true" className="size-5" />
+                                        </span>
+                                    </div>
+                                </Card>
 
-                                {/* Sort */}
-                                <div className="relative min-w-0">
-                                    <select
-                                        aria-label="Urutkan kapal"
-                                        value={sortBy}
-                                        onChange={(e) => setSortBy(e.target.value as any)}
-                                        className={
-                                            'w-full appearance-none bg-white dark:bg-[#0C1D36] ' +
-                                            'border border-[#DCEAF8] dark:border-[#1E3A5F] ' +
-                                            'rounded-xl pl-7 pr-7 py-2.5 text-xs font-bold ' +
-                                            'text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                            'hover:bg-[#F0F8FF] focus:outline-none ' +
-                                            'focus:ring-2 focus:ring-[#0060F4]/30 shadow-xs ' +
-                                            'cursor-pointer'
-                                        }
-                                    >
-                                        <option value="terdekat">Jadwal ETA (Terdekat)</option>
-                                        <option value="nama">Nama A-Z</option>
-                                    </select>
-                                    <span
-                                        className={
-                                            'absolute left-2.5 top-1/2 -translate-y-1/2 ' +
-                                            'pointer-events-none text-xs text-[#52658E]'
-                                        }
-                                    >
-                                        ⇅
-                                    </span>
-                                    <svg
-                                        className={
-                                            'w-3 h-3 text-[#52658E] absolute right-2 top-1/2 ' +
-                                            '-translate-y-1/2 pointer-events-none'
-                                        }
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <polyline
-                                            points="6 9 12 15 18 9"
-                                            strokeWidth={2.5}
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                        />
-                                    </svg>
-                                </div>
+                                <Card padding="md">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-xs text-amber-700 dark:text-amber-400">Akan Datang (ETA)</p>
+                                            <p className="mt-1 text-xl font-extrabold tabular-nums text-amber-800 dark:text-amber-300">
+                                                {counts.akan_datang || 0}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Kunjungan terjadwal</p>
+                                        </div>
+                                        <span className="flex size-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+                                            <Clock aria-hidden="true" className="size-5" />
+                                        </span>
+                                    </div>
+                                </Card>
+
+                                <Card padding="md">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-xs text-emerald-700 dark:text-emerald-400">Perusahaan Pelayaran</p>
+                                            <p className="mt-1 text-xl font-extrabold tabular-nums text-emerald-800 dark:text-emerald-300">
+                                                {companies.length}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">Mitra terdaftar</p>
+                                        </div>
+                                        <span className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+                                            <Building2 aria-hidden="true" className="size-5" />
+                                        </span>
+                                    </div>
+                                </Card>
                             </div>
+
+                            {/* Modern Filter Toolbar using SelectSearch */}
+                            <Card padding="md">
+                                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-12 items-center">
+                                    {/* Search */}
+                                    <div className="lg:col-span-3">
+                                        <form onSubmit={handleSearch} className="relative">
+                                            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]" />
+                                            <input
+                                                type="search"
+                                                name="search"
+                                                autoComplete="off"
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                placeholder="Cari kapal, IMO, agen..."
+                                                aria-label="Cari kapal"
+                                                className="w-full h-11 pl-9 pr-8 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                            />
+                                            {searchTerm && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSearchTerm('');
+                                                        applyVesselsFilter({ search: '' });
+                                                    }}
+                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                                    aria-label="Hapus pencarian"
+                                                >
+                                                    <X aria-hidden="true" className="size-3.5" />
+                                                </button>
+                                            )}
+                                        </form>
+                                    </div>
+
+                                    {/* Filter Perusahaan */}
+                                    <div className="lg:col-span-3">
+                                        <SelectSearch
+                                            placeholder="Semua Perusahaan"
+                                            value={companyFilter}
+                                            onChange={(val) => {
+                                                const newVal = String(val || '');
+                                                setCompanyFilter(newVal);
+                                                setShipFilter('');
+                                                applyVesselsFilter({ company_id: newVal, ship_id: '' });
+                                            }}
+                                            options={companyOptions}
+                                        />
+                                    </div>
+
+                                    {/* Filter Kapal */}
+                                    <div className="lg:col-span-2">
+                                        <SelectSearch
+                                            placeholder="Semua Kapal"
+                                            value={shipFilter}
+                                            onChange={(val) => {
+                                                const newVal = String(val || '');
+                                                setShipFilter(newVal);
+                                                applyVesselsFilter({ ship_id: newVal });
+                                            }}
+                                            options={shipOptions}
+                                        />
+                                    </div>
+
+                                    {/* Filter Job */}
+                                    <div className="lg:col-span-2">
+                                        <SelectSearch
+                                            placeholder="Semua Job"
+                                            value={jobFilter}
+                                            onChange={(val) => {
+                                                const newVal = String(val || '');
+                                                setJobFilter(newVal);
+                                                applyVesselsFilter({ job: newVal });
+                                            }}
+                                            options={jobOptions}
+                                        />
+                                    </div>
+
+                                    {/* Sort */}
+                                    <div className="lg:col-span-1">
+                                        <select
+                                            aria-label="Urutkan kapal"
+                                            value={sortBy}
+                                            onChange={(e) => setSortBy(e.target.value as any)}
+                                            className="w-full h-11 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl px-2 text-xs font-semibold text-[#0B1F63] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white cursor-pointer"
+                                        >
+                                            <option value="terdekat">ETA</option>
+                                            <option value="nama">A-Z</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Reset button */}
+                                    <div className="lg:col-span-1 flex justify-end">
+                                        {hasActiveFilters && (
+                                            <button
+                                                type="button"
+                                                onClick={handleResetFilters}
+                                                title="Reset semua filter"
+                                                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 cursor-pointer"
+                                            >
+                                                <RotateCcw className="size-4" />
+                                                <span className="lg:hidden text-xs font-bold">Reset</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </Card>
 
                             {/* Status Tabs */}
                             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">

@@ -6,8 +6,19 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 import { configureEcho } from '@laravel/echo-react';
 
+const isLocal = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
 configureEcho({
     broadcaster: 'reverb',
+    ...(isLocal
+        ? {
+              wsHost: window.location.hostname,
+              wsPort: 8080,
+              wssPort: 8080,
+              forceTLS: false,
+              enabledTransports: ['ws', 'wss'],
+          }
+        : {}),
 });
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';

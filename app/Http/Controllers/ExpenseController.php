@@ -7,13 +7,14 @@ use App\Http\Requests\StoreOutgoingPaymentRequest;
 use App\Models\CostDocument;
 use App\Models\ExpenseRequest;
 use App\Models\OutgoingPayment;
-use App\Models\User;
-use App\Notifications\WorkflowActionNotification;
+use App\Models\PortCall;
+use App\Models\Ship;
+use App\Models\ShipCompany;
+use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -24,17 +25,31 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExpenseController extends Controller
 {
+    public function __construct(private readonly WorkflowNotifier $workflowNotifier) {}
+
     public function index(Request $request): Response
     {
         abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $validated = $request->validate([
+            'tab' => ['nullable', Rule::in(['vendor_invoices', 'company_expenses'])],
             'type' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['all', 'pending', 'verified'])],
             'search' => ['nullable', 'string', 'max:100'],
+            'company_id' => ['nullable', 'string'],
+            'ship_id' => ['nullable', 'string'],
+            'job' => ['nullable', 'string'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
         ]);
+        $tab = $validated['tab'] ?? 'vendor_invoices';
         $type = $validated['type'] ?? 'all';
         $status = $validated['status'] ?? 'all';
         $search = $validated['search'] ?? null;
+        $companyId = $validated['company_id'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $job = $validated['job'] ?? null;
+        $startDate = $validated['start_date'] ?? null;
+        $endDate = $validated['end_date'] ?? null;
 
         $query = OutgoingPayment::query()->with([
             'portCall.ship:id,name',
@@ -53,6 +68,31 @@ class ExpenseController extends Controller
             $query->where('verification_status', 'verified');
         } elseif ($status === 'pending') {
             $query->where('verification_status', 'pending');
+        }
+
+        if ($companyId) {
+            $query->whereHas('portCall', function ($pq) use ($companyId) {
+                $pq->where(function ($sub) use ($companyId) {
+                    $sub->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId))
+                        ->orWhereHas('workOrder', fn ($wq) => $wq->where('company_id', $companyId));
+                });
+            });
+        }
+
+        if ($shipId) {
+            $query->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $shipId));
+        }
+
+        if ($job) {
+            $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', 'ilike', "%{$job}%")->orWhere('id', $job));
+        }
+
+        if ($startDate) {
+            $query->whereDate('payment_date', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('payment_date', '<=', $endDate);
         }
 
         if ($search) {
@@ -157,10 +197,17 @@ class ExpenseController extends Controller
                 ->values();
         }
 
+        $companies = ShipCompany::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $ships = Ship::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
+
         return Inertia::render('Expenses/Index', [
             'expenses' => $expenses,
             'payableVendorInvoices' => $payableVendorInvoices,
             'companyExpenseRequests' => $companyExpenseRequests,
+            'companies' => $companies,
+            'ships' => $ships,
+            'jobs' => $jobs,
             'stats' => [
                 'total' => (float) $totalAmount,
                 'verified' => (float) $verifiedAmount,
@@ -171,7 +218,13 @@ class ExpenseController extends Controller
                 'type' => $type,
                 'status' => $status,
                 'search' => $search ?? '',
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $job ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
             ],
+            'activeTab' => $tab,
             'abilities' => [
                 'manage' => $request->user()->isOperationalAdmin(),
                 'create_company_expense' => $request->user()->isOperationalAdmin(),
@@ -314,22 +367,7 @@ class ExpenseController extends Controller
             throw $exception;
         }
 
-        Notification::send(
-            User::role('Direktur')->where('is_active', true)->get(),
-            new WorkflowActionNotification([
-                'title' => 'Pengajuan biaya perusahaan baru',
-                'message' => "{$expenseRequest->request_number} menunggu keputusan Direktur.",
-                'url' => route('expenses.index'),
-                'action_label' => 'Tinjau Pengajuan',
-                'action_required' => true,
-                'tone' => 'warning',
-                'entity_type' => 'company_expense',
-                'entity_id' => $expenseRequest->id,
-                'request_number' => $expenseRequest->request_number,
-                'status' => 'Menunggu Direktur',
-                'created_at' => now()->toISOString(),
-            ]),
-        );
+        $this->workflowNotifier->notifyCompanyExpenseSubmission($expenseRequest, $request->user());
 
         return redirect()->back()->with('success', "Pengajuan {$expenseRequest->request_number} berhasil dikirim ke Direktur.");
     }
@@ -342,7 +380,7 @@ class ExpenseController extends Controller
             'notes' => ['nullable', 'required_if:decision,reject', 'string', 'max:1000'],
         ]);
 
-        DB::transaction(function () use ($request, $expenseRequest, $validated): void {
+        $decidedExpense = DB::transaction(function () use ($request, $expenseRequest, $validated): ExpenseRequest {
             $lockedExpense = ExpenseRequest::query()->lockForUpdate()->findOrFail($expenseRequest->id);
             if ($lockedExpense->scope !== 'company' || $lockedExpense->status !== 'waiting_director') {
                 throw ValidationException::withMessages(['decision' => 'Pengajuan ini sudah diputuskan atau tidak lagi tersedia.']);
@@ -360,7 +398,11 @@ class ExpenseController extends Controller
                 ->causedBy($request->user())
                 ->withProperties(['decision' => $validated['decision'], 'notes' => $validated['notes'] ?? null])
                 ->log($validated['decision'] === 'approve' ? 'Biaya nonkapal disetujui Direktur' : 'Biaya nonkapal ditolak Direktur');
+
+            return $lockedExpense;
         }, attempts: 3);
+
+        $this->workflowNotifier->notifyCompanyExpenseDecision($decidedExpense, $request->user());
 
         return redirect()->back()->with('success', 'Keputusan pengajuan biaya perusahaan berhasil disimpan.');
     }

@@ -6,6 +6,7 @@ use App\Http\Requests\StoreCompletionNoteRequest;
 use App\Models\CompletionNote;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
+use App\Models\Ship;
 use App\Models\ShipCompany;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,12 +28,49 @@ class CompletionNoteController extends Controller
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'in:all,waiting,uploaded,verified,reconciled,overdue'],
+            'company_id' => ['nullable', 'string'],
+            'ship_id' => ['nullable', 'string'],
+            'job' => ['nullable', 'string'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
         ]);
         $search = $validated['search'] ?? null;
         $status = $validated['status'] ?? 'all';
+        $companyId = $validated['company_id'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $job = $validated['job'] ?? null;
+        $startDate = $validated['start_date'] ?? null;
+        $endDate = $validated['end_date'] ?? null;
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
-        $notes = CompletionNote::query()
+        $baseQuery = CompletionNote::query()
+            ->when($status !== 'all' && $status !== 'waiting' && $status !== 'overdue', fn ($query) => $query->where('status', $status))
+            ->when($status === 'waiting', fn ($query) => $query->whereRaw('1 = 0'))
+            ->when($status === 'overdue', fn ($query) => $query->where('due_at', '<', now()))
+            ->when($companyId, fn ($query, $cid) => $query->whereHas('portCall', function ($pq) use ($cid) {
+                $pq->where(function ($sub) use ($cid) {
+                    $sub->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $cid))
+                        ->orWhereHas('workOrder', fn ($wq) => $wq->where('company_id', $cid));
+                });
+            }))
+            ->when($shipId, fn ($query, $sid) => $query->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $sid)))
+            ->when($job, fn ($query, $val) => $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$val}%")->orWhere('id', $val)))
+            ->when($startDate, fn ($query, $val) => $query->whereDate('uploaded_at', '>=', $val))
+            ->when($endDate, fn ($query, $val) => $query->whereDate('uploaded_at', '<=', $val))
+            ->when($search, fn ($query, $value) => $query->where(function ($scope) use ($like, $value) {
+                $scope->where('document_number', $like, "%{$value}%")
+                    ->orWhereHas('portCall.ship', fn ($ship) => $ship->where('name', $like, "%{$value}%"));
+            }));
+
+        $stats = [
+            'total_count' => (int) CompletionNote::count(),
+            'total_amount' => (float) CompletionNote::sum('actual_amount'),
+            'uploaded_count' => (int) CompletionNote::where('status', 'uploaded')->count(),
+            'verified_count' => (int) CompletionNote::where('status', 'verified')->count(),
+            'reconciled_count' => (int) CompletionNote::where('status', 'reconciled')->count(),
+        ];
+
+        $notes = (clone $baseQuery)
             ->with([
                 'portCall.ship:id,name',
                 'portCall.port:id,name',
@@ -41,20 +79,29 @@ class CompletionNoteController extends Controller
                 'uploader:id,name',
                 'reconciliation:id,completion_note_id,initial_total,actual_total,variance,status',
             ])
-            ->when($status !== 'all' && $status !== 'waiting' && $status !== 'overdue', fn ($query) => $query->where('status', $status))
-            ->when($status === 'waiting', fn ($query) => $query->whereRaw('1 = 0'))
-            ->when($status === 'overdue', fn ($query) => $query->where('due_at', '<', now()))
-            ->when($search, fn ($query, $value) => $query->where(function ($scope) use ($like, $value) {
-                $scope->where('document_number', $like, "%{$value}%")
-                    ->orWhereHas('portCall.ship', fn ($ship) => $ship->where('name', $like, "%{$value}%"));
-            }))
             ->latest('uploaded_at')
             ->paginate(12)
             ->withQueryString();
 
+        $companies = ShipCompany::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $ships = Ship::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
+
         return Inertia::render('CompletionNotes/Index', [
             'notes' => $notes,
-            'filters' => ['search' => $search ?? '', 'status' => $status],
+            'companies' => $companies,
+            'ships' => $ships,
+            'jobs' => $jobs,
+            'stats' => $stats,
+            'filters' => [
+                'search' => $search ?? '',
+                'status' => $status,
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $job ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+            ],
             'abilities' => [
                 'create' => Gate::allows('create', CompletionNote::class),
             ],

@@ -204,6 +204,29 @@ class DashboardController extends Controller
                 'title' => $activity->title,
                 'subtitle' => $activity->ship ? $activity->ship->name.' · '.$activity->detail : $activity->detail,
                 'ship_name' => $activity->ship?->name,
+                'creator_name' => $activity->creator?->name ?? 'Staf Lapangan',
+                'location_name' => $activity->location_name,
+                'activity_date' => $activity->activity_date?->format('d M Y'),
+                'photos' => $activity->photos ?? [],
+                'type' => $activity->is_vessel_related ? 'ship' : 'document',
+                'color' => '#0060F4',
+                'bg' => '#E0F0FF',
+                'link' => '/operations?tab=aktivitas',
+            ])
+            ->values();
+
+        $todayActivities = OperationalActivity::query()
+            ->with(['ship', 'creator'])
+            ->whereDate('activity_date', $today)
+            ->orderByDesc('activity_time')
+            ->get()
+            ->map(fn (OperationalActivity $activity): array => [
+                'id' => (string) $activity->id,
+                'time' => $activity->activity_time,
+                'title' => $activity->title,
+                'subtitle' => $activity->ship ? $activity->ship->name.' · '.$activity->detail : $activity->detail,
+                'ship_name' => $activity->ship?->name,
+                'creator_name' => $activity->creator?->name ?? 'Staf Lapangan',
                 'location_name' => $activity->location_name,
                 'activity_date' => $activity->activity_date?->format('d M Y'),
                 'photos' => $activity->photos ?? [],
@@ -292,6 +315,7 @@ class DashboardController extends Controller
             'today_ships' => $todayShips,
             'upcoming_ships' => $upcomingShips,
             'recent_activities' => $recentActivities,
+            'today_activities' => $todayActivities,
             'submission_info' => [
                 'count' => $pendingCount,
                 'title' => $pendingCount.' pengajuan menunggu persetujuan',
@@ -411,13 +435,13 @@ class DashboardController extends Controller
                 'priorities' => [
                     ['title' => 'Kapal aktif', 'description' => 'Perbarui posisi dan status kegiatan kapal.', 'count' => $activePortCalls->count(), 'href' => '/vessels', 'tone' => 'blue'],
                     ['title' => 'Kebutuhan terbuka', 'description' => 'Pastikan kebutuhan kapal dipenuhi tepat waktu.', 'count' => $pendingNeeds, 'href' => '/needs', 'tone' => 'amber'],
-                    ['title' => 'Laporan harian', 'description' => 'Laporan yang sudah tercatat hari ini.', 'count' => $reportsToday, 'href' => '/operations', 'tone' => 'green'],
+                    ['title' => 'Aktivitas hari ini', 'description' => 'Aktivitas operasional yang tercatat hari ini.', 'count' => $activitiesToday, 'href' => '/operations', 'tone' => 'green'],
                 ],
                 'quick_actions' => [
-                    ['label' => 'Aktivitas Lapangan', 'description' => 'Catat progres dan dokumentasi', 'href' => '/operations', 'icon' => 'activity'],
-                    ['label' => 'Buat Kebutuhan', 'description' => 'Ajukan barang atau layanan', 'href' => '/needs', 'icon' => 'package'],
-                    ['label' => 'Pengajuan Biaya', 'description' => 'Pantau dana operasional', 'href' => '/funding', 'icon' => 'wallet'],
+                    ['label' => 'Catat Aktivitas', 'description' => 'Catat progres dan dokumentasi', 'href' => '/operations', 'icon' => 'activity'],
+                    ['label' => 'Buat Kebutuhan', 'description' => 'Ajukan barang atau layanan kapal', 'href' => '/needs', 'icon' => 'package'],
                     ['label' => 'Daftar Kapal', 'description' => 'Lihat jadwal dan posisi', 'href' => '/vessels', 'icon' => 'ship'],
+                    ['label' => 'Laporan Harian', 'description' => 'Rekapitulasi kegiatan harian', 'href' => '/operations?tab=laporan', 'icon' => 'report'],
                 ],
                 'pipeline' => array_slice($commonPipeline, 0, 4),
                 'charts' => [

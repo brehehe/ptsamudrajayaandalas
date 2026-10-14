@@ -32,6 +32,10 @@ export interface ShipRequest {
     operational_occurred_at?: string | null;
     notes?: string;
     created_at: string;
+    creator?: {
+        id: number | string;
+        name: string;
+    } | null;
     items?: RequestItemData[];
 }
 
@@ -128,6 +132,11 @@ export interface VesselShowProps {
     canCreateCompletionNotes?: boolean;
     canViewFinancials?: boolean;
     canUpdateShip?: boolean;
+    users?: Array<{
+        id: string;
+        name: string;
+        role: string;
+    }>;
 }
 
 export interface SelectedVisit {

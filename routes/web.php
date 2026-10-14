@@ -105,6 +105,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/approvals/requests/{id}/item-decision', [ApprovalController::class, 'itemDecision'])->name('approvals.requests.item-decision');
     Route::post('/approvals/items/{id}', [ApprovalController::class, 'singleItemDecision'])->name('approvals.items.decision');
     Route::post('/approvals/payments/{id}/verify', [ApprovalController::class, 'verifyPayment'])->name('approvals.payments.verify');
+    Route::post('/approvals/company-expenses/{expenseRequest}/decision', [ApprovalController::class, 'decideCompanyExpense'])->name('approvals.company-expenses.decision');
 
     // Operasional & Laporan Lapangan Pak Prima
     Route::get('/operations', [OperationController::class, 'index'])->name('operations.index');

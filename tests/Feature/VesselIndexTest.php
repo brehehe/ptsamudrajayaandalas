@@ -260,10 +260,10 @@ test('completed visits remain available in operational reports', function () {
 
     $response->assertInertia(fn (Assert $page) => $page
         ->component('Reports/Index')
-        ->has('portCalls', 1)
-        ->where('portCalls.0.job_number', 'JOB-REPORT-001')
-        ->where('portCalls.0.ship_name', 'KM Laporan Selesai')
-        ->where('portCalls.0.status', 'completed')
+        ->has('portCalls.data', 1)
+        ->where('portCalls.data.0.job_number', 'JOB-REPORT-001')
+        ->where('portCalls.data.0.ship_name', 'KM Laporan Selesai')
+        ->where('portCalls.data.0.status', 'completed')
         ->where('filters.search', 'KM Laporan Selesai')
         ->where('filters.status', 'completed')
     );

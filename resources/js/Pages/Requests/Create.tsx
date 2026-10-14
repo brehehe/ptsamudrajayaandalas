@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Head, Link, router } from '@inertiajs/react';
+import React, { useState, useEffect } from 'react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import AppLayout from '@/Layouts/AppLayout';
 import MobilePageHero from '@/Components/navigation/MobilePageHero';
 import PhotoUploadPicker from '@/Components/forms/PhotoUploadPicker';
@@ -73,6 +73,11 @@ interface RequestsCreateProps {
     ports: Port[];
     serviceTypes: ServiceType[];
     products: Product[];
+    users?: Array<{
+        id: string;
+        name: string;
+        role: string;
+    }>;
 }
 
 interface ItemDetail {
@@ -207,12 +212,22 @@ const makeDefaultDetail = (portCall: PortCall): ShipSelectionData => ({
 export default function RequestsCreate({
     portCalls = [],
     products = [],
+    users = [],
 }: RequestsCreateProps) {
+    const page = usePage();
+    const authUser = (page.props as any).auth?.user as { id: number | string; name: string; role?: string } | undefined;
     const availableProducts = products;
 
     // ── State ──
     const [stage, setStage] = useState<Stage>('list');
     const [shipSearch, setShipSearch] = useState('');
+    const [createdBy, setCreatedBy] = useState<string>(() => (authUser?.id ? String(authUser.id) : ''));
+
+    useEffect(() => {
+        if (!createdBy && authUser?.id) {
+            setCreatedBy(String(authUser.id));
+        }
+    }, [authUser?.id, createdBy]);
 
     // Map of port_call_id -> ShipSelectionData (only for configured visits)
     const [shipDetails, setShipDetails] = useState<Record<string, ShipSelectionData>>({});
@@ -400,6 +415,7 @@ export default function RequestsCreate({
                 };
             }),
             notes: notesGlobal,
+            created_by: createdBy || undefined,
         };
 
         router.post('/requests/multi', payload, {
@@ -895,6 +911,33 @@ export default function RequestsCreate({
                                     leftIcon={<span>📞</span>}
                                     sizeVariant="sm"
                                 />
+
+                                {/* Pembuat Pengajuan */}
+                                {users && users.length > 0 ? (
+                                    <div>
+                                        <label className="text-xs font-bold text-[#082870] dark:text-white block mb-1">
+                                            Pembuat Pengajuan (Staf SJA)
+                                        </label>
+                                        <select
+                                            value={createdBy}
+                                            onChange={(e) => setCreatedBy(e.target.value)}
+                                            className="w-full h-10 px-3 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs text-[#0B1F63] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                        >
+                                            {users.map((u) => (
+                                                <option key={u.id} value={u.id}>
+                                                    {u.name} ({u.role})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                        <span className="block font-semibold text-[#52658E] dark:text-[#94A3B8]">Pembuat Pengajuan</span>
+                                        <p className="mt-0.5 font-bold text-[#0B1F63] dark:text-white">
+                                            {authUser?.name || 'Staff'}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -1241,6 +1284,14 @@ export default function RequestsCreate({
                                         </div>
                                     );
                                 })}
+                        </div>
+
+                        {/* Info Pembuat Pengajuan */}
+                        <div className="flex items-center justify-between text-xs py-2 px-3.5 rounded-xl bg-[#F0F8FF] dark:bg-[#071322] border border-[#BCE0FD] dark:border-[#1E3A5F]">
+                            <span className="font-semibold text-[#52658E] dark:text-[#94A3B8]">Pembuat Pengajuan:</span>
+                            <span className="font-bold text-[#0060F4] dark:text-[#38BDF8]">
+                                {users.find((u) => u.id === createdBy)?.name || authUser?.name || 'Staff'}
+                            </span>
                         </div>
 
                         {/* Catatan */}

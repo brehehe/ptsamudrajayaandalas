@@ -86,6 +86,7 @@ return [
                     function ($origin) {
                         $origin = trim($origin);
                         $host = parse_url($origin, PHP_URL_HOST);
+
                         return $host ?: $origin;
                     },
                     explode(',', (string) env('REVERB_ALLOWED_ORIGINS', env('APP_URL', 'http://localhost'))),

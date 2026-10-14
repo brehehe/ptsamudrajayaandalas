@@ -157,7 +157,7 @@ export default function SelectSearch({
                     <ComboboxOptions
                         anchor={{ to: 'bottom start', gap: 6, padding: 16 }}
                         transition
-                        className="z-50 max-h-72 w-[var(--input-width)] origin-top overflow-y-auto rounded-2xl border border-[#DCEAF8] bg-white p-1 shadow-lg transition duration-150 ease-out [--anchor-max-height:18rem] empty:invisible data-closed:scale-95 data-closed:opacity-0 motion-reduce:transition-none dark:border-[#1E3A5F] dark:bg-[#0C1D36]"
+                        className="z-70 max-h-72 min-w-[max(var(--input-width),20rem)] max-w-[min(calc(100vw-2rem),32rem)] w-auto origin-top overflow-y-auto rounded-2xl border border-[#DCEAF8] bg-white p-1.5 shadow-xl transition duration-150 ease-out [--anchor-max-height:18rem] empty:invisible data-closed:scale-95 data-closed:opacity-0 motion-reduce:transition-none dark:border-[#1E3A5F] dark:bg-[#0C1D36]"
                     >
                         {loading ? (
                             <div role="status" className="flex items-center justify-center gap-2 px-4 py-7 text-sm text-[#52658E] dark:text-[#94A3B8]">
@@ -182,9 +182,9 @@ export default function SelectSearch({
                                         </span>
                                     )}
                                     <span className="min-w-0 flex-1">
-                                        <span className="block truncate font-semibold">{option.label}</span>
+                                        <span className="block font-semibold leading-snug break-words">{option.label}</span>
                                         {option.description && (
-                                            <span className="mt-0.5 block truncate text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                            <span className="mt-0.5 block text-xs leading-normal text-[#52658E] break-words dark:text-[#94A3B8]">
                                                 {option.description}
                                             </span>
                                         )}
