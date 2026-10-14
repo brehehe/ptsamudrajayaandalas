@@ -969,18 +969,6 @@ export default function VesselNeedFlow({
                                                 }
                                                 className="border-t border-slate-100 pt-2 dark:border-[#1E3A5F]"
                                             />
-
-                                            <PhotoUploadPicker
-                                                label="Dokumen pendukung item (opsional)"
-                                                value={item.attachment || null}
-                                                onChange={(file) => updateItem(idx, 'attachment', file)}
-                                                mode="gallery"
-                                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                                                maxSizeMb={10}
-                                                resizeImages={false}
-                                                variant="compact"
-                                                helperText="Invoice vendor, penawaran, atau bukti item. Maksimal 10 MB."
-                                            />
                                         </div>
                                     ))}
                                 </div>

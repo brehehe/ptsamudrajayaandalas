@@ -1062,18 +1062,6 @@ export default function RequestsCreate({
                                                 onTimeChange={(val) => updateItem(item.id, 'required_time', val)}
                                             />
                                         </div>
-
-                                        <PhotoUploadPicker
-                                            label="Dokumen pendukung item (opsional)"
-                                            value={item.attachment || null}
-                                            onChange={(file) => updateItem(item.id, 'attachment', file)}
-                                            mode="gallery"
-                                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                                            maxSizeMb={10}
-                                            resizeImages={false}
-                                            variant="compact"
-                                            helperText="Invoice vendor, penawaran, atau bukti khusus untuk item ini. Maksimal 10 MB."
-                                        />
                                     </div>
                                 )))}
 
