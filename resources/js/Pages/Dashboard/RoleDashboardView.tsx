@@ -466,7 +466,6 @@ export default function RoleDashboardView({
                 dashboard={dashboard}
                 userName={userName}
                 liveDate={liveDate}
-                liveTime={liveTime}
                 activeShips={activeShips}
                 recentActivities={recentActivities}
                 todayActivities={todayActivities}

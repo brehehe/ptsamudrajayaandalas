@@ -50,7 +50,6 @@ interface RoleDashboardMobileViewProps {
     dashboard: MobileDashboardData;
     userName: string;
     liveDate: string;
-    liveTime: string;
     activeShips: any[];
     recentActivities: any[];
     todayActivities?: any[];
@@ -554,7 +553,6 @@ export default function RoleDashboardMobileView({
     dashboard,
     userName,
     liveDate,
-    liveTime,
     activeShips,
     recentActivities,
     todayActivities = [],
@@ -585,7 +583,7 @@ export default function RoleDashboardMobileView({
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#020b18]/90 via-[#051329]/50 to-transparent"
                 />
-                <div className="relative z-10 flex items-start justify-between gap-3">
+                <div className="relative z-10">
                     <div className="min-w-0">
                         <p className="text-[11px] font-semibold text-white/90">Selamat datang,</p>
                         <h1 className="mt-0.5 truncate text-balance text-2xl font-black leading-tight text-white">
@@ -601,21 +599,14 @@ export default function RoleDashboardMobileView({
                             </span>
                         )}
                     </div>
-                    <p className="flex max-w-[8.5rem] items-start justify-end gap-1 text-right text-[9px] font-semibold leading-4 text-white/90">
-                        <CalendarDays aria-hidden="true" className="mt-0.5 size-3 shrink-0 text-[#38BDF8]" />
-                        <span>{liveDate}</span>
-                    </p>
                 </div>
 
                 <div className="relative z-10 mt-auto">
                     <div className="mt-3 flex items-end justify-between gap-3 border-t border-white/20 pt-3">
-                        <div>
-                            <p className="text-[9px] font-semibold text-white/75">Waktu sekarang</p>
-                            <p className="mt-0.5 flex items-center gap-1.5 text-lg font-black tabular-nums text-white">
-                                <Clock aria-hidden="true" className="size-3.5 text-[#38BDF8]" />
-                                {liveTime}
-                            </p>
-                        </div>
+                        <p className="flex min-w-0 items-center gap-1.5 text-[11px] font-bold leading-4 text-white">
+                            <CalendarDays aria-hidden="true" className="size-3.5 shrink-0 text-[#38BDF8]" />
+                            <span>{liveDate}</span>
+                        </p>
                         <Link
                             href={dashboard.primary_action.href}
                             prefetch
