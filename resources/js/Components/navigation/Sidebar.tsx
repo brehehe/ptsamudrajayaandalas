@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { PageProps } from '@/types';
-import { REPORT_SECTIONS } from '../../lib/reportNavigation';
+import { REPORT_SECTIONS, reportSectionByKey } from '../../lib/reportNavigation';
 import Logo from '../ui/Logo';
 import ThemeToggle from '../ui/ThemeToggle';
 
@@ -20,10 +20,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         'Owner' | 'Direktur' | 'Admin' | 'Lapangan' | string;
     const currentPath = url.split('?')[0];
     const legacyReportTab = new URLSearchParams(url.split('?')[1] ?? '').get('tab');
-    const activeReportSection = REPORT_SECTIONS.find((section) => section.href === currentPath)
-        ?? REPORT_SECTIONS.find((section) => section.key === legacyReportTab)
-        ?? REPORT_SECTIONS[0];
-    const [isReportMenuOpen, setIsReportMenuOpen] = React.useState(false);
+    const isReportPage = url.startsWith('/reports');
+    const activeReportSection = reportSectionByKey(legacyReportTab || currentPath.replace('/reports/', ''));
+    const [isReportMenuOpen, setIsReportMenuOpen] = React.useState(isReportPage);
+
+    React.useEffect(() => {
+        if (isReportPage) {
+            setIsReportMenuOpen(true);
+        }
+    }, [isReportPage]);
 
     // Navigation item definitions with maritime icons
     const beranda = {
@@ -575,8 +580,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                     href={route(section.routeName)}
                                                     prefetch
                                                     aria-current={isActive ? 'page' : undefined}
-                                                    onClick={() => setIsReportMenuOpen(false)}
-                                                    className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-[10.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] ${
+                                                    className={`flex min-h-8 items-center gap-2 rounded-lg px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] ${
                                                         isActive
                                                             ? 'bg-[#173B5C] text-white'
                                                             : 'text-[#9FB7CF] hover:bg-[#173B5C] hover:text-white'

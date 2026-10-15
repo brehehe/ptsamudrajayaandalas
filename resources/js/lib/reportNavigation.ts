@@ -39,6 +39,9 @@ export const REPORT_SECTIONS = [
         href: '/reports/activities',
         description: 'Aktivitas lapangan, laporan harian, dan kendala operasional.',
     },
+] as const;
+
+export const EXTRA_REPORT_SECTIONS = [
     {
         key: 'laba_rugi',
         label: 'Laba Rugi',
@@ -65,7 +68,9 @@ export const REPORT_SECTIONS = [
     },
 ] as const;
 
-export type ReportSectionKey = (typeof REPORT_SECTIONS)[number]['key'];
+export const ALL_REPORT_SECTIONS = [...REPORT_SECTIONS, ...EXTRA_REPORT_SECTIONS] as const;
 
-export const reportSectionByKey = (key: ReportSectionKey) =>
-    REPORT_SECTIONS.find((section) => section.key === key) ?? REPORT_SECTIONS[0];
+export type ReportSectionKey = (typeof ALL_REPORT_SECTIONS)[number]['key'];
+
+export const reportSectionByKey = (key: string) =>
+    ALL_REPORT_SECTIONS.find((section) => section.key === key) ?? REPORT_SECTIONS[0];
