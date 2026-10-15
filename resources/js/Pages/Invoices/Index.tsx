@@ -237,7 +237,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
             <Head title="Invoice & Tagihan — PT Samudra Jaya Andalas" />
             <MobilePageHero title="Invoice & Tagihan" description="Pantau penerbitan, pengiriman, dan pelunasan invoice klien." />
 
-            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
                 <div className="hidden items-end justify-between gap-4 border-b border-[#DCEAF8] pb-4 md:flex dark:border-[#1E3A5F]">
                     <div>
                         <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">Invoice & Tagihan Klien</h1>

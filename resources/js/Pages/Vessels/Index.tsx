@@ -564,6 +564,11 @@ export default function VesselsIndex({
                         fetchPriority="high"
                         className="absolute inset-0 size-full object-cover object-[center_35%]"
                     />
+                    {/* Bottom shadow overlay — only shadows the bottom portion, leaving top photo bright */}
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-[#020b18]/90 via-[#051329]/50 to-transparent"
+                    />
                     {/* Title & Subtitle inside Hero Banner */}
                     <div className="relative z-10 mt-5 mb-2">
                         <h1 className="text-[28px] font-extrabold tracking-tight text-white leading-tight">
@@ -576,7 +581,7 @@ export default function VesselsIndex({
                 </div>
 
                 {/* 2. ROUNDED SHEET CONTAINER */}
-                <div className="relative z-20 -mt-5 bg-sja-surface rounded-t-[28px] pt-4 px-3.5 pb-8 sm:pb-10">
+                <div className="relative z-20 -mt-5 bg-sja-surface rounded-t-[28px] pt-4 px-3.5 pb-8 sm:pb-10 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36]">
                     <nav
                         aria-label="Navigasi data kapal"
                         className="hidden"

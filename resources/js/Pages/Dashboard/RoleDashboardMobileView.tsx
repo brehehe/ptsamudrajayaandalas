@@ -579,6 +579,11 @@ export default function RoleDashboardMobileView({
                     fetchPriority="high"
                     className="absolute inset-0 size-full object-cover object-center"
                 />
+                {/* Bottom shadow overlay — only shadows the bottom portion, leaving top photo bright */}
+                <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#020b18]/90 via-[#051329]/50 to-transparent"
+                />
                 <div className="relative z-10 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <p className="text-[11px] font-semibold text-white/90">Selamat datang,</p>
@@ -613,7 +618,7 @@ export default function RoleDashboardMobileView({
                         <Link
                             href={dashboard.primary_action.href}
                             prefetch
-                            className="inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-[11px] font-extrabold text-[#082870] shadow-sm hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                            className="inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-[11px] font-extrabold text-[#082870] shadow-sm hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white [text-shadow:none] antialiased"
                         >
                             {dashboard.primary_action.label}
                             <ArrowRight aria-hidden="true" className="size-4" />
@@ -622,7 +627,7 @@ export default function RoleDashboardMobileView({
                 </div>
             </section>
 
-            <div className="relative z-10 -mt-6 space-y-4 rounded-t-[28px] bg-white px-3.5 pb-5 pt-4 dark:bg-[#0C1D36]">
+            <div className="relative z-10 -mt-6 space-y-4 rounded-t-[28px] bg-white px-3.5 pb-5 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36]">
                 <section aria-labelledby="mobile-summary-heading" className="rounded-2xl bg-[#082870] p-3 shadow-sm dark:bg-[#071A33]">
                     <div className="mb-3 flex items-center gap-2 px-0.5 text-white">
                         <RoleIcon aria-hidden="true" className="size-4 text-[#38BDF8]" />

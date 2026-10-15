@@ -76,6 +76,11 @@
     0 2px 8px rgb(0 20 51 / 0.72);
 }
 
+/* Prevent interactive controls, buttons, links, and badges from inheriting blurry text-shadow */
+.mobile-photo-copy :is(a, button, input, select, textarea, [class*="bg-white"], .no-text-shadow) {
+  text-shadow: none !important;
+}
+
 /* =========================================================================
    Corporate Maritime — Dark Mode Global Adaptation
    ========================================================================= */

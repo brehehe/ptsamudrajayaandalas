@@ -305,7 +305,7 @@ export default function WorkOrdersIndex({ workOrders, stats, companies = [], shi
                 description={roleDescriptions[role] || 'Pantau SPK dan kunjungan kapal sesuai akses Anda.'}
             />
 
-            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:space-y-5 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:space-y-5 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
                 <header className="hidden flex-col gap-4 border-b border-[#DCEAF8] pb-5 sm:flex-row sm:items-end sm:justify-between md:flex dark:border-[#1E3A5F]">
                     <div className="max-w-3xl">
                         <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-bold text-[#0057D9] dark:bg-[#152E52] dark:text-[#7DD3FC]">

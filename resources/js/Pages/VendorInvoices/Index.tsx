@@ -344,7 +344,7 @@ export default function VendorInvoiceIndex({
         <AppLayout title="Invoice Vendor" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Invoice Vendor — PT Samudra Jaya Andalas" />
             <MobilePageHero title="Invoice Vendor" description="Buat invoice dari item pengajuan, verifikasi, dan pantau pembayarannya." />
-            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-12 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
+            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-12 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
                 <div className="hidden flex-col gap-3 sm:flex-row sm:items-end sm:justify-between md:flex">
                     <div>
                         <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0060F4]">Keuangan Operasional</p>

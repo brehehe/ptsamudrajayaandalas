@@ -172,7 +172,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
                 {/* Mobile Header — stays in the page flow so page imagery begins below it. */}
                 {!hideMobileHeader && (
-                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-[#DCEAF8] bg-white px-4 shadow-sm md:hidden">
+                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-[#DCEAF8] bg-white px-4 shadow-sm transition-colors duration-200 md:hidden dark:border-[#1E3A5F] dark:bg-[#071322] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3)]">
                         <Link
                             href="/dashboard"
                             className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
@@ -182,11 +182,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                             <span className="flex min-w-0 flex-col leading-tight">
                                 <span
                                     translate="no"
-                                    className="truncate text-[10px] font-extrabold text-[#0B1F63]"
+                                    className="truncate text-[10px] font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]"
                                 >
                                     PT. SAMUDRA JAYA ANDALAS
                                 </span>
-                                <span className="truncate text-[9px] font-medium text-[#52658E]">
+                                <span className="truncate text-[9px] font-medium text-[#52658E] dark:text-[#94A3B8]">
                                     Ship Agency Management System
                                 </span>
                             </span>
@@ -196,12 +196,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                             <button
                                 type="button"
                                 onClick={openNotificationCenter}
-                                className="relative flex size-11 items-center justify-center rounded-full text-[#0B1F63] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                                className="relative flex size-11 items-center justify-center rounded-full text-[#0B1F63] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#94A3B8] dark:hover:bg-[#152E52] dark:hover:text-[#60A5FA]"
                                 aria-label={`Buka notifikasi${notifications?.unread_count ? `, ${notifications.unread_count} belum dibaca` : ''}`}
                             >
                                 <Bell aria-hidden="true" className="size-5" strokeWidth={2} />
                                 {(notifications?.unread_count ?? 0) > 0 && (
-                                    <span className="absolute right-0 top-0 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[#C62840] px-1 text-[9px] font-black tabular-nums text-white ring-2 ring-white">
+                                    <span className="absolute right-0 top-0 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-[#C62840] px-1 text-[9px] font-black tabular-nums text-white ring-2 ring-white dark:ring-[#071322]">
                                         {notifications.unread_count > 99 ? '99+' : notifications.unread_count}
                                     </span>
                                 )}
@@ -212,7 +212,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                                     ref={menuButtonRef}
                                     type="button"
                                     onClick={() => setMobileMenuOpen(true)}
-                                    className="flex size-11 items-center justify-center rounded-full text-[#0B1F63] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                                    className="flex size-11 items-center justify-center rounded-full text-[#0B1F63] transition-colors hover:bg-[#E0F0FF] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#94A3B8] dark:hover:bg-[#152E52] dark:hover:text-[#60A5FA]"
                                     aria-label="Buka menu utama"
                                     aria-expanded={mobileMenuOpen}
                                 >

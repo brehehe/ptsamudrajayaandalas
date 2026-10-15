@@ -603,6 +603,11 @@ export default function OperationsIndex({
                         fetchPriority="high"
                         className="absolute inset-0 w-full h-full object-cover object-[center_35%]"
                     />
+                    {/* Bottom shadow overlay — only shadows the bottom portion, leaving top photo bright */}
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-[#020b18]/90 via-[#051329]/50 to-transparent"
+                    />
                     {/* Title */}
                     <div className="relative z-10">
                         <h1 className="text-balance text-2xl font-extrabold leading-tight text-white">
@@ -619,7 +624,7 @@ export default function OperationsIndex({
                 </div>
 
                 {/* ── Activity sheet with integrated tabs ── */}
-                <section className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] border-t border-[#DCEAF8] bg-white shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                <section className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] border-t border-[#DCEAF8] bg-white shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
                     {/* ── Tab Switcher: Hanya ditampilkan untuk staf operasional (role lain langsung riwayat tanpa tab) ── */}
                     {isOperational && (
                         <Tabs

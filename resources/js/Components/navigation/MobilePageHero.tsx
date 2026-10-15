@@ -18,6 +18,11 @@ export default function MobilePageHero({
                 fetchPriority="high"
                 className="absolute inset-0 size-full object-cover object-[center_35%]"
             />
+            {/* Bottom shadow overlay — only shadows the bottom portion, leaving top photo bright */}
+            <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-[#020b18]/90 via-[#051329]/50 to-transparent"
+            />
             <div className="relative z-10">
                 <h1 className="text-balance text-2xl font-extrabold leading-tight text-white">
                     {title}

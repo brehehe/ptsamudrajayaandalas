@@ -765,6 +765,11 @@ export default function RequestsIndex({
                         fetchPriority="high"
                         className="absolute inset-0 size-full object-cover object-[center_35%]"
                     />
+                    {/* Bottom shadow overlay — only shadows the bottom portion, leaving top photo bright */}
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-[#020b18]/90 via-[#051329]/50 to-transparent"
+                    />
                     <div className="relative z-10">
                         <h1 className="text-balance text-[28px] font-extrabold leading-tight text-white">
                             Pengajuan
@@ -775,7 +780,7 @@ export default function RequestsIndex({
                     </div>
                 </div>
 
-                <div className="relative z-10 -mt-5 rounded-t-[28px] bg-sja-surface px-3.5 pb-10 pt-4 dark:bg-[#071322]">
+                <div className="relative z-10 -mt-5 rounded-t-[28px] bg-sja-surface px-3.5 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#071322]">
                     <div className="flex items-center gap-2">
                         <form
                             onSubmit={(event) => {
