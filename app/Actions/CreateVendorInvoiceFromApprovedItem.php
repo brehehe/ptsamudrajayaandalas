@@ -33,19 +33,14 @@ class CreateVendorInvoiceFromApprovedItem
         }
 
         $invoice = CostDocument::query()
+            ->where('vendor_id', $requestItem->vendor_id)
             ->where('document_number', $requestItem->supplier_invoice_number)
             ->lockForUpdate()
             ->first();
 
-        if ($invoice && $invoice->vendor_id !== $requestItem->vendor_id) {
-            throw ValidationException::withMessages([
-                'supplier_invoice' => "Nomor invoice {$requestItem->supplier_invoice_number} sudah digunakan oleh vendor lain.",
-            ]);
-        }
-
         if ($invoice && $invoice->port_call_id !== $requestItem->request?->port_call_id) {
             throw ValidationException::withMessages([
-                'supplier_invoice' => "Nomor invoice {$requestItem->supplier_invoice_number} sudah digunakan pada Job lain.",
+                'supplier_invoice' => "Nomor invoice {$requestItem->supplier_invoice_number} sudah digunakan oleh vendor ini pada Job lain.",
             ]);
         }
 

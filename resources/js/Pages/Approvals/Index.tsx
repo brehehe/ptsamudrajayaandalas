@@ -25,6 +25,7 @@ import Table, { Column } from '../../Components/tables/Table';
 import TableMobile from '../../Components/tables/TableMobile';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
+import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Tabs from '../../Components/ui/Tabs';
 import Button from '../../Components/ui/Button';
 import ShipImage from '../../Components/vessels/ShipImage';
@@ -204,6 +205,7 @@ export default function ApprovalsIndex({
     const [isBatchApprovalOpen, setIsBatchApprovalOpen] = useState(false);
     const [selectedApprovalItemIds, setSelectedApprovalItemIds] = useState<string[]>([]);
     const [approvingJobKey, setApprovingJobKey] = useState<string | null>(null);
+    const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
     const [isDailySummaryOpen, setIsDailySummaryOpen] = useState(false);
 
     const requestNeedsAction = (request: ShipRequest): boolean => {
@@ -683,12 +685,14 @@ export default function ApprovalsIndex({
 
     const openApprovalSelection = (row: ApprovalRow): void => {
         setSelectedApprovalItemIds([]);
+        setApprovalErrors({});
         setIsBatchApprovalOpen(false);
         setApprovalTarget(row);
     };
 
     const openBatchApprovalSelection = (): void => {
         setSelectedApprovalItemIds([]);
+        setApprovalErrors({});
         setApprovalTarget(null);
         setIsBatchApprovalOpen(true);
     };
@@ -697,6 +701,7 @@ export default function ApprovalsIndex({
         setApprovalTarget(null);
         setIsBatchApprovalOpen(false);
         setSelectedApprovalItemIds([]);
+        setApprovalErrors({});
     };
 
     const toggleApprovalItem = (itemId: string): void => {
@@ -746,6 +751,7 @@ export default function ApprovalsIndex({
             return;
         }
 
+        setApprovalErrors({});
         setApprovingJobKey(isBatchApprovalOpen ? 'batch' : approvalTarget?.key || 'selection');
         router.post(
             route('approvals.requests.batch-item-decision'),
@@ -761,6 +767,7 @@ export default function ApprovalsIndex({
             {
                 preserveScroll: true,
                 onSuccess: closeApprovalSelection,
+                onError: (errors) => setApprovalErrors(errors as Record<string, string>),
                 onFinish: () => setApprovingJobKey(null),
             }
         );
@@ -1487,6 +1494,9 @@ export default function ApprovalsIndex({
             >
                 {isApprovalSelectionOpen && (
                     <div className="space-y-3">
+                        {Object.keys(approvalErrors).length > 0 && (
+                            <FormErrorSummary errors={approvalErrors} />
+                        )}
                         <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-4 dark:border-[#285585] dark:bg-[#102B4A]">
                             <p className="break-all font-mono text-xs font-extrabold text-[#0060F4]">
                                 {isBatchApprovalOpen ? 'APPROVAL LINTAS JOB' : approvalTarget?.jobNumber}

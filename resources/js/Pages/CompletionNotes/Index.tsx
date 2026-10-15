@@ -232,31 +232,31 @@ export default function CompletionNotesIndex({
         },
         { key: 'company', header: 'Perusahaan', wrap: 'normal', render: (note) => note.port_call?.work_order?.company?.name || '—' },
         { key: 'port', header: 'Pelabuhan', wrap: 'normal', render: (note) => note.port_call?.port?.name || '—' },
-        {
-            key: 'paid',
-            header: 'Dibayar / Resmi',
-            align: 'right',
-            render: (note) => (
-                <div className="whitespace-nowrap text-right text-xs tabular-nums">
-                    <p className="text-[#52658E]">{money(note.reconciliation?.initial_total || 0)}</p>
-                    <p className="font-bold text-[#0B1F63] dark:text-white">{money(note.actual_amount)}</p>
-                </div>
-            ),
-        },
-        {
-            key: 'variance',
-            header: 'Selisih',
-            align: 'right',
-            render: (note) => (
-                <span
-                    className={`whitespace-nowrap font-bold tabular-nums ${
-                        Number(note.reconciliation?.variance || 0) > 0 ? 'text-[#C62840]' : 'text-[#087443]'
-                    }`}
-                >
-                    {money(note.reconciliation?.variance || 0)}
-                </span>
-            ),
-        },
+        // {
+        //     key: 'paid',
+        //     header: 'Dibayar / Resmi',
+        //     align: 'right',
+        //     render: (note) => (
+        //         <div className="whitespace-nowrap text-right text-xs tabular-nums">
+        //             <p className="text-[#52658E]">{money(note.reconciliation?.initial_total || 0)}</p>
+        //             <p className="font-bold text-[#0B1F63] dark:text-white">{money(note.actual_amount)}</p>
+        //         </div>
+        //     ),
+        // },
+        // {
+        //     key: 'variance',
+        //     header: 'Selisih',
+        //     align: 'right',
+        //     render: (note) => (
+        //         <span
+        //             className={`whitespace-nowrap font-bold tabular-nums ${
+        //                 Number(note.reconciliation?.variance || 0) > 0 ? 'text-[#C62840]' : 'text-[#087443]'
+        //             }`}
+        //         >
+        //             {money(note.reconciliation?.variance || 0)}
+        //         </span>
+        //     ),
+        // },
         {
             key: 'status',
             header: 'Status',

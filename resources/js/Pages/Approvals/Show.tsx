@@ -301,6 +301,7 @@ export default function ApprovalShow({
     const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
     const [rejectionErrors, setRejectionErrors] = useState<Record<string, string>>({});
+    const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
 
     const toggleSelectItem = (itemId: string) => {
         setSelectedItemIds((prev) =>
@@ -335,6 +336,7 @@ export default function ApprovalShow({
             director_notes: null,
         }));
 
+        setActionErrors({});
         setActiveAction('batch-selected');
         router.post(
             route('approvals.requests.batch-item-decision'),
@@ -344,7 +346,9 @@ export default function ApprovalShow({
                 onSuccess: () => {
                     playSjaChime('success');
                     setSelectedItemIds([]);
+                    setActionErrors({});
                 },
+                onError: (errors) => setActionErrors(errors as Record<string, string>),
                 onFinish: () => setActiveAction(null),
             }
         );
@@ -755,7 +759,11 @@ export default function ApprovalShow({
 
                 {/* ── 3. Aksi keputusan Direktur ── */}
                 {capabilities.can_decide_items && pendingItemsAcrossJob.length > 0 && (
-                    <div className="sticky top-20 z-30 flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-white p-3 shadow-lg dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between md:top-2 md:p-4">
+                    <div className="space-y-2">
+                        {Object.keys(actionErrors).length > 0 && (
+                            <FormErrorSummary errors={actionErrors} />
+                        )}
+                        <div className="sticky top-20 z-30 flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-white p-3 shadow-lg dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between md:top-2 md:p-4">
                         <label className="flex min-h-11 cursor-pointer items-center gap-3">
                             <input
                                 type="checkbox"
@@ -812,6 +820,7 @@ export default function ApprovalShow({
                                 Setujui ({selectedItemIds.length})
                             </Button>
                         </div>
+                    </div>
                     </div>
                 )}
 
