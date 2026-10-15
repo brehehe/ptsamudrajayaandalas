@@ -575,11 +575,11 @@ export default function OperationsIndex({
     /* ── User initials ── */
     const userInitials = user?.name
         ? user.name
-              .split(' ')
-              .map((w: string) => w[0])
-              .slice(0, 2)
-              .join('')
-              .toUpperCase()
+            .split(' ')
+            .map((w: string) => w[0])
+            .slice(0, 2)
+            .join('')
+            .toUpperCase()
         : 'PP';
     const userRole = user?.primary_role || user?.roles?.[0] || 'Staf Lapangan';
 
@@ -650,7 +650,7 @@ export default function OperationsIndex({
                         </div>
                     )}
 
-                {/* ════════════════════════════════════════════════════
+                    {/* ════════════════════════════════════════════════════
                     TAB 1: FORM AKTIVITAS (Khusus Staf Operasional)
                     ════════════════════════════════════════════════════ */}
                     {isOperational && effectiveMobileTab === 'form' && (
@@ -738,78 +738,78 @@ export default function OperationsIndex({
                                         <Select
                                             id="activity-ship"
                                             label="Pilih kapal"
-                                        name="ship_id"
-                                        autoComplete="off"
-                                        value={actShipId}
-                                        onChange={(event) => selectActivityShip(event.target.value)}
-                                        placeholder="Pilih kapal"
-                                        options={ships.map((ship) => ({ value: ship.id, label: ship.name }))}
-                                        className="!bg-[#F8FBFF] dark:!bg-[#071322]"
-                                        error={activityErrors.ship_id}
-                                        required
-                                    />
-                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                        <Select
-                                            id="activity-port-call"
-                                            label="Kunjungan / job"
-                                            name="port_call_id"
-                                            value={actPortCallId}
-                                            onChange={(event) => {
-                                                const visitId = event.target.value;
-                                                const visit = portCalls.find((portCall) => portCall.id === visitId);
-                                                setActPortCallId(visitId);
-                                                setActVesselPosition(visit?.status ?? '');
-                                                setActRequestId('');
-                                            }}
-                                            placeholder={actShipId ? 'Pilih kunjungan / job' : 'Pilih kapal dahulu'}
-                                            options={portCalls
-                                                .filter((portCall) => portCall.ship?.id === actShipId)
-                                                .map((portCall) => ({
-                                                    value: portCall.id,
-                                                    label: `${portCall.job_number} · ${portCall.port?.name ?? 'Pelabuhan belum diisi'}`,
-                                                }))}
+                                            name="ship_id"
+                                            autoComplete="off"
+                                            value={actShipId}
+                                            onChange={(event) => selectActivityShip(event.target.value)}
+                                            placeholder="Pilih kapal"
+                                            options={ships.map((ship) => ({ value: ship.id, label: ship.name }))}
                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
-                                            error={activityErrors.port_call_id}
-                                            disabled={!actShipId}
+                                            error={activityErrors.ship_id}
                                             required
                                         />
-                                        <Select
-                                            id="activity-vessel-position"
-                                            label="Posisi kapal"
-                                            name="vessel_position"
-                                            value={actVesselPosition}
-                                            onChange={(event) => setActVesselPosition(event.target.value)}
-                                            placeholder="Pilih posisi"
-                                            options={[
-                                                { value: 'scheduled', label: 'Belum Tiba' },
-                                                { value: 'anchored', label: 'Labuh' },
-                                                { value: 'berthed', label: 'Sandar' },
-                                                { value: 'departed', label: 'Berangkat' },
-                                            ]}
-                                            className="!bg-[#F8FBFF] dark:!bg-[#071322]"
-                                            helperText="Diambil otomatis dari kunjungan / job yang dipilih."
-                                            error={activityErrors.vessel_position}
-                                            disabled
-                                            required
-                                        />
+                                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                            <Select
+                                                id="activity-port-call"
+                                                label="Kunjungan / job"
+                                                name="port_call_id"
+                                                value={actPortCallId}
+                                                onChange={(event) => {
+                                                    const visitId = event.target.value;
+                                                    const visit = portCalls.find((portCall) => portCall.id === visitId);
+                                                    setActPortCallId(visitId);
+                                                    setActVesselPosition(visit?.status ?? '');
+                                                    setActRequestId('');
+                                                }}
+                                                placeholder={actShipId ? 'Pilih kunjungan / job' : 'Pilih kapal dahulu'}
+                                                options={portCalls
+                                                    .filter((portCall) => portCall.ship?.id === actShipId)
+                                                    .map((portCall) => ({
+                                                        value: portCall.id,
+                                                        label: `${portCall.job_number} · ${portCall.port?.name ?? 'Pelabuhan belum diisi'}`,
+                                                    }))}
+                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                error={activityErrors.port_call_id}
+                                                disabled={!actShipId}
+                                                required
+                                            />
+                                            <Select
+                                                id="activity-vessel-position"
+                                                label="Posisi kapal"
+                                                name="vessel_position"
+                                                value={actVesselPosition}
+                                                onChange={(event) => setActVesselPosition(event.target.value)}
+                                                placeholder="Pilih posisi"
+                                                options={[
+                                                    { value: 'scheduled', label: 'Belum Tiba' },
+                                                    { value: 'anchored', label: 'Labuh' },
+                                                    { value: 'berthed', label: 'Sandar' },
+                                                    { value: 'departed', label: 'Berangkat' },
+                                                ]}
+                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                helperText="Diambil otomatis dari kunjungan / job yang dipilih."
+                                                error={activityErrors.vessel_position}
+                                                disabled
+                                                required
+                                            />
+                                        </div>
+                                        <div className="mt-3">
+                                            <Select
+                                                id="activity-request"
+                                                label="Pengajuan terkait (opsional)"
+                                                name="request_id"
+                                                value={actRequestId}
+                                                onChange={(event) => setActRequestId(event.target.value)}
+                                                placeholder="Tanpa pengajuan terkait"
+                                                options={requests
+                                                    .filter((request) => request.ship?.id === actShipId && (!request.port_call_id || request.port_call_id === actPortCallId))
+                                                    .map((request) => ({ value: request.id, label: request.request_number }))}
+                                                className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                error={activityErrors.request_id}
+                                                disabled={!actPortCallId}
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="mt-3">
-                                        <Select
-                                            id="activity-request"
-                                            label="Pengajuan terkait (opsional)"
-                                            name="request_id"
-                                            value={actRequestId}
-                                            onChange={(event) => setActRequestId(event.target.value)}
-                                            placeholder="Tanpa pengajuan terkait"
-                                            options={requests
-                                                .filter((request) => request.ship?.id === actShipId && (!request.port_call_id || request.port_call_id === actPortCallId))
-                                                .map((request) => ({ value: request.id, label: request.request_number }))}
-                                            className="!bg-[#F8FBFF] dark:!bg-[#071322]"
-                                            error={activityErrors.request_id}
-                                            disabled={!actPortCallId}
-                                        />
-                                    </div>
-                                </div>
                                 )}
 
                                 {SHOW_EXTENDED_ACTIVITY_FIELDS && actIsVesselRelated && (
@@ -1008,176 +1008,186 @@ export default function OperationsIndex({
                         </form>
                     )}
 
-                {/* ════════════════════════════════════════════════════
+                    {/* ════════════════════════════════════════════════════
                     TAB 2: RIWAYAT AKTIVITAS (Full-Bleed Edge-to-Edge)
                     ════════════════════════════════════════════════════ */}
-                {effectiveMobileTab === 'riwayat' && (
-                    <div
-                        id="mobile-history-panel"
-                        role="tabpanel"
-                        aria-labelledby="mobile-history-tab"
-                        className="flex flex-1 flex-col pb-8"
-                    >
+                    {effectiveMobileTab === 'riwayat' && (
+                        <div
+                            id="mobile-history-panel"
+                            role="tabpanel"
+                            aria-labelledby="mobile-history-tab"
+                            className="flex flex-1 flex-col pb-8"
+                        >
 
-                        {/* Date range and category filters (Full-Bleed) */}
-                        <div className="w-full border-b border-[#DCEAF8] bg-white p-4 shadow-2xs dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
-                            <div className="flex items-center gap-2">
-                                <DateRangePicker
-                                    value={dateRange}
-                                    onChange={setDateRange}
-                                    className="flex-1"
-                                    placeholder="Semua Tanggal"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowHistoryFilters((isVisible) => !isVisible)}
-                                    aria-expanded={showHistoryFilters}
-                                    aria-controls="history-category-filters"
-                                    className="flex min-h-11 items-center gap-1.5 rounded-xl border border-[#DCEAF8] bg-white px-3 text-xs font-semibold text-[#082870] transition-colors hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
-                                >
-                                    <svg aria-hidden="true" className="size-4 text-[#0060F4]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                                    </svg>
-                                    Filter
-                                </button>
+                            {/* Date range and category filters (Full-Bleed) */}
+                            <div className="w-full border-b border-[#DCEAF8] bg-white p-4 shadow-2xs dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                <div className="flex items-center gap-2">
+                                    <DateRangePicker
+                                        value={dateRange}
+                                        onChange={setDateRange}
+                                        className="flex-1"
+                                        placeholder="Semua Tanggal"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowHistoryFilters((isVisible) => !isVisible)}
+                                        aria-expanded={showHistoryFilters}
+                                        aria-controls="history-category-filters"
+                                        className="flex min-h-11 items-center gap-1.5 rounded-xl border border-[#DCEAF8] bg-white px-3 text-xs font-semibold text-[#082870] transition-colors hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
+                                    >
+                                        <svg aria-hidden="true" className="size-4 text-[#0060F4]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                                        </svg>
+                                        Filter
+                                    </button>
+                                </div>
+
+                                {showHistoryFilters && (
+                                    <div id="history-category-filters" className="mt-3 flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+                                        {CATEGORIES.map((cat) => (
+                                            <button
+                                                key={cat}
+                                                type="button"
+                                                onClick={() => setRiwayatCategoryFilter(cat)}
+                                                className={`flex min-h-9 flex-shrink-0 items-center gap-1 rounded-lg px-3 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${riwayatCategoryFilter === cat
+                                                        ? 'bg-[#0060F4] text-white shadow-sm'
+                                                        : 'bg-white border border-[#DCEAF8] text-[#52658E] hover:bg-[#F0F8FF]'
+                                                    }`}
+                                            >
+                                                {cat}
+                                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${riwayatCategoryFilter === cat
+                                                        ? 'bg-white/25 text-white'
+                                                        : 'bg-[#F0F8FF] text-[#0060F4]'
+                                                    }`}>
+                                                    {catCounts[cat]}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
-                            {showHistoryFilters && (
-                                <div id="history-category-filters" className="mt-3 flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
-                                    {CATEGORIES.map((cat) => (
-                                        <button
-                                            key={cat}
-                                            type="button"
-                                            onClick={() => setRiwayatCategoryFilter(cat)}
-                                            className={`flex min-h-9 flex-shrink-0 items-center gap-1 rounded-lg px-3 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
-                                                riwayatCategoryFilter === cat
-                                                    ? 'bg-[#0060F4] text-white shadow-sm'
-                                                    : 'bg-white border border-[#DCEAF8] text-[#52658E] hover:bg-[#F0F8FF]'
-                                            }`}
-                                        >
-                                            {cat}
-                                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
-                                                riwayatCategoryFilter === cat
-                                                    ? 'bg-white/25 text-white'
-                                                    : 'bg-[#F0F8FF] text-[#0060F4]'
-                                            }`}>
-                                                {catCounts[cat]}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Activity list */}
-                        <div className="flex flex-col gap-5 px-4 pt-4">
-                            {groupKeys.length === 0 && (
-                                <div className="text-center py-12 text-[#8C9BB9]">
-                                    <svg aria-hidden="true" className="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    <p className="text-xs font-medium">Belum ada aktivitas pada filter ini</p>
-                                </div>
-                            )}
-                            {groupKeys.map((groupKey) => {
-                                const groupActs = grouped[groupKey];
-                                const headerInfo = getGroupDisplayHeader(groupKey);
-                                return (
-                                    <div key={groupKey}>
-                                        {/* Day header */}
-                                        <div className="mb-2 flex items-end justify-between gap-3">
-                                            <h2 className="text-base font-extrabold text-[#082870] dark:text-[#F1F5F9]">{headerInfo.title}</h2>
-                                            <span className="text-right text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
-                                                {headerInfo.subtitle}
-                                            </span>
-                                        </div>
-
-                                        {/* Cards */}
-                                        <div className="flex flex-col gap-3">
-                                            {groupActs.map((act) => {
-                                                const firstPhoto = act.photos?.[0];
-                                                return (
-                                                    <button
-                                                        type="button"
-                                                        key={act.id}
-                                                        onClick={() => setSelectedActivity(act)}
-                                                        className="group flex min-h-28 w-full overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white text-left shadow-2xs transition-[border-color,box-shadow,transform] hover:border-[#0060F4] hover:shadow-md active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36]"
-                                                    >
-                                                        {/* Photo thumbnail */}
-                                                        <div className="flex w-24 shrink-0 flex-col bg-[#E8F0FE] dark:bg-[#071322]">
-                                                            <div className="min-h-20 flex-1 overflow-hidden">
-                                                                {firstPhoto ? (
-                                                                    <img
-                                                                        src={firstPhoto}
-                                                                        alt={act.title}
-                                                                        width={192}
-                                                                        height={160}
-                                                                        loading="lazy"
-                                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                                                    />
-                                                                ) : (
-                                                                    <div className="flex size-full items-center justify-center">
-                                                                        <svg aria-hidden="true" className="w-6 h-6 text-[#DCEAF8]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                                                                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                                                                            <circle cx="8.5" cy="8.5" r="1.5" />
-                                                                            <polyline points="21 15 16 10 5 21" />
-                                                                        </svg>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            <div className="flex h-7 items-center justify-center bg-[#E0F0FF] px-2 dark:bg-[#102A4A]">
-                                                                <span className="text-[11px] font-bold tabular-nums text-[#082870] dark:text-[#BFDBFE]">{act.activity_time}</span>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Content */}
-                                                        <div className="min-w-0 flex-1 p-3">
-                                                            <div className="mb-1 flex items-start justify-between gap-2">
-                                                                <span className="line-clamp-1 text-sm font-bold leading-tight text-[#082870] dark:text-[#F1F5F9]">
-                                                                    {act.is_vessel_related && act.ship ? act.ship.name : act.title}
-                                                                </span>
-                                                            </div>
-
-                                                            {/* Badge */}
-                                                            <span className={`mb-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${categoryBadgeClass(act.category)}`}>
-                                                                {categoryLabel(act.category)}
-                                                            </span>
-
-                                                            <p className="mb-2 line-clamp-2 text-[11px] leading-snug text-[#52658E] dark:text-[#94A3B8]">
-                                                                {act.detail}
-                                                            </p>
-
-                                                            {/* Footer */}
-                                                            <div className="flex items-center justify-between gap-2">
-                                                                <span className="flex min-w-0 items-center gap-1 text-[10px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                    <svg aria-hidden="true" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                    </svg>
-                                                                    <span className="truncate">{act.location_name}</span>
-                                                                </span>
-                                                                {act.photos && act.photos.length > 0 && (
-                                                                    <span className="flex shrink-0 items-center gap-1 text-[10px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                        <svg aria-hidden="true" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                                                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                                                                            <circle cx="8.5" cy="8.5" r="1.5" />
-                                                                            <polyline points="21 15 16 10 5 21" />
-                                                                        </svg>
-                                                                        {act.photos.length} foto
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                            {/* Activity list */}
+                            <div className="flex flex-col gap-5 px-4 pt-4">
+                                {groupKeys.length === 0 && (
+                                    <div className="text-center py-12 text-[#8C9BB9]">
+                                        <svg aria-hidden="true" className="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <p className="text-xs font-medium">Belum ada aktivitas pada filter ini</p>
                                     </div>
-                                );
-                            })}
+                                )}
+                                {groupKeys.map((groupKey) => {
+                                    const groupActs = grouped[groupKey];
+                                    const headerInfo = getGroupDisplayHeader(groupKey);
+                                    return (
+                                        <div key={groupKey}>
+                                            {/* Day header */}
+                                            <div className="mb-2 flex items-end justify-between gap-3">
+                                                <h2 className="text-base font-extrabold text-[#082870] dark:text-[#F1F5F9]">{headerInfo.title}</h2>
+                                                <span className="text-right text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                    {headerInfo.subtitle}
+                                                </span>
+                                            </div>
+
+                                            {/* Cards */}
+                                            <div className="flex flex-col gap-3">
+                                                {groupActs.map((act) => {
+                                                    const firstPhoto = act.photos?.[0];
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            key={act.id}
+                                                            onClick={() => setSelectedActivity(act)}
+                                                            className="group flex min-h-28 w-full overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white text-left shadow-2xs transition-[border-color,box-shadow,transform] hover:border-[#0060F4] hover:shadow-md active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36]"
+                                                        >
+                                                            {/* Photo thumbnail */}
+                                                            <div className="flex w-24 shrink-0 flex-col bg-[#E8F0FE] dark:bg-[#071322]">
+                                                                <div className="min-h-20 flex-1 overflow-hidden">
+                                                                    {firstPhoto ? (
+                                                                        <img
+                                                                            src={firstPhoto}
+                                                                            alt={act.title}
+                                                                            width={192}
+                                                                            height={160}
+                                                                            loading="lazy"
+                                                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                                                        />
+                                                                    ) : (
+                                                                        <div className="flex size-full items-center justify-center">
+                                                                            <svg aria-hidden="true" className="w-6 h-6 text-[#DCEAF8]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                                                                                <rect x="3" y="3" width="18" height="18" rx="2" />
+                                                                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                                                                <polyline points="21 15 16 10 5 21" />
+                                                                            </svg>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex h-7 items-center justify-center bg-[#E0F0FF] px-2 dark:bg-[#102A4A]">
+                                                                    <span className="text-[11px] font-bold tabular-nums text-[#082870] dark:text-[#BFDBFE]">{act.activity_time}</span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Content */}
+                                                            <div className="min-w-0 flex-1 p-3">
+                                                                <div className="mb-1 flex items-start justify-between gap-2">
+                                                                    <span className="line-clamp-1 text-sm font-bold leading-tight text-[#082870] dark:text-[#F1F5F9]">
+                                                                        {act.is_vessel_related && act.ship ? act.ship.name : act.title}
+                                                                    </span>
+                                                                </div>
+
+                                                                {act.is_vessel_related && act.ship && (
+                                                                    <p className="mb-1.5 line-clamp-2 text-[11px] font-bold leading-snug text-[#0060F4] dark:text-[#60A5FA]">
+                                                                        {act.title}
+                                                                    </p>
+                                                                )}
+
+                                                                {/* Badge */}
+                                                                <span className={`mb-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${categoryBadgeClass(act.category)}`}>
+                                                                    {categoryLabel(act.category)}
+                                                                </span>
+
+                                                                <p className="mb-2 line-clamp-2 text-[11px] leading-snug text-[#52658E] dark:text-[#94A3B8]">
+                                                                    {act.detail}
+                                                                </p>
+
+                                                                {/* Footer */}
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="flex min-w-0 items-center gap-1 text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                        <svg aria-hidden="true" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                        </svg>
+                                                                        <span className="truncate">{act.location_name}</span>
+                                                                    </span>
+                                                                    {act.photos && act.photos.length > 0 && (
+                                                                        <span className="flex shrink-0 items-center gap-1 text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                            <svg aria-hidden="true" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                                                                <rect x="3" y="3" width="18" height="18" rx="2" />
+                                                                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                                                                <polyline points="21 15 16 10 5 21" />
+                                                                            </svg>
+                                                                            {act.photos.length} foto
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    <svg aria-hidden="true" className="size-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.12a7.5 7.5 0 0115 0" />
+                                                                    </svg>
+                                                                    <span>Oleh: {act.creator?.name || 'Tidak tersedia'}</span>
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
                 </section>
             </div>
 
@@ -1192,15 +1202,15 @@ export default function OperationsIndex({
                         {tab === 'aktivitas'
                             ? 'Aktifitas Lapangan & Dermaga'
                             : tab === 'kunjungan'
-                            ? 'Operasional Port Calls Kapal'
-                            : 'Laporan Harian Lapangan'}
+                                ? 'Operasional Port Calls Kapal'
+                                : 'Laporan Harian Lapangan'}
                     </h1>
                     <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
                         {tab === 'aktivitas'
                             ? 'Pencatatan kegiatan armada kapal, logistik, dan kendala operasional dermaga langsung secara terpadu'
                             : tab === 'kunjungan'
-                            ? 'Pemantauan pergerakan kapal (ETA/ETD, labuh, sandar) serta status operasi per armada di pelabuhan'
-                            : 'Rekapitulasi catatan & laporan harian tim perwira operasional dermaga'}
+                                ? 'Pemantauan pergerakan kapal (ETA/ETD, labuh, sandar) serta status operasi per armada di pelabuhan'
+                                : 'Rekapitulasi catatan & laporan harian tim perwira operasional dermaga'}
                     </p>
                 </div>
 
@@ -1443,19 +1453,17 @@ export default function OperationsIndex({
                                             key={cat}
                                             type="button"
                                             onClick={() => setRiwayatCategoryFilter(cat)}
-                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                                                riwayatCategoryFilter === cat
+                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${riwayatCategoryFilter === cat
                                                     ? 'bg-[#0060F4] text-white shadow-xs'
                                                     : 'bg-[#F0F8FF] dark:bg-[#10243E] text-[#52658E] dark:text-[#9FB0C6] hover:bg-[#E0F0FF]'
-                                            }`}
+                                                }`}
                                         >
                                             <span>{cat}</span>
                                             <span
-                                                className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
-                                                    riwayatCategoryFilter === cat
+                                                className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${riwayatCategoryFilter === cat
                                                         ? 'bg-white/25 text-white'
                                                         : 'bg-white dark:bg-[#0C1D36] text-[#0060F4]'
-                                                }`}
+                                                    }`}
                                             >
                                                 {catCounts[cat]}
                                             </span>
@@ -1945,32 +1953,33 @@ export default function OperationsIndex({
 
                                                                 {/* Info Aktivitas */}
                                                                 <div className="flex-1 min-w-0">
-                                                                    <div className="flex items-center justify-between gap-2 mb-1">
-                                                                        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${categoryBadgeClass(act.category)}`}>
-                                                                            {categoryLabel(act.category)}
+                                                                    <div className="mb-1 flex items-start justify-between gap-2">
+                                                                        <span className="line-clamp-1 font-extrabold text-xs text-[#0B1F63] transition-colors group-hover:text-[#0060F4] sm:text-sm dark:text-white">
+                                                                            {act.ship?.name || act.title}
                                                                         </span>
                                                                         <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
                                                                             {act.activity_time} WIB
                                                                         </span>
                                                                     </div>
 
-                                                                    <h5 className="font-extrabold text-xs sm:text-sm text-[#0B1F63] dark:text-white line-clamp-1 group-hover:text-[#0060F4] transition-colors">
-                                                                        {act.title}
-                                                                    </h5>
+                                                                    {act.ship && (
+                                                                        <h5 className="line-clamp-1 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                                            {act.title}
+                                                                        </h5>
+                                                                    )}
 
-                                                                    <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-1 line-clamp-2 leading-relaxed">
+                                                                    <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${categoryBadgeClass(act.category)}`}>
+                                                                        {categoryLabel(act.category)}
+                                                                    </span>
+
+                                                                    <p className="mt-1 text-[11px] leading-relaxed text-[#52658E] line-clamp-2 dark:text-[#94A3B8]">
                                                                         {act.detail}
                                                                     </p>
 
                                                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[10px] text-[#6E82A5] dark:text-[#8C9BB9]">
-                                                                        {act.ship && (
-                                                                            <span className="font-semibold text-[#0B1F63] dark:text-[#E7F0FA]">
-                                                                                🚢 {act.ship.name}
-                                                                            </span>
-                                                                        )}
                                                                         <span>📍 {act.location_name || 'Area Pelabuhan'}</span>
                                                                         {act.creator?.name && (
-                                                                            <span>👤 {act.creator.name}</span>
+                                                                            <span>👤 Oleh: {act.creator.name}</span>
                                                                         )}
                                                                     </div>
                                                                 </div>
@@ -2023,12 +2032,17 @@ export default function OperationsIndex({
                 title={
                     selectedActivity ? (
                         <div>
-                            <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${categoryBadgeClass(selectedActivity.category)}`}>
+                            <h3 className="text-base font-extrabold leading-snug text-[#082870] sm:text-lg dark:text-white">
+                                {selectedActivity.ship?.name || selectedActivity.title}
+                            </h3>
+                            {selectedActivity.ship && (
+                                <p className="mt-0.5 text-sm font-bold leading-snug text-[#0060F4] dark:text-[#60A5FA]">
+                                    {selectedActivity.title}
+                                </p>
+                            )}
+                            <span className={`mt-1.5 inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${categoryBadgeClass(selectedActivity.category)}`}>
                                 {categoryLabel(selectedActivity.category)}
                             </span>
-                            <h3 className="mt-1 text-base sm:text-lg font-extrabold text-[#082870] dark:text-white leading-snug">
-                                {selectedActivity.title}
-                            </h3>
                         </div>
                     ) : undefined
                 }
@@ -2052,25 +2066,8 @@ export default function OperationsIndex({
             >
                 {selectedActivity && (
                     <div className="space-y-4 py-1">
-                        {/* Vessel card if linked */}
-                        {selectedActivity.is_vessel_related && selectedActivity.ship && (
-                            <div className="flex items-center gap-3 rounded-2xl bg-[#F0F8FF] p-3.5 dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                <div className="flex size-10 items-center justify-center rounded-xl bg-[#0060F4] text-white text-lg">
-                                    🚢
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <span className="block text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                        Terkait Armada Kapal
-                                    </span>
-                                    <span className="block truncate text-sm font-extrabold text-[#082870] dark:text-white">
-                                        {selectedActivity.ship.name}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Date, Time & Location grid */}
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-3">
                             <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FAFC] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
                                 <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
                                     Waktu Kegiatan

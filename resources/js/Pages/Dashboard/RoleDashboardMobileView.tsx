@@ -108,10 +108,6 @@ const metricPresentation: Record<string, MetricPresentation> = {
         href: '/approvals',
         icon: ClipboardCheck,
     },
-    kopra: {
-        href: '/funding',
-        icon: Landmark,
-    },
     invoiced: {
         href: '/receivables',
         icon: ReceiptText,
@@ -442,9 +438,9 @@ function OperationalActivityTimeline({ activities }: { activities: any[] }) {
                     <Link
                         key={activityItem.id}
                         href={activityItem.link || '/operations'}
-                        className="group grid min-h-[66px] touch-manipulation grid-cols-[38px_34px_minmax(0,1fr)_28px] items-stretch gap-1.5 rounded-lg px-1 py-1.5 hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:bg-[#132847]"
+                        className="group grid min-h-[66px] touch-manipulation grid-cols-[36px_34px_minmax(0,1fr)_28px] items-stretch gap-1.5 rounded-lg px-0.5 py-1.5 hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:hover:bg-[#132847]"
                     >
-                        <span className="self-start pt-2 text-right text-[9px] font-semibold tabular-nums text-[#52658E] dark:text-[#9FB0C6]">
+                        <span className="self-start pt-2 text-center text-[9px] font-semibold tabular-nums text-[#52658E] dark:text-[#9FB0C6]">
                             {formatActivityTime(activityItem.time)}
                         </span>
                         <span className="relative flex min-h-[54px] items-start justify-center pt-1">
@@ -457,8 +453,13 @@ function OperationalActivityTimeline({ activities }: { activities: any[] }) {
                         </span>
                         <span className="min-w-0 self-center py-1">
                             <span className="line-clamp-2 break-words text-[10px] font-extrabold leading-4 text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white">
-                                {activityItem.title}
+                                {activityItem.ship_name || activityItem.title}
                             </span>
+                            {activityItem.ship_name && (
+                                <span className="block line-clamp-2 break-words text-[9px] font-bold leading-3.5 text-[#0060F4] dark:text-[#60A5FA]">
+                                    {activityItem.title}
+                                </span>
+                            )}
                             <span className="line-clamp-2 break-words text-[9px] leading-3.5 text-[#52658E] dark:text-[#9FB0C6]">
                                 {activityItem.subtitle}
                             </span>

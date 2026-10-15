@@ -105,7 +105,6 @@ const metricIcons: Record<string, LucideIcon> = {
     work_orders: FileText,
     vendor_invoices: ReceiptText,
     approvals: ClipboardCheck,
-    kopra: Landmark,
     invoiced: ReceiptText,
     collected: TrendingUp,
     receivables: HandCoins,
@@ -288,7 +287,7 @@ function ActiveShips({ ships }: { ships: any[] }) {
 
 function Approvals({ approvals }: { approvals: any[] }) {
     if (!approvals.length) {
-        return <EmptyState title="Semua pengajuan sudah diputuskan" href="/approvals" action="Buka meja approval" />;
+        return <EmptyState title="Semua pengajuan sudah diputuskan" href="/approvals" action="Buka Approval" />;
     }
 
     return (
@@ -333,7 +332,8 @@ function RecentActivities({ activities }: { activities: any[] }) {
                 <Link key={item.id} href={item.link || '/operations'} className="group grid min-h-14 grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#EAF1F8] py-2 last:border-b-0 hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] lg:[&:nth-last-child(-n+2)]:border-b-0 dark:border-[#1E3A5F]">
                     {item.photos?.[0] ? <img src={item.photos[0]} width="42" height="42" loading="lazy" alt="" className="size-[42px] rounded-lg object-cover" /> : <span className="flex size-[42px] items-center justify-center rounded-lg bg-[#DCF7E8] text-[#087443] dark:bg-emerald-950/45 dark:text-emerald-300"><Activity aria-hidden="true" className="size-[18px]" /></span>}
                     <span className="min-w-0">
-                        <span className="block truncate text-[11px] font-extrabold text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white">{item.title}</span>
+                        <span className="block truncate text-[11px] font-extrabold text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white">{item.ship_name || item.title}</span>
+                        {item.ship_name && <span className="mt-0.5 block truncate text-[10px] font-bold text-[#0060F4] dark:text-[#60A5FA]">{item.title}</span>}
                         <span className="mt-0.5 block truncate text-[10px] text-[#52658E] dark:text-[#9FB0C6]">{item.subtitle}</span>
                         {item.creator_name && <span className="mt-0.5 block text-[9.5px] font-semibold text-[#0060F4] dark:text-[#60A5FA]">Oleh: {item.creator_name}</span>}
                     </span>

@@ -21,14 +21,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const currentPath = url.split('?')[0];
     const legacyReportTab = new URLSearchParams(url.split('?')[1] ?? '').get('tab');
     const isReportPage = url.startsWith('/reports');
-    const activeReportSection = reportSectionByKey(legacyReportTab || currentPath.replace('/reports/', ''));
-    const [isReportMenuOpen, setIsReportMenuOpen] = React.useState(isReportPage);
+    const activeReportSection = REPORT_SECTIONS.find((section) => section.href === currentPath)
+        ?? (legacyReportTab ? reportSectionByKey(legacyReportTab) : null)
+        ?? reportSectionByKey(currentPath.replace('/reports/', ''));
+    const [isReportMenuManuallyClosed, setIsReportMenuManuallyClosed] = React.useState(false);
+    const [isReportMenuOpen, setIsReportMenuOpen] = React.useState(false);
 
     React.useEffect(() => {
-        if (isReportPage) {
-            setIsReportMenuOpen(true);
-        }
-    }, [isReportPage]);
+        setIsReportMenuManuallyClosed(false);
+    }, [url]);
+
+    const isReportExpanded = isReportPage ? !isReportMenuManuallyClosed : isReportMenuOpen;
 
     // Navigation item definitions with maritime icons
     const beranda = {
@@ -521,16 +524,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     const isReportMenu = item.label === 'Laporan';
 
                     if (isReportMenu) {
-                        const isHighlighted = item.active || isReportMenuOpen;
+                        const isHighlighted = item.active || isReportExpanded;
 
                         return (
                             <React.Fragment key={item.label}>
                                 <button
                                     type="button"
-                                    aria-expanded={isReportMenuOpen}
+                                    aria-expanded={isReportExpanded}
                                     aria-controls="desktop-report-menu"
-                                    onClick={() => setIsReportMenuOpen((isOpen) => !isOpen)}
-                                    className={`flex w-full items-center justify-between rounded-[8px] px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] xl:px-3 ${isHighlighted
+                                    onClick={() => {
+                                        if (isReportPage) {
+                                            setIsReportMenuManuallyClosed((closed) => !closed);
+                                        } else {
+                                            setIsReportMenuOpen((open) => !open);
+                                        }
+                                    }}
+                                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] xl:px-3 ${isHighlighted
                                         ? 'bg-[#0060F4] text-white shadow-sm font-semibold'
                                         : 'text-[#B5C8DC] hover:bg-[#173B5C] hover:text-white'
                                     }`}
@@ -542,11 +551,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                         <span>{item.label}</span>
                                     </div>
                                     <div className="flex min-w-0 items-center gap-1.5">
-                                        {!isReportMenuOpen && item.active && (
-                                            <span className="max-w-20 truncate rounded-md bg-white/15 px-1.5 py-0.5 text-[9px] font-bold text-white">
-                                                {activeReportSection.shortLabel}
-                                            </span>
-                                        )}
                                         <svg
                                             aria-hidden="true"
                                             className={`size-3 shrink-0 ${isHighlighted ? 'text-white' : 'text-[#688CAE]'}`}
@@ -558,13 +562,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                 strokeLinecap="round"
                                                 strokeLinejoin="round"
                                                 strokeWidth={2}
-                                                d={isReportMenuOpen ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'}
+                                                d={isReportExpanded ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'}
                                             />
                                         </svg>
                                     </div>
                                 </button>
 
-                                {isReportMenuOpen && (
+                                {isReportExpanded && (
                                     <nav
                                         id="desktop-report-menu"
                                         aria-label="Menu laporan"
@@ -572,7 +576,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                     >
                                         {REPORT_SECTIONS.map((section) => {
                                             const isActive = currentPath === section.href
-                                                || (currentPath === '/reports' && section.key === activeReportSection.key);
+                                                || (currentPath === '/reports' && section.key === activeReportSection.key)
+                                                || (currentPath.startsWith('/reports') && (section.key === activeReportSection.key || currentPath === `/reports/${section.key}`));
 
                                             return (
                                                 <Link

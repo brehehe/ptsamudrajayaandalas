@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Ship;
+use App\Models\ShipRequest;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
@@ -79,9 +81,54 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
 })->with([
     'operasional' => ['Lapangan', 'operasional', '/operations', ['vessel_status', 'field_activity', 'request_status']],
     'admin' => ['Admin', 'admin', '/work-orders/create', ['workflow_pipeline', 'vendor_invoices', 'request_status']],
-    'direktur' => ['Direktur', 'direktur', '/approvals', ['approval_queue', 'financial_trend', 'director_pipeline']],
+    'direktur' => ['Direktur', 'direktur', '/approvals', ['request_status', 'financial_trend', 'director_pipeline']],
     'owner' => ['Owner', 'owner', '/reports/margin', ['financial_trend', 'collection_mix', 'business_pipeline']],
 ]);
+
+test('director dashboard shows total requests instead of Kopra approval', function () {
+    $director = User::factory()->create();
+    $director->syncRoles(['Direktur']);
+    $ship = Ship::create([
+        'name' => 'KM Dashboard Direktur',
+        'status' => 'Sandar',
+        'is_active' => true,
+    ]);
+    ShipRequest::create([
+        'request_number' => 'REQ-DIREKTUR-001',
+        'ship_id' => $ship->id,
+        'created_by' => $director->id,
+        'status' => 'Menunggu Approval Direktur',
+    ]);
+    ShipRequest::create([
+        'request_number' => 'REQ-DIREKTUR-002',
+        'ship_id' => $ship->id,
+        'created_by' => $director->id,
+        'status' => 'Selesai',
+    ]);
+
+    $response = $this->actingAs($director)->get('/dashboard');
+
+    $response->assertInertia(fn ($page) => $page
+        ->where('role_dashboard.metrics.1.key', 'requests')
+        ->where('role_dashboard.metrics.1.label', 'Total Pengajuan')
+        ->where('role_dashboard.metrics.1.value', 2)
+        ->where('role_dashboard.priorities.2.title', 'Total pengajuan')
+        ->where('role_dashboard.priorities.2.count', 2)
+        ->where('role_dashboard.charts.0.key', 'request_status')
+    );
+    expect(json_encode($response->inertiaProps('role_dashboard'), JSON_THROW_ON_ERROR))
+        ->not->toContain('Approval Kopra');
+});
+
+test('owner dashboard does not expose Kopra approval', function () {
+    $owner = User::factory()->create();
+    $owner->syncRoles(['Owner']);
+
+    $response = $this->actingAs($owner)->get('/dashboard');
+
+    expect(json_encode($response->inertiaProps('role_dashboard'), JSON_THROW_ON_ERROR))
+        ->not->toContain('Approval Kopra');
+});
 
 test('admin master users index exposes only admin and operational role management', function () {
     $admin = User::firstOrCreate(

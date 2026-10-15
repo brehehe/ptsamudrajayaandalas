@@ -47,6 +47,7 @@ class DashboardController extends Controller
                 ->count(),
         ];
 
+        $totalRequests = ShipRequest::query()->count();
         $requestsByStatus = [
             'menunggu' => ShipRequest::query()->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count(),
             'proses' => ShipRequest::query()->whereIn('status', ['Dalam Proses', 'Diproses', 'Disetujui'])->count(),
@@ -202,7 +203,7 @@ class DashboardController extends Controller
                 'id' => (string) $activity->id,
                 'time' => $activity->activity_time,
                 'title' => $activity->title,
-                'subtitle' => $activity->ship ? $activity->ship->name.' · '.$activity->detail : $activity->detail,
+                'subtitle' => $activity->detail,
                 'ship_name' => $activity->ship?->name,
                 'creator_name' => $activity->creator?->name ?? 'Staf Lapangan',
                 'location_name' => $activity->location_name,
@@ -224,7 +225,7 @@ class DashboardController extends Controller
                 'id' => (string) $activity->id,
                 'time' => $activity->activity_time,
                 'title' => $activity->title,
-                'subtitle' => $activity->ship ? $activity->ship->name.' · '.$activity->detail : $activity->detail,
+                'subtitle' => $activity->detail,
                 'ship_name' => $activity->ship?->name,
                 'creator_name' => $activity->creator?->name ?? 'Staf Lapangan',
                 'location_name' => $activity->location_name,
@@ -277,7 +278,7 @@ class DashboardController extends Controller
             'kpi' => [
                 'kapal_aktif' => $activePortCalls->count(),
                 'ships_by_status' => $shipsByStatus,
-                'total_pengajuan' => ShipRequest::query()->count(),
+                'total_pengajuan' => $totalRequests,
                 'requests_by_status' => $requestsByStatus,
                 'total_nilai_pengajuan' => (float) ShipRequest::query()->with('items')->get()->sum(
                     fn (ShipRequest $shipRequest): float => (float) $shipRequest->items->sum(
@@ -345,6 +346,7 @@ class DashboardController extends Controller
                 $pendingApprovals,
                 $financialOverview,
                 $shipsByStatus,
+                $totalRequests,
             ),
         ]);
     }
@@ -365,6 +367,7 @@ class DashboardController extends Controller
         Collection $pendingApprovals,
         array $financialOverview,
         array $shipsByStatus,
+        int $totalRequests,
     ): array {
         $activeWorkOrders = WorkOrder::query()->whereNotIn('status', ['closed'])->count();
         $pendingNeeds = RequestItem::query()
@@ -382,7 +385,6 @@ class DashboardController extends Controller
             ->count();
         $adminFundingReviews = ExpenseRequest::query()->where('status', 'waiting_admin_review')->count();
         $directorFundingReviews = ExpenseRequest::query()->where('status', 'waiting_director')->count();
-        $kopraApprovals = FundingRequest::query()->where('status', 'kopra_submitted')->count();
         $fundingInProgress = FundingRequest::query()
             ->whereNotIn('status', ['completed', 'kopra_rejected'])
             ->count();
@@ -471,40 +473,28 @@ class DashboardController extends Controller
                 'is_read_only' => false,
                 'eyebrow' => 'Direktur',
                 'title' => 'Meja keputusan dan pengawasan',
-                'subtitle' => 'Prioritaskan persetujuan, kontrol pendanaan Kopra, dan pantau kesehatan arus kas.',
+                'subtitle' => 'Prioritaskan persetujuan, kontrol pendanaan, dan pantau kesehatan arus kas.',
                 'primary_action' => ['label' => 'Buka Meja Approval', 'href' => '/approvals'],
                 'metrics' => [
                     ['key' => 'approvals', 'label' => 'Menunggu Keputusan', 'value' => $pendingApprovals->count() + $directorFundingReviews, 'format' => 'number', 'hint' => 'Pengajuan dan pendanaan'],
-                    ['key' => 'kopra', 'label' => 'Approval Kopra', 'value' => $kopraApprovals, 'format' => 'number', 'hint' => 'Menunggu otorisasi tahap kedua'],
+                    ['key' => 'requests', 'label' => 'Total Pengajuan', 'value' => $totalRequests, 'format' => 'number', 'hint' => 'Seluruh pengajuan tercatat'],
                     ['key' => 'collected', 'label' => 'Kas Diterima', 'value' => $financialOverview['total_collected'], 'format' => 'currency', 'hint' => 'Pembayaran klien tercatat'],
                     ['key' => 'receivables', 'label' => 'Total Piutang', 'value' => $financialOverview['total_outstanding'], 'format' => 'currency', 'hint' => $financialOverview['collection_rate'].'% kolektibilitas'],
                 ],
                 'priorities' => [
                     ['title' => 'Pengajuan menunggu keputusan', 'description' => 'Tinjau kebutuhan dan estimasi anggaran.', 'count' => $pendingApprovals->count(), 'href' => '/approvals', 'tone' => 'amber'],
-                    ['title' => 'Pendanaan menunggu Direktur', 'description' => 'Putuskan pengajuan sebelum proses Kopra.', 'count' => $directorFundingReviews, 'href' => '/funding', 'tone' => 'blue'],
-                    ['title' => 'Approval Kopra', 'description' => 'Otorisasi pengajuan yang sudah masuk Kopra.', 'count' => $kopraApprovals, 'href' => '/funding', 'tone' => 'red'],
+                    ['title' => 'Pendanaan menunggu Direktur', 'description' => 'Putuskan pengajuan pendanaan sebelum pencairan.', 'count' => $directorFundingReviews, 'href' => '/funding', 'tone' => 'blue'],
+                    ['title' => 'Total pengajuan', 'description' => 'Seluruh pengajuan yang tercatat di sistem.', 'count' => $totalRequests, 'href' => '/requests', 'tone' => 'green'],
                 ],
                 'quick_actions' => [
                     ['label' => 'Approval Anggaran', 'description' => 'Putuskan pengajuan kebutuhan', 'href' => '/approvals', 'icon' => 'approval'],
-                    ['label' => 'Pendanaan & Kopra', 'description' => 'Otorisasi dan pantau pencairan', 'href' => '/funding', 'icon' => 'bank'],
+                    ['label' => 'Pendanaan', 'description' => 'Pantau pengajuan dan pencairan', 'href' => '/funding', 'icon' => 'bank'],
                     ['label' => 'Monitoring Piutang', 'description' => 'Pantau tagihan klien', 'href' => '/receivables', 'icon' => 'receivable'],
                     ['label' => 'Laporan Eksekutif', 'description' => 'Lihat ringkasan perusahaan', 'href' => '/reports/margin', 'icon' => 'report'],
                 ],
                 'pipeline' => $commonPipeline,
                 'charts' => [
-                    [
-                        'key' => 'approval_queue',
-                        'type' => 'donut',
-                        'title' => 'Komposisi Antrean Keputusan',
-                        'subtitle' => 'Dokumen yang memerlukan keputusan Direktur di sistem SJA dan Kopra.',
-                        'format' => 'number',
-                        'center_label' => 'keputusan',
-                        'segments' => [
-                            ['label' => 'Pengajuan Kapal', 'value' => $pendingApprovals->count(), 'color' => '#F59E0B'],
-                            ['label' => 'Pendanaan SJA', 'value' => $directorFundingReviews, 'color' => '#0060F4'],
-                            ['label' => 'Approval Kopra', 'value' => $kopraApprovals, 'color' => '#7C3AED'],
-                        ],
-                    ],
+                    $this->requestStatusChart(),
                     $this->financialTrendChart($financialOverview),
                     $this->workflowChart($commonPipeline, 'director_pipeline', 'Alur Pengawasan Direktur', 'Posisi pekerjaan aktif yang perlu dipantau dari SPK hingga pembayaran klien.'),
                 ],
