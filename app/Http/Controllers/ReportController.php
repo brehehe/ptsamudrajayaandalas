@@ -34,7 +34,10 @@ class ReportController extends Controller
         $companyId = $validated['company_id'] ?? null;
         $shipId = $validated['ship_id'] ?? null;
         $job = $validated['job'] ?? null;
-        $activeTab = $validated['tab'] ?? 'ringkasan_margin';
+        $routeReport = $request->route('report');
+        $activeTab = is_string($routeReport)
+            ? $routeReport
+            : ($validated['tab'] ?? 'ringkasan_margin');
         $sort = $validated['sort'] ?? 'date';
         $direction = $validated['direction'] ?? 'desc';
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';

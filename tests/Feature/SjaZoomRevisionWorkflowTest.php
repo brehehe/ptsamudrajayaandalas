@@ -346,6 +346,10 @@ test('report search includes client SPK while field staff remains unauthorized',
         ->get(route('reports.index'))
         ->assertForbidden();
 
+    $this->actingAs($fieldStaff)
+        ->get(route('reports.margin'))
+        ->assertForbidden();
+
     $this->actingAs($owner)
         ->get(route('reports.index', [
             'from' => today()->startOfMonth()->toDateString(),
@@ -360,6 +364,26 @@ test('report search includes client SPK while field staff remains unauthorized',
             ->where('invoiceReport.rows.data.0.invoice_number', 'INV-REV-SEARCH')
             ->where('filters.search', 'SPK/KLIEN/REV/SEARCH'));
 });
+
+test('dedicated report routes select their own report section', function (string $routeName, string $reportSection) {
+    $owner = zoomRevisionUser('Owner');
+
+    $this->actingAs($owner)
+        ->get(route($routeName))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Reports/Index')
+            ->where('filters.tab', $reportSection));
+})->with([
+    'margin' => ['reports.margin', 'ringkasan_margin'],
+    'invoice' => ['reports.invoices', 'invoice'],
+    'piutang' => ['reports.receivables', 'piutang'],
+    'pengeluaran' => ['reports.expenses', 'pengeluaran'],
+    'aktivitas' => ['reports.activities', 'aktivitas'],
+    'laba rugi' => ['reports.profit-loss', 'laba_rugi'],
+    'arus kas' => ['reports.cash-flow', 'keuangan_kas'],
+    'operasional' => ['reports.operations', 'operasional'],
+]);
 
 test('company report finance summary uses confirmed cash records and the active company filter', function () {
     $owner = zoomRevisionUser('Owner');

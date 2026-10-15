@@ -278,6 +278,18 @@ const getEtaParts = (dateStr?: string | null): { date: string; time: string } =>
 const requestStatusLabel = (status: string): string =>
     status.trim().toLowerCase() === 'menunggu approval' ? 'Menunggu Approval Admin' : status;
 
+const portCallStatusLabel = (status?: string): string => {
+    const normalizedStatus = (status || '').trim().toLowerCase();
+
+    return ({
+        scheduled: 'Akan Datang',
+        anchored: 'Labuh',
+        berthed: 'Sandar',
+        departed: 'Selesai',
+        cancelled: 'Dibatalkan',
+    } as Record<string, string>)[normalizedStatus] || status || 'Belum tersedia';
+};
+
 const renderVesselStatusBadge = (status?: string) => {
     const s = (status || '').toLowerCase();
     if (s.includes('anchor') || s.includes('labuh')) {
@@ -1376,27 +1388,6 @@ export default function RequestShow({
                     <div className="p-5 sm:p-6 bg-gradient-to-r from-[#F0F8FF] via-white to-[#F0F8FF]/50 dark:from-[#071322] dark:via-[#0C1D36] dark:to-[#071322]">
                         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                             <div className="min-w-0 space-y-2.5">
-                                <div className="flex flex-wrap items-center gap-2.5">
-                                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#E0F0FF] px-3 py-1 font-mono text-xs font-extrabold text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        <Layers className="size-3.5 text-[#0060F4] dark:text-[#60A5FA]" />
-                                        <span>{jobNumber}</span>
-                                    </span>
-
-                                    {currentJob?.status && (
-                                        <StatusBadge
-                                            status={currentJob.status}
-                                            label={`Job: ${currentJob.status}`}
-                                            showDot
-                                            size="sm"
-                                        />
-                                    )}
-
-                                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50/80 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300">
-                                        <Anchor className="size-3 text-blue-600 dark:text-blue-400" />
-                                        {portName}
-                                    </span>
-                                </div>
-
                                 <div className="space-y-1">
                                     <h1 className="text-balance text-2xl font-black tracking-tight text-[#0B1F63] dark:text-[#F1F5F9] sm:text-3xl">
                                         {shipName}
@@ -1404,6 +1395,48 @@ export default function RequestShow({
                                     <p className="max-w-2xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">
                                         Kegiatan pelayanan keagenan dan logistik operasional kapal PT Samudra Jaya Andalas.
                                     </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 pt-2">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#EAF4FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
+                                            <Layers className="size-4" aria-hidden="true" />
+                                        </span>
+                                        <div className="min-w-0">
+                                            <span className="block text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                Nomor job
+                                            </span>
+                                            <span className="block break-all font-mono text-sm font-bold text-[#0B1F63] dark:text-white" translate="no">
+                                                {jobNumber}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {currentJob?.status && (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                Status
+                                            </span>
+                                            <StatusBadge
+                                                status={portCallStatusLabel(currentJob.status)}
+                                                label={portCallStatusLabel(currentJob.status)}
+                                                showDot
+                                                size="sm"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        <Anchor className="size-4 shrink-0 text-[#52658E] dark:text-[#94A3B8]" aria-hidden="true" />
+                                        <div className="min-w-0">
+                                            <span className="block text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                Pelabuhan
+                                            </span>
+                                            <span className="block text-pretty text-sm font-semibold text-[#0B1F63] dark:text-white">
+                                                {portName}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

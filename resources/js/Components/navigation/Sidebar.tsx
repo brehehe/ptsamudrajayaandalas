@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { PageProps } from '@/types';
+import { REPORT_SECTIONS } from '../../lib/reportNavigation';
 import Logo from '../ui/Logo';
 import ThemeToggle from '../ui/ThemeToggle';
 
@@ -17,6 +18,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const user = props?.auth?.user;
     const role = (user?.primary_role || 'Admin') as
         'Owner' | 'Direktur' | 'Admin' | 'Lapangan' | string;
+    const currentPath = url.split('?')[0];
+    const legacyReportTab = new URLSearchParams(url.split('?')[1] ?? '').get('tab');
+    const activeReportSection = REPORT_SECTIONS.find((section) => section.href === currentPath)
+        ?? REPORT_SECTIONS.find((section) => section.key === legacyReportTab)
+        ?? REPORT_SECTIONS[0];
+    const [isReportMenuOpen, setIsReportMenuOpen] = React.useState(false);
 
     // Navigation item definitions with maritime icons
     const beranda = {
@@ -227,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const laporan = {
         label: 'Laporan',
-        href: '/reports',
+        href: '/reports/margin',
         active: url.startsWith('/reports'),
         icon: (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -505,47 +512,132 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     'scrollbar-thumb-[#173B5C] scrollbar-track-transparent'
                 }
             >
-                {mainNav.map((item) => (
-                    <Link
-                        key={item.label}
-                        href={item.href}
-                        className={`flex items-center justify-between px-2.5 xl:px-3 py-1.5 rounded-[8px] text-[12px] font-medium transition-colors ${item.active
-                            ? 'bg-[#0060F4] text-white shadow-sm font-semibold'
-                            : 'text-[#B5C8DC] hover:text-white hover:bg-[#173B5C]'
-                            }`}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className={item.active ? 'text-white' : 'text-[#8EA8C4]'}>
-                                {item.icon}
-                            </span>
-                            <span>{item.label}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            {item.badge !== undefined && item.badge > 0 && (
-                                <span
-                                    className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded-full text-white ${item.badgeColor}`}
+                {mainNav.map((item) => {
+                    const isReportMenu = item.label === 'Laporan';
+
+                    if (isReportMenu) {
+                        const isHighlighted = item.active || isReportMenuOpen;
+
+                        return (
+                            <React.Fragment key={item.label}>
+                                <button
+                                    type="button"
+                                    aria-expanded={isReportMenuOpen}
+                                    aria-controls="desktop-report-menu"
+                                    onClick={() => setIsReportMenuOpen((isOpen) => !isOpen)}
+                                    className={`flex w-full items-center justify-between rounded-[8px] px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] xl:px-3 ${isHighlighted
+                                        ? 'bg-[#0060F4] text-white shadow-sm font-semibold'
+                                        : 'text-[#B5C8DC] hover:bg-[#173B5C] hover:text-white'
+                                    }`}
                                 >
-                                    {item.badge}
+                                    <div className="flex items-center gap-2">
+                                        <span className={isHighlighted ? 'text-white' : 'text-[#8EA8C4]'}>
+                                            {item.icon}
+                                        </span>
+                                        <span>{item.label}</span>
+                                    </div>
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                        {!isReportMenuOpen && item.active && (
+                                            <span className="max-w-20 truncate rounded-md bg-white/15 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                                                {activeReportSection.shortLabel}
+                                            </span>
+                                        )}
+                                        <svg
+                                            aria-hidden="true"
+                                            className={`size-3 shrink-0 ${isHighlighted ? 'text-white' : 'text-[#688CAE]'}`}
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d={isReportMenuOpen ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'}
+                                            />
+                                        </svg>
+                                    </div>
+                                </button>
+
+                                {isReportMenuOpen && (
+                                    <nav
+                                        id="desktop-report-menu"
+                                        aria-label="Menu laporan"
+                                        className="mb-1 ml-5 mt-1 space-y-0.5 border-l border-[#285585] pl-2"
+                                    >
+                                        {REPORT_SECTIONS.map((section) => {
+                                            const isActive = currentPath === section.href
+                                                || (currentPath === '/reports' && section.key === activeReportSection.key);
+
+                                            return (
+                                                <Link
+                                                    key={section.key}
+                                                    href={route(section.routeName)}
+                                                    prefetch
+                                                    aria-current={isActive ? 'page' : undefined}
+                                                    onClick={() => setIsReportMenuOpen(false)}
+                                                    className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-[10.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] ${
+                                                        isActive
+                                                            ? 'bg-[#173B5C] text-white'
+                                                            : 'text-[#9FB7CF] hover:bg-[#173B5C] hover:text-white'
+                                                    }`}
+                                                >
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className={`size-1.5 rounded-full ${isActive ? 'bg-[#19B5F7]' : 'bg-[#688CAE]'}`}
+                                                    />
+                                                    <span>{section.label}</span>
+                                                </Link>
+                                            );
+                                        })}
+                                    </nav>
+                                )}
+                            </React.Fragment>
+                        );
+                    }
+
+                    return (
+                        <Link
+                            key={item.label}
+                            href={item.href}
+                            className={`flex items-center justify-between px-2.5 xl:px-3 py-1.5 rounded-[8px] text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#19B5F7] ${item.active
+                                ? 'bg-[#0060F4] text-white shadow-sm font-semibold'
+                                : 'text-[#B5C8DC] hover:text-white hover:bg-[#173B5C]'
+                                }`}
+                        >
+                            <div className="flex items-center gap-2">
+                                <span className={item.active ? 'text-white' : 'text-[#8EA8C4]'}>
+                                    {item.icon}
                                 </span>
-                            )}
-                            {item.hasChevron && (
-                                <svg
-                                    className="w-3 h-3 text-[#688CAE]"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 9l-7 7-7-7"
-                                    />
-                                </svg>
-                            )}
-                        </div>
-                    </Link>
-                ))}
+                                <span>{item.label}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                {item.badge !== undefined && item.badge > 0 && (
+                                    <span
+                                        className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded-full text-white ${item.badgeColor}`}
+                                    >
+                                        {item.badge}
+                                    </span>
+                                )}
+                                {item.hasChevron && (
+                                    <svg
+                                        className="w-3 h-3 text-[#688CAE]"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M19 9l-7 7-7-7"
+                                        />
+                                    </svg>
+                                )}
+                            </div>
+                        </Link>
+                    );
+                })}
 
                 {/* Master Data Section (If role has master access) */}
                 {masterNav.length > 0 && (

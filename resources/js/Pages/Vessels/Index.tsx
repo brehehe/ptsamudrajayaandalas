@@ -595,7 +595,7 @@ export default function VesselsIndex({
                             Master Kapal
                         </Link>
                         <Link
-                            href="/reports"
+                            href="/reports/margin"
                             className="rounded-lg px-2 py-2 text-center text-[11px] font-bold text-[#082870] hover:bg-white dark:text-[#94A3B8] dark:hover:bg-[#132847]"
                         >
                             Laporan

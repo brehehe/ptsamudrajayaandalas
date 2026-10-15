@@ -117,7 +117,7 @@ const metricPresentation: Record<string, MetricPresentation> = {
         icon: ReceiptText,
     },
     collected: {
-        href: '/reports',
+        href: '/reports/cash-flow',
         icon: TrendingUp,
     },
     receivables: {

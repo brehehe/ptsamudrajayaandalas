@@ -162,6 +162,30 @@ Route::middleware(['auth'])->group(function () {
 
     // Laporan Rekonsiliasi & Operasional
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/reports/margin', [ReportController::class, 'index'])
+        ->defaults('report', 'ringkasan_margin')
+        ->name('reports.margin');
+    Route::get('/reports/invoices', [ReportController::class, 'index'])
+        ->defaults('report', 'invoice')
+        ->name('reports.invoices');
+    Route::get('/reports/receivables', [ReportController::class, 'index'])
+        ->defaults('report', 'piutang')
+        ->name('reports.receivables');
+    Route::get('/reports/expenses', [ReportController::class, 'index'])
+        ->defaults('report', 'pengeluaran')
+        ->name('reports.expenses');
+    Route::get('/reports/activities', [ReportController::class, 'index'])
+        ->defaults('report', 'aktivitas')
+        ->name('reports.activities');
+    Route::get('/reports/profit-loss', [ReportController::class, 'index'])
+        ->defaults('report', 'laba_rugi')
+        ->name('reports.profit-loss');
+    Route::get('/reports/cash-flow', [ReportController::class, 'index'])
+        ->defaults('report', 'keuangan_kas')
+        ->name('reports.cash-flow');
+    Route::get('/reports/operations', [ReportController::class, 'index'])
+        ->defaults('report', 'operasional')
+        ->name('reports.operations');
 
     // Master Data 1-8:
     // 1. Kapal (/master/vessels)

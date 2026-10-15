@@ -906,7 +906,7 @@ export default function AdminDashboardView({
                         </Link>
 
                         <Link
-                            href="/reports"
+                            href="/reports/margin"
                             className={
                                 'p-3 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] ' +
                                 'bg-[#F0F8FF]/60 dark:bg-[#071322] hover:bg-[#E0F0FF] ' +

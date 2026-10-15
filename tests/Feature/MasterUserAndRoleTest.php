@@ -80,7 +80,7 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
     'operasional' => ['Lapangan', 'operasional', '/operations', ['vessel_status', 'field_activity', 'request_status']],
     'admin' => ['Admin', 'admin', '/work-orders/create', ['workflow_pipeline', 'vendor_invoices', 'request_status']],
     'direktur' => ['Direktur', 'direktur', '/approvals', ['approval_queue', 'financial_trend', 'director_pipeline']],
-    'owner' => ['Owner', 'owner', '/reports', ['financial_trend', 'collection_mix', 'business_pipeline']],
+    'owner' => ['Owner', 'owner', '/reports/margin', ['financial_trend', 'collection_mix', 'business_pipeline']],
 ]);
 
 test('admin master users index exposes only admin and operational role management', function () {

@@ -488,7 +488,7 @@ class DashboardController extends Controller
                     ['label' => 'Approval Anggaran', 'description' => 'Putuskan pengajuan kebutuhan', 'href' => '/approvals', 'icon' => 'approval'],
                     ['label' => 'Pendanaan & Kopra', 'description' => 'Otorisasi dan pantau pencairan', 'href' => '/funding', 'icon' => 'bank'],
                     ['label' => 'Monitoring Piutang', 'description' => 'Pantau tagihan klien', 'href' => '/receivables', 'icon' => 'receivable'],
-                    ['label' => 'Laporan Eksekutif', 'description' => 'Lihat ringkasan perusahaan', 'href' => '/reports', 'icon' => 'report'],
+                    ['label' => 'Laporan Eksekutif', 'description' => 'Lihat ringkasan perusahaan', 'href' => '/reports/margin', 'icon' => 'report'],
                 ],
                 'pipeline' => $commonPipeline,
                 'charts' => [
@@ -518,7 +518,7 @@ class DashboardController extends Controller
                 'eyebrow' => 'Owner',
                 'title' => 'Ringkasan strategis perusahaan',
                 'subtitle' => 'Pantau performa operasional, arus kas, piutang, dan tata kelola perusahaan dalam mode lihat saja.',
-                'primary_action' => ['label' => 'Lihat Laporan', 'href' => '/reports'],
+                'primary_action' => ['label' => 'Lihat Laporan', 'href' => '/reports/margin'],
                 'metrics' => [
                     ['key' => 'work_orders', 'label' => 'SPK Aktif', 'value' => $activeWorkOrders, 'format' => 'number', 'hint' => 'Kegiatan belum ditutup'],
                     ['key' => 'invoiced', 'label' => 'Nilai Tagihan', 'value' => $financialOverview['total_invoiced'], 'format' => 'currency', 'hint' => 'Total invoice klien'],
@@ -531,7 +531,7 @@ class DashboardController extends Controller
                     ['title' => 'Pengguna aktif', 'description' => 'Ringkasan akun aktif dalam sistem.', 'count' => $activeUsers, 'href' => '/master/users', 'tone' => 'green'],
                 ],
                 'quick_actions' => [
-                    ['label' => 'Laporan Perusahaan', 'description' => 'Tinjau operasional dan keuangan', 'href' => '/reports', 'icon' => 'report'],
+                    ['label' => 'Laporan Perusahaan', 'description' => 'Tinjau operasional dan keuangan', 'href' => '/reports/margin', 'icon' => 'report'],
                     ['label' => 'Monitoring Piutang', 'description' => 'Pantau umur dan status tagihan', 'href' => '/receivables', 'icon' => 'receivable'],
                     ['label' => 'Daftar Pengguna', 'description' => 'Lihat akun dan pembagian peran', 'href' => '/master/users', 'icon' => 'users'],
                     ['label' => 'Pemantauan Proses', 'description' => 'Lihat alur pekerjaan berjalan', 'href' => '/work-orders', 'icon' => 'audit'],

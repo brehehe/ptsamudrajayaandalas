@@ -1,4 +1,4 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     Activity,
@@ -7,6 +7,7 @@ import {
     ArrowUpRight,
     Banknote,
     Building2,
+    CalendarDays,
     CheckCircle2,
     Clock,
     ClipboardList,
@@ -36,16 +37,10 @@ import DateRangePicker, { type DateRange } from '../../Components/forms/DateRang
 import DashboardAnalytics, { type DashboardChartData } from '../../Components/dashboard/DashboardAnalytics';
 import Pagination, { type PaginationLinkItem } from '../../Components/pagination/Pagination';
 import { formatDate } from '../../lib/formatDate';
-
-type ReportTab =
-    | 'ringkasan_margin'
-    | 'invoice'
-    | 'piutang'
-    | 'pengeluaran'
-    | 'aktivitas'
-    | 'laba_rugi'
-    | 'keuangan_kas'
-    | 'operasional';
+import {
+    reportSectionByKey,
+    type ReportSectionKey as ReportTab,
+} from '../../lib/reportNavigation';
 
 interface PaginatedData<T> {
     data: T[];
@@ -361,6 +356,8 @@ export default function ReportsIndex({
     filters,
 }: ReportsIndexProps) {
     const activeTab = filters.tab || 'ringkasan_margin';
+    const activeReportSection = reportSectionByKey(activeTab);
+    const activeReportUrl = route(activeReportSection.routeName);
 
     const [search, setSearch] = useState(filters.search || '');
     const [companyId, setCompanyId] = useState(filters.company_id || '');
@@ -378,11 +375,6 @@ export default function ReportsIndex({
     const [modalShipId, setModalShipId] = useState(filters.ship_id || '');
     const [modalJob, setModalJob] = useState(filters.job || '');
     const [modalStatus, setModalStatus] = useState(filters.status || 'all');
-    const [modalDateRange, setModalDateRange] = useState<DateRange>({
-        startDate: filters.from || '',
-        endDate: filters.to || '',
-    });
-
     useEffect(() => {
         setSearch(filters.search || '');
         setCompanyId(filters.company_id || '');
@@ -458,7 +450,6 @@ export default function ReportsIndex({
         shipId,
         job,
         status && status !== 'all' ? status : '',
-        dateRange.startDate || dateRange.endDate ? 'date' : '',
     ].filter(Boolean).length;
 
     const applyFilters = (overrides?: {
@@ -477,7 +468,7 @@ export default function ReportsIndex({
         const r = overrides?.range !== undefined ? overrides.range : dateRange;
 
         router.get(
-            '/reports',
+            activeReportUrl,
             {
                 from: r.startDate || undefined,
                 to: r.endDate || undefined,
@@ -486,7 +477,6 @@ export default function ReportsIndex({
                 company_id: comp || undefined,
                 ship_id: shp || undefined,
                 job: jb || undefined,
-                tab: activeTab,
                 sort: filters.sort || undefined,
                 direction: filters.direction || undefined,
             },
@@ -502,29 +492,21 @@ export default function ReportsIndex({
         company_id: companyId || undefined,
         ship_id: shipId || undefined,
         job: job || undefined,
-        tab: activeTab,
         sort: filters.sort || undefined,
         direction: filters.direction || undefined,
         ...overrides,
     });
 
-    const reportUrl = (overrides: Record<string, string | undefined> = {}) => {
-        const parameters = new URLSearchParams();
-
-        Object.entries(reportQuery(overrides)).forEach(([key, value]) => {
-            if (value) {
-                parameters.set(key, value);
-            }
-        });
-
-        return `/reports?${parameters.toString()}`;
+    const handlePeriodChange = (range: DateRange) => {
+        setDateRange(range);
+        applyFilters({ range });
     };
 
     const sortReport = (column: string) => {
         const direction = filters.sort === column && filters.direction === 'asc' ? 'desc' : 'asc';
 
         router.get(
-            '/reports',
+            activeReportUrl,
             reportQuery({ sort: column, direction }),
             { preserveState: true, preserveScroll: true, replace: true }
         );
@@ -538,11 +520,14 @@ export default function ReportsIndex({
         setStatus('all');
         const emptyRange = { startDate: '', endDate: '' };
         setDateRange(emptyRange);
-        router.get('/reports', { tab: activeTab }, { preserveState: true, preserveScroll: true });
+        router.get(activeReportUrl, {}, { preserveState: true, preserveScroll: true });
     };
 
+    const hasAdvancedFilters = Boolean(
+        search || companyId || shipId || job || (status && status !== 'all')
+    );
     const hasActiveFilters = Boolean(
-        search || companyId || shipId || job || (status && status !== 'all') || dateRange.startDate || dateRange.endDate
+        hasAdvancedFilters || dateRange.startDate || dateRange.endDate
     );
 
     // Job columns for Table
@@ -850,35 +835,18 @@ export default function ReportsIndex({
         },
     ];
 
-    const reportTabs: Array<{
-        key: ReportTab;
-        label: string;
-        shortLabel: string;
-        icon: ReactNode;
-        count?: number;
-    }> = [
-        { key: 'ringkasan_margin', label: 'Margin per Job', shortLabel: 'Margin', icon: <FileSpreadsheet aria-hidden="true" className="size-4" />, count: portCalls.total },
-        { key: 'invoice', label: 'Invoice', shortLabel: 'Invoice', icon: <FileText aria-hidden="true" className="size-4" />, count: invoiceReport.summary.total_documents },
-        { key: 'piutang', label: 'Piutang', shortLabel: 'Piutang', icon: <Building2 aria-hidden="true" className="size-4" />, count: receivableReport.summary.open_documents },
-        { key: 'pengeluaran', label: 'Pengeluaran', shortLabel: 'Keluar', icon: <Banknote aria-hidden="true" className="size-4" />, count: expenseReport.summary.total_documents },
-        { key: 'aktivitas', label: 'Aktivitas', shortLabel: 'Aktivitas', icon: <ClipboardList aria-hidden="true" className="size-4" />, count: activityReport.summary.total_activities },
-        { key: 'laba_rugi', label: 'Laba Rugi', shortLabel: 'Laba Rugi', icon: <TrendingUp aria-hidden="true" className="size-4" /> },
-        { key: 'keuangan_kas', label: 'Arus Kas', shortLabel: 'Kas', icon: <Wallet aria-hidden="true" className="size-4" /> },
-        { key: 'operasional', label: 'Operasional', shortLabel: 'Operasi', icon: <Activity aria-hidden="true" className="size-4" /> },
-    ];
-
     return (
         <AppLayout
-            title="Laporan Eksekutif & Operasional — PT Samudra Jaya Andalas"
+            title={`Laporan ${activeReportSection.label} — PT Samudra Jaya Andalas`}
             transparentMobileHeader
             noPaddingMobile
             mobileBackground="surface"
         >
-            <Head title="Laporan Eksekutif, Margin & Laba Rugi — PT Samudra Jaya Andalas" />
+            <Head title={`Laporan ${activeReportSection.label} — PT Samudra Jaya Andalas`} />
 
             <MobilePageHero
-                title="Laporan SJA"
-                description="Invoice, piutang, pengeluaran, aktivitas, laba rugi, margin job, dan operasional kapal."
+                title={`Laporan ${activeReportSection.label}`}
+                description={activeReportSection.description}
             />
 
             <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-5 rounded-t-[28px] bg-white px-4 pb-12 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
@@ -886,10 +854,10 @@ export default function ReportsIndex({
                 <div className="hidden items-center justify-between gap-4 pb-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F] md:flex">
                     <div>
                         <h1 className="text-2xl font-black text-[#0B1F63] sm:text-3xl dark:text-[#F1F5F9]">
-                            Laporan Eksekutif & Rekonsiliasi
+                            Laporan {activeReportSection.label}
                         </h1>
                         <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
-                            Analisis terpadu invoice, piutang, pengeluaran, aktivitas, laba rugi, arus kas, dan produktivitas operasional.
+                            {activeReportSection.description}
                         </p>
                     </div>
 
@@ -908,7 +876,29 @@ export default function ReportsIndex({
 
                 {/* ── Advanced Filter Toolbar with Modal ── */}
                 <Card padding="md">
-                    <div className="space-y-3">
+                    <div className="space-y-4">
+                        <div className="grid gap-3 border-b border-[#DCEAF8]/70 pb-4 sm:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] sm:items-end dark:border-[#1E3A5F]/70">
+                            <div className="flex min-w-0 items-start gap-2.5">
+                                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                    <CalendarDays aria-hidden="true" className="size-4" />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-balance text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                        Periode seluruh laporan
+                                    </p>
+                                    <p className="mt-0.5 text-pretty text-[11px] leading-4 text-[#52658E] dark:text-[#94A3B8]">
+                                        Berlaku untuk semua statistik, tabel, dan grafik pada halaman laporan.
+                                    </p>
+                                </div>
+                            </div>
+                            <DateRangePicker
+                                value={dateRange}
+                                onChange={handlePeriodChange}
+                                placeholder="Pilih periode seluruh laporan"
+                                placement="down"
+                            />
+                        </div>
+
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                             {/* Search (Roomy) */}
                             <form
@@ -954,7 +944,6 @@ export default function ReportsIndex({
                                         setModalShipId(shipId);
                                         setModalJob(job);
                                         setModalStatus(status);
-                                        setModalDateRange(dateRange);
                                         setIsFilterModalOpen(true);
                                     }}
                                     leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
@@ -983,26 +972,9 @@ export default function ReportsIndex({
                         </div>
 
                         {/* Active Filter Chips */}
-                        {hasActiveFilters && (
+                        {hasAdvancedFilters && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60 text-xs">
                                 <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
-                                {(dateRange.startDate || dateRange.endDate) && (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
-                                        Periode: {formatDate(dateRange.startDate)} s/d {formatDate(dateRange.endDate)}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const emptyRange = { startDate: '', endDate: '' };
-                                                setDateRange(emptyRange);
-                                                applyFilters({ range: emptyRange });
-                                            }}
-                                            className="-my-2 -mr-2 inline-flex size-11 items-center justify-center rounded-full hover:bg-white hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4] dark:hover:bg-[#0D2945]"
-                                            aria-label="Hapus filter rentang tanggal"
-                                        >
-                                            <X aria-hidden="true" className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
                                 {companyId && (
                                     <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
                                         Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
@@ -1073,42 +1045,8 @@ export default function ReportsIndex({
                     </div>
                 </Card>
 
-                <div className="-mx-4 snap-x snap-mandatory overflow-x-auto border-b border-[#DCEAF8] px-4 pb-3 [scrollbar-width:none] dark:border-[#1E3A5F] md:mx-0 md:px-0">
-                    <nav className="flex min-w-max items-center gap-2" aria-label="Bagian laporan">
-                        {reportTabs.map((tab) => {
-                            const isActive = activeTab === tab.key;
-
-                            return (
-                                <Link
-                                    key={tab.key}
-                                    href={reportUrl({ tab: tab.key, sort: 'date', direction: 'desc' })}
-                                    preserveScroll
-                                    replace
-                                    aria-current={isActive ? 'page' : undefined}
-                                    className={`flex min-h-11 shrink-0 snap-start items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] sm:px-4 sm:text-sm ${
-                                        isActive
-                                            ? 'bg-[#0060F4] text-white shadow-sm'
-                                            : 'text-[#52658E] hover:bg-[#F0F8FF] hover:text-[#0B1F63] dark:text-[#94A3B8] dark:hover:bg-[#132847]'
-                                    }`}
-                                >
-                                    {tab.icon}
-                                    <span className="2xl:hidden">{tab.shortLabel}</span>
-                                    <span className="hidden 2xl:inline">{tab.label}</span>
-                                    {tab.count !== undefined && (
-                                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
-                                            isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                                        }`}>
-                                            {tab.count}
-                                        </span>
-                                    )}
-                                </Link>
-                            );
-                        })}
-                    </nav>
-                </div>
-
                 {/* ═══════════════════════════════════════════════════════════
-                    TAB 1: RINGKASAN & MARGIN PER JOB
+                    REPORT: RINGKASAN & MARGIN PER JOB
                 ═══════════════════════════════════════════════════════════ */}
                 {activeTab === 'ringkasan_margin' && (
                     <div id="report-panel-ringkasan_margin" className="space-y-5">
@@ -1423,7 +1361,7 @@ export default function ReportsIndex({
                 )}
 
                 {/* ═══════════════════════════════════════════════════════════
-                    TAB 2: LAPORAN LABA RUGI (P&L EKSEKUTIF)
+                    REPORT: LAPORAN LABA RUGI (P&L EKSEKUTIF)
                 ═══════════════════════════════════════════════════════════ */}
                 {activeTab === 'laba_rugi' && (
                     <div id="report-panel-laba_rugi" className="space-y-5">
@@ -1434,9 +1372,6 @@ export default function ReportsIndex({
                                         <h2 className="text-balance text-lg font-black text-[#0B1F63] sm:text-xl dark:text-white">
                                             Laporan Laba Rugi Komprehensif (Income Statement)
                                         </h2>
-                                        <p className="mt-0.5 text-pretty text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                            Periode: {formatDate(dateRange.startDate || filters.from)} s/d {formatDate(dateRange.endDate || filters.to)}
-                                        </p>
                                     </div>
                                     <div className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full bg-[#E0F0FF] px-3 py-1 text-[10px] font-bold text-[#0060F4] sm:text-xs dark:bg-[#132847] dark:text-[#60A5FA]">
                                         <FileText aria-hidden="true" className="size-4" />
@@ -1534,7 +1469,7 @@ export default function ReportsIndex({
                 )}
 
                 {/* ═══════════════════════════════════════════════════════════
-                    TAB 3: KEUANGAN, ARUS KAS & AR/AP
+                    REPORT: KEUANGAN, ARUS KAS & AR/AP
                 ═══════════════════════════════════════════════════════════ */}
                 {activeTab === 'keuangan_kas' && (
                     <div id="report-panel-keuangan_kas" className="space-y-5">
@@ -1656,7 +1591,7 @@ export default function ReportsIndex({
                 )}
 
                 {/* ═══════════════════════════════════════════════════════════
-                    TAB 4: KINERJA OPERASIONAL ARMADA
+                    REPORT: KINERJA OPERASIONAL ARMADA
                 ═══════════════════════════════════════════════════════════ */}
                 {activeTab === 'operasional' && (
                     <div id="report-panel-operasional" className="space-y-5">
@@ -1774,7 +1709,6 @@ export default function ReportsIndex({
                                 setModalShipId('');
                                 setModalJob('');
                                 setModalStatus('all');
-                                setModalDateRange({ startDate: '', endDate: '' });
                             }}
                             className="col-span-2 border-rose-200 text-xs text-rose-600 hover:bg-rose-50 sm:col-span-1 dark:border-rose-900/50 dark:text-rose-400"
                         >
@@ -1795,14 +1729,12 @@ export default function ReportsIndex({
                                 setShipId(modalShipId);
                                 setJob(modalJob);
                                 setStatus(modalStatus);
-                                setDateRange(modalDateRange);
                                 setIsFilterModalOpen(false);
                                 applyFilters({
                                     company_id: modalCompanyId || undefined,
                                     ship_id: modalShipId || undefined,
                                     job: modalJob || undefined,
                                     status: modalStatus !== 'all' ? modalStatus : undefined,
-                                    range: modalDateRange,
                                 });
                             }}
                         >
@@ -1844,18 +1776,6 @@ export default function ReportsIndex({
                             onChange={(val) => setModalStatus(String(val || 'all'))}
                             options={statusOptions}
                             placeholder="Pilih Status"
-                        />
-                    </div>
-
-                    <div className="pt-2 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                        <p className="mb-2 text-xs font-bold text-[#0B1F63] dark:text-[#94A3B8]">
-                            Periode Tanggal Kegiatan:
-                        </p>
-                        <DateRangePicker
-                            inline
-                            value={modalDateRange}
-                            onChange={setModalDateRange}
-                            placeholder="Rentang Periode Laporan"
                         />
                     </div>
                 </div>
