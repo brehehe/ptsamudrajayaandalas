@@ -47,6 +47,7 @@ interface Product {
     name: string;
     unit: string;
     item_type: 'jasa' | 'non_jasa';
+    hpp_default?: number | string;
 }
 
 interface PortCall {
@@ -55,6 +56,7 @@ interface PortCall {
     status?: string;
     eta_at?: string;
     clearance_in_block_reason?: string | null;
+    active_clearance_in_request_number?: string | null;
     can_clearance_out?: boolean;
     ship: Ship;
     port?: Port;
@@ -82,9 +84,11 @@ interface RequestsCreateProps {
 
 interface ItemDetail {
     id: string;
+    product_id?: string;
     item_name: string;
     quantity: number;
     unit: string;
+    hpp_price?: number;
     notes: string;
     is_urgent?: boolean;
     required_date?: string;
@@ -175,15 +179,27 @@ const formatDisplayDate = (value?: string): string => {
     }).format(new Date(`${value}T00:00:00`));
 };
 
+const formatRupiah = (val?: number | string | null): string => {
+    const num = Number(val) || 0;
+    return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    }).format(num);
+};
+
 const COMMON_UNITS = ['Ton', 'Lonjor', 'Unit', 'Liter', 'Orang', 'Paket', 'Set', 'Pcs'];
 
 const createInitialItem = (): ItemDetail => {
     const today = getCurrentLocalDate();
     return {
         id: Date.now().toString(),
+        product_id: undefined,
         item_name: '',
         quantity: 1,
         unit: 'Unit',
+        hpp_price: 0,
         notes: '',
         is_urgent: false, // Bagian prioritas kebutuhan auto-isi default ke 'Normal'
         required_date: today,
@@ -267,11 +283,91 @@ export default function RequestsCreate({
     const activeDetail = activeVisit
         ? { ...makeDefaultDetail(activeVisit), ...shipDetails[activeShipId] }
         : null;
+    const getClearanceDefaultItems = (reqType: string, targetStatus?: string): ItemDetail[] => {
+        const today = getCurrentLocalDate();
+        if (reqType === CLEARANCE_IN) {
+            const prodClr = availableProducts.find((p) => p.code === 'PRD-CLR')
+                || availableProducts.find((p) => p.name.toLowerCase().includes('clearance in'))
+                || availableProducts.find((p) => p.name.toLowerCase().includes('clearance'));
+            const clrItem: ItemDetail = {
+                id: 'cin-clr-' + Date.now(),
+                product_id: prodClr?.id,
+                item_name: 'Clearance In (Syahbandar & Karantina)',
+                quantity: 1,
+                unit: prodClr?.unit || 'Dokumen',
+                hpp_price: prodClr?.hpp_default != null ? Number(prodClr.hpp_default) : 2500000,
+                notes: '',
+                is_urgent: true,
+                required_date: today,
+                required_time: '10:00',
+            };
+
+            if (targetStatus === 'berthed') {
+                const prodTaktis = availableProducts.find((p) => p.code === 'PRD-PLD-TAKTIS')
+                    || availableProducts.find((p) => p.name.toLowerCase().includes('taktis'));
+                const prodEpb = availableProducts.find((p) => p.code === 'PRD-PLD-EPB')
+                    || availableProducts.find((p) => p.name.toLowerCase().includes('epb'));
+                return [
+                    {
+                        id: 'cin-taktis-' + (Date.now() + 1),
+                        product_id: prodTaktis?.id,
+                        item_name: 'Taktis Penyandaran',
+                        quantity: 1,
+                        unit: prodTaktis?.unit || 'Kegiatan',
+                        hpp_price: prodTaktis?.hpp_default != null ? Number(prodTaktis.hpp_default) : 0,
+                        notes: '',
+                        is_urgent: true,
+                        required_date: today,
+                        required_time: '10:00',
+                    },
+                    {
+                        id: 'cin-epb-' + (Date.now() + 2),
+                        product_id: prodEpb?.id,
+                        item_name: 'Pembayaran EPB (Pandu Tunda)',
+                        quantity: 1,
+                        unit: prodEpb?.unit || 'Kegiatan',
+                        hpp_price: prodEpb?.hpp_default != null ? Number(prodEpb.hpp_default) : 100000,
+                        notes: '',
+                        is_urgent: true,
+                        required_date: today,
+                        required_time: '10:00',
+                    },
+                ];
+            } else {
+                return [clrItem];
+            }
+        } else if (reqType === CLEARANCE_OUT) {
+            const prodClr = availableProducts.find((p) => p.code === 'PRD-CLR')
+                || availableProducts.find((p) => p.name.toLowerCase().includes('clearance out'))
+                || availableProducts.find((p) => p.name.toLowerCase().includes('clearance'));
+            return [
+                {
+                    id: 'cout-clr-' + Date.now(),
+                    product_id: prodClr?.id,
+                    item_name: 'Clearance Out (Syahbandar & Karantina)',
+                    quantity: 1,
+                    unit: prodClr?.unit || 'Dokumen',
+                    hpp_price: prodClr?.hpp_default != null ? Number(prodClr.hpp_default) : 2500000,
+                    notes: '',
+                    is_urgent: true,
+                    required_date: today,
+                    required_time: '10:00',
+                },
+            ];
+        }
+        return [];
+    };
+
     const requestTypeBlockReason = (requestType: string): string | null => {
         if (!activeVisit) return 'Pilih kunjungan / job terlebih dahulu.';
 
         if (requestType === CLEARANCE_IN) {
-            return activeVisit.clearance_in_block_reason || null;
+            if (activeVisit.clearance_in_block_reason) {
+                return activeVisit.active_clearance_in_request_number
+                    ? `Pengajuan Clearance In untuk kunjungan ini sudah ada (${activeVisit.active_clearance_in_request_number}) dan masih diproses.`
+                    : activeVisit.clearance_in_block_reason;
+            }
+            return null;
         }
 
         if (requestType === CLEARANCE_OUT && !activeVisit.can_clearance_out) {
@@ -286,8 +382,56 @@ export default function RequestsCreate({
     const openPickType = (visit: PortCall) => {
         const existing = shipDetails[visit.id];
         setActiveShipId(visit.id);
-        setTempRequestType(existing?.request_type || '');
+        const reqType = existing?.request_type || '';
+        setTempRequestType(reqType);
+        const targetStatus = existing?.requested_port_call_status || (reqType === CLEARANCE_IN ? 'berthed' : '');
+        if ([CLEARANCE_IN, CLEARANCE_OUT].includes(reqType) && (!existing?.items || existing.items.length === 0)) {
+            const items = getClearanceDefaultItems(reqType, targetStatus);
+            setShipDetails((prev) => ({
+                ...prev,
+                [visit.id]: {
+                    ...makeDefaultDetail(visit),
+                    ...existing,
+                    request_type: reqType,
+                    requested_port_call_status: targetStatus,
+                    items,
+                },
+            }));
+        }
         setStage('pick-type');
+    };
+
+    const handleSelectTempRequestType = (type: string) => {
+        setTempRequestType(type);
+        if (!activeVisit) return;
+        if ([CLEARANCE_IN, CLEARANCE_OUT].includes(type)) {
+            const targetStatus = activeDetail?.requested_port_call_status || (type === CLEARANCE_IN ? 'berthed' : '');
+            const clrItems = getClearanceDefaultItems(type, targetStatus);
+            setShipDetails((prev) => ({
+                ...prev,
+                [activeVisit.id]: {
+                    ...makeDefaultDetail(activeVisit),
+                    ...prev[activeVisit.id],
+                    request_type: type,
+                    requested_port_call_status: targetStatus,
+                    items: clrItems,
+                },
+            }));
+        }
+    };
+
+    const handleClearanceInStatusChange = (status: 'anchored' | 'berthed') => {
+        if (!activeVisit) return;
+        const clrItems = getClearanceDefaultItems(CLEARANCE_IN, status);
+        setShipDetails((prev) => ({
+            ...prev,
+            [activeVisit.id]: {
+                ...makeDefaultDetail(activeVisit),
+                ...prev[activeVisit.id],
+                requested_port_call_status: status,
+                items: clrItems,
+            },
+        }));
     };
 
     const confirmPickType = () => {
@@ -300,13 +444,18 @@ export default function RequestsCreate({
 
         setShipDetails((prev) => {
             const existing = { ...makeDefaultDetail(activeVisit), ...prev[activeVisit.id] };
-            const needsItems = tempRequestType === 'Kebutuhan Kapal' && (existing.items || []).length === 0;
+            let items = existing.items || [];
+            if (tempRequestType === 'Kebutuhan Kapal' && items.length === 0) {
+                items = [createInitialItem()];
+            } else if ([CLEARANCE_IN, CLEARANCE_OUT].includes(tempRequestType) && items.length === 0) {
+                items = getClearanceDefaultItems(tempRequestType, existing.requested_port_call_status);
+            }
             return {
                 ...prev,
                 [activeVisit.id]: {
                     ...existing,
                     request_type: tempRequestType,
-                    items: needsItems ? [createInitialItem()] : existing.items,
+                    items,
                 },
             };
         });
@@ -358,12 +507,32 @@ export default function RequestsCreate({
 
     const updateItem = (itemId: string, field: keyof ItemDetail, value: any) => {
         if (!activeShipId) return;
+        setShipDetails((prev) => {
+            const currentDetail = prev[activeShipId];
+            let currentItems = currentDetail?.items || [];
+            if (currentItems.length === 0 && [CLEARANCE_IN, CLEARANCE_OUT].includes(tempRequestType)) {
+                currentItems = getClearanceDefaultItems(tempRequestType, currentDetail?.requested_port_call_status || 'berthed');
+            }
+            return {
+                ...prev,
+                [activeShipId]: {
+                    ...currentDetail,
+                    items: currentItems.map((i) =>
+                        i.id === itemId ? { ...i, [field]: value } : i
+                    ),
+                },
+            };
+        });
+    };
+
+    const updateItemFields = (itemId: string, fields: Partial<ItemDetail>) => {
+        if (!activeShipId) return;
         setShipDetails((prev) => ({
             ...prev,
             [activeShipId]: {
                 ...prev[activeShipId],
                 items: prev[activeShipId]?.items.map((i) =>
-                    i.id === itemId ? { ...i, [field]: value } : i
+                    i.id === itemId ? { ...i, ...fields } : i
                 ) || [],
             },
         }));
@@ -379,6 +548,10 @@ export default function RequestsCreate({
         const payload = {
             ships: configuredVisits.map((visit) => {
                 const det = shipDetails[visit.id];
+                let rawItems = (det.items || []).filter((it) => it.item_name && it.item_name.trim().length > 0);
+                if (rawItems.length === 0 && [CLEARANCE_IN, CLEARANCE_OUT].includes(det.request_type)) {
+                    rawItems = getClearanceDefaultItems(det.request_type, det.requested_port_call_status);
+                }
                 return {
                     ship_id: visit.ship.id,
                     port_call_id: visit.id,
@@ -398,20 +571,18 @@ export default function RequestsCreate({
                         ? det.operational_occurred_at
                         : null,
                     notes: det.notes,
-                    items: det.request_type === 'Kebutuhan Kapal'
-                        ? (det.items || [])
-                            .filter((it) => it.item_name && it.item_name.trim().length > 0)
-                            .map((it) => ({
-                                item_name: it.item_name.trim(),
-                                quantity: Number(it.quantity) || 1,
-                                unit: it.unit || 'Unit',
-                                notes: it.notes || '',
-                                is_urgent: Boolean(it.is_urgent),
-                                required_date: it.required_date || det.required_date,
-                                required_time: it.required_time || det.required_time,
-                                attachment: it.attachment || null,
-                            }))
-                        : [],
+                    items: rawItems.map((it) => ({
+                        product_id: it.product_id || undefined,
+                        item_name: it.item_name.trim(),
+                        quantity: Number(it.quantity) || 1,
+                        unit: it.unit || 'Unit',
+                        hpp_price: Number(it.hpp_price) || 0,
+                        notes: it.notes || '',
+                        is_urgent: Boolean(it.is_urgent),
+                        required_date: it.required_date || det.required_date,
+                        required_time: it.required_time || det.required_time,
+                        attachment: it.attachment || null,
+                    })),
                 };
             }),
             notes: notesGlobal,
@@ -597,10 +768,15 @@ export default function RequestsCreate({
                                             </div>
                                         </div>
 
-                                        <span className="flex shrink-0 flex-col items-end gap-2">
+                                        <span className="flex shrink-0 flex-col items-end gap-1.5">
                                             <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold ${visitStatusClasses(visit.status)}`}>
                                                 {visitStatusLabel(visit.status)}
                                             </span>
+                                            {visit.clearance_in_block_reason && visit.status === 'scheduled' && (
+                                                <span className="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9.5px] font-bold bg-[#FEF3C7] text-[#D97706] dark:bg-amber-950/45 dark:text-amber-300">
+                                                    Clearance In Diproses
+                                                </span>
+                                            )}
                                             <svg aria-hidden="true" className="size-4 text-[#8C9BB9]" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                                             </svg>
@@ -690,7 +866,7 @@ export default function RequestsCreate({
                                         key={rt}
                                         type="button"
                                         disabled={isDisabled}
-                                        onClick={() => setTempRequestType(rt)}
+                                        onClick={() => handleSelectTempRequestType(rt)}
                                         className={`w-full text-left px-4 py-3.5 rounded-xl border-2 flex items-center justify-between gap-3 transition-colors ${isDisabled
                                                 ? 'cursor-not-allowed border-[#DCEAF8] bg-[#F3F8FD] opacity-55 dark:border-[#1E3A5F] dark:bg-[#071322]'
                                                 : 'cursor-pointer'
@@ -731,8 +907,8 @@ export default function RequestsCreate({
                                 <RadioGroup
                                     name="clearance-in-target-status"
                                     label="Target status setelah pengajuan selesai"
-                                    value={activeDetail.requested_port_call_status}
-                                    onChange={(value) => updateActiveDetail('requested_port_call_status', value)}
+                                    value={activeDetail.requested_port_call_status || 'berthed'}
+                                    onChange={(value) => handleClearanceInStatusChange(value as 'anchored' | 'berthed')}
                                     options={[
                                         {
                                             value: 'anchored',
@@ -762,7 +938,7 @@ export default function RequestsCreate({
                         )}
 
                         {tempRequestType === CLEARANCE_OUT && !selectedRequestTypeBlockReason && activeDetail && (
-                            <div className="border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]">
+                            <div className="space-y-4 border-t border-[#DCEAF8] pt-4 dark:border-[#1E3A5F]">
                                 <Input
                                     id="clearance-out-actual-date"
                                     name="operational_occurred_at"
@@ -911,33 +1087,6 @@ export default function RequestsCreate({
                                     leftIcon={<span>📞</span>}
                                     sizeVariant="sm"
                                 />
-
-                                {/* Pembuat Pengajuan */}
-                                {users && users.length > 0 ? (
-                                    <div>
-                                        <label className="text-xs font-bold text-[#082870] dark:text-white block mb-1">
-                                            Pembuat Pengajuan (Staf SJA)
-                                        </label>
-                                        <select
-                                            value={createdBy}
-                                            onChange={(e) => setCreatedBy(e.target.value)}
-                                            className="w-full h-10 px-3 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs text-[#0B1F63] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
-                                        >
-                                            {users.map((u) => (
-                                                <option key={u.id} value={u.id}>
-                                                    {u.name} ({u.role})
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                ) : (
-                                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                        <span className="block font-semibold text-[#52658E] dark:text-[#94A3B8]">Pembuat Pengajuan</span>
-                                        <p className="mt-0.5 font-bold text-[#0B1F63] dark:text-white">
-                                            {authUser?.name || 'Staff'}
-                                        </p>
-                                    </div>
-                                )}
                             </div>
                         </div>
 
@@ -1020,12 +1169,20 @@ export default function RequestsCreate({
                                                 onChange={(e) => {
                                                     const val = e.target.value;
                                                     if (val === '__custom__') {
-                                                        updateItem(item.id, 'item_name', '');
+                                                        updateItemFields(item.id, {
+                                                            item_name: '',
+                                                            product_id: undefined,
+                                                            hpp_price: 0,
+                                                        });
                                                     } else if (val) {
                                                         const matched = availableProducts.find((p) => p.id === val);
                                                         if (matched) {
-                                                            updateItem(item.id, 'item_name', matched.name);
-                                                            if (matched.unit) updateItem(item.id, 'unit', matched.unit);
+                                                            updateItemFields(item.id, {
+                                                                item_name: matched.name,
+                                                                product_id: matched.id,
+                                                                unit: matched.unit || item.unit,
+                                                                hpp_price: matched.hpp_default ? Number(matched.hpp_default) : 0,
+                                                            });
                                                         }
                                                     }
                                                 }}
@@ -1241,26 +1398,42 @@ export default function RequestsCreate({
                                                             {' · '}{formatDisplayDate(det?.operational_occurred_at)}
                                                         </p>
                                                     )}
-                                                    {det?.request_type === 'Kebutuhan Kapal' && (
-                                                        <div>
-                                                            {items.length > 0 ? (
-                                                                <ul className="text-xs text-[#52658E] dark:text-[#B5C8DC] space-y-0.5 pt-1">
-                                                                    {items.map((it) => (
-                                                                        <li key={it.id} className="flex items-center gap-1.5">
-                                                                            <span>•</span>
-                                                                            <span>{it.item_name} — {it.quantity} {it.unit}</span>
-                                                                            {it.notes && (
-                                                                                <span className="text-[10px] text-[#8C9BB9]">({it.notes})</span>
-                                                                            )}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            ) : (
-                                                                <p className="text-xs italic text-[#8C9BB9] pt-1">
-                                                                    Belum ada item
-                                                                </p>
-                                                            )}
+                                                    {items.length > 0 ? (
+                                                        <div className="pt-2 border-t border-[#DCEAF8]/70 dark:border-[#1E3A5F]/70 mt-2 space-y-1.5">
+                                                            <div className="text-[11px] font-bold text-[#082870] dark:text-[#94A3B8]">
+                                                                Daftar Item ({items.length} item):
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                {items.map((it) => {
+                                                                    const qty = Number(it.quantity) || 1;
+                                                                    return (
+                                                                        <div
+                                                                            key={it.id}
+                                                                            className="text-xs text-[#0B1F63] dark:text-[#E7F0FA] flex items-center justify-between gap-1 py-1.5 px-2.5 rounded-lg bg-white/80 dark:bg-[#071322]/60 border border-[#E2EEF8] dark:border-[#1E3A5F]"
+                                                                        >
+                                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                <span className="font-bold text-[#0060F4] dark:text-[#38BDF8]">•</span>
+                                                                                <span className="font-semibold">{it.item_name}</span>
+                                                                                <span className="text-[#52658E] dark:text-[#94A3B8]">
+                                                                                    ({qty} {it.unit})
+                                                                                </span>
+                                                                                {it.notes && (
+                                                                                    <span className="text-[11px] text-[#8C9BB9] italic">
+                                                                                        ({it.notes})
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
                                                         </div>
+                                                    ) : (
+                                                        det?.request_type === 'Kebutuhan Kapal' && (
+                                                            <p className="text-xs italic text-[#8C9BB9] pt-1">
+                                                                Belum ada item
+                                                            </p>
+                                                        )
                                                     )}
                                                 </div>
                                             </div>
@@ -1285,6 +1458,8 @@ export default function RequestsCreate({
                                     );
                                 })}
                         </div>
+
+
 
                         {/* Info Pembuat Pengajuan */}
                         <div className="flex items-center justify-between text-xs py-2 px-3.5 rounded-xl bg-[#F0F8FF] dark:bg-[#071322] border border-[#BCE0FD] dark:border-[#1E3A5F]">

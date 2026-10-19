@@ -255,6 +255,11 @@ export default function WorkOrdersCreate({
     const selectedShip = shipList.find((item) => String(item.id) === form.data.ship_id);
     const selectedPort = ports.find((item) => String(item.id) === form.data.port_id);
     const selectedAssignee = assignees.find((item) => String(item.id) === form.data.assigned_to);
+    const previewJobNumber = useMemo(() => {
+        const raw = form.data.client_number.trim().toUpperCase();
+        if (!raw) return 'JOB-{Nomor SPK Klien}';
+        return raw.startsWith('JOB-') ? raw : `JOB-${raw}`;
+    }, [form.data.client_number]);
     const serverErrorCount = Object.keys(form.errors).length;
 
     const handleOpenAddCompany = () => {
@@ -813,6 +818,11 @@ export default function WorkOrdersCreate({
                                             value={form.data.client_number}
                                             onChange={(event) => updateField('client_number', event.target.value)}
                                             error={errorFor('client_number')}
+                                            helperText={
+                                                form.data.client_number.trim()
+                                                    ? `Nomor Job otomatis: ${previewJobNumber}`
+                                                    : 'Nomor Job otomatis dibuat dengan format: JOB-{Nomor SPK Klien}'
+                                            }
                                         />
                                         <Input
                                             id="document-date"
@@ -1135,6 +1145,7 @@ export default function WorkOrdersCreate({
                                                 <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><Ship aria-hidden="true" className="size-3.5" />Kapal</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedShip?.name || '-'}</dd></div>
                                                 <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><MapPin aria-hidden="true" className="size-3.5" />Pelabuhan</dt><dd className="mt-1 font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedPort?.name || '-'}</dd></div>
                                                 <div><dt className="flex items-center gap-1.5 text-xs text-[#52658E] dark:text-[#94A3B8]"><CalendarClock aria-hidden="true" className="size-3.5" />ETA / ETD</dt><dd className="mt-1 font-semibold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatDateOnly(form.data.eta_at)}<span className="block text-xs font-normal text-[#52658E] dark:text-[#94A3B8]">ETD: {form.data.etd_at ? formatDateOnly(form.data.etd_at) : 'Belum ditentukan'}</span></dd></div>
+                                                <div className="sm:col-span-2"><dt className="text-xs text-[#52658E] dark:text-[#94A3B8]">Nomor Job (Otomatis)</dt><dd className="mt-1 font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{previewJobNumber}<span className="ml-2 text-xs font-normal text-[#52658E] dark:text-[#94A3B8]">(Ditambahkan 4 digit acak jika ada nomor sama)</span></dd></div>
                                             </dl>
                                         </section>
 
@@ -1191,10 +1202,12 @@ export default function WorkOrdersCreate({
                                 </dl>
                             </Card>
 
-                            {/* <div className="rounded-2xl border border-[#9FC7EF] bg-[#F0F8FF] p-4 text-sm leading-6 text-[#285585] dark:border-[#285585] dark:bg-[#102642] dark:text-[#B5C8DC]">
-                                <p className="font-bold text-[#082870] dark:text-[#F1F5F9]">Nomor job dibuat otomatis</p>
-                                <p className="mt-1">Sistem membuat nomor SPK internal dan job kunjungan setelah data berhasil disimpan.</p>
-                            </div> */}
+                            <div className="rounded-2xl border border-[#9FC7EF] bg-[#F0F8FF] p-4 text-sm leading-6 text-[#285585] dark:border-[#285585] dark:bg-[#102642] dark:text-[#B5C8DC]">
+                                <p className="font-bold text-[#082870] dark:text-[#F1F5F9]">Nomor Job Otomatis</p>
+                                <p className="mt-1">
+                                    Nomor job dibuat otomatis dari SPK: <span className="font-mono font-bold text-[#082870] dark:text-white">{previewJobNumber}</span>. Jika nomor sama sudah ada, sistem otomatis menambahkan 4 digit acak unik di belakangnya.
+                                </p>
+                            </div>
                         </aside>
                     </div>
 

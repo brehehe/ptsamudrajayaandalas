@@ -142,11 +142,11 @@ export default function Table<T>({
             return 'max-w-0 truncate whitespace-nowrap';
         }
 
-        if (column.wrap === 'nowrap' || column.align === 'right' || column.align === 'center') {
-            return 'whitespace-nowrap';
+        if (column.wrap === 'normal') {
+            return 'min-w-0 whitespace-normal wrap-anywhere';
         }
 
-        return 'whitespace-normal break-words';
+        return 'whitespace-nowrap';
     };
 
     return (
@@ -217,7 +217,7 @@ export default function Table<T>({
                                         type="button"
                                         disabled={!col.sortable || !onSort}
                                         onClick={() => handleSort(col.key, col.sortable)}
-                                        className={`inline-flex items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] disabled:cursor-default ${
+                                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] disabled:cursor-default ${
                                             col.sortable
                                                 ? 'cursor-pointer select-none hover:text-[#0060F4] dark:hover:text-[#38BDF8]'
                                                 : ''
@@ -229,9 +229,9 @@ export default function Table<T>({
                                                   : ''
                                         }`}
                                     >
-                                        <span>{col.header}</span>
+                                        <span className="whitespace-nowrap">{col.header}</span>
                                         {col.sortable && (
-                                            <span className="flex flex-col text-[9px] leading-[8px] text-[#8C9BB9]">
+                                            <span className="flex shrink-0 flex-col text-[9px] leading-[8px] text-[#8C9BB9]">
                                                 <span
                                                     className={
                                                         isSorted && sortDirection === 'asc'

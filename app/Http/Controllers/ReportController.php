@@ -19,6 +19,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -72,8 +73,11 @@ class ReportController extends Controller
         }
 
         if ($job) {
-            $portCallsQuery->where(function ($query) use ($like, $job) {
-                $query->where('job_number', $like, "%{$job}%")->orWhere('id', $job);
+            $portCallsQuery->where(function ($query) use ($like, $job): void {
+                $query->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $query->orWhere('id', $job);
+                }
             });
         }
 
@@ -101,7 +105,10 @@ class ReportController extends Controller
             }))
             ->when($shipId, fn ($query) => $query->where('ship_id', $shipId))
             ->when($job, fn ($query) => $query->where(function ($jobQuery) use ($like, $job): void {
-                $jobQuery->where('job_number', $like, "%{$job}%")->orWhere('id', $job);
+                $jobQuery->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $jobQuery->orWhere('id', $job);
+                }
             }))
             ->pluck('id');
         $hasStructuredPortCallFilter = $companyId !== null
@@ -419,6 +426,7 @@ class ReportController extends Controller
                 'chart' => $this->activityTrend($from, $to, $activities, $dailyReports),
                 'rows' => $activityPage,
             ],
+            'vesselDailyExpenseSummary' => $this->vesselDailyExpenseSummary($from, $to, $shipId, $companyId, $job, $search),
             'companies' => $companies,
             'ships' => $ships,
             'jobs' => $jobs,
@@ -801,5 +809,142 @@ class ReportController extends Controller
         }
 
         return $ranges;
+    }
+
+    /**
+     * Prepare monitoring summary for daily expenses per vessel (from arrival/sandar to departure/current date).
+     * Accessible by Admin, Direktur, and Owner with print support.
+     *
+     * @return array<string, mixed>
+     */
+    private function vesselDailyExpenseSummary(
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        ?string $shipId,
+        ?string $companyId,
+        ?string $job,
+        ?string $search
+    ): array {
+        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        $portCalls = PortCall::query()
+            ->with([
+                'ship:id,name,ship_company_id',
+                'ship.company:id,name',
+                'workOrder:id,company_id,client_number',
+                'workOrder.company:id,name',
+                'port:id,name',
+                'requests' => fn ($q) => $q->with([
+                    'items' => fn ($iq) => $iq->orderBy('required_date')->orderBy('created_at'),
+                ]),
+            ])
+            ->when($shipId, fn ($q) => $q->where('ship_id', $shipId))
+            ->when($companyId, fn ($q) => $q->where(function ($cq) use ($companyId): void {
+                $cq->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId))
+                    ->orWhereHas('workOrder', fn ($wq) => $wq->where('company_id', $companyId));
+            }))
+            ->when($job, fn ($q) => $q->where(function ($jq) use ($like, $job): void {
+                $jq->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $jq->orWhere('id', $job);
+                }
+            }))
+            ->when($search, fn ($q) => $q->where(function ($sq) use ($like, $search): void {
+                $sq->where('job_number', $like, "%{$search}%")
+                    ->orWhereHas('ship', fn ($shq) => $shq->where('name', $like, "%{$search}%"));
+            }))
+            ->orderByDesc('created_at')
+            ->get();
+
+        $vesselsData = [];
+        $grandTotalCost = 0;
+        $grandItemCount = 0;
+
+        foreach ($portCalls as $call) {
+            $shipName = $call->ship?->name ?? 'Kapal Tidak Diketahui';
+            $companyName = $call->ship?->company?->name ?? $call->workOrder?->company?->name ?? '-';
+
+            $stayDays = '-';
+            if ($call->eta_at) {
+                $end = $call->departed_at ?? $call->etd_at ?? now();
+                $stayDays = max(1, round($call->eta_at->diffInHours($end) / 24, 1)).' hari';
+            }
+
+            $itemsList = [];
+            $runningTotal = 0;
+
+            foreach ($call->requests as $req) {
+                foreach ($req->items as $item) {
+                    $itemCost = (float) $item->hpp_price * (float) $item->quantity;
+                    $runningTotal += $itemCost;
+                    $itemDate = $item->required_date
+                        ? CarbonImmutable::parse($item->required_date)->toDateString()
+                        : ($req->request_date ? CarbonImmutable::parse($req->request_date)->toDateString() : $req->created_at?->toDateString());
+
+                    $itemsList[] = [
+                        'id' => $item->id,
+                        'date' => $itemDate,
+                        'request_number' => $req->request_number,
+                        'item_name' => $item->item_name,
+                        'item_type' => $item->item_type,
+                        'quantity' => (float) $item->quantity,
+                        'unit' => $item->unit,
+                        'hpp_price' => (float) $item->hpp_price,
+                        'total_cost' => $itemCost,
+                        'cumulative_cost' => $runningTotal,
+                        'director_status' => $item->director_status,
+                        'status' => $item->status,
+                        'notes' => $item->notes,
+                    ];
+                }
+            }
+
+            // Filter items by from/to if specified
+            $filteredItems = array_values(array_filter($itemsList, function ($it) use ($from, $to) {
+                if (! $it['date']) {
+                    return true;
+                }
+
+                return $it['date'] >= $from->toDateString() && $it['date'] <= $to->toDateString();
+            }));
+
+            // Recalculate running total for the filtered items
+            $vesselRunning = 0;
+            foreach ($filteredItems as &$fItem) {
+                $vesselRunning += $fItem['total_cost'];
+                $fItem['cumulative_cost'] = $vesselRunning;
+            }
+            unset($fItem);
+
+            $vesselTotal = (float) array_sum(array_column($filteredItems, 'total_cost'));
+            $grandTotalCost += $vesselTotal;
+            $grandItemCount += count($filteredItems);
+
+            if (count($filteredItems) > 0 || $shipId !== null) {
+                $vesselsData[] = [
+                    'port_call_id' => $call->id,
+                    'job_number' => $call->job_number,
+                    'client_spk' => $call->workOrder?->client_number,
+                    'ship_name' => $shipName,
+                    'company_name' => $companyName,
+                    'port_name' => $call->port?->name ?? 'Pelabuhan',
+                    'status' => $call->status,
+                    'eta' => $call->eta_at?->toDateString(),
+                    'etd' => $call->etd_at?->toDateString(),
+                    'departed_at' => $call->departed_at?->toDateString(),
+                    'stay_duration' => $stayDays,
+                    'total_expense' => $vesselTotal,
+                    'item_count' => count($filteredItems),
+                    'items' => $filteredItems,
+                ];
+            }
+        }
+
+        return [
+            'total_vessels' => count($vesselsData),
+            'total_expenses' => $grandTotalCost,
+            'total_items' => $grandItemCount,
+            'vessels' => $vesselsData,
+        ];
     }
 }

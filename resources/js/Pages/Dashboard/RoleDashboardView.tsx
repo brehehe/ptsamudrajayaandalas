@@ -1,5 +1,6 @@
 import DashboardAnalytics, { type DashboardChartData } from '@/Components/dashboard/DashboardAnalytics';
 import ReceivablesOverview, { type ReceivablesOverviewData } from '@/Components/dashboard/ReceivablesOverview';
+import DashboardFilterBar, { type DashboardFilters } from '@/Components/dashboard/DashboardFilterBar';
 import { Link } from '@inertiajs/react';
 import {
     Activity,
@@ -28,6 +29,7 @@ import type { ReactNode } from 'react';
 import RoleDashboardMobileView from './RoleDashboardMobileView';
 import ShipImage from '@/Components/vessels/ShipImage';
 import Table, { type Column } from '@/Components/tables/Table';
+import StatusBadge from '@/Components/ui/StatusBadge';
 
 type DashboardRole = 'admin' | 'operasional' | 'direktur' | 'owner';
 type MetricFormat = 'number' | 'currency' | 'percentage';
@@ -88,6 +90,10 @@ interface RoleDashboardViewProps {
     todayActivities?: any[];
     pendingApprovals: any[];
     financialOverview?: any;
+    filters?: DashboardFilters;
+    ships?: any[];
+    companies?: any[];
+    ports?: any[];
 }
 
 const roleMeta: Record<DashboardRole, { label: string; icon: LucideIcon }> = {
@@ -162,28 +168,6 @@ const formatCompactValue = (value: number, format: MetricFormat): string => {
     return `Rp${compactValue}`;
 };
 
-const statusStyle = (status: string): string => {
-    const normalized = status.toLowerCase();
-
-    if (normalized.includes('selesai') || normalized.includes('lunas') || normalized.includes('sandar')) {
-        return 'bg-[#DCF7E8] text-[#087443] dark:bg-emerald-950/45 dark:text-emerald-300';
-    }
-
-    if (normalized.includes('menunggu') || normalized.includes('datang') || normalized.includes('labuh')) {
-        return 'bg-[#FFF0CC] text-[#A65300] dark:bg-amber-950/45 dark:text-amber-300';
-    }
-
-    if (normalized.includes('tolak') || normalized.includes('terlambat')) {
-        return 'bg-[#FFE7EC] text-[#C62840] dark:bg-rose-950/45 dark:text-rose-300';
-    }
-
-    return 'bg-[#E0F0FF] text-[#0057D9] dark:bg-blue-950/45 dark:text-blue-300';
-};
-
-function StatusBadge({ status }: { status: string }) {
-    return <span className={`inline-flex max-w-full whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold ${statusStyle(status)}`}>{status}</span>;
-}
-
 function EmptyState({ title, href, action }: { title: string; href: string; action: string }) {
     return (
         <div className="flex min-h-36 flex-col items-center justify-center rounded-xl border border-dashed border-[#C7DCF0] bg-[#F8FBFF] px-5 text-center dark:border-[#26486D] dark:bg-[#091A2E]">
@@ -227,7 +211,7 @@ function LatestRequests({ requests }: { requests: any[] }) {
         { key: 'ship_name', header: 'Kapal', wrap: 'normal' },
         { key: 'items_count', header: 'Jumlah', render: (request) => `${request.items_count} kebutuhan` },
         { key: 'estimated_cost', header: 'Nilai Estimasi', align: 'right', render: (request) => formatValue(request.estimated_cost, 'currency') },
-        { key: 'status', header: 'Status', render: (request) => <StatusBadge status={request.status} /> },
+        { key: 'status', header: 'Status', render: (request) => <StatusBadge status={request.status} label={request.status} size="sm" /> },
     ];
 
     return (
@@ -237,7 +221,7 @@ function LatestRequests({ requests }: { requests: any[] }) {
                     <Link key={request.id} href={`/requests/${request.id}`} className={`block rounded-xl border p-3 hover:border-[#9CC9F5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${request.is_new ? 'border-[#0060F4] bg-[#EAF4FF] dark:border-[#38BDF8] dark:bg-[#102B4A]' : 'border-[#E5EEF7] dark:border-[#1E3A5F]'}`}>
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0"><p className="truncate text-xs font-extrabold text-[#0B1F63] dark:text-white">{request.request_number}</p><p className="mt-0.5 truncate text-[11px] text-[#52658E] dark:text-[#9FB0C6]">{request.ship_name} · {request.items_count} kebutuhan</p></div>
-                            <StatusBadge status={request.status} />
+                            <StatusBadge status={request.status} label={request.status} size="sm" />
                         </div>
                         <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#52658E] dark:text-[#9FB0C6]"><span>{request.date}</span><span className="font-bold tabular-nums text-[#0B1F63] dark:text-white">{formatValue(request.estimated_cost, 'currency')}</span></div>
                     </Link>
@@ -260,7 +244,7 @@ function NeedsToday({ needs }: { needs: any[] }) {
             {needs.slice(0, 6).map((need, index) => (
                 <Link key={`${need.pengajuan}-${need.kebutuhan}-${index}`} href="/needs" className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[#E5EEF7] px-3 py-2 hover:border-[#9CC9F5] hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#10243E]">
                     <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">{need.kapal}</span><span className="mt-0.5 block truncate text-[10px] text-[#52658E] dark:text-[#9FB0C6]">{need.kebutuhan} · {need.jumlah} · {need.jadwal}</span></span>
-                    <span className="flex flex-col items-end gap-1"><StatusBadge status={need.status} /><span className="text-[9px] font-bold text-[#0060F4] dark:text-[#60A5FA]">{need.pengajuan}</span></span>
+                    <span className="flex flex-col items-end gap-1"><StatusBadge status={need.status} label={need.status} size="sm" /><span className="text-[9px] font-bold text-[#0060F4] dark:text-[#60A5FA]">{need.pengajuan}</span></span>
                 </Link>
             ))}
         </div>
@@ -278,7 +262,7 @@ function ActiveShips({ ships }: { ships: any[] }) {
                 <Link key={shipItem.id} href={`/vessels/${shipItem.ship_id}?visit=${shipItem.id}`} className="group grid min-h-[74px] grid-cols-[54px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[#E5EEF7] p-2.5 hover:border-[#9CC9F5] hover:bg-[#F8FBFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#10243E]">
                     <ShipImage src={shipItem.image_url} width="54" height="54" loading="lazy" alt={`Foto ${shipItem.name}`} className="size-[54px] rounded-lg object-cover" placeholderIconClassName="size-6" />
                     <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">{shipItem.name}</span><span className="mt-1 block truncate text-[10px] text-[#52658E] dark:text-[#9FB0C6]">{shipItem.port}</span><span className="mt-1 block truncate text-[9px] tabular-nums text-[#7C91AC]">{shipItem.eta}</span></span>
-                    <span className="flex flex-col items-end gap-1"><StatusBadge status={shipItem.status} /><ArrowRight aria-hidden="true" className="size-3.5 text-[#8BA4C1] group-hover:text-[#0060F4]" /></span>
+                    <span className="flex flex-col items-end gap-1"><StatusBadge status={shipItem.status} label={shipItem.status} size="sm" /><ArrowRight aria-hidden="true" className="size-3.5 text-[#8BA4C1] group-hover:text-[#0060F4]" /></span>
                 </Link>
             ))}
         </div>
@@ -432,6 +416,10 @@ export default function RoleDashboardView({
     todayActivities = [],
     pendingApprovals,
     financialOverview,
+    filters = {},
+    ships = [],
+    companies = [],
+    ports = [],
 }: RoleDashboardViewProps) {
     const meta = roleMeta[dashboard.role];
     const RoleIcon = meta.icon;
@@ -473,6 +461,10 @@ export default function RoleDashboardView({
                 needsToday={needsToday}
                 pendingApprovals={pendingApprovals}
                 receivablesOverview={receivablesOverview}
+                filters={filters}
+                ships={ships}
+                companies={companies}
+                ports={ports}
             />
 
             <div className="mx-auto hidden w-full max-w-[1680px] space-y-3 sm:space-y-4 md:block">
@@ -502,6 +494,14 @@ export default function RoleDashboardView({
                         </div>
                     </div>
                 </section>
+
+                <DashboardFilterBar
+                    filters={filters || {}}
+                    ships={ships}
+                    companies={companies}
+                    ports={ports}
+                    role={dashboard.role}
+                />
 
                 <section aria-label="Ringkasan utama" className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
                     {dashboard.metrics.map((metric) => {

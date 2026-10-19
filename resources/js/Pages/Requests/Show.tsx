@@ -24,9 +24,11 @@ import {
     MapPin,
     PackagePlus,
     Plus,
+    Printer,
     Save,
     Send,
     Ship as ShipIcon,
+    SlidersHorizontal,
     Tag,
     UserRound,
     X,
@@ -37,6 +39,7 @@ import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { playSjaChime } from '../../Components/feedback/AudioNotification';
 import Modal from '../../Components/overlays/Modal';
+import ActionMenu, { type ActionMenuGroup, type ActionMenuItem } from '../../Components/ui/ActionMenu';
 import { formatRupiahInput, normalizeRupiahInput } from '../../Components/forms/MoneyInput';
 import MoneyInput from '../../Components/forms/MoneyInput';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
@@ -202,6 +205,7 @@ interface RequestShowProps {
         can_create_requests: boolean;
         can_process_requests: boolean;
         can_create_completion_notes: boolean;
+        can_print_request_reports: boolean;
     };
 }
 
@@ -226,6 +230,10 @@ const formatDateTime = (value?: string | null): string => {
         hour: '2-digit',
         minute: '2-digit',
     }).format(new Date(value));
+};
+
+const supplierLabel = (item: RequestItem): string => {
+    return item.vendor?.name || 'Tanpa vendor/supplier';
 };
 
 const formatDateOnly = (value?: string | null): string => {
@@ -630,11 +638,16 @@ export default function RequestShow({
     const [savingReqId, setSavingReqId] = useState<string | null>(null);
     const [activeAction, setActiveAction] = useState<string | null>(null);
     const [priceValidationErrors, setPriceValidationErrors] = useState<string[]>([]);
+    const [batchAdminNotes, setBatchAdminNotes] = useState('');
 
     // Modals
     const [addItemTargetReqId, setAddItemTargetReqId] = useState<string | null>(null);
     const [supplierInvoiceItem, setSupplierInvoiceItem] = useState<RequestItem | null>(null);
     const [copiedNumber, setCopiedNumber] = useState<string | null>(null);
+    const [taktisSupplementTarget, setTaktisSupplementTarget] = useState<{
+        request: ShipRequest;
+        item?: RequestItem;
+    } | null>(null);
 
     useEffect(() => {
         if (allRequests.length === 0) {
@@ -651,6 +664,12 @@ export default function RequestShow({
         () => allRequests.find((shipRequest) => shipRequest.id === activeRequestId) ?? allRequests[0],
         [activeRequestId, allRequests]
     );
+
+    const availableSurplusItems = useMemo(() => {
+        return allRequests.flatMap((req) => req.items || []).filter((item) => {
+            return item.id !== taktisSupplementTarget?.item?.id;
+        });
+    }, [allRequests, taktisSupplementTarget]);
 
     // Initialize drafts from items
     useEffect(() => {
@@ -695,9 +714,101 @@ export default function RequestShow({
         });
     }, [allRequests]);
 
+    const headerActionGroups = useMemo<ActionMenuGroup[]>(() => {
+        const primaryItems: ActionMenuItem[] = [];
+        const documentItems: ActionMenuItem[] = [];
+
+        if (capabilities.can_create_requests) {
+            primaryItems.push({
+                id: 'new-request',
+                label: 'Buat Pengajuan Baru',
+                icon: <Plus className="size-4" />,
+                href: route('requests.create'),
+                inertia: true,
+                tone: 'primary',
+            });
+        }
+
+        if (capabilities.can_print_request_reports && activeRequest) {
+            documentItems.push({
+                id: 'print-request-report',
+                label: 'Cetak Laporan Pengajuan',
+                icon: <Printer className="size-4" />,
+                href: route('reports.requests.document', activeRequest.id),
+                target: '_blank',
+            });
+        }
+
+        if (currentJob?.work_order?.system_number) {
+            documentItems.push({
+                id: 'view-work-order',
+                label: `SPK ${currentJob.work_order.system_number}`,
+                icon: <FileText className="size-4" />,
+                href: route('work-orders.index', { search: currentJob.work_order.system_number }),
+                inertia: true,
+            });
+        }
+
+        if (currentJob?.completion_note) {
+            documentItems.push({
+                id: 'view-completion-note',
+                label: `Lihat Nota Rampung (${currentJob.completion_note.document_number})`,
+                icon: <FileCheck2 className="size-4" />,
+                href: `/completion-notes/${currentJob.completion_note.document_number}/preview`,
+                target: '_blank',
+            });
+        } else if (capabilities.can_create_completion_notes && currentJob?.status === 'departed') {
+            documentItems.push({
+                id: 'create-completion-note',
+                label: 'Unggah Nota Rampung',
+                icon: <FileUp className="size-4" />,
+                href: route('completion-notes.create', { port_call_id: currentJob.id }),
+                inertia: true,
+                tone: 'success',
+            });
+        } else if (capabilities.can_create_completion_notes) {
+            documentItems.push({
+                id: 'completion-note-waiting',
+                label: 'Nota Rampung (Tersedia setelah kapal berangkat)',
+                icon: <FileCheck2 className="size-4" />,
+                disabled: true,
+                onSelect: () => {},
+            });
+        }
+
+        const groups: ActionMenuGroup[] = [];
+        if (primaryItems.length > 0) {
+            groups.push({
+                id: 'primary-actions',
+                label: 'Tindakan Pengajuan',
+                items: primaryItems,
+            });
+        }
+        if (documentItems.length > 0) {
+            groups.push({
+                id: 'document-actions',
+                label: 'Dokumen & Referensi',
+                items: documentItems,
+            });
+        }
+
+        return groups;
+    }, [
+        capabilities.can_create_requests,
+        capabilities.can_print_request_reports,
+        capabilities.can_create_completion_notes,
+        activeRequest,
+        currentJob?.work_order?.system_number,
+        currentJob?.completion_note,
+        currentJob?.status,
+        currentJob?.id,
+    ]);
+
     const itemForm = useForm({
         product_id: '',
         item_name: '',
+        item_type: 'non_jasa' as 'jasa' | 'non_jasa',
+        save_as_master_product: false,
         quantity: '1',
         unit: 'Dokumen',
         notes: '',
@@ -713,6 +824,71 @@ export default function RequestShow({
         supplier_invoice_due_date: '',
         supplier_invoice_document: null as File | null,
     });
+
+    const taktisSupplementForm = useForm({
+        item_name: '',
+        amount: '',
+        required_date: toDateInputValue(),
+        surplus_source_item_id: '',
+        surplus_amount: '',
+        actualization_notes: '',
+        notes: '',
+        attachment: null as File | null,
+    });
+
+    const isTaktisItem = (item: RequestItem): boolean => {
+        const name = (item.item_name || '').toLowerCase();
+        return name.includes('taktis') ||
+            name.includes('clearance') ||
+            name.includes('panjar') ||
+            name.includes('ngebon') ||
+            name.includes('sertifikat') ||
+            name.includes('certificate') ||
+            name.includes('entertain') ||
+            name.includes('operasional');
+    };
+
+    const openTaktisSupplementModal = (targetReq: ShipRequest, item?: RequestItem) => {
+        const defaultName = item
+            ? `Tambahan Biaya Taktis (${item.item_name})`
+            : `Tambahan Biaya Taktis Clearance`;
+        const defaultNotes = item
+            ? `Kekurangan realisasi biaya taktis untuk ${item.item_name} pada ${targetReq.request_number}.`
+            : `Kekurangan realisasi biaya taktis lapangan pada ${targetReq.request_number}.`;
+
+        setTaktisSupplementTarget({ request: targetReq, item });
+        taktisSupplementForm.setData({
+            item_name: defaultName,
+            amount: '',
+            required_date: toDateInputValue(),
+            surplus_source_item_id: '',
+            surplus_amount: '',
+            actualization_notes: '',
+            notes: defaultNotes,
+            attachment: null,
+        });
+        taktisSupplementForm.clearErrors();
+    };
+
+    const closeTaktisSupplementModal = () => {
+        setTaktisSupplementTarget(null);
+        taktisSupplementForm.reset();
+        taktisSupplementForm.clearErrors();
+    };
+
+    const submitTaktisSupplement = (event: FormEvent) => {
+        event.preventDefault();
+        if (!taktisSupplementTarget) return;
+
+        taktisSupplementForm.post(route('requests.taktis-supplement', taktisSupplementTarget.request.id), {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                closeTaktisSupplementModal();
+                playSjaChime('success');
+            },
+        });
+    };
 
     const canEditSupplierInvoice = (item: RequestItem): boolean =>
         canUseAdminActions &&
@@ -766,6 +942,7 @@ export default function RequestShow({
             ...current,
             product_id: productId,
             item_name: product?.name ?? current.item_name,
+            item_type: product ? (product.item_type === 'jasa' ? 'jasa' : 'non_jasa') : current.item_type,
             unit: product?.unit ?? current.unit,
         }));
     };
@@ -955,13 +1132,15 @@ export default function RequestShow({
             return;
         }
 
-        const incompleteInvoiceItems = validSelectedItemsAcrossJob.filter(({ item }) => !item.supplier_invoice_complete);
+        const incompleteInvoiceItems = validSelectedItemsAcrossJob.filter(
+            ({ item }) => !item.supplier_invoice_complete
+        );
         if (incompleteInvoiceItems.length > 0) {
             playSjaChime('alert');
             setPriceValidationErrors(incompleteInvoiceItems.map(({ item, requestId }) => {
                 const req = allRequests.find((requestItem) => requestItem.id === requestId);
 
-                return `Nota invoice supplier untuk "${item.item_name}" (${req?.request_number || 'Pengajuan'}) belum lengkap. Unggah dokumen dan lengkapi data supplier sebelum dikirim ke Direktur.`;
+                return `Nota invoice supplier untuk "${item.item_name}" (${req?.request_number || 'Pengajuan'}) belum lengkap. Unggah dokumen dan lengkapi data nota sebelum dikirim ke Direktur. Vendor boleh dikosongkan.`;
             }));
             return;
         }
@@ -978,12 +1157,15 @@ export default function RequestShow({
                     id: itemId,
                     hpp_price: parseFloat(priceDrafts[itemId]?.hpp_price ?? '0') || 0,
                 })),
-                admin_notes: 'Pengajuan sekaligus seluruh item kebutuhan kapal kepada Direktur.',
+                admin_notes: batchAdminNotes.trim() || null,
             },
             {
                 preserveScroll: true,
                 onStart: () => setActiveAction('batch-forward-all'),
-                onSuccess: () => playSjaChime('success'),
+                onSuccess: () => {
+                    setBatchAdminNotes('');
+                    playSjaChime('success');
+                },
                 onFinish: () => setActiveAction(null),
             }
         );
@@ -1040,11 +1222,13 @@ export default function RequestShow({
             return;
         }
 
-        const incompleteInvoiceItems = selectedItems.filter((item) => !item.supplier_invoice_complete);
+        const incompleteInvoiceItems = selectedItems.filter(
+            (item) => !item.supplier_invoice_complete
+        );
         if (incompleteInvoiceItems.length > 0) {
             playSjaChime('alert');
             setPriceValidationErrors(incompleteInvoiceItems.map(
-                (item) => `Nota invoice supplier untuk "${item.item_name}" pada pengajuan ${req.request_number} belum lengkap. Unggah dokumen dan lengkapi data supplier sebelum dikirim ke Direktur.`
+                (item) => `Nota invoice supplier untuk "${item.item_name}" pada pengajuan ${req.request_number} belum lengkap. Unggah dokumen dan lengkapi data nota sebelum dikirim ke Direktur. Vendor boleh dikosongkan.`
             ));
             return;
         }
@@ -1059,12 +1243,15 @@ export default function RequestShow({
                     id: itemId,
                     hpp_price: parseFloat(priceDrafts[itemId]?.hpp_price ?? '0') || 0,
                 })),
-                admin_notes: 'Harga telah ditinjau dan item terpilih diajukan.',
+                admin_notes: batchAdminNotes.trim() || null,
             },
             {
                 preserveScroll: true,
                 onStart: () => setActiveAction(`forward-${reqId}`),
-                onSuccess: () => playSjaChime('success'),
+                onSuccess: () => {
+                    setBatchAdminNotes('');
+                    playSjaChime('success');
+                },
                 onFinish: () => setActiveAction(null),
             }
         );
@@ -1250,26 +1437,10 @@ export default function RequestShow({
                 </h1>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                    {currentJob?.work_order?.system_number && (
-                        <Link
-                            href={route('work-orders.detail', currentJob.work_order.id)}
-                            prefetch
-                            aria-label={`Buka SPK ${currentJob.work_order.system_number}`}
-                            className="flex size-11 items-center justify-center rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] text-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]"
-                        >
-                            <FileText aria-hidden="true" className="size-4" />
-                        </Link>
-                    )}
-                    {capabilities.can_create_requests && (
-                        <Link
-                            href={route('requests.create')}
-                            prefetch
-                            aria-label="Buat pengajuan baru"
-                            className="flex size-11 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-xs hover:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
-                        >
-                            <Plus aria-hidden="true" className="size-4" />
-                        </Link>
-                    )}
+                    <ActionMenu
+                        label="Menu Aksi Kegiatan"
+                        groups={headerActionGroups}
+                    />
                 </div>
             </div>
 
@@ -1357,29 +1528,13 @@ export default function RequestShow({
                         Kembali ke daftar kegiatan kapal
                     </Link>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                        {renderCompletionNoteAction()}
-
-                        {currentJob?.work_order?.system_number && (
-                            <Link
-                                href={route('work-orders.index', { search: currentJob.work_order.system_number })}
-                                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#DCEAF8] bg-white px-3 text-xs font-bold text-[#0B1F63] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
-                            >
-                                <FileText className="size-3.5 text-[#0060F4]" />
-                                SPK {currentJob.work_order.system_number}
-                                <ExternalLink className="size-3 text-[#52658E]" />
-                            </Link>
-                        )}
-
-                        {capabilities.can_create_requests && (
-                            <Link
-                                href={route('requests.create')}
-                                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#0060F4] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#082870] active:scale-[0.99]"
-                            >
-                                <Plus className="size-3.5" />
-                                <span>Buat Pengajuan Baru</span>
-                            </Link>
-                        )}
+                    <div className="flex items-center gap-2">
+                        <ActionMenu
+                            label="Menu Aksi Kegiatan"
+                            buttonLabel="Aksi Kegiatan"
+                            buttonIcon={<SlidersHorizontal className="size-3.5 text-[#0060F4]" />}
+                            groups={headerActionGroups}
+                        />
                     </div>
                 </div>
 
@@ -1673,56 +1828,104 @@ export default function RequestShow({
                         </div>
                     )}
 
-                    {/* Toolbar Aksi Sekaligus (Batch Actions ke Direktur) */}
-                    {canUseAdminActions && allEditableItemsAcrossJob.length > 0 && (
-                        <div className="flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-[#E0F0FF]/90 p-4 shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between md:bg-gradient-to-r md:from-[#E0F0FF]/90 md:via-white md:to-[#E0F0FF]/70 md:dark:from-[#0C1D36] md:dark:via-[#071322] md:dark:to-[#0C1D36]">
-                            <div className="flex flex-wrap items-center gap-3">
-                                <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                    <input
-                                        type="checkbox"
-                                        checked={isAllSelectedAcrossJob}
-                                        ref={(el) => {
-                                            if (el) el.indeterminate = isIndeterminateAcrossJob;
-                                        }}
-                                        onChange={handleToggleSelectAllAcrossJob}
-                                        className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
-                                    />
-                                    <span>Pilih Semua Item Lintas REQ ({totalSelectedCount} dari {allEditableItemsAcrossJob.length} dipilih)</span>
-                                </label>
-
-                                {totalUrgentCount > 0 && (
-                                    <span className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100 px-2.5 py-0.5 text-xs font-black text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300">
-                                        <Flame className="size-3.5 animate-pulse fill-rose-600 text-rose-600 motion-reduce:animate-none" />
-                                        {totalUrgentCount} Item Mendesak
-                                    </span>
-                                )}
+                    {/* Callout Tambahan Biaya Taktis (Kekurangan Realisasi / Ngebon Lapangan) */}
+                    {activeRequest && (activeRequest.items?.some(isTaktisItem) || activeRequest.service_type === 'clearance_in') && (
+                        <div className="flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-[#F0F8FF] p-4 text-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between shadow-2xs">
+                            <div className="flex items-start gap-3">
+                                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-2xs">
+                                    <DollarSign className="size-5" />
+                                </div>
+                                <div>
+                                    <h4 className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] text-sm">
+                                        Penyesuaian Biaya Taktis / Clearance (Ngebon / Realisasi Riil)
+                                    </h4>
+                                    <p className="mt-0.5 text-[#52658E] dark:text-[#94A3B8] leading-relaxed max-w-2xl">
+                                        Biaya taktis di pelabuhan bersifat panjar / ngebon. Jika biaya riil di lapangan lebih besar dari pengajuan awal (misal diajukan Rp 1.500.000 ternyata naik menjadi Rp 1.700.000), buat pengajuan kekurangan (Rp 200.000) agar disetujui Direktur dan dimasukkan ke invoice penagihan.
+                                    </p>
+                                </div>
                             </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    leftIcon={<Save className="size-3.5" />}
-                                    disabled={activeAction !== null || allEditableItemsAcrossJob.length === 0}
-                                    onClick={handleSaveAllPricesAcrossJob}
-                                >
-                                    {activeAction === 'batch-save-all' ? 'Menyimpan…' : `Simpan Semua Harga (${allEditableItemsAcrossJob.length})`}
-                                </Button>
-
+                            <div className="shrink-0">
                                 <Button
                                     type="button"
                                     size="sm"
                                     variant="primary"
-                                    leftIcon={<Send className="size-3.5" />}
-                                    isLoading={activeAction === 'batch-forward-all'}
-                                    disabled={activeAction !== null || totalSelectedCount === 0}
-                                    onClick={handleBatchForwardAllToDirector}
-                                    className="bg-[#0060F4] hover:bg-[#082870] font-bold shadow-xs"
+                                    leftIcon={<Plus className="size-3.5" />}
+                                    onClick={() => openTaktisSupplementModal(activeRequest)}
+                                    className="w-full sm:w-auto bg-[#0060F4] hover:bg-[#082870] font-bold text-white shadow-xs"
                                 >
-                                    Ajukan Sekaligus ke Direktur ({totalSelectedCount} Item)
+                                    Ajukan Tambahan Taktis
                                 </Button>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Toolbar Aksi Sekaligus (Batch Actions ke Direktur) */}
+                    {canUseAdminActions && allEditableItemsAcrossJob.length > 0 && (
+                        <div className="space-y-3 rounded-2xl border border-[#BCE0FD] bg-[#E0F0FF]/90 p-4 shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <label className="inline-flex cursor-pointer select-none items-center gap-2 text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                        <input
+                                            type="checkbox"
+                                            checked={isAllSelectedAcrossJob}
+                                            ref={(el) => {
+                                                if (el) el.indeterminate = isIndeterminateAcrossJob;
+                                            }}
+                                            onChange={handleToggleSelectAllAcrossJob}
+                                            className="size-4 rounded border-[#BCE0FD] text-[#0060F4] focus:ring-[#0060F4]"
+                                        />
+                                        <span>Pilih Semua Item Lintas REQ ({totalSelectedCount} dari {allEditableItemsAcrossJob.length} dipilih)</span>
+                                    </label>
+
+                                    {totalUrgentCount > 0 && (
+                                        <span className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100 px-2.5 py-0.5 text-xs font-black text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                            <Flame className="size-3.5 animate-pulse fill-rose-600 text-rose-600 motion-reduce:animate-none" />
+                                            {totalUrgentCount} Item Mendesak
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        leftIcon={<Save className="size-3.5" />}
+                                        disabled={activeAction !== null || allEditableItemsAcrossJob.length === 0}
+                                        onClick={handleSaveAllPricesAcrossJob}
+                                    >
+                                        {activeAction === 'batch-save-all' ? 'Menyimpan…' : `Simpan Semua Harga (${allEditableItemsAcrossJob.length})`}
+                                    </Button>
+
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="primary"
+                                        leftIcon={<Send className="size-3.5" />}
+                                        isLoading={activeAction === 'batch-forward-all'}
+                                        disabled={activeAction !== null || totalSelectedCount === 0}
+                                        onClick={handleBatchForwardAllToDirector}
+                                        className="bg-[#0060F4] font-bold shadow-xs hover:bg-[#082870]"
+                                    >
+                                        Ajukan Sekaligus ke Direktur ({totalSelectedCount} Item)
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <Textarea
+                                id="job-admin-forward-notes"
+                                name="admin_notes"
+                                autoComplete="off"
+                                label="Catatan untuk Direktur (Opsional)"
+                                helperText="Berlaku untuk seluruh item yang dipilih dan tetap terlihat pada halaman approval."
+                                rows={2}
+                                maxLength={1000}
+                                showCharCount
+                                value={batchAdminNotes}
+                                onChange={(event) => setBatchAdminNotes(event.target.value)}
+                                disabled={activeAction !== null}
+                                placeholder="Contoh: Taktis tidak menggunakan vendor; HPP telah ditinjau…"
+                            />
                         </div>
                     )}
 
@@ -1802,7 +2005,7 @@ export default function RequestShow({
                                 width: '165px',
                                 render: ({ item }) => (
                                     <span className="text-pretty text-[#52658E] dark:text-[#94A3B8]">
-                                        {item.vendor?.name || 'Belum ditentukan'}
+                                        {supplierLabel(item)}
                                     </span>
                                 ),
                             },
@@ -1918,6 +2121,18 @@ export default function RequestShow({
                                                 canProcess={capabilities.can_process_requests}
                                                 compact
                                             />
+
+                                            {isTaktisItem(item) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openTaktisSupplementModal(req, item)}
+                                                    title="Ajukan kekurangan biaya taktis (ngebon/realisasi lapangan)"
+                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#0060F4]/30 bg-[#F0F8FF] px-2 text-xs font-bold text-[#0060F4] hover:bg-[#0060F4] hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                >
+                                                    <Plus className="size-3" aria-hidden="true" />
+                                                    Tambahan Taktis
+                                                </button>
+                                            )}
 
                                             {canUseAdminActions && isEditable && (
                                                 <button
@@ -2167,6 +2382,19 @@ export default function RequestShow({
                                                             Terbitkan Invoice
                                                         </Button>
                                                     )}
+
+                                                    {(reqItems.some(isTaktisItem) || req.service_type === 'clearance_in') && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            leftIcon={<Plus className="size-3" />}
+                                                            onClick={() => openTaktisSupplementModal(req)}
+                                                            className="min-h-11 w-full sm:w-auto border-[#0060F4] text-[#0060F4] hover:bg-[#E0F0FF] dark:hover:bg-[#132847]"
+                                                        >
+                                                            Tambahan Taktis
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -2286,8 +2514,7 @@ export default function RequestShow({
                                                                         )}
                                                                     </div>
                                                                     <p className="text-[#52658E]">
-                                                                        {item.vendor?.name ||
-                                                                            'Vendor belum ditentukan'}
+                                                                        {supplierLabel(item)}
                                                                     </p>
                                                                     <ItemEvidenceLinks
                                                                         item={item}
@@ -2553,7 +2780,7 @@ export default function RequestShow({
                                                                             </div>
                                                                             <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                                                                 <Building2 aria-hidden="true" className="size-3 shrink-0 text-[#0060F4]" />
-                                                                                <span className="break-words">{item.vendor?.name || 'Vendor: Belum ditentukan'}</span>
+                                                                                <span className="break-words">{supplierLabel(item)}</span>
                                                                             </div>
                                                                             <RequirementDate value={item.required_date} />
                                                                             <ItemEvidenceLinks
@@ -2653,6 +2880,16 @@ export default function RequestShow({
                                                                             canProcess={capabilities.can_process_requests}
                                                                             className="w-full min-[390px]:w-auto"
                                                                         />
+                                                                        {isTaktisItem(item) && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => openTaktisSupplementModal(req, item)}
+                                                                                className="inline-flex min-h-11 w-full min-[390px]:w-auto touch-manipulation items-center justify-center gap-1.5 rounded-lg border border-[#0060F4]/40 bg-[#F0F8FF] px-3 text-xs font-bold text-[#0060F4] hover:bg-[#0060F4] hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                                            >
+                                                                                <Plus aria-hidden="true" className="size-3.5" />
+                                                                                <span>Ajukan Tambahan Taktis</span>
+                                                                            </button>
+                                                                        )}
                                                                         {isEditable && (
                                                                             <button
                                                                                 type="button"
@@ -2888,13 +3125,12 @@ export default function RequestShow({
 
                     <div className="grid gap-4 sm:grid-cols-2">
                         <Select
-                            required
                             name="supplier_vendor_id"
-                            label="Vendor Supplier"
+                            label="Vendor Supplier (Opsional)"
                             value={supplierInvoiceForm.data.vendor_id}
                             onChange={(event) => supplierInvoiceForm.setData('vendor_id', event.target.value)}
                             options={[
-                                { value: '', label: 'Pilih vendor supplier' },
+                                { value: '', label: 'Tanpa vendor/supplier' },
                                 ...vendors.map((vendor) => ({ value: vendor.id, label: vendor.name })),
                             ]}
                             error={supplierInvoiceForm.errors.vendor_id}
@@ -2988,23 +3224,8 @@ export default function RequestShow({
                 title="Tambah Kebutuhan Kapal"
                 subtitle="Tambahkan item barang atau jasa logistik untuk surat pengajuan ini."
                 size="md"
-            >
-                <form noValidate onSubmit={submitItem} className="space-y-4">
-                    <FormErrorSummary errors={itemForm.errors} />
-                    {/* Pilih Cepat dari Katalog Master Produk */}
-                    <Select name="product_id" label="Pilih dari Katalog Layanan / Produk (Opsional)" value={itemForm.data.product_id} onChange={(event) => selectProduct(event.target.value)} error={itemForm.errors.product_id} options={[{ value: '', label: 'Ketik manual atau pilih dari katalog' }, ...products.map((product) => ({ value: product.id, label: `${product.name} (${product.unit}) — ${product.item_type === 'jasa' ? 'Jasa' : 'Non-Jasa'}` }))]} />
-                    <Input required name="item_name" autoComplete="off" label="Nama Item Kebutuhan / Layanan" value={itemForm.data.item_name} onChange={(event) => itemForm.setData('item_name', event.target.value)} placeholder="Contoh: Air Tawar 50 Ton" error={itemForm.errors.item_name} />
-
-                    <div className="grid grid-cols-2 gap-3">
-                        <Input required name="quantity" label="Jumlah (Qty)" type="number" step="any" min="0.01" value={itemForm.data.quantity} onChange={(event) => itemForm.setData('quantity', event.target.value)} error={itemForm.errors.quantity} />
-                        <Input required name="unit" autoComplete="off" label="Satuan" value={itemForm.data.unit} onChange={(event) => itemForm.setData('unit', event.target.value)} placeholder="Ton, Dokumen, Jam, Trip" error={itemForm.errors.unit} />
-                    </div>
-
-                    <Textarea name="notes" label="Catatan / Spesifikasi Khusus (Opsional)" rows={2} value={itemForm.data.notes} onChange={(event) => itemForm.setData('notes', event.target.value)} placeholder="Keterangan tambahan untuk vendor atau kebutuhan operasional…" error={itemForm.errors.notes} maxLength={500} showCharCount />
-
-                    <Checkbox id="is_urgent_checkbox" checked={itemForm.data.is_urgent} onChange={(event) => itemForm.setData('is_urgent', event.target.checked)} error={itemForm.errors.is_urgent} label={<span className="flex items-center gap-1 text-rose-600"><Flame className="size-3.5 fill-rose-500" /> Tandai Sebagai Kebutuhan Mendesak</span>} />
-
-                    <div className="flex justify-end gap-2.5 pt-3 border-t border-[#DCEAF8] dark:border-[#1E3A5F]">
+                footer={(
+                    <>
                         <Button
                             type="button"
                             variant="outline"
@@ -3014,17 +3235,247 @@ export default function RequestShow({
                                 itemForm.reset();
                                 itemForm.clearErrors();
                             }}
+                            disabled={itemForm.processing}
                         >
                             Batal
                         </Button>
                         <Button
                             type="submit"
+                            form="add-item-form"
                             size="sm"
                             isLoading={itemForm.processing}
                         >
                             Simpan Item
                         </Button>
+                    </>
+                )}
+            >
+                <form id="add-item-form" noValidate onSubmit={submitItem} className="space-y-4">
+                    <FormErrorSummary errors={itemForm.errors} />
+                    {/* Pilih Cepat dari Katalog Master Produk */}
+                    <Select
+                        name="product_id"
+                        label="Pilih dari Katalog Layanan / Produk (Opsional)"
+                        value={itemForm.data.product_id}
+                        onChange={(event) => selectProduct(event.target.value)}
+                        error={itemForm.errors.product_id}
+                        options={[
+                            { value: '', label: 'Ketik manual atau pilih dari katalog master' },
+                            ...products.map((product) => ({
+                                value: product.id,
+                                label: `${product.name} (${product.unit}) — ${product.item_type === 'jasa' ? 'Jasa' : 'Non-Jasa'}`
+                            }))
+                        ]}
+                    />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-2">
+                            <Input
+                                required
+                                name="item_name"
+                                autoComplete="off"
+                                label="Nama Item Kebutuhan / Layanan"
+                                value={itemForm.data.item_name}
+                                onChange={(event) => itemForm.setData('item_name', event.target.value)}
+                                placeholder="Contoh: Pengurusan Sertifikat Sanitasi / Air Tawar 50 Ton"
+                                error={itemForm.errors.item_name}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                Tipe Item
+                            </label>
+                            <select
+                                value={itemForm.data.item_type}
+                                onChange={(e) => itemForm.setData('item_type', e.target.value as 'jasa' | 'non_jasa')}
+                                className="w-full h-11 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#071322] px-3 text-xs font-medium text-[#0B1F63] dark:text-[#F1F5F9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]"
+                            >
+                                <option value="jasa">Jasa (Clearance / Sertifikat / Taktis)</option>
+                                <option value="non_jasa">Non-Jasa (Barang / Logistik)</option>
+                            </select>
+                        </div>
                     </div>
+
+                    {!itemForm.data.product_id && (
+                        <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                            <Checkbox
+                                id="save_master_product_checkbox"
+                                checked={itemForm.data.save_as_master_product}
+                                onChange={(event) => itemForm.setData('save_as_master_product', event.target.checked)}
+                                label={<span className="text-xs font-medium text-[#082870] dark:text-[#60A5FA]">Simpan otomatis sebagai Master Produk baru di katalog sistem</span>}
+                            />
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <Input required name="quantity" label="Jumlah (Qty)" type="number" step="any" min="0.01" value={itemForm.data.quantity} onChange={(event) => itemForm.setData('quantity', event.target.value)} error={itemForm.errors.quantity} />
+                        <Input required name="unit" autoComplete="off" label="Satuan" value={itemForm.data.unit} onChange={(event) => itemForm.setData('unit', event.target.value)} placeholder="Ton, Dokumen, Jam, Trip" error={itemForm.errors.unit} />
+                    </div>
+
+                    <Textarea name="notes" label="Catatan / Spesifikasi Khusus (Opsional)" rows={2} value={itemForm.data.notes} onChange={(event) => itemForm.setData('notes', event.target.value)} placeholder="Keterangan tambahan untuk vendor atau kebutuhan operasional…" error={itemForm.errors.notes} maxLength={500} showCharCount />
+
+                    <Checkbox id="is_urgent_checkbox" checked={itemForm.data.is_urgent} onChange={(event) => itemForm.setData('is_urgent', event.target.checked)} error={itemForm.errors.is_urgent} label={<span className="flex items-center gap-1 text-rose-600"><Flame className="size-3.5 fill-rose-500" /> Tandai Sebagai Kebutuhan Mendesak</span>} />
+                </form>
+            </Modal>
+
+            {/* Modal Pengajuan Tambahan Biaya Taktis (Kekurangan Realisasi / Ngebon Lapangan) */}
+            <Modal
+                isOpen={taktisSupplementTarget !== null}
+                onClose={closeTaktisSupplementModal}
+                title="Pengajuan Tambahan Biaya Taktis"
+                subtitle={`Ajukan kekurangan biaya taktis riil di lapangan untuk ${taktisSupplementTarget?.request.request_number || 'pengajuan ini'}.`}
+                size="lg"
+                footer={(
+                    <>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={closeTaktisSupplementModal}
+                            disabled={taktisSupplementForm.processing}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="submit"
+                            form="taktis-supplement-form"
+                            size="sm"
+                            isLoading={taktisSupplementForm.processing}
+                            className="bg-[#0060F4] hover:bg-[#082870] text-white font-bold"
+                        >
+                            Kirim Pengajuan Tambahan
+                        </Button>
+                    </>
+                )}
+            >
+                <form id="taktis-supplement-form" noValidate onSubmit={submitTaktisSupplement} className="space-y-4">
+                    <FormErrorSummary errors={taktisSupplementForm.errors} />
+
+                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 text-xs text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]">
+                        <p className="font-bold">Informasi Pengajuan Asal:</p>
+                        <p className="mt-0.5 text-[#52658E] dark:text-[#94A3B8]">
+                            Nomor: <strong className="text-[#0B1F63] dark:text-[#F1F5F9]">{taktisSupplementTarget?.request.request_number}</strong> | Kapal: <strong className="text-[#0B1F63] dark:text-[#F1F5F9]">{shipName}</strong>
+                        </p>
+                        {taktisSupplementTarget?.item && (
+                            <p className="mt-0.5 text-[#52658E] dark:text-[#94A3B8]">
+                                Item Acuan: <strong className="text-[#0B1F63] dark:text-[#F1F5F9]">{taktisSupplementTarget.item.item_name}</strong> (Pengajuan awal: {formatRupiah(taktisSupplementTarget.item.hpp_price)})
+                            </p>
+                        )}
+                    </div>
+
+                    <Input
+                        required
+                        name="item_name"
+                        autoComplete="off"
+                        label="Nama Item Pengajuan Tambahan"
+                        value={taktisSupplementForm.data.item_name}
+                        onChange={(event) => taktisSupplementForm.setData('item_name', event.target.value)}
+                        placeholder="Contoh: Tambahan Biaya Taktis Clearance In / Pengurusan Sertifikat (Kekurangan Realisasi)"
+                        error={taktisSupplementForm.errors.item_name}
+                    />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                Besaran Kekurangan (Rp) <span className="text-rose-500">*</span>
+                            </label>
+                            <MoneyInput
+                                id="taktis_amount"
+                                name="amount"
+                                value={taktisSupplementForm.data.amount}
+                                onChange={(val) => taktisSupplementForm.setData('amount', val)}
+                                placeholder="Contoh: 200.000"
+                                error={taktisSupplementForm.errors.amount}
+                            />
+                            <p className="mt-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                Masukkan selisih kekurangan (misal Rp 200.000 jika dari 1.5jt naik jadi 1.7jt).
+                            </p>
+                        </div>
+
+                        <Input
+                            type="date"
+                            name="required_date"
+                            label="Tanggal Kebutuhan / Realisasi"
+                            value={taktisSupplementForm.data.required_date}
+                            onChange={(event) => taktisSupplementForm.setData('required_date', event.target.value)}
+                            error={taktisSupplementForm.errors.required_date}
+                        />
+                    </div>
+
+                    {/* Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) */}
+                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                            Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional
+                        </p>
+                        <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mb-2.5">
+                            Jika terdapat item lain pada kapal yang sama memiliki kelebihan/sisa dana, sisa biaya tersebut dapat dialihkan untuk menutup kekurangan ini.
+                        </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                    Item Sumber Kelebihan Biaya
+                                </label>
+                                <select
+                                    value={taktisSupplementForm.data.surplus_source_item_id}
+                                    onChange={(e) => taktisSupplementForm.setData('surplus_source_item_id', e.target.value)}
+                                    className="w-full h-10 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] px-2.5 text-xs text-[#0B1F63] dark:text-[#F1F5F9]"
+                                >
+                                    <option value="">Tanpa pengalihan (langsung ajukan riil)</option>
+                                    {availableSurplusItems.map((it) => (
+                                        <option key={it.id} value={it.id}>
+                                            {it.item_name} ({formatRupiah(it.hpp_price)})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {taktisSupplementForm.data.surplus_source_item_id && (
+                                <div>
+                                    <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                        Nominal Kelebihan yang Dialihkan (Rp)
+                                    </label>
+                                    <MoneyInput
+                                        id="surplus_amount"
+                                        name="surplus_amount"
+                                        value={taktisSupplementForm.data.surplus_amount}
+                                        onChange={(val) => taktisSupplementForm.setData('surplus_amount', val)}
+                                        placeholder="Contoh: 200.000"
+                                        error={taktisSupplementForm.errors.surplus_amount}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <Input
+                        name="actualization_notes"
+                        autoComplete="off"
+                        label="Catatan Aktualisasi Lapangan (Perbandingan Riil vs Pengajuan)"
+                        value={taktisSupplementForm.data.actualization_notes}
+                        onChange={(event) => taktisSupplementForm.setData('actualization_notes', event.target.value)}
+                        placeholder="Contoh: Pengajuan awal 1.5jt, riil lapangan 1.7jt karena penyesuaian sertifikat karantina / entertaint"
+                        error={taktisSupplementForm.errors.actualization_notes}
+                    />
+
+                    <Textarea
+                        name="notes"
+                        label="Catatan / Penjelasan Tambahan Lapangan"
+                        rows={2}
+                        value={taktisSupplementForm.data.notes}
+                        onChange={(event) => taktisSupplementForm.setData('notes', event.target.value)}
+                        placeholder="Jelaskan alasan kenaikan biaya taktis di pelabuhan…"
+                        error={taktisSupplementForm.errors.notes}
+                        maxLength={1000}
+                        showCharCount
+                    />
+
+                    <PhotoUploadPicker
+                        label="Bukti / Kuitansi Lapangan (Opsional)"
+                        onChange={(file) => taktisSupplementForm.setData('attachment', file)}
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                        helperText="PDF atau Foto struk/kuitansi lapangan jika ada. Maksimal 10 MB."
+                    />
                 </form>
             </Modal>
 

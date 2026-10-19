@@ -92,7 +92,13 @@ export default function Edit({
     const [notifJadwal, setNotifJadwal] = useState(true);
 
     const showToast = (message: string, variant: 'success' | 'error' = 'success') => {
-        setToast({ message, variant });
+        setToast(variant === 'success'
+            ? {
+                message,
+                variant,
+                action: { label: 'Kembali ke Beranda', href: '/dashboard' },
+            }
+            : { message, variant });
     };
 
     // Appearance Preferences
@@ -930,11 +936,7 @@ export default function Edit({
 
             {/* ── Standard AlertToast Feedback ── */}
             {toast && (
-                <AlertToast
-                    variant={toast.variant}
-                    message={toast.message}
-                    onClose={() => setToast(null)}
-                />
+                <AlertToast {...toast} onClose={() => setToast(null)} />
             )}
         </AppLayout>
     );

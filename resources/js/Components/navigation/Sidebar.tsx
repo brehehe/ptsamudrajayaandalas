@@ -18,6 +18,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const user = props?.auth?.user;
     const role = (user?.primary_role || 'Admin') as
         'Owner' | 'Direktur' | 'Admin' | 'Lapangan' | string;
+    const permissions = user?.permissions ?? [];
+    const canManageInvoiceSettings = permissions.some((permission) =>
+        ['settings.manage', 'masters.manage'].includes(permission),
+    );
     const currentPath = url.split('?')[0];
     const legacyReportTab = new URLSearchParams(url.split('?')[1] ?? '').get('tab');
     const isReportPage = url.startsWith('/reports');
@@ -399,6 +403,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ),
     };
 
+    const masterInvoiceSettings = {
+        label: 'Pengaturan Invoice',
+        href: '/master/invoice-settings',
+        active: url.startsWith('/master/invoice-settings'),
+        icon: (
+            <svg
+                className="size-3.5 text-[#688CAE]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+            >
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.6 3.2h4.8l.7 2.1 2 .8 2-1 2.4 4.1-1.7 1.4.2 2.2 1.5 1.5-2.4 4.1-2-.9-2 .9-.7 2.1H9.6l-.7-2.1-2-.9-2 .9-2.4-4.1L4 12.8l.2-2.2-1.7-1.4L4.9 5l2 1 2-.8.7-2Zm2.4 6a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Z"
+                />
+            </svg>
+        ),
+    };
+
     // Role-based tailored menu sets
     let mainNav: Array<any> = [];
     let masterNav: Array<any> = [];
@@ -450,6 +476,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             masterVendors,
             masterUsers,
         ];
+    }
+
+    if (canManageInvoiceSettings) {
+        masterNav.push(masterInvoiceSettings);
     }
 
     const roleBadgeConfig = {

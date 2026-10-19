@@ -87,6 +87,7 @@ class WorkOrderController extends Controller
                     ->orWhereHas('ship', fn ($ship) => $ship->where('name', $like, "%{$value}%"))
                     ->orWhereHas('company', fn ($company) => $company->where('name', $like, "%{$value}%"));
             }))
+            ->orderByDesc('created_at')
             ->orderByDesc('received_at')
             ->orderByDesc('id')
             ->paginate(15)
@@ -399,8 +400,13 @@ class WorkOrderController extends Controller
                 'description' => $validated['activity_description'] ?? null,
             ]);
 
+            $jobNumber = $this->generateJobNumber(
+                $validated['client_number'] ?? null,
+                $workOrder->system_number,
+            );
+
             PortCall::create([
-                'job_number' => 'JOB-'.$workOrder->system_number,
+                'job_number' => $jobNumber,
                 'work_order_id' => $workOrder->id,
                 'ship_id' => $validated['ship_id'],
                 'port_id' => $validated['port_id'],
@@ -786,5 +792,34 @@ class WorkOrderController extends Controller
                 'status' => 'Penagihan baru dapat dimulai setelah Nota Rampung diunggah.',
             ]);
         }
+    }
+
+    /**
+     * Generate unique job number based on client SPK number.
+     * Format: JOB-{Nomor SPK Klien}
+     * If collision occurs, append -{0000_random}.
+     */
+    protected function generateJobNumber(?string $clientNumber, string $systemNumber): string
+    {
+        $cleanedClientNumber = trim((string) $clientNumber);
+
+        if ($cleanedClientNumber !== '') {
+            $baseJobNumber = str_starts_with($cleanedClientNumber, 'JOB-')
+                ? $cleanedClientNumber
+                : 'JOB-'.$cleanedClientNumber;
+        } else {
+            $baseJobNumber = 'JOB-'.$systemNumber;
+        }
+
+        if (! PortCall::where('job_number', $baseJobNumber)->exists()) {
+            return $baseJobNumber;
+        }
+
+        do {
+            $random = sprintf('%04d', random_int(0, 9999));
+            $candidate = "{$baseJobNumber}-{$random}";
+        } while (PortCall::where('job_number', $candidate)->exists());
+
+        return $candidate;
     }
 }

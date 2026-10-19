@@ -23,10 +23,11 @@ function clientInvoiceAdmin(): User
     return $user;
 }
 
-/** @return array{description: string, quantity: string, unit: string, unit_price: string, source_item_ids: array<int, string>} */
-function clientInvoiceLine(RequestItem $item, int $unitPrice, ?string $description = null): array
+/** @return array{section_title: string, description: string, quantity: string, unit: string, unit_price: string, source_item_ids: array<int, string>} */
+function clientInvoiceLine(RequestItem $item, int $unitPrice, ?string $description = null, string $sectionTitle = 'Biaya Keagenan'): array
 {
     return [
+        'section_title' => $sectionTitle,
         'description' => $description ?? $item->item_name,
         'quantity' => (string) $item->quantity,
         'unit' => $item->unit,
@@ -133,6 +134,9 @@ test('admin creates a client invoice from selected approved items and optional s
     $response = $this->actingAs($admin)->post(route('invoices.store'), [
         'port_call_id' => $workflow['portCall']->id,
         'company_id' => $workflow['company']->id,
+        'subject' => 'Keagenan KM Invoice Item Voy. 001',
+        'origin_port_name' => 'Pasang Kayu',
+        'destination_port_name' => 'Lembar',
         'lines' => [clientInvoiceLine($workflow['agencyItem'], 500000)],
         'invoice_type' => 'agency',
         'addon_total' => 10000,
@@ -148,6 +152,10 @@ test('admin creates a client invoice from selected approved items and optional s
     $generatedPdf = app(InvoicePdfGenerator::class)->generate($invoice);
     expect($invoice->items)->toHaveCount(1)
         ->and($invoice->items->first()->request_item_id)->toBe($workflow['agencyItem']->id)
+        ->and($invoice->items->first()->section_title)->toBe('Biaya Keagenan')
+        ->and($invoice->subject)->toBe('Keagenan KM Invoice Item Voy. 001')
+        ->and($invoice->origin_port_name)->toBe('Pasang Kayu')
+        ->and($invoice->destination_port_name)->toBe('Lembar')
         ->and((float) $invoice->items->first()->unit_price)->toBe(500000.0)
         ->and((float) $invoice->subtotal)->toBe(1000000.0)
         ->and((float) $invoice->grand_total)->toBe(1030000.0)
@@ -162,6 +170,7 @@ test('admin creates a client invoice from selected approved items and optional s
     $this->assertDatabaseHas('invoice_items', [
         'invoice_id' => $invoice->id,
         'request_item_id' => $workflow['agencyItem']->id,
+        'section_title' => 'Biaya Keagenan',
         'description' => 'Jasa Keagenan Kapal',
         'unit_price' => 500000,
         'subtotal' => 1000000,
@@ -212,8 +221,10 @@ test('admin can open create and edit pages and update a draft item final price',
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Invoices/Form')
+            ->where('abilities.update', true)
             ->where('portCalls.0.id', $workflow['portCall']->id)
             ->where('portCalls.0.client_spk_number', 'SPK/KLIEN/INVOICE/001')
+            ->where('documentSettings.company_name', 'PT. SAMUDRA JAYA ANDALAS')
             ->where('shipRequests.0.items.0.id', $workflow['agencyItem']->id)
             ->where('shipRequests.0.items.0.hpp_unit_price', '300000.00')
             ->where('shipRequests.0.items.0.hpp_total', '600000'));
@@ -233,8 +244,8 @@ test('admin can open create and edit pages and update a draft item final price',
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Invoices/Index')
-            ->where('invoices.0.total_hpp', 600000)
-            ->where('invoices.0.margin', 300000)
+            ->where('invoices.data.0.total_hpp', 600000)
+            ->where('invoices.data.0.margin', 300000)
             ->where('stats.total_hpp', 600000)
             ->where('stats.total_margin', 300000));
 
@@ -244,6 +255,8 @@ test('admin can open create and edit pages and update a draft item final price',
         ->assertInertia(fn ($page) => $page
             ->component('Invoices/Form')
             ->where('invoice.id', $invoice->id)
+            ->where('abilities.update', true)
+            ->where('invoice.lines.0.section_title', 'Biaya Keagenan')
             ->where('invoice.lines.0.description', 'Jasa Keagenan Kapal')
             ->where('invoice.lines.0.unit_price', '450000.00')
             ->where('invoice.lines.0.source_item_ids.0', $workflow['agencyItem']->id));
@@ -262,6 +275,27 @@ test('admin can open create and edit pages and update a draft item final price',
     expect((float) $invoice->items->sole()->unit_price)->toBe(525000.0)
         ->and((float) $invoice->grand_total)->toBe(1050000.0)
         ->and($invoice->version)->toBe(2);
+
+    $invoice->update(['status' => 'released']);
+
+    $this->actingAs($admin)
+        ->get(route('invoices.edit', $invoice))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Invoices/Form')
+            ->where('invoice.id', $invoice->id)
+            ->where('invoice.status', 'released')
+            ->where('abilities.update', false));
+
+    $this->actingAs($admin)
+        ->patch(route('invoices.update', $invoice), [
+            'port_call_id' => $workflow['portCall']->id,
+            'company_id' => $workflow['company']->id,
+            'lines' => [clientInvoiceLine($workflow['agencyItem'], 600000)],
+            'invoice_type' => 'agency',
+            'due_date' => now()->addDays(30)->toDateString(),
+        ])
+        ->assertForbidden();
 });
 
 test('one client invoice can select approved items from multiple requests on the same job', function () {
@@ -307,4 +341,149 @@ test('one client invoice can select approved items from multiple requests on the
         ->and((float) $invoice->grand_total)->toBe(1250000.0)
         ->and($generatedPdf)->toContain('(Jasa Keagenan Kapal) Tj')
         ->and($generatedPdf)->toContain('(Clearance Out) Tj');
+});
+
+test('admin can customize allocated hpp when splitting lines as long as total hpp equals selected items hpp', function () {
+    $admin = clientInvoiceAdmin();
+    $workflow = clientInvoiceWorkflow($admin);
+    // agencyItem has quantity: 2, hpp_price: 300,000 -> total HPP = 600,000
+
+    // Split line into 2 lines with custom HPP allocations (400,000 and 200,000 = 600,000)
+    $response = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 1)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '600000',
+                'allocated_hpp' => '400000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 2)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '300000',
+                'allocated_hpp' => '200000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $response->assertRedirect()->assertSessionHasNoErrors();
+
+    $invoice = Invoice::query()->with('items.sources')->sole();
+    expect($invoice->items)->toHaveCount(2)
+        ->and((float) $invoice->items[0]->sources->first()->source_cost)->toBe(400000.0)
+        ->and((float) $invoice->items[1]->sources->first()->source_cost)->toBe(200000.0)
+        ->and((float) $invoice->items->sum(fn ($i) => $i->sources->sum('source_cost')))->toBe(600000.0);
+
+    // Edit invoice: change allocations to 350,000 and 250,000 (= 600,000)
+    $editResponse = $this->actingAs($admin)->patch(route('invoices.update', $invoice), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 1)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '600000',
+                'allocated_hpp' => '350000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 2)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '300000',
+                'allocated_hpp' => '250000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $editResponse->assertRedirect()->assertSessionHasNoErrors();
+    $invoice->refresh()->load('items.sources');
+    expect((float) $invoice->items[0]->sources->first()->source_cost)->toBe(350000.0)
+        ->and((float) $invoice->items[1]->sources->first()->source_cost)->toBe(250000.0);
+});
+
+test('backend rejects invoice when custom allocated hpp is more or less than selected items hpp', function () {
+    $admin = clientInvoiceAdmin();
+    $workflow = clientInvoiceWorkflow($admin);
+    // agencyItem total HPP = 600,000
+
+    // Test 1: LEBIH (450,000 + 250,000 = 700,000 > 600,000)
+    $responseLebih = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 1)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '600000',
+                'allocated_hpp' => '450000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 2)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '300000',
+                'allocated_hpp' => '250000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $responseLebih->assertSessionHasErrors(['lines']);
+    $errorLebih = session('errors')->first('lines');
+    expect($errorLebih)->toContain('tidak boleh lebih ataupun kurang');
+
+    // Test 2: KURANG (300,000 + 200,000 = 500,000 < 600,000)
+    $responseKurang = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 1)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '600000',
+                'allocated_hpp' => '300000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal (Bagian 2)',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '300000',
+                'allocated_hpp' => '200000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $responseKurang->assertSessionHasErrors(['lines']);
+    $errorKurang = session('errors')->first('lines');
+    expect($errorKurang)->toContain('tidak boleh lebih ataupun kurang');
 });

@@ -946,3 +946,52 @@ test('clearance out cannot skip clearance in', function () {
     $this->assertDatabaseHas('port_calls', ['id' => $portCall->id, 'status' => 'scheduled', 'departed_at' => null]);
     $this->assertDatabaseCount('activity_log', 0);
 });
+
+test('clearance in with custom edited hpp items persists submitted hpp_price', function () {
+    $user = User::factory()->create();
+    $portCall = createClearancePortCall($user);
+    $configuredVendor = Vendor::create([
+        'code' => 'VD-TAKTIS-AUTO',
+        'name' => 'Vendor Taktis Otomatis',
+        'is_active' => true,
+    ]);
+
+    $taktis = Product::firstOrCreate(
+        ['code' => 'PRD-PLD-TAKTIS'],
+        ['name' => 'Taktis Penyandaran', 'item_type' => 'jasa', 'unit' => 'Kegiatan', 'hpp_default' => 0, 'selling_price_default' => 0, 'vendor_id' => $configuredVendor->id, 'is_active' => true]
+    );
+    $taktis->update(['vendor_id' => $configuredVendor->id]);
+
+    $epb = Product::firstOrCreate(
+        ['code' => 'PRD-PLD-EPB'],
+        ['name' => 'Pembayaran EPB (Pandu Tunda)', 'item_type' => 'jasa', 'unit' => 'Kegiatan', 'hpp_default' => 100000, 'selling_price_default' => 0, 'is_active' => true]
+    );
+
+    $this->actingAs($user)->patch(route('operations.port-calls.status', $portCall->id), [
+        'status' => 'berthed',
+        'expected_status' => 'scheduled',
+        'occurred_at' => now()->toDateString(),
+        'items' => [
+            [
+                'product_id' => $taktis->id,
+                'item_name' => 'Taktis Penyandaran',
+                'hpp_price' => 250000,
+            ],
+            [
+                'product_id' => $epb->id,
+                'item_name' => 'Pembayaran EPB (Pandu Tunda)',
+                'hpp_price' => 150000,
+            ],
+        ],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $clearanceRequest = ShipRequest::where('port_call_id', $portCall->id)
+        ->where('service_type', 'clearance_in')
+        ->firstOrFail();
+
+    $items = $clearanceRequest->items()->get()->keyBy('item_name');
+
+    expect((float) $items->get('Taktis Penyandaran')->hpp_price)->toBe(250000.0)
+        ->and($items->get('Taktis Penyandaran')->vendor_id)->toBeNull()
+        ->and((float) $items->get('Pembayaran EPB (Pandu Tunda)')->hpp_price)->toBe(150000.0);
+});

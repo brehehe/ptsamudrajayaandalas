@@ -3,6 +3,8 @@ import { Head, Link, router } from '@inertiajs/react';
 import {
     CheckCircle2,
     Clock3,
+    Download,
+    Eye,
     FileCheck2,
     FilePlus2,
     FileText,
@@ -14,11 +16,11 @@ import {
 import AppLayout from '../../Layouts/AppLayout';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
-import DocumentActions from '../../Components/ui/DocumentActions';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Modal from '../../Components/overlays/Modal';
 import Pagination from '../../Components/pagination/Pagination';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
+import ActionMenu from '../../Components/ui/ActionMenu';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import { formatDate } from '../../lib/formatDate';
@@ -195,11 +197,27 @@ export default function CompletionNotesIndex({
     };
 
     const actions = (note: CompletionNote) => (
-        <DocumentActions
-            viewHref={`/completion-notes/${note.id}/document?view=1`}
-            downloadHref={`/completion-notes/${note.id}/document`}
-            viewLabel="Lihat nota"
-            downloadLabel="Unduh nota"
+        <ActionMenu
+            label={`Buka aksi nota rampung ${note.document_number}`}
+            groups={[{
+                id: 'document-actions',
+                items: [
+                    {
+                        id: 'view-document',
+                        label: 'Lihat Nota',
+                        icon: <Eye aria-hidden="true" className="size-4" />,
+                        href: `/completion-notes/${note.id}/document?view=1`,
+                        target: '_blank',
+                        tone: 'primary',
+                    },
+                    {
+                        id: 'download-document',
+                        label: 'Unduh Nota',
+                        icon: <Download aria-hidden="true" className="size-4" />,
+                        href: `/completion-notes/${note.id}/document`,
+                    },
+                ],
+            }]}
         />
     );
 
@@ -641,4 +659,3 @@ export default function CompletionNotesIndex({
         </AppLayout>
     );
 }
-

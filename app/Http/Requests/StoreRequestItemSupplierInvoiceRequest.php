@@ -22,7 +22,7 @@ class StoreRequestItemSupplierInvoiceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'vendor_id' => ['required', 'uuid', 'exists:vendors,id'],
+            'vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'hpp_price' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
             'supplier_invoice_number' => ['required', 'string', 'max:100'],
             'supplier_invoice_date' => ['required', 'date'],
@@ -41,7 +41,6 @@ class StoreRequestItemSupplierInvoiceRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'vendor_id.required' => 'Vendor supplier wajib dipilih.',
             'hpp_price.gt' => 'HPP item harus lebih besar dari Rp 0.',
             'supplier_invoice_number.required' => 'Nomor nota invoice supplier wajib diisi.',
             'supplier_invoice_date.required' => 'Tanggal nota invoice supplier wajib diisi.',

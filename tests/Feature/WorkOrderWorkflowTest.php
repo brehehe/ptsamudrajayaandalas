@@ -54,7 +54,7 @@ test('admin creates an spk with one reusable ship visit and a private document',
         ->assertSessionHas('created_work_order', fn (array $created): bool => $created['ship_id'] === $ship->id
             && $created['ship_name'] === $ship->name
             && $created['status'] === 'active'
-            && str_starts_with($created['job_number'], 'JOB-SPK-SJA-')
+            && $created['job_number'] === 'JOB-SPK/KLIEN/001'
         );
     $workOrder = WorkOrder::query()->firstOrFail();
     expect($workOrder->status)->toBe('active');
@@ -471,4 +471,93 @@ test('field staff only see assigned spk details and do not receive financial dat
     $this->actingAs($otherOfficer)
         ->get(route('work-orders.detail', $workOrder))
         ->assertForbidden();
+});
+
+test('work orders index orders the latest work order first at the top', function () {
+    $admin = workOrderUser('Admin');
+    $company = ShipCompany::create(['name' => 'PT Order SPK', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM Order SPK', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $port = Port::create(['code' => 'IDORD', 'name' => 'Pelabuhan Order SPK', 'city' => 'Gresik', 'is_active' => true]);
+
+    $oldOrder = WorkOrder::create([
+        'system_number' => 'SPK-SJA-OLD-001',
+        'company_id' => $company->id,
+        'document_date' => '2026-10-01',
+        'received_at' => '2026-10-01 08:00:00',
+        'status' => 'active',
+        'created_by' => $admin->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+        'planned_eta_at' => '2026-10-03 09:00:00',
+        'created_at' => now()->subHours(3),
+    ]);
+
+    $newOrder = WorkOrder::create([
+        'system_number' => 'SPK-SJA-NEW-002',
+        'company_id' => $company->id,
+        'document_date' => '2026-10-01',
+        'received_at' => '2026-10-01 08:00:00',
+        'status' => 'active',
+        'created_by' => $admin->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+        'planned_eta_at' => '2026-10-03 09:00:00',
+        'created_at' => now(),
+    ]);
+
+    $response = $this->actingAs($admin)->get(route('work-orders.index'));
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('WorkOrders/Index')
+        ->where('workOrders.data.0.id', $newOrder->id)
+        ->where('workOrders.data.0.system_number', 'SPK-SJA-NEW-002')
+        ->where('workOrders.data.1.id', $oldOrder->id)
+        ->where('workOrders.data.1.system_number', 'SPK-SJA-OLD-001')
+    );
+});
+
+test('spk creates job_number derived from client_number and appends 4 random digits on duplicate', function () {
+    $admin = workOrderUser('Admin');
+    $officer = workOrderUser('Lapangan');
+    $companyA = ShipCompany::create(['name' => 'PT Pelayaran A', 'is_active' => true]);
+    $companyB = ShipCompany::create(['name' => 'PT Pelayaran B', 'is_active' => true]);
+    $shipA = Ship::create(['name' => 'KM Alpha 1', 'ship_company_id' => $companyA->id, 'is_active' => true]);
+    $shipB = Ship::create(['name' => 'KM Beta 2', 'ship_company_id' => $companyB->id, 'is_active' => true]);
+    $port = Port::create(['code' => 'IDJKT', 'name' => 'Tanjung Priok', 'city' => 'Jakarta', 'is_active' => true]);
+
+    $responseA = $this->actingAs($admin)->post(route('work-orders.store'), [
+        'client_number' => 'SPK-SAMUDRA-001',
+        'company_id' => $companyA->id,
+        'ship_id' => $shipA->id,
+        'port_id' => $port->id,
+        'document_date' => '2026-10-10',
+        'received_at' => '2026-10-10 08:00:00',
+        'eta_at' => '2026-10-12',
+        'activity_name' => 'Bongkar pupuk',
+        'assigned_to' => $officer->id,
+        'status' => 'active',
+        'document' => UploadedFile::fake()->create('spk_a.pdf', 100, 'application/pdf'),
+    ]);
+
+    $responseA->assertSessionHas('created_work_order', fn (array $created): bool => $created['job_number'] === 'JOB-SPK-SAMUDRA-001'
+    );
+
+    $responseB = $this->actingAs($admin)->post(route('work-orders.store'), [
+        'client_number' => 'SPK-SAMUDRA-001',
+        'company_id' => $companyB->id,
+        'ship_id' => $shipB->id,
+        'port_id' => $port->id,
+        'document_date' => '2026-10-11',
+        'received_at' => '2026-10-11 09:00:00',
+        'eta_at' => '2026-10-13',
+        'activity_name' => 'Muat semen',
+        'assigned_to' => $officer->id,
+        'status' => 'active',
+        'document' => UploadedFile::fake()->create('spk_b.pdf', 100, 'application/pdf'),
+    ]);
+
+    $responseB->assertSessionHas('created_work_order', function (array $created): bool {
+        return (bool) preg_match('/^JOB-SPK-SAMUDRA-001-\d{4}$/', $created['job_number']);
+    });
 });

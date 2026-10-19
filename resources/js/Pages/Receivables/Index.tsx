@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
 import { Building2, Calendar, Check, Filter, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
@@ -241,6 +241,20 @@ export default function ReceivablesIndex({
         });
         setIsReceiptModalOpen(true);
     };
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        const targetInvoiceId = params.get('invoice_id');
+        const shouldRecord = params.get('record_payment') === '1';
+
+        if (targetInvoiceId && shouldRecord) {
+            const target = unpaidInvoices.find((inv) => inv.id === targetInvoiceId);
+            if (target) {
+                openReceiptForInvoice(target);
+            }
+        }
+    }, [unpaidInvoices]);
 
     const invoiceColumns: Column<Invoice>[] = [
         { key: 'invoice_number', header: 'No. Invoice', wrap: 'normal', render: (invoice) => <span className="font-mono font-semibold text-[#0060F4]">{invoice.invoice_number}</span> },

@@ -8,6 +8,14 @@ export const REPORT_SECTIONS = [
         description: 'Ringkasan tagihan, HPP, dan margin setiap kegiatan kapal.',
     },
     {
+        key: 'pengajuan',
+        label: 'Pengajuan',
+        shortLabel: 'Pengajuan',
+        routeName: 'reports.requests',
+        href: '/reports/requests',
+        description: 'Daftar pengajuan kebutuhan beserta laporan PDF yang siap dicetak.',
+    },
+    {
         key: 'invoice',
         label: 'Invoice',
         shortLabel: 'Invoice',
@@ -30,6 +38,14 @@ export const REPORT_SECTIONS = [
         routeName: 'reports.expenses',
         href: '/reports/expenses',
         description: 'Realisasi pengeluaran dan status verifikasi pembayaran.',
+    },
+    {
+        key: 'pengeluaran_kapal',
+        label: 'Pengeluaran Kapal',
+        shortLabel: 'Kapal Harian',
+        routeName: 'reports.vessel-daily-expenses',
+        href: '/reports/vessel-daily-expenses',
+        description: 'Monitoring pengeluaran per kapal dan per item setiap hari (dari awal sandar s/d keluar) untuk Pak Rian & Admin.',
     },
     {
         key: 'aktivitas',

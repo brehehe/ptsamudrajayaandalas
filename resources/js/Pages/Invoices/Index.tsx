@@ -1,16 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { Pencil, Plus, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { CircleCheck, Download, Eye, FileText, HandCoins, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
+import Pagination, { type PaginationLinkItem } from '../../Components/pagination/Pagination';
 import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import Button from '../../Components/ui/Button';
+import ActionMenu, { type ActionMenuGroup } from '../../Components/ui/ActionMenu';
 import DocumentActions from '../../Components/ui/DocumentActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Tabs from '../../Components/ui/Tabs';
@@ -41,7 +43,16 @@ interface Invoice {
 }
 
 interface Props {
-    invoices: Invoice[];
+    invoices: {
+        data: Invoice[];
+        links: PaginationLinkItem[];
+        current_page: number;
+        last_page: number;
+        from: number | null;
+        to: number | null;
+        total: number;
+        per_page: number;
+    };
     stats: {
         total_invoiced: number;
         total_hpp: number;
@@ -148,88 +159,183 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
         });
     };
 
-    const invoiceActions = (invoice: Invoice) => (
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-            {invoice.status === 'draft' && (
-                <DocumentActions
-                    viewHref={`/invoices/${invoice.id}/generated-document?view=1`}
-                    downloadHref={`/invoices/${invoice.id}/generated-document`}
-                    viewLabel="Pratinjau"
-                    downloadLabel="Unduh draft"
-                />
-            )}
-            {invoice.signed_document_path && (
-                <DocumentActions
-                    viewHref={`/invoices/${invoice.id}/documents/signed?view=1`}
-                    downloadHref={`/invoices/${invoice.id}/documents/signed`}
-                    viewLabel="Lihat invoice"
-                    downloadLabel="Unduh invoice"
-                />
-            )}
-            {invoice.delivery_proof_path && (
-                <DocumentActions
-                    viewHref={`/invoices/${invoice.id}/documents/delivery?view=1`}
-                    downloadHref={`/invoices/${invoice.id}/documents/delivery`}
-                    viewLabel="Lihat bukti"
-                    downloadLabel="Unduh bukti"
-                />
-            )}
-            {invoice.supporting_document_path && (
-                <DocumentActions
-                    viewHref={`/invoices/${invoice.id}/documents/supporting?view=1`}
-                    downloadHref={`/invoices/${invoice.id}/documents/supporting`}
-                    viewLabel="Lihat pendukung"
-                    downloadLabel="Unduh pendukung"
-                />
-            )}
-            {abilities.manage && invoice.status === 'draft' && (
-                <>
-                    <Link
-                        href={`/invoices/${invoice.id}/edit`}
-                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[10px] border border-[#DCEAF8] bg-white px-3 text-xs font-medium text-[#0B1F63] transition-colors hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
-                    >
-                        <Pencil aria-hidden="true" className="size-3.5" /> Edit
-                    </Link>
-                    <Button size="sm" onClick={() => openWorkflow(invoice, 'release')}>Rilis</Button>
-                </>
-            )}
-            {/* {abilities.manage && invoice.status === 'released' && (
-                <Button size="sm" variant="secondary" onClick={() => openWorkflow(invoice, 'mark_sent')}>Kirim Klien</Button>
-            )} */}
-        </div>
-    );
+    const invoiceActions = (invoice: Invoice) => {
+        const invoiceDocumentItems: ActionMenuGroup['items'] = [];
+        const supportingDocumentItems: ActionMenuGroup['items'] = [];
+        const managementItems: ActionMenuGroup['items'] = [];
+
+        if (invoice.status === 'draft') {
+            invoiceDocumentItems.push(
+                {
+                    id: 'preview-draft',
+                    label: 'Pratinjau draft',
+                    icon: <Eye aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/generated-document?view=1`,
+                    target: '_blank',
+                    tone: 'primary',
+                },
+                {
+                    id: 'download-draft',
+                    label: 'Unduh draft',
+                    icon: <Download aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/generated-document`,
+                    tone: 'default',
+                },
+            );
+        }
+
+        if (invoice.signed_document_path) {
+            invoiceDocumentItems.push(
+                {
+                    id: 'view-signed',
+                    label: 'Lihat invoice',
+                    icon: <Eye aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/documents/signed?view=1`,
+                    target: '_blank',
+                    tone: 'primary',
+                },
+                {
+                    id: 'download-signed',
+                    label: 'Unduh invoice',
+                    icon: <Download aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/documents/signed`,
+                    tone: 'default',
+                },
+            );
+        }
+
+        if (invoice.delivery_proof_path) {
+            supportingDocumentItems.push(
+                {
+                    id: 'view-delivery-proof',
+                    label: 'Lihat bukti pengiriman',
+                    icon: <Eye aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/documents/delivery?view=1`,
+                    target: '_blank',
+                    tone: 'primary',
+                },
+                {
+                    id: 'download-delivery-proof',
+                    label: 'Unduh bukti pengiriman',
+                    icon: <Download aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/documents/delivery`,
+                    tone: 'default',
+                },
+            );
+        }
+
+        if (invoice.supporting_document_path) {
+            supportingDocumentItems.push(
+                {
+                    id: 'view-supporting',
+                    label: 'Lihat dokumen pendukung',
+                    icon: <FileText aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/documents/supporting?view=1`,
+                    target: '_blank',
+                    tone: 'primary',
+                },
+                {
+                    id: 'download-supporting',
+                    label: 'Unduh dokumen pendukung',
+                    icon: <Download aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/documents/supporting`,
+                    tone: 'default',
+                },
+            );
+        }
+
+        if (abilities.manage && invoice.status === 'draft') {
+            managementItems.push(
+                {
+                    id: 'edit',
+                    label: 'Edit invoice',
+                    icon: <Pencil aria-hidden="true" className="size-4" />,
+                    href: `/invoices/${invoice.id}/edit`,
+                    inertia: true,
+                    tone: 'warning',
+                },
+                {
+                    id: 'release',
+                    label: 'Rilis invoice',
+                    icon: <CircleCheck aria-hidden="true" className="size-4" />,
+                    onSelect: () => openWorkflow(invoice, 'release'),
+                    tone: 'success',
+                },
+            );
+        }
+
+        if (invoice.status !== 'draft') {
+            managementItems.push({
+                id: 'detail',
+                label: 'Lihat detail',
+                icon: <Eye aria-hidden="true" className="size-4" />,
+                href: `/invoices/${invoice.id}/edit`,
+                inertia: true,
+                tone: 'primary',
+            });
+        }
+
+        if (invoice.status === 'released' || invoice.status === 'sent' || (invoice.outstanding_amount > 0 && invoice.status !== 'draft')) {
+            managementItems.push({
+                id: 'record-payment',
+                label: 'Catat bayar',
+                icon: <HandCoins aria-hidden="true" className="size-4" />,
+                href: `/receivables?invoice_id=${invoice.id}&record_payment=1`,
+                inertia: true,
+                tone: 'success',
+            });
+        }
+
+        return (
+            <ActionMenu
+                label={`Buka aksi invoice ${invoice.invoice_number}`}
+                groups={[
+                    { id: 'invoice-document', items: invoiceDocumentItems },
+                    { id: 'supporting-document', items: supportingDocumentItems },
+                    { id: 'management', items: managementItems },
+                ]}
+            />
+        );
+    };
 
     const columns: Column<Invoice>[] = [
         {
             key: 'invoice_number',
             header: 'No. Invoice',
-            wrap: 'normal',
-            render: (invoice) => <div><p className="font-mono font-semibold text-[#0060F4]" translate="no">{invoice.invoice_number}</p><p className="text-[10px] text-[#52658E]">{formatDate(invoice.invoice_date)}</p></div>,
+            width: '150px',
+            wrap: 'nowrap',
+            render: (invoice) => <div className="min-w-0"><p className="whitespace-nowrap font-mono font-semibold text-[#0060F4]" translate="no">{invoice.invoice_number}</p><p className="mt-0.5 whitespace-nowrap text-[10px] text-[#52658E]">{formatDate(invoice.invoice_date)}</p></div>,
         },
         {
             key: 'invoice_type',
             header: 'Kategori',
-            render: (invoice) => <div className="space-y-1"><StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement'} /><p className="text-[10px] text-[#52658E]">{invoice.items_count || 0} item</p></div>,
+            width: '140px',
+            wrap: 'nowrap',
+            render: (invoice) => <div className="space-y-1"><StatusBadge status={invoice.invoice_type === 'agency' ? 'Aktif' : 'Selesai'} label={invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement'} /><p className="whitespace-nowrap text-[10px] text-[#52658E]">{invoice.items_count || 0} item</p></div>,
         },
         {
             key: 'company',
             header: 'Klien & Kapal',
+            width: '240px',
             wrap: 'normal',
-            render: (invoice) => <div><p className="font-semibold">{invoice.company?.name || 'Klien'}</p><p className="text-[11px] text-[#52658E]">{invoice.port_call?.ship?.name || '—'} · {invoice.port_call?.job_number || '—'}</p></div>,
+            render: (invoice) => <div className="min-w-0"><p className="whitespace-normal font-semibold [overflow-wrap:anywhere]">{invoice.company?.name || 'Klien'}</p><p className="mt-0.5 whitespace-normal text-[11px] text-[#52658E] [overflow-wrap:anywhere]">{invoice.port_call?.ship?.name || '—'}</p><p className="mt-0.5 whitespace-normal font-mono text-[10px] text-[#52658E] [overflow-wrap:anywhere]" translate="no">{invoice.port_call?.job_number || '—'}</p></div>,
         },
-        { key: 'due_date', header: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
+        { key: 'due_date', header: 'Jatuh Tempo', width: '110px', wrap: 'nowrap', render: (invoice) => formatDate(invoice.due_date) },
         {
             key: 'grand_total',
             header: 'Total',
             align: 'right',
+            width: '190px',
             render: (invoice) => <div className="font-mono font-bold tabular-nums">{formatRupiah(invoice.grand_total)}<p className="text-[10px] font-normal text-[#52658E]">HPP: {formatRupiah(invoice.total_hpp)}</p><p className={`text-[10px] font-bold ${invoice.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>Margin: {formatRupiah(invoice.margin)} ({invoice.margin_percentage.toLocaleString('id-ID')}%)</p>{invoice.outstanding_amount > 0 && invoice.paid_amount > 0 && <p className="text-[10px] font-normal text-[#C62840]">Sisa: {formatRupiah(invoice.outstanding_amount)}</p>}</div>,
         },
         {
             key: 'status',
             header: 'Status',
-            render: (invoice) => <div className="space-y-1"><StatusBadge {...invoiceStatus(invoice)} /><p className="text-[10px] text-[#52658E]">{invoice.delivery_status === 'delivered' ? 'Tanda terima ada' : 'Menunggu kirim'}</p></div>,
+            width: '140px',
+            wrap: 'nowrap',
+            render: (invoice) => <div className="space-y-1"><StatusBadge {...invoiceStatus(invoice)} /><p className="whitespace-nowrap text-[10px] text-[#52658E]">{invoice.delivery_status === 'delivered' ? 'Tanda terima ada' : 'Menunggu kirim'}</p></div>,
         },
-        { key: 'actions', header: 'Aksi', align: 'right', render: invoiceActions },
+        { key: 'actions', header: 'Aksi', align: 'right', width: '72px', render: invoiceActions },
     ];
 
     return (
@@ -237,11 +343,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
             <Head title="Invoice & Tagihan — PT Samudra Jaya Andalas" />
             <MobilePageHero title="Invoice & Tagihan" description="Pantau penerbitan, pengiriman, dan pelunasan invoice klien." />
 
-            <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
+            <div className="relative z-10 mx-auto -mt-6 max-w-[1600px] space-y-5 rounded-t-[28px] bg-white px-4 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
                 <div className="hidden items-end justify-between gap-4 border-b border-[#DCEAF8] pb-4 md:flex dark:border-[#1E3A5F]">
-                    <div>
+                    <div className="min-w-0">
                         <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">Invoice & Tagihan Klien</h1>
-                        <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">Invoice Jasa Keagenan dan Reimbursement berdasarkan item pengajuan yang disetujui.</p>
+                        <p className="mt-1 max-w-3xl whitespace-normal text-sm text-[#52658E] [overflow-wrap:anywhere] dark:text-[#94A3B8]">Invoice Jasa Keagenan dan Reimbursement berdasarkan item pengajuan yang disetujui.</p>
                     </div>
                     {abilities.manage && (
                         <Link href="/invoices/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35">
@@ -260,14 +366,14 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     ].map(([label, value, description, color]) => (
                         <div key={label} className="rounded-2xl border border-[#DCEAF8] bg-white p-4 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
                             <p className="text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">{label}</p>
-                            <p className={`mt-1 text-xl font-extrabold tabular-nums ${color}`}>{value}</p>
-                            <p className="mt-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">{description}</p>
+                            <p className={`mt-1 whitespace-nowrap text-lg font-extrabold tabular-nums xl:text-xl ${color}`}>{value}</p>
+                            <p className="mt-1 whitespace-normal text-[11px] text-[#52658E] [overflow-wrap:anywhere] dark:text-[#94A3B8]">{description}</p>
                         </div>
                     ))}
                 </div>
 
                 <div className="space-y-3">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
                         <Tabs
                             className="min-w-0 flex-1"
                             ariaLabel="Filter tipe invoice"
@@ -279,8 +385,8 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                                 { id: 'reimburse', label: 'Reimbursement', count: stats.reimburse_count },
                             ]}
                         />
-                        <div className="flex items-center gap-2">
-                            <form onSubmit={(event) => { event.preventDefault(); updateFilters({}); }} className="flex min-w-0 gap-2 sm:w-[320px]">
+                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:flex-nowrap">
+                            <form onSubmit={(event) => { event.preventDefault(); updateFilters({}); }} className="flex min-w-0 gap-2 sm:min-w-[280px] sm:flex-1 lg:w-[320px] lg:flex-none">
                                 <Input name="search" autoComplete="off" aria-label="Cari invoice" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari invoice, klien, atau kapal…" leftIcon={<Search aria-hidden="true" className="size-4" />} clearable onClear={() => { setSearch(''); router.get('/invoices', { ...filters, search: '' }, { preserveState: true, replace: true }); }} />
                                 <Button type="submit" variant="secondary">Cari</Button>
                             </form>
@@ -293,7 +399,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                                     setIsFilterModalOpen(true);
                                 }}
                                 leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
-                                className="h-10 px-3 text-xs font-bold shrink-0"
+                                className="h-11 shrink-0 px-3 text-xs font-bold"
                             >
                                 <span>Filter</span>
                                 {activeFilterCount > 0 && (
@@ -310,14 +416,14 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                                         setSearch('');
                                         router.get('/invoices', {}, { preserveState: true, replace: true });
                                     }}
-                                    className="h-10 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30 shrink-0"
+                                    className="h-11 shrink-0 border-rose-200 px-3 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
                                 >
                                     <RotateCcw aria-hidden="true" className="size-3.5 mr-1" />
                                     Reset
                                 </Button>
                             )}
                             {abilities.manage && (
-                                <Link href="/invoices/create" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[12px] bg-[#0060F4] px-3.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 md:hidden shrink-0">
+                                <Link href="/invoices/create" className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-[12px] bg-[#0060F4] px-3.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 md:hidden">
                                     <Plus aria-hidden="true" className="size-4" /> Buat
                                 </Link>
                             )}
@@ -330,20 +436,41 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                             <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
                             {search && (
                                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                    Cari: "{search}"
-                                    <button type="button" onClick={() => { setSearch(''); router.get('/invoices', { ...filters, search: '' }, { preserveState: true, replace: true }); }}><X className="size-3" /></button>
+                                    Cari: “{search}”
+                                    <button
+                                        type="button"
+                                        aria-label="Hapus filter pencarian"
+                                        onClick={() => { setSearch(''); router.get('/invoices', { ...filters, search: '' }, { preserveState: true, replace: true }); }}
+                                        className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]"
+                                    >
+                                        <X aria-hidden="true" className="size-3" />
+                                    </button>
                                 </span>
                             )}
                             {filters.status && filters.status !== 'all' && (
                                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
                                     Status: {statusOptions.find((s) => s.value === filters.status)?.label || filters.status}
-                                    <button type="button" onClick={() => updateFilters({ status: 'all' })}><X className="size-3" /></button>
+                                    <button
+                                        type="button"
+                                        aria-label="Hapus filter status"
+                                        onClick={() => updateFilters({ status: 'all' })}
+                                        className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]"
+                                    >
+                                        <X aria-hidden="true" className="size-3" />
+                                    </button>
                                 </span>
                             )}
                             {filters.type && filters.type !== 'all' && (
                                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
                                     Kategori: {typeOptions.find((t) => t.value === filters.type)?.label || filters.type}
-                                    <button type="button" onClick={() => updateFilters({ type: 'all' })}><X className="size-3" /></button>
+                                    <button
+                                        type="button"
+                                        aria-label="Hapus filter kategori"
+                                        onClick={() => updateFilters({ type: 'all' })}
+                                        className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]"
+                                    >
+                                        <X aria-hidden="true" className="size-3" />
+                                    </button>
                                 </span>
                             )}
                         </div>
@@ -351,15 +478,15 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                 </div>
 
                 <ResponsiveTable<Invoice>
-                    data={invoices}
+                    data={invoices.data}
                     keyExtractor={(invoice) => invoice.id}
-                    desktop={{ columns, compact: true, minWidth: '1080px', emptyMessage: 'Data Tidak Ditemukan' }}
+                    desktop={{ columns, compact: true, minWidth: '1042px', emptyMessage: 'Data Tidak Ditemukan' }}
                     mobile={{
-                        titleRender: (invoice) => invoice.invoice_number,
-                        subtitleRender: (invoice) => `${invoice.company?.name || 'Klien'} · ${invoice.port_call?.ship?.name || '—'}`,
+                        titleRender: (invoice) => <span className="[overflow-wrap:anywhere]" translate="no">{invoice.invoice_number}</span>,
+                        subtitleRender: (invoice) => <span className="[overflow-wrap:anywhere]">{invoice.company?.name || 'Klien'} · {invoice.port_call?.ship?.name || '—'}</span>,
                         statusRender: (invoice) => <StatusBadge {...invoiceStatus(invoice)} />,
                         fields: [
-                            { label: 'Job', render: (invoice) => invoice.port_call?.job_number || '—' },
+                            { label: 'Job', render: (invoice) => <span className="font-mono [overflow-wrap:anywhere]" translate="no">{invoice.port_call?.job_number || '—'}</span> },
                             { label: 'Kategori', render: (invoice) => invoice.invoice_type === 'agency' ? 'Jasa Keagenan' : 'Reimbursement' },
                             { label: 'Jatuh Tempo', render: (invoice) => formatDate(invoice.due_date) },
                             { label: 'Total', render: (invoice) => formatRupiah(invoice.grand_total) },
@@ -370,6 +497,15 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                         actionsRender: invoiceActions,
                         emptyMessage: 'Data Tidak Ditemukan',
                     }}
+                />
+                <Pagination
+                    links={invoices.links}
+                    currentPage={invoices.current_page}
+                    lastPage={invoices.last_page}
+                    total={invoices.total}
+                    from={invoices.from ?? undefined}
+                    to={invoices.to ?? undefined}
+                    perPage={invoices.per_page}
                 />
             </div>
 

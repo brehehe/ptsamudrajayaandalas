@@ -24,6 +24,7 @@ class ShipRequest extends Model
         'status',
         'request_date',
         'notes',
+        'admin_forward_notes',
         'completed_at',
         'cancelled_at',
         'port_call_id',

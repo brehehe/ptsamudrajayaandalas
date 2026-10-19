@@ -28,6 +28,10 @@ class UpdatePortCallStatusRequest extends FormRequest
             'expected_status' => ['sometimes', 'required', 'string'],
             'occurred_at' => ['nullable', 'date', 'before_or_equal:now'],
             'completion_note_due_at' => ['nullable', 'date', 'after:occurred_at'],
+            'items' => ['nullable', 'array'],
+            'items.*.product_id' => ['nullable', 'uuid', 'exists:products,id'],
+            'items.*.item_name' => ['nullable', 'string', 'max:255'],
+            'items.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 

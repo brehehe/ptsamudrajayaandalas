@@ -94,6 +94,7 @@ class ApprovalController extends Controller
             $requestsQuery->where(function ($q) use ($search, $like) {
                 $q->where('request_number', $like, "%{$search}%")
                     ->orWhere('notes', $like, "%{$search}%")
+                    ->orWhere('admin_forward_notes', $like, "%{$search}%")
                     ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"))
                     ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"))
                     ->orWhereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$search}%"));
@@ -149,6 +150,25 @@ class ApprovalController extends Controller
             'ditolak' => ShipRequest::where('status', 'Ditolak')->count() + OutgoingPayment::where('verification_status', 'rejected')->count() + ExpenseRequest::where('scope', 'company')->where('status', 'rejected')->count(),
         ];
 
+        $allRequestsTotalHpp = (float) RequestItem::query()->sum(DB::raw('hpp_price * quantity'));
+
+        $waitingRequestsTotalHpp = (float) RequestItem::whereHas('request', function ($query) {
+            $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
+                ->orWhereHas('items', fn ($itemQuery) => $itemQuery
+                    ->where('status', 'diajukan_ke_direktur')
+                    ->where('director_status', 'pending'));
+        })->sum(DB::raw('hpp_price * quantity'));
+
+        $approvedRequestsTotalHpp = (float) RequestItem::where(function ($query) {
+            $query->where('director_status', 'approved')
+                ->orWhereHas('request', fn ($reqQuery) => $reqQuery->whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai']));
+        })->sum(DB::raw('hpp_price * quantity'));
+
+        $rejectedRequestsTotalHpp = (float) RequestItem::where(function ($query) {
+            $query->where('director_status', 'rejected')
+                ->orWhereHas('request', fn ($reqQuery) => $reqQuery->where('status', 'Ditolak'));
+        })->sum(DB::raw('hpp_price * quantity'));
+
         return Inertia::render('Approvals/Index', [
             'requests' => $pendingRequests,
             'payments' => $pendingPayments,
@@ -158,6 +178,10 @@ class ApprovalController extends Controller
             'search' => $search ?? '',
             'date' => $date ?? '',
             'dailySummary' => $dailySummary,
+            'all_requests_total_hpp' => $allRequestsTotalHpp,
+            'waiting_requests_total_hpp' => $waitingRequestsTotalHpp,
+            'approved_requests_total_hpp' => $approvedRequestsTotalHpp,
+            'rejected_requests_total_hpp' => $rejectedRequestsTotalHpp,
             'capabilities' => [
                 'can_decide_items' => $request->user()?->isDirector() ?? false,
                 'can_view_hpp' => true,
@@ -335,7 +359,7 @@ class ApprovalController extends Controller
                 ]);
 
                 if ($status === 'approved') {
-                    $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+                    $this->createVendorInvoiceWithoutBlockingApproval($item, $request);
                 }
 
                 $decidedItemIds->push($item->id);
@@ -404,7 +428,7 @@ class ApprovalController extends Controller
                     'status' => 'disetujui',
                 ]);
 
-                $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+                $this->createVendorInvoiceWithoutBlockingApproval($item, $request);
 
                 activity('request-item-approval')
                     ->performedOn($item)
@@ -540,7 +564,7 @@ class ApprovalController extends Controller
             ]);
 
             if ($status === 'approved') {
-                $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+                $this->createVendorInvoiceWithoutBlockingApproval($item, $request);
             }
 
             activity('request-item-approval')
@@ -568,6 +592,22 @@ class ApprovalController extends Controller
     {
         if (! $request->user()?->isDirector()) {
             abort(403, 'Hanya Direktur yang dapat memberikan keputusan pengajuan.');
+        }
+    }
+
+    /**
+     * Approval Direktur tetap berlaku meskipun invoice vendor otomatis perlu ditinjau Admin.
+     */
+    private function createVendorInvoiceWithoutBlockingApproval(RequestItem $item, Request $request): void
+    {
+        try {
+            $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+        } catch (ValidationException $exception) {
+            logger()->warning('Invoice vendor otomatis tidak dibuat setelah approval item.', [
+                'request_item_id' => $item->id,
+                'request_id' => $item->request_id,
+                'validation_errors' => $exception->errors(),
+            ]);
         }
     }
 
@@ -664,10 +704,12 @@ class ApprovalController extends Controller
             'decisions.*.director_notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        return DB::transaction(function () use ($validated, $request) {
+        $result = DB::transaction(function () use ($validated, $request): array {
             $itemIds = collect($validated['decisions'])->pluck('item_id');
             $items = RequestItem::lockForUpdate()->whereIn('id', $itemIds)->get()->keyBy('id');
             $decidedItemIdsByRequest = collect();
+            $approvedItemCount = 0;
+            $returnedItemCount = 0;
 
             foreach ($validated['decisions'] as $dec) {
                 /** @var RequestItem|null $item */
@@ -677,9 +719,13 @@ class ApprovalController extends Controller
                 }
 
                 $status = $dec['status'];
+                $directorNotes = $status === 'pending'
+                    ? ($dec['director_notes'] ?? 'Belum diputuskan Direktur. Silakan ajukan ulang setelah ditinjau Admin.')
+                    : ($dec['director_notes'] ?? $item->director_notes);
+
                 $item->update([
                     'director_status' => $status,
-                    'director_notes' => $dec['director_notes'] ?? $item->director_notes,
+                    'director_notes' => $directorNotes,
                     'status' => match ($status) {
                         'approved' => 'disetujui',
                         'rejected' => 'ditolak',
@@ -688,7 +734,10 @@ class ApprovalController extends Controller
                 ]);
 
                 if ($status === 'approved') {
-                    $this->createVendorInvoiceFromApprovedItem->handle($item, $request->user());
+                    $approvedItemCount++;
+                    $this->createVendorInvoiceWithoutBlockingApproval($item, $request);
+                } elseif ($status === 'pending') {
+                    $returnedItemCount++;
                 }
 
                 if (function_exists('activity')) {
@@ -701,7 +750,9 @@ class ApprovalController extends Controller
                             'hpp_price' => (float) $item->hpp_price,
                             'notes' => $dec['director_notes'] ?? null,
                         ])
-                        ->log('Direktur memberikan keputusan pada item pengajuan');
+                        ->log($status === 'pending'
+                            ? 'Item yang tidak dipilih Direktur dikembalikan ke Admin'
+                            : 'Direktur memberikan keputusan pada item pengajuan');
                 }
 
                 $requestItemIds = $decidedItemIdsByRequest->get($item->request_id, collect());
@@ -709,7 +760,7 @@ class ApprovalController extends Controller
                 $decidedItemIdsByRequest->put($item->request_id, $requestItemIds);
             }
 
-            $returnedItemCount = 0;
+            $decidedRequests = collect();
 
             foreach ($decidedItemIdsByRequest as $requestId => $decidedItemIds) {
                 $shipRequest = ShipRequest::lockForUpdate()->find($requestId);
@@ -721,7 +772,7 @@ class ApprovalController extends Controller
                     );
                     $requestStatus = $this->syncRequestApprovalStatus($shipRequest);
                     if ($requestStatus !== 'Menunggu Approval Direktur') {
-                        $this->workflowNotifier->notifyDirectorDecision($shipRequest, $request->user());
+                        $decidedRequests->push($shipRequest);
                     }
                 }
             }
@@ -731,8 +782,24 @@ class ApprovalController extends Controller
                 $message .= " {$returnedItemCount} item yang tidak dipilih dikembalikan ke Admin untuk diajukan ulang.";
             }
 
-            return redirect()->back()->with('success', $message);
+            return [
+                'approved_item_count' => $approvedItemCount,
+                'returned_item_count' => $returnedItemCount,
+                'decided_requests' => $decidedRequests,
+                'message' => $message,
+            ];
         });
+
+        if ($result['decided_requests']->isNotEmpty()) {
+            $this->workflowNotifier->notifyBatchDirectorDecision(
+                $result['decided_requests'],
+                $request->user(),
+                $result['approved_item_count'],
+                $result['returned_item_count'],
+            );
+        }
+
+        return redirect()->back()->with('success', $result['message']);
     }
 
     public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest): RedirectResponse

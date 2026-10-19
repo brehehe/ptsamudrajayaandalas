@@ -11,6 +11,7 @@ use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\ShipCompany;
 use App\Models\ShipRequest;
+use App\Support\InvoiceDocumentSettings;
 use App\Support\InvoicePdfGenerator;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
@@ -29,6 +30,8 @@ use Throwable;
 
 class InvoiceController extends Controller
 {
+    public function __construct(private InvoiceDocumentSettings $invoiceDocumentSettings) {}
+
     public function index(Request $request): Response
     {
         Gate::authorize('viewAny', Invoice::class);
@@ -61,14 +64,19 @@ class InvoiceController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('invoice_number', 'ilike', "%{$search}%")
+                    ->orWhere('subject', 'ilike', "%{$search}%")
                     ->orWhere('notes', 'ilike', "%{$search}%")
                     ->orWhereHas('company', fn ($cq) => $cq->where('name', 'ilike', "%{$search}%"))
                     ->orWhereHas('portCall.ship', fn ($sq) => $sq->where('name', 'ilike', "%{$search}%"));
             });
         }
 
-        $invoices = $query->orderByDesc('invoice_date')->get()
-            ->each(function (Invoice $invoice): void {
+        $invoices = $query
+            ->orderByDesc('invoice_date')
+            ->orderByDesc('id')
+            ->paginate(15)
+            ->withQueryString()
+            ->through(function (Invoice $invoice): Invoice {
                 $totalHpp = (float) $invoice->items->sum(
                     fn ($item): float => (float) $item->sources->sum('source_cost'),
                 );
@@ -80,6 +88,8 @@ class InvoiceController extends Controller
                     'margin_percentage',
                     (float) $invoice->grand_total > 0 ? round(($margin / (float) $invoice->grand_total) * 100, 2) : 0,
                 );
+
+                return $invoice;
             });
 
         $totalInvoiceHpp = (float) InvoiceItemSource::query()
@@ -151,7 +161,7 @@ class InvoiceController extends Controller
 
     public function edit(Invoice $invoice): Response
     {
-        Gate::authorize('update', $invoice);
+        Gate::authorize('view', $invoice);
         $invoice->load(['items' => fn ($query) => $query->with('sources')->orderBy('sort_order')]);
 
         return Inertia::render('Invoices/Form', $this->formData($invoice));
@@ -200,10 +210,12 @@ class InvoiceController extends Controller
             ->values()
             ->map(fn ($item): array => [
                 'id' => $item->id,
+                'section_title' => $item->section_title,
                 'description' => $item->description,
                 'quantity' => (string) $item->quantity,
                 'unit' => $item->unit,
                 'unit_price' => (string) $item->unit_price,
+                'allocated_hpp' => (string) ((float) $item->sources->sum('source_cost')),
                 'source_item_ids' => $item->sources->pluck('request_item_id')
                     ->when(
                         $item->sources->isEmpty() && $item->request_item_id,
@@ -231,13 +243,15 @@ class InvoiceController extends Controller
             })
             ->whereHas('requests.items')
             ->latest('departed_at')
-            ->get(['id', 'job_number', 'work_order_id', 'ship_id', 'port_id', 'departed_at'])
+            ->get(['id', 'job_number', 'work_order_id', 'ship_id', 'port_id', 'eta_at', 'etd_at', 'departed_at'])
             ->map(fn (PortCall $portCall): array => [
                 'id' => $portCall->id,
                 'job_number' => $portCall->job_number,
                 'client_spk_number' => $portCall->workOrder?->client_number,
+                'eta_at' => $portCall->eta_at?->toDateString(),
+                'etd_at' => $portCall->etd_at?->toDateString(),
                 'company_id' => $portCall->workOrder?->company_id ?? $portCall->ship?->ship_company_id,
-                'company' => ($portCall->workOrder?->company ?? $portCall->ship?->company)?->only(['id', 'name']),
+                'company' => ($portCall->workOrder?->company ?? $portCall->ship?->company)?->only(['id', 'name', 'address']),
                 'ship' => $portCall->ship?->only(['id', 'name']),
                 'port' => $portCall->port?->only(['id', 'name']),
             ]);
@@ -295,20 +309,31 @@ class InvoiceController extends Controller
             'companies' => ShipCompany::query()
                 ->whereIn('id', $portCalls->pluck('company_id')->filter()->unique())
                 ->orderBy('name')
-                ->get(['id', 'name']),
+                ->get(['id', 'name', 'address']),
             'portCalls' => $portCalls,
             'shipRequests' => $shipRequests,
+            'documentSettings' => $this->invoiceDocumentSettings->all(),
+            'previewDate' => now()->toDateString(),
+            'abilities' => [
+                'update' => $editingInvoice ? Gate::allows('update', $editingInvoice) : true,
+            ],
             'invoice' => $editingInvoice ? [
                 'id' => $editingInvoice->id,
                 'invoice_number' => $editingInvoice->invoice_number,
+                'invoice_date' => $editingInvoice->invoice_date?->toDateString(),
                 'port_call_id' => $editingInvoice->port_call_id,
                 'company_id' => $editingInvoice->company_id,
                 'invoice_type' => $editingInvoice->invoice_type,
+                'status' => $editingInvoice->status,
+                'subject' => $editingInvoice->subject,
+                'origin_port_name' => $editingInvoice->origin_port_name,
+                'destination_port_name' => $editingInvoice->destination_port_name,
                 'due_date' => $editingInvoice->due_date?->toDateString(),
                 'addon_total' => (string) $editingInvoice->addon_total,
                 'tax' => (string) $editingInvoice->tax,
                 'notes' => $editingInvoice->notes,
                 'supporting_document_path' => $editingInvoice->supporting_document_path,
+                'signed_document_path' => $editingInvoice->signed_document_path,
                 'lines' => $editingLines,
             ] : null,
         ];
@@ -412,16 +437,52 @@ class InvoiceController extends Controller
             }
         }
 
+        $hasCustomAllocations = $lines->contains(
+            fn ($l) => isset($l['allocated_hpp']) && $l['allocated_hpp'] !== null && $l['allocated_hpp'] !== ''
+        );
+
+        if ($hasCustomAllocations) {
+            $totalAllocatedHpp = BigDecimal::zero();
+            foreach ($lines as $line) {
+                $lineHpp = BigDecimal::of((string) ($line['allocated_hpp'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+                $totalAllocatedHpp = $totalAllocatedHpp->plus($lineHpp);
+            }
+
+            $totalSelectedHpp = BigDecimal::zero();
+            foreach ($requestItems as $item) {
+                $itemTotal = BigDecimal::of((string) $item->hpp_price)
+                    ->multipliedBy(BigDecimal::of((string) $item->quantity))
+                    ->toScale(2, RoundingMode::HalfUp);
+                $totalSelectedHpp = $totalSelectedHpp->plus($itemTotal);
+            }
+
+            $diff = $totalAllocatedHpp->minus($totalSelectedHpp);
+            if ($diff->abs()->isGreaterThan(BigDecimal::of('1.00'))) {
+                $statusDiff = $diff->isPositive() ? 'melebihi' : 'kurang dari';
+                $diffStr = number_format((float) (string) $diff->abs(), 0, ',', '.');
+                $allocatedStr = number_format((float) (string) $totalAllocatedHpp, 0, ',', '.');
+                $selectedStr = number_format((float) (string) $totalSelectedHpp, 0, ',', '.');
+
+                throw ValidationException::withMessages([
+                    'lines' => "Total alokasi HPP baris (Rp {$allocatedStr}) {$statusDiff} total HPP item pengajuan terpilih (Rp {$selectedStr}) sebesar Rp {$diffStr}. Total alokasi HPP harus sama persis dengan HPP item terpilih (tidak boleh lebih ataupun kurang).",
+                ]);
+            }
+        }
+
         foreach ($lines as $lineIndex => $line) {
             $unitPrice = BigDecimal::of((string) $line['unit_price'])->toScale(2, RoundingMode::HalfUp);
             $quantity = BigDecimal::of((string) $line['quantity'])->toScale(2, RoundingMode::HalfUp);
             $lineSubtotal = $unitPrice->multipliedBy($quantity)->toScale(2, RoundingMode::HalfUp);
             $subtotal = $subtotal->plus($lineSubtotal);
             $lineSnapshots[] = [
+                'section_title' => filled($line['section_title'] ?? null) ? trim($line['section_title']) : null,
                 'description' => trim($line['description']),
                 'quantity' => (string) $quantity,
                 'unit' => trim($line['unit']),
                 'unit_price' => (string) $unitPrice,
+                'allocated_hpp' => isset($line['allocated_hpp']) && $line['allocated_hpp'] !== null && $line['allocated_hpp'] !== ''
+                    ? (string) $line['allocated_hpp']
+                    : null,
                 'subtotal' => (string) $lineSubtotal,
                 'source_item_ids' => collect($line['source_item_ids'] ?? [])->unique()->values(),
                 'sort_order' => $lineIndex,
@@ -442,6 +503,9 @@ class InvoiceController extends Controller
             'company_id' => $validated['company_id'],
             'request_id' => $requestItems->first()?->request_id,
             'invoice_type' => $validated['invoice_type'],
+            'subject' => filled($validated['subject'] ?? null) ? trim($validated['subject']) : null,
+            'origin_port_name' => filled($validated['origin_port_name'] ?? null) ? trim($validated['origin_port_name']) : null,
+            'destination_port_name' => filled($validated['destination_port_name'] ?? null) ? trim($validated['destination_port_name']) : null,
             'due_date' => $validated['due_date'],
             'subtotal' => (string) $subtotal->toScale(2, RoundingMode::HalfUp),
             'addon_total' => (string) $addon,
@@ -488,6 +552,7 @@ class InvoiceController extends Controller
                 'request_item_id' => $sourceItems->count() === 1 ? $sourceItems->first()->id : null,
                 'sort_order' => $lineSnapshot['sort_order'],
                 'is_custom' => $sourceItems->isEmpty(),
+                'section_title' => $lineSnapshot['section_title'],
                 'description' => $lineSnapshot['description'],
                 'vendor_name' => $sourceItems->pluck('vendor.name')->filter()->unique()->implode(', ') ?: null,
                 'quantity' => $lineSnapshot['quantity'],
@@ -504,16 +569,37 @@ class InvoiceController extends Controller
                 $fullCost = BigDecimal::of((string) $requestItem->hpp_price)
                     ->multipliedBy($fullQuantity)
                     ->toScale(2, RoundingMode::HalfUp);
-                $quantityShare = $usagePosition === $usageCount
-                    ? $fullQuantity->minus(
-                        $fullQuantity->dividedBy($usageCount, 2, RoundingMode::HalfUp)->multipliedBy($usageCount - 1),
-                    )
-                    : $fullQuantity->dividedBy($usageCount, 2, RoundingMode::HalfUp);
-                $costShare = $usagePosition === $usageCount
-                    ? $fullCost->minus(
-                        $fullCost->dividedBy($usageCount, 2, RoundingMode::HalfUp)->multipliedBy($usageCount - 1),
-                    )
-                    : $fullCost->dividedBy($usageCount, 2, RoundingMode::HalfUp);
+
+                if ($lineSnapshot['allocated_hpp'] !== null) {
+                    $lineAllocatedHpp = BigDecimal::of((string) $lineSnapshot['allocated_hpp'])->toScale(2, RoundingMode::HalfUp);
+                    if ($sourceItems->count() === 1) {
+                        $costShare = $lineAllocatedHpp;
+                    } else {
+                        $totalCombinedCost = $sourceItems->sum(fn ($si) => (float) $si->hpp_price * (float) $si->quantity);
+                        $ratio = $totalCombinedCost > 0
+                            ? ((float) $requestItem->hpp_price * (float) $requestItem->quantity) / $totalCombinedCost
+                            : 1 / $sourceItems->count();
+                        $costShare = $lineAllocatedHpp
+                            ->multipliedBy(BigDecimal::of((string) $ratio))
+                            ->toScale(2, RoundingMode::HalfUp);
+                    }
+                    $quantityRatio = $fullCost->isPositive()
+                        ? (float) (string) $costShare->dividedBy($fullCost, 4, RoundingMode::HalfUp)
+                        : (1 / $usageCount);
+                    $quantityShare = $fullQuantity->multipliedBy(BigDecimal::of((string) min(1, max(0, $quantityRatio))))
+                        ->toScale(2, RoundingMode::HalfUp);
+                } else {
+                    $quantityShare = $usagePosition === $usageCount
+                        ? $fullQuantity->minus(
+                            $fullQuantity->dividedBy($usageCount, 2, RoundingMode::HalfUp)->multipliedBy($usageCount - 1),
+                        )
+                        : $fullQuantity->dividedBy($usageCount, 2, RoundingMode::HalfUp);
+                    $costShare = $usagePosition === $usageCount
+                        ? $fullCost->minus(
+                            $fullCost->dividedBy($usageCount, 2, RoundingMode::HalfUp)->multipliedBy($usageCount - 1),
+                        )
+                        : $fullCost->dividedBy($usageCount, 2, RoundingMode::HalfUp);
+                }
 
                 $invoiceItem->sources()->create([
                     'request_item_id' => $requestItem->id,

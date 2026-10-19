@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { router, usePage } from '@inertiajs/react';
 import { useEchoNotification } from '@laravel/echo-react';
-import { Bell, BellOff, BellPlus, BellRing, CheckCheck, CloudCheck, ExternalLink, Volume2, VolumeX } from 'lucide-react';
+import { ArrowRight, Bell, BellOff, BellPlus, BellRing, CheckCheck, CloudCheck, Volume2, VolumeX } from 'lucide-react';
 import type { PageProps, WorkflowNotification } from '@/types';
 import { syncFirebasePush, type FirebasePushStatus } from '@/services/firebaseMessaging';
 import Modal from '../overlays/Modal';
@@ -283,7 +283,7 @@ export default function NotificationCenter() {
                                 key={notification.id}
                                 type="button"
                                 onClick={() => openItem(notification)}
-                                className={`grid w-full grid-cols-[44px_minmax(0,1fr)_auto] items-start gap-3 rounded-2xl border p-3 text-left transition-colors hover:border-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${notificationToneClass(notification)}`}
+                                className={`group grid w-full touch-manipulation grid-cols-[44px_minmax(0,1fr)] items-start gap-3 rounded-2xl border p-3 text-left transition-colors hover:border-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${notificationToneClass(notification)}`}
                             >
                                 <ShipImage
                                     src={notification.ship_image}
@@ -309,9 +309,9 @@ export default function NotificationCenter() {
                                         )}
                                     </span>
                                 </span>
-                                <span className="flex min-h-11 items-center gap-1 self-center whitespace-nowrap text-[10px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                <span className="col-start-2 mt-2 inline-flex min-h-9 w-fit max-w-full items-center gap-1.5 rounded-xl bg-[#0060F4] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition-colors group-hover:bg-[#0050D0] dark:bg-[#2563EB]">
                                     {notification.action_label}
-                                    <ExternalLink aria-hidden="true" className="size-3.5" />
+                                    <ArrowRight aria-hidden="true" className="size-3.5" />
                                 </span>
                             </button>
                         ))}

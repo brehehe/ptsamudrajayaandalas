@@ -32,7 +32,7 @@ class SjaPermissionSeeder extends Seeder
                 'expense-requests.view', 'expense-requests.create', 'expense-requests.review',
                 'funding.view', 'funding.manage', 'outgoing-payments.view', 'outgoing-payments.manage',
                 'invoices.view', 'invoices.create', 'invoices.update', 'invoices.release',
-                'receivables.view', 'reports.view', 'users.view', 'users.create',
+                'receivables.view', 'reports.view', 'reports.export', 'users.view', 'users.create',
                 'users.update', 'users.delete', 'roles.view', 'masters.view',
                 'masters.manage', 'attachments.download',
             ],
@@ -41,7 +41,7 @@ class SjaPermissionSeeder extends Seeder
                 'port-calls.view', 'daily-reports.view-all', 'expense-requests.view',
                 'expense-requests.approve', 'funding.view', 'funding.approve-kopra',
                 'outgoing-payments.view', 'invoices.view', 'receivables.view',
-                'reports.view', 'users.view', 'users.create', 'users.update',
+                'reports.view', 'reports.export', 'users.view', 'users.create', 'users.update',
                 'users.delete', 'attachments.download',
             ],
             'Lapangan' => [

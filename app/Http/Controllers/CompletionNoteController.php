@@ -54,7 +54,12 @@ class CompletionNoteController extends Controller
                 });
             }))
             ->when($shipId, fn ($query, $sid) => $query->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $sid)))
-            ->when($job, fn ($query, $val) => $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$val}%")->orWhere('id', $val)))
+            ->when($job, fn ($query, $val) => $query->whereHas('portCall', function ($pq) use ($like, $val): void {
+                $pq->where('job_number', $like, "%{$val}%");
+                if (Str::isUuid($val)) {
+                    $pq->orWhere('id', $val);
+                }
+            }))
             ->when($startDate, fn ($query, $val) => $query->whereDate('uploaded_at', '>=', $val))
             ->when($endDate, fn ($query, $val) => $query->whereDate('uploaded_at', '<=', $val))
             ->when($search, fn ($query, $value) => $query->where(function ($scope) use ($like, $value) {

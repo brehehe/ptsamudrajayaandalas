@@ -107,6 +107,7 @@ class RequestController extends Controller
             $query->where(function ($q) use ($search, $like) {
                 $q->where('request_number', $like, "%{$search}%")
                     ->orWhere('notes', $like, "%{$search}%")
+                    ->orWhere('admin_forward_notes', $like, "%{$search}%")
                     ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"))
                     ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"))
                     ->orWhereHas('items', fn ($iq) => $iq->where('item_name', $like, "%{$search}%"))
@@ -161,6 +162,7 @@ class RequestController extends Controller
                     ->orWhereHas('requests', function ($requestQuery) use ($search, $like) {
                         $requestQuery->where('request_number', $like, "%{$search}%")
                             ->orWhere('notes', $like, "%{$search}%")
+                            ->orWhere('admin_forward_notes', $like, "%{$search}%")
                             ->orWhereHas('items', fn ($itemQuery) => $itemQuery->where('item_name', $like, "%{$search}%"));
                     });
             });
@@ -347,6 +349,8 @@ class RequestController extends Controller
         $canCreateRequests = $request->user()?->can('create', ShipRequest::class) ?? false;
         $canCreateRequestsForJob = $canCreateRequests
             && (! $portCall || $portCall->acceptsNewRequests());
+        $canPrintRequestReports = ($request->user()?->can('reports.view') ?? false)
+            || ($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']) ?? false);
 
         if (! $canViewHpp) {
             if ($shipRequest) {
@@ -374,6 +378,7 @@ class RequestController extends Controller
                 'can_create_requests' => $canCreateRequestsForJob,
                 'can_process_requests' => $request->user()?->isOperationalAdmin() ?? false,
                 'can_create_completion_notes' => $request->user()?->can('create', CompletionNote::class) ?? false,
+                'can_print_request_reports' => $canPrintRequestReports,
             ],
         ]);
     }
@@ -394,13 +399,14 @@ class RequestController extends Controller
                 'ship.company',
                 'port',
                 'workOrder',
-                'clearanceInRequests:id,port_call_id',
+                'clearanceInRequests:id,port_call_id,request_number',
             ])
             ->orderByDesc('eta_at')
             ->orderByDesc('created_at')
             ->get()
             ->each(function (PortCall $portCall): void {
                 $portCall->setAttribute('clearance_in_block_reason', $portCall->clearanceInBlockReason());
+                $portCall->setAttribute('active_clearance_in_request_number', $portCall->clearanceInRequests->first()?->request_number);
                 $portCall->setAttribute('can_clearance_out', in_array($portCall->status, ['anchored', 'berthed'], true));
                 $portCall->unsetRelation('clearanceInRequests');
             });
@@ -566,6 +572,14 @@ class RequestController extends Controller
                             ->first();
 
                     }
+                } elseif (! empty($item['item_name'])) {
+                    $prod = Product::where('name', $item['item_name'])->first();
+                    if ($prod) {
+                        $productId = $prod->id;
+                        $itemType = $prod->item_type;
+                        $hppPrice = (float) $prod->hpp_default;
+                        $vendorId = $prod->vendor_id;
+                    }
                 }
 
                 $attachmentPath = isset($item['attachment'])
@@ -641,6 +655,7 @@ class RequestController extends Controller
             'ships.*.items.*.item_name' => ['required_with:ships.*.items', 'string', 'max:255'],
             'ships.*.items.*.quantity' => ['required_with:ships.*.items', 'numeric', 'min:0.1'],
             'ships.*.items.*.unit' => ['required_with:ships.*.items', 'string', 'max:50'],
+            'ships.*.items.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
             'ships.*.items.*.required_date' => ['nullable', 'date'],
             'ships.*.items.*.required_time' => ['nullable', 'string'],
             'ships.*.items.*.is_urgent' => ['nullable', 'boolean'],
@@ -660,15 +675,11 @@ class RequestController extends Controller
             }
             $batchCode = sprintf('PGJ-%s-%04d', $year, $nextNum);
 
-            $products = collect($validated['ships'])
-                ->flatMap(fn (array $shipData) => $shipData['items'] ?? [])
-                ->pluck('product_id')
-                ->filter()
-                ->unique()
-                ->pipe(fn (Collection $productIds) => Product::query()
-                    ->whereIn('id', $productIds)
-                    ->get(['id', 'item_type', 'vendor_id', 'hpp_default'])
-                    ->keyBy('id'));
+            $masterProducts = Product::query()
+                ->where('is_active', true)
+                ->get();
+            $products = $masterProducts->keyBy('id');
+            $productsByCode = $masterProducts->keyBy('code');
 
             $createdRequests = [];
 
@@ -803,21 +814,59 @@ class RequestController extends Controller
                     'notes' => $combinedNotes,
                 ]);
 
+                if ($isClearanceIn || $isClearanceOut) {
+                    $shipData['items'] = $this->clearanceItemsForTarget(
+                        $isClearanceOut ? 'clearance_out' : 'clearance_in',
+                        $requestedPortCallStatus,
+                        $shipData,
+                        $productsByCode,
+                    );
+                }
+
                 // Create items if provided
                 if (! empty($shipData['items']) && is_array($shipData['items'])) {
                     foreach ($shipData['items'] as $item) {
                         $productId = $item['product_id'] ?? null;
-                        $hppPrice = 0.00;
-                        $vendorId = null;
-                        $itemType = $item['item_type'] ?? 'non_jasa';
+                        $prod = null;
 
-                        if ($productId) {
+                        if ($productId && $products->has($productId)) {
                             $prod = $products->get($productId);
-                            if ($prod) {
-                                $itemType = $prod->item_type ?? 'non_jasa';
-                                $hppPrice = (float) $prod->hpp_default;
-                                $vendorId = $prod->vendor_id;
+                        } else {
+                            $nameLower = strtolower(trim($item['item_name'] ?? ''));
+                            if (str_contains($nameLower, 'clearance in') || str_contains($nameLower, 'kedatangan')) {
+                                $prod = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_in');
+                            } elseif (str_contains($nameLower, 'taktis')) {
+                                $prod = $productsByCode->get('PRD-PLD-TAKTIS');
+                            } elseif (str_contains($nameLower, 'epb') || str_contains($nameLower, 'pandu tunda')) {
+                                $prod = $productsByCode->get('PRD-PLD-EPB');
+                            } elseif (str_contains($nameLower, 'clearance out') || str_contains($nameLower, 'keberangkatan')) {
+                                $prod = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_out');
                             }
+
+                            if (! $prod) {
+                                $prod = $masterProducts->first(fn ($p) => strtolower($p->name) === $nameLower)
+                                    ?? $masterProducts->first(fn ($p) => str_contains(strtolower($p->name), $nameLower) || str_contains($nameLower, strtolower($p->name)));
+                            }
+                        }
+
+                        if ($prod) {
+                            $productId = $prod->id;
+                            $itemType = $prod->item_type ?? 'jasa';
+                            $vendorId = array_key_exists('vendor_id', $item)
+                                ? $item['vendor_id']
+                                : $prod->vendor_id;
+                        } else {
+                            $itemType = $item['item_type'] ?? 'non_jasa';
+                            $vendorId = null;
+                        }
+
+                        // Automatically take price from master products (/master/products) if not custom-specified
+                        if (isset($item['hpp_price']) && is_numeric($item['hpp_price']) && (float) $item['hpp_price'] > 0) {
+                            $hppPrice = (float) $item['hpp_price'];
+                        } elseif ($prod) {
+                            $hppPrice = (float) $prod->hpp_default;
+                        } else {
+                            $hppPrice = (isset($item['hpp_price']) && is_numeric($item['hpp_price'])) ? (float) $item['hpp_price'] : 0.00;
                         }
 
                         $attachmentPath = isset($item['attachment'])
@@ -831,7 +880,7 @@ class RequestController extends Controller
                             'item_type' => $itemType,
                             'item_name' => $item['item_name'],
                             'quantity' => $item['quantity'],
-                            'unit' => $item['unit'] ?? 'Unit',
+                            'unit' => $item['unit'] ?? ($prod?->unit ?? 'Unit'),
                             'required_date' => $item['required_date'] ?? ($shipData['required_date'] ?? now()->toDateString()),
                             'required_time' => $item['required_time'] ?? ($shipData['required_time'] ?? null),
                             'hpp_price' => $hppPrice,
@@ -844,33 +893,115 @@ class RequestController extends Controller
                         ]);
                     }
                 } else {
-                    // Create primary service item
-                    $product = ($isClearanceIn || $isClearanceOut)
-                        ? $this->resolveClearanceProduct->handle($serviceType)
-                        : null;
+                    // Create primary service items directly from master products (/master/products)
+                    if ($isClearanceIn) {
+                        $prodClr = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_in');
+                        RequestItem::create([
+                            'request_id' => $newRequest->id,
+                            'product_id' => $prodClr?->id,
+                            'vendor_id' => $prodClr?->vendor_id,
+                            'item_type' => $prodClr?->item_type ?? 'jasa',
+                            'item_name' => 'Clearance In (Syahbandar & Karantina)',
+                            'quantity' => 1,
+                            'unit' => $prodClr?->unit ?? 'Dokumen',
+                            'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                            'required_time' => $shipData['required_time'] ?? null,
+                            'hpp_price' => (float) ($prodClr?->hpp_default ?? 2500000),
+                            'selling_price' => 0.00,
+                            'status' => 'pending',
+                            'director_status' => 'pending',
+                            'is_urgent' => true,
+                            'notes' => "Layanan Clearance In armada {$ship->name}",
+                        ]);
 
-                    RequestItem::create([
-                        'request_id' => $newRequest->id,
-                        'product_id' => $product?->id,
-                        'vendor_id' => $product?->vendor_id,
-                        'item_type' => $product?->item_type ?? 'jasa',
-                        'item_name' => $shipData['request_type'],
-                        'quantity' => 1,
-                        'unit' => 'Paket',
-                        'required_date' => $shipData['required_date'] ?? now()->toDateString(),
-                        'required_time' => $shipData['required_time'] ?? null,
-                        'hpp_price' => $product?->hpp_default ?? 0,
-                        'selling_price' => 0.00,
-                        'status' => 'pending',
-                        'director_status' => 'pending',
-                        'is_urgent' => false,
-                        'notes' => "Layanan {$shipData['request_type']} armada {$ship->name}",
-                    ]);
+                        if ($requestedPortCallStatus === 'berthed') {
+                            $prodTaktis = $productsByCode->get('PRD-PLD-TAKTIS');
+                            $prodEpb = $productsByCode->get('PRD-PLD-EPB');
+
+                            RequestItem::create([
+                                'request_id' => $newRequest->id,
+                                'product_id' => $prodTaktis?->id,
+                                'vendor_id' => null,
+                                'item_type' => $prodTaktis?->item_type ?? 'jasa',
+                                'item_name' => 'Taktis Penyandaran',
+                                'quantity' => 1,
+                                'unit' => $prodTaktis?->unit ?? 'Kegiatan',
+                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                'required_time' => $shipData['required_time'] ?? null,
+                                'hpp_price' => (float) ($prodTaktis?->hpp_default ?? 0),
+                                'selling_price' => 0.00,
+                                'status' => 'pending',
+                                'director_status' => 'pending',
+                                'is_urgent' => true,
+                                'notes' => "Taktis Penyandaran armada {$ship->name}",
+                            ]);
+
+                            RequestItem::create([
+                                'request_id' => $newRequest->id,
+                                'product_id' => $prodEpb?->id,
+                                'vendor_id' => $prodEpb?->vendor_id,
+                                'item_type' => $prodEpb?->item_type ?? 'jasa',
+                                'item_name' => 'Pembayaran EPB (Pandu Tunda)',
+                                'quantity' => 1,
+                                'unit' => $prodEpb?->unit ?? 'Kegiatan',
+                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                'required_time' => $shipData['required_time'] ?? null,
+                                'hpp_price' => (float) ($prodEpb?->hpp_default ?? 100000),
+                                'selling_price' => 0.00,
+                                'status' => 'pending',
+                                'director_status' => 'pending',
+                                'is_urgent' => true,
+                                'notes' => "Pembayaran EPB armada {$ship->name}",
+                            ]);
+                        }
+                    } elseif ($isClearanceOut) {
+                        $prodClr = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_out');
+                        RequestItem::create([
+                            'request_id' => $newRequest->id,
+                            'product_id' => $prodClr?->id,
+                            'vendor_id' => $prodClr?->vendor_id,
+                            'item_type' => $prodClr?->item_type ?? 'jasa',
+                            'item_name' => 'Clearance Out (Syahbandar & Karantina)',
+                            'quantity' => 1,
+                            'unit' => $prodClr?->unit ?? 'Dokumen',
+                            'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                            'required_time' => $shipData['required_time'] ?? null,
+                            'hpp_price' => (float) ($prodClr?->hpp_default ?? 2500000),
+                            'selling_price' => 0.00,
+                            'status' => 'pending',
+                            'director_status' => 'pending',
+                            'is_urgent' => true,
+                            'notes' => "Layanan Clearance Out armada {$ship->name}",
+                        ]);
+                    } else {
+                        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                        $product = Product::query()->where('is_active', true)->where('name', $like, "%{$shipData['request_type']}%")->first();
+
+                        RequestItem::create([
+                            'request_id' => $newRequest->id,
+                            'product_id' => $product?->id,
+                            'vendor_id' => $product?->vendor_id,
+                            'item_type' => $product?->item_type ?? 'jasa',
+                            'item_name' => $shipData['request_type'],
+                            'quantity' => 1,
+                            'unit' => $product?->unit ?? 'Paket',
+                            'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                            'required_time' => $shipData['required_time'] ?? null,
+                            'hpp_price' => (float) ($product?->hpp_default ?? 0),
+                            'selling_price' => 0.00,
+                            'status' => 'pending',
+                            'director_status' => 'pending',
+                            'is_urgent' => false,
+                            'notes' => "Layanan {$shipData['request_type']} armada {$ship->name}",
+                        ]);
+                    }
                 }
 
                 $createdRequests[] = $newRequest;
+            }
 
-                $this->workflowNotifier->notifySubmission($newRequest, $request->user());
+            if (! empty($createdRequests)) {
+                $this->workflowNotifier->notifyBatchSubmission($createdRequests, $request->user(), $batchCode);
             }
 
             if (function_exists('activity')) {
@@ -885,6 +1016,64 @@ class RequestController extends Controller
                 'submitted_request_id' => $createdRequests[0]->id ?? null,
             ]);
         });
+    }
+
+    /**
+     * Build the authoritative clearance item set for the selected arrival target.
+     *
+     * @param  array<string, mixed>  $shipData
+     * @param  Collection<string, Product>  $productsByCode
+     * @return list<array<string, mixed>>
+     */
+    private function clearanceItemsForTarget(
+        string $serviceType,
+        ?string $requestedPortCallStatus,
+        array $shipData,
+        Collection $productsByCode,
+    ): array {
+        $requiredDate = $shipData['required_date'] ?? now()->toDateString();
+        $requiredTime = $shipData['required_time'] ?? null;
+
+        if ($serviceType === 'clearance_in' && $requestedPortCallStatus === 'berthed') {
+            return collect([
+                ['code' => 'PRD-PLD-TAKTIS', 'name' => 'Taktis Penyandaran', 'fallback_unit' => 'Kegiatan', 'fallback_hpp' => 0, 'vendor_id' => null],
+                ['code' => 'PRD-PLD-EPB', 'name' => 'Pembayaran EPB (Pandu Tunda)', 'fallback_unit' => 'Kegiatan', 'fallback_hpp' => 100000],
+            ])->map(function (array $definition) use ($productsByCode, $requiredDate, $requiredTime): array {
+                $product = $productsByCode->get($definition['code']);
+
+                return [
+                    'product_id' => $product?->id,
+                    'vendor_id' => array_key_exists('vendor_id', $definition)
+                        ? $definition['vendor_id']
+                        : $product?->vendor_id,
+                    'item_name' => $definition['name'],
+                    'item_type' => $product?->item_type ?? 'jasa',
+                    'quantity' => 1,
+                    'unit' => $product?->unit ?? $definition['fallback_unit'],
+                    'hpp_price' => (float) ($product?->hpp_default ?? $definition['fallback_hpp']),
+                    'required_date' => $requiredDate,
+                    'required_time' => $requiredTime,
+                    'is_urgent' => true,
+                ];
+            })->all();
+        }
+
+        $product = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle($serviceType);
+        $isClearanceOut = $serviceType === 'clearance_out';
+
+        return [[
+            'product_id' => $product?->id,
+            'item_name' => $isClearanceOut
+                ? 'Clearance Out (Syahbandar & Karantina)'
+                : 'Clearance In (Syahbandar & Karantina)',
+            'item_type' => $product?->item_type ?? 'jasa',
+            'quantity' => 1,
+            'unit' => $product?->unit ?? 'Dokumen',
+            'hpp_price' => (float) ($product?->hpp_default ?? 2500000),
+            'required_date' => $requiredDate,
+            'required_time' => $requiredTime,
+            'is_urgent' => true,
+        ]];
     }
 
     /**
@@ -965,7 +1154,9 @@ class RequestController extends Controller
         ]);
 
         return DB::transaction(function () use ($id, $validated, $request) {
-            $shipRequest = ShipRequest::lockForUpdate()->with('items.costDocumentItem.costDocument')->findOrFail($id);
+            $shipRequest = ShipRequest::lockForUpdate()
+                ->with(['items.product', 'items.costDocumentItem.costDocument'])
+                ->findOrFail($id);
 
             if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 throw ValidationException::withMessages([
@@ -1048,9 +1239,7 @@ class RequestController extends Controller
                 'status' => $shipRequest->resolveWorkflowStatus($requestItems),
                 'forwarded_to_director_at' => now(),
                 'director_reviewed_at' => null,
-                'notes' => ! empty($validated['admin_notes'])
-                    ? $shipRequest->notes."\n[Catatan Admin: {$validated['admin_notes']}]"
-                    : $shipRequest->notes,
+                'admin_forward_notes' => $validated['admin_notes'] ?? null,
             ]);
 
             if (function_exists('activity')) {
@@ -1060,7 +1249,7 @@ class RequestController extends Controller
                     ->log('Admin memfilter '.count($validated['selected_items'])." item dan mengajukan {$shipRequest->request_number}");
             }
 
-            $this->workflowNotifier->notifyForwardedToDirector($shipRequest, $request->user());
+            $this->workflowNotifier->notifyForwardedToDirector($shipRequest, $request->user(), count($validated['selected_items']));
 
             return redirect()->back()->with('success', "Pengajuan {$shipRequest->request_number} (".count($validated['selected_items']).' item terpilih) berhasil diajukan.');
         });
@@ -1158,6 +1347,8 @@ class RequestController extends Controller
         $validated = $request->validate([
             'item_name' => ['required', 'string', 'max:255'],
             'product_id' => ['nullable', 'uuid', 'exists:products,id'],
+            'item_type' => ['nullable', 'string', 'in:jasa,non_jasa'],
+            'save_as_master_product' => ['nullable', 'boolean'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
             'unit' => ['required', 'string', 'max:50'],
             'required_date' => ['nullable', 'date'],
@@ -1171,7 +1362,7 @@ class RequestController extends Controller
 
             $productId = $validated['product_id'] ?? null;
             $hppPrice = 0.00;
-            $itemType = 'non_jasa';
+            $itemType = $validated['item_type'] ?? 'non_jasa';
             $vendorId = null;
 
             if ($productId) {
@@ -1193,6 +1384,19 @@ class RequestController extends Controller
                         }
                     }
                 }
+            } elseif (! empty($validated['save_as_master_product'])) {
+                // Save new master product so it can be reused across all requests
+                $autoCode = 'PRD-'.strtoupper(Str::random(6));
+                $newProduct = Product::create([
+                    'code' => $autoCode,
+                    'name' => $validated['item_name'],
+                    'unit' => $validated['unit'],
+                    'item_type' => $itemType,
+                    'hpp_default' => 0.00,
+                    'selling_price_default' => 0.00,
+                    'is_active' => true,
+                ]);
+                $productId = $newProduct->id;
             }
 
             $newItem = RequestItem::create([
@@ -1229,6 +1433,136 @@ class RequestController extends Controller
         });
     }
 
+    /**
+     * Submit additional request for tactical/clearance cost shortage (kekurangan biaya taktis / ngebon).
+     */
+    public function storeTaktisSupplement(Request $request, string $id): RedirectResponse
+    {
+        $parentRequest = ShipRequest::with(['portCall', 'items'])->findOrFail($id);
+        Gate::authorize('create', ShipRequest::class);
+
+        $validated = $request->validate([
+            'item_name' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'min:1', 'max:9999999999999.99'],
+            'required_date' => ['nullable', 'date'],
+            'surplus_source_item_id' => ['nullable', 'uuid', 'exists:request_items,id'],
+            'surplus_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
+            'actualization_notes' => ['nullable', 'string', 'max:1000'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
+        ]);
+
+        return DB::transaction(function () use ($parentRequest, $validated, $request) {
+            $year = now()->format('Y');
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $lastReq = ShipRequest::where('request_number', $like, "PGJ-{$year}-%")->orderByDesc('created_at')->first();
+            $nextNum = 15;
+            if ($lastReq && preg_match('/PGJ-\d{4}-(\d+)/i', $lastReq->request_number, $matches)) {
+                $nextNum = (int) $matches[1] + 1;
+            }
+            $requestNumber = sprintf('PGJ-%s-%04d', $year, $nextNum);
+
+            // Find product for tactical berthing / clearance taktis
+            $taktisProduct = Product::where('code', 'PRD-PLD-TAKTIS')
+                ->orWhere('name', $like, '%taktis%')
+                ->first();
+
+            $attachmentPath = isset($validated['attachment'])
+                ? $validated['attachment']->store('sja/request-items', 'local')
+                : null;
+
+            $supplementNote = "Pengajuan Tambahan Biaya Taktis (Kekurangan Realisasi). Ref: {$parentRequest->request_number}.";
+            if (! empty($validated['notes'])) {
+                $supplementNote .= ' '.$validated['notes'];
+            }
+
+            // Handle surplus transfer from another item on the same vessel
+            $surplusSourceItem = null;
+            if (! empty($validated['surplus_source_item_id'])) {
+                $surplusSourceItem = RequestItem::find($validated['surplus_source_item_id']);
+                if ($surplusSourceItem) {
+                    $surplusVal = (float) ($validated['surplus_amount'] ?? 0);
+                    $formattedSurplus = number_format($surplusVal, 0, ',', '.');
+                    $existingNotes = $surplusSourceItem->notes ?? '';
+                    $reallocationNotice = "[PENGALIHAN DANA] Surplus/sisa biaya Rp {$formattedSurplus} dialihkan untuk menutup kekurangan pada {$validated['item_name']} ({$requestNumber}).";
+                    $surplusSourceItem->update([
+                        'notes' => trim($existingNotes.' '.$reallocationNotice),
+                    ]);
+                    $supplementNote .= " (Ditutup pengalihan surplus Rp {$formattedSurplus} dari item: {$surplusSourceItem->item_name}).";
+                }
+            }
+
+            if (! empty($validated['actualization_notes'])) {
+                $supplementNote .= ' [Catatan Aktualisasi Riil: '.$validated['actualization_notes'].']';
+            }
+
+            $isDirectorOrAdmin = $request->user()->isDirector() || $request->user()->isOperationalAdmin();
+            $itemStatus = $isDirectorOrAdmin ? 'diajukan_ke_direktur' : 'pending';
+            $reqStatus = $isDirectorOrAdmin ? 'Menunggu Approval Direktur' : 'Menunggu Approval';
+
+            $newRequest = ShipRequest::create([
+                'request_number' => $requestNumber,
+                'ship_id' => $parentRequest->ship_id ?? $parentRequest->portCall?->ship_id,
+                'port_call_id' => $parentRequest->port_call_id,
+                'service_type' => $parentRequest->service_type ?? 'clearance_in',
+                'status' => $reqStatus,
+                'request_date' => now(),
+                'created_by' => $request->user()->id,
+                'notes' => $supplementNote,
+                'admin_forward_notes' => 'Pengajuan tambahan kekurangan biaya taktis clearance.',
+                'forwarded_to_director_at' => $isDirectorOrAdmin ? now() : null,
+            ]);
+
+            $newItemNotes = 'Kekurangan realisasi biaya taktis Rp '.number_format((float) $validated['amount'], 0, ',', '.');
+            if (! empty($validated['actualization_notes'])) {
+                $newItemNotes .= ' | Aktualisasi: '.$validated['actualization_notes'];
+            }
+            if ($surplusSourceItem && ! empty($validated['surplus_amount'])) {
+                $newItemNotes .= ' | Ditutup surplus Rp '.number_format((float) $validated['surplus_amount'], 0, ',', '.')." dari {$surplusSourceItem->item_name}";
+            }
+
+            $newItem = RequestItem::create([
+                'request_id' => $newRequest->id,
+                'product_id' => $taktisProduct?->id,
+                'item_type' => 'jasa',
+                'item_name' => $validated['item_name'],
+                'unit' => $taktisProduct?->unit ?? 'Kegiatan',
+                'quantity' => 1,
+                'hpp_price' => (float) $validated['amount'],
+                'selling_price' => 0,
+                'vendor_id' => null,
+                'required_date' => $validated['required_date'] ?? now()->toDateString(),
+                'status' => $itemStatus,
+                'director_status' => 'pending',
+                'is_urgent' => false,
+                'attachment_path' => $attachmentPath,
+                'notes' => $newItemNotes,
+            ]);
+
+            if (function_exists('activity')) {
+                activity('request')
+                    ->performedOn($newRequest)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'parent_request_id' => $parentRequest->id,
+                        'parent_request_number' => $parentRequest->request_number,
+                        'amount' => (float) $validated['amount'],
+                        'surplus_source_item_id' => $validated['surplus_source_item_id'] ?? null,
+                        'surplus_amount' => $validated['surplus_amount'] ?? null,
+                        'actualization_notes' => $validated['actualization_notes'] ?? null,
+                    ])
+                    ->log("Membuat pengajuan tambahan taktis ({$newRequest->request_number}) sebesar Rp ".number_format((float) $validated['amount'], 0, ',', '.'));
+            }
+
+            $this->workflowNotifier->notifySubmission($newRequest, $request->user());
+
+            return redirect()->back()->with(
+                'success',
+                'Pengajuan tambahan taktis sebesar Rp '.number_format((float) $validated['amount'], 0, ',', '.')." berhasil dibuat ({$newRequest->request_number}) dan siap diajukan ke Direktur."
+            );
+        });
+    }
+
     public function batchForwardDirector(Request $request): RedirectResponse
     {
         $this->authorizeAdminPricing($request);
@@ -1245,10 +1579,14 @@ class RequestController extends Controller
 
         return DB::transaction(function () use ($validated, $request) {
             $selectedItemIds = collect($validated['selected_items'])->unique()->values();
-            $items = RequestItem::lockForUpdate()->with(['request', 'costDocumentItem.costDocument'])->whereIn('id', $selectedItemIds)->get();
+            $items = RequestItem::lockForUpdate()
+                ->with(['product', 'request', 'costDocumentItem.costDocument'])
+                ->whereIn('id', $selectedItemIds)
+                ->get();
             $submittedPrices = collect($validated['item_prices'] ?? [])->keyBy('id');
 
             $requestGroups = $items->groupBy('request_id');
+            $affectedRequests = collect();
 
             foreach ($requestGroups as $requestId => $groupItems) {
                 $shipRequest = ShipRequest::lockForUpdate()->findOrFail($requestId);
@@ -1291,9 +1629,7 @@ class RequestController extends Controller
                     'status' => $shipRequest->resolveWorkflowStatus($requestItems),
                     'forwarded_to_director_at' => now(),
                     'director_reviewed_at' => null,
-                    'notes' => ! empty($validated['admin_notes'])
-                        ? $shipRequest->notes."\n[Catatan Batch Admin: {$validated['admin_notes']}]"
-                        : $shipRequest->notes,
+                    'admin_forward_notes' => $validated['admin_notes'] ?? null,
                 ]);
 
                 if (function_exists('activity')) {
@@ -1307,7 +1643,11 @@ class RequestController extends Controller
                         ->log("Admin mengajukan {$groupItems->count()} item ke Direktur secara batch");
                 }
 
-                $this->workflowNotifier->notifyForwardedToDirector($shipRequest, $request->user());
+                $affectedRequests->push($shipRequest);
+            }
+
+            if ($affectedRequests->isNotEmpty()) {
+                $this->workflowNotifier->notifyBatchForwardedToDirector($affectedRequests, $request->user(), $selectedItemIds->count());
             }
 
             return redirect()->back()->with('success', count($selectedItemIds).' item kebutuhan berhasil diajukan ke Direktur.');
@@ -1325,7 +1665,10 @@ class RequestController extends Controller
 
         return DB::transaction(function () use ($requestId, $itemId, $validated, $request) {
             $shipRequest = ShipRequest::lockForUpdate()->findOrFail($requestId);
-            $item = RequestItem::lockForUpdate()->where('request_id', $shipRequest->id)->findOrFail($itemId);
+            $item = RequestItem::lockForUpdate()
+                ->with('product')
+                ->where('request_id', $shipRequest->id)
+                ->findOrFail($itemId);
 
             if ($item->isLocked()) {
                 throw ValidationException::withMessages([
@@ -1381,7 +1724,7 @@ class RequestController extends Controller
 
             $updatedCount = 0;
             foreach ($validated['items'] as $itemData) {
-                $item = RequestItem::lockForUpdate()->find($itemData['id']);
+                $item = RequestItem::lockForUpdate()->with('product')->find($itemData['id']);
                 if (! $item) {
                     continue;
                 }
@@ -1416,9 +1759,9 @@ class RequestController extends Controller
 
     private function assertSupplierInvoiceReady(RequestItem $item, ?string $vendorId): void
     {
-        if (! $vendorId || $item->vendor_id !== $vendorId || ! $item->hasCompleteSupplierInvoice()) {
+        if ($item->vendor_id !== $vendorId || ! $item->hasCompleteSupplierInvoice()) {
             throw ValidationException::withMessages([
-                'selected_items' => "Nota invoice supplier untuk item '{$item->item_name}' belum lengkap. Pilih vendor, isi HPP dan data nota, lalu unggah dokumennya sebelum diajukan ke Direktur.",
+                'selected_items' => "Nota invoice supplier untuk item '{$item->item_name}' belum lengkap. Isi HPP dan data nota, lalu unggah dokumennya sebelum diajukan ke Direktur. Vendor boleh dikosongkan.",
             ]);
         }
     }

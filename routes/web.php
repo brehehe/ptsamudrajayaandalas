@@ -6,6 +6,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FundingWorkflowController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\InvoiceDocumentSettingController;
 use App\Http\Controllers\MasterCompanyController;
 use App\Http\Controllers\MasterPortController;
 use App\Http\Controllers\MasterProductController;
@@ -20,8 +21,10 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReceivableController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ReportExportController;
 use App\Http\Controllers\RequestController;
 use App\Http\Controllers\RequestItemSupplierInvoiceController;
+use App\Http\Controllers\RequestReportController;
 use App\Http\Controllers\ServiceTypeController;
 use App\Http\Controllers\VendorInvoiceController;
 use App\Http\Controllers\VesselController;
@@ -79,7 +82,7 @@ Route::middleware(['auth'])->group(function () {
     // Requests / Pengajuan Kebutuhan (Form Wizard 3-Langkah Lapangan & Admin Actions)
     Route::get('/requests', [RequestController::class, 'index'])->name('requests.index');
     Route::get('/requests/create', [RequestController::class, 'create'])->name('requests.create');
-    Route::get('/requests/{id}/detail', [RequestController::class, 'show'])->name('requests.detail');
+    Route::get('/requests/{id}/detail', [RequestController::class, 'show'])->name('requests.detail')->where('id', '.*');
     Route::get('/requests/{id}', [RequestController::class, 'show'])->name('requests.show');
     Route::post('/requests', [RequestController::class, 'store'])->name('requests.store');
     Route::post('/requests/wizard', [RequestController::class, 'storeWizard'])->name('requests.store-wizard');
@@ -92,13 +95,14 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/requests/{id}/create-clearance-in-invoice', [RequestController::class, 'createClearanceInInvoice'])->name('requests.clearance-in-invoice');
     Route::post('/requests/{id}/split-invoices', [RequestController::class, 'splitInvoices'])->name('requests.split-invoices');
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
+    Route::post('/requests/{id}/taktis-supplement', [RequestController::class, 'storeTaktisSupplement'])->name('requests.taktis-supplement');
     Route::get('/request-items/{requestItem}/attachment', [RequestController::class, 'downloadItemAttachment'])->name('request-items.attachment');
     Route::post('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'store'])->name('request-items.supplier-invoice.store');
     Route::get('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'show'])->name('request-items.supplier-invoice.show');
 
     // Approval Direktur & Otorisasi Dana Kopra
     Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
-    Route::get('/approvals/{id}/detail', [ApprovalController::class, 'show'])->name('approvals.detail');
+    Route::get('/approvals/{id}/detail', [ApprovalController::class, 'show'])->name('approvals.detail')->where('id', '.*');
     Route::post('/approvals/requests/batch-item-decision', [ApprovalController::class, 'batchItemDecision'])->name('approvals.requests.batch-item-decision');
     Route::post('/approvals/requests/{id}/approve', [ApprovalController::class, 'approveRequest'])->name('approvals.requests.approve');
     Route::post('/approvals/requests/{id}/reject', [ApprovalController::class, 'rejectRequest'])->name('approvals.requests.reject');
@@ -174,9 +178,18 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/reports/expenses', [ReportController::class, 'index'])
         ->defaults('report', 'pengeluaran')
         ->name('reports.expenses');
+    Route::get('/reports/vessel-daily-expenses', [ReportController::class, 'index'])
+        ->defaults('report', 'pengeluaran_kapal')
+        ->name('reports.vessel-daily-expenses');
     Route::get('/reports/activities', [ReportController::class, 'index'])
         ->defaults('report', 'aktivitas')
         ->name('reports.activities');
+    Route::get('/reports/requests', [RequestReportController::class, 'index'])
+        ->name('reports.requests');
+    Route::get('/reports/requests/export', [RequestReportController::class, 'export'])
+        ->name('reports.requests.export');
+    Route::get('/reports/requests/{shipRequest}/document', [RequestReportController::class, 'document'])
+        ->name('reports.requests.document');
     Route::get('/reports/profit-loss', [ReportController::class, 'index'])
         ->defaults('report', 'laba_rugi')
         ->name('reports.profit-loss');
@@ -186,6 +199,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/reports/operations', [ReportController::class, 'index'])
         ->defaults('report', 'operasional')
         ->name('reports.operations');
+
+    // Queued Reports Export (PDF & Excel)
+    Route::post('/reports/exports', [ReportExportController::class, 'store'])->name('reports.exports.store');
+    Route::get('/reports/exports/{reportExport}/status', [ReportExportController::class, 'status'])->name('reports.exports.status');
+    Route::get('/reports/exports/{reportExport}/download', [ReportExportController::class, 'download'])->name('reports.exports.download');
 
     // Master Data 1-8:
     // 1. Kapal (/master/vessels)
@@ -234,6 +252,10 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/master/products/{id}', [MasterProductController::class, 'destroy'])->name('master.products.destroy');
     Route::get('/master/products/lookup', [MasterProductController::class, 'lookupPrice'])->name('master.products.lookup');
     Route::get('/api/products/lookup-price', [MasterProductController::class, 'lookupPrice'])->name('api.products.lookup-price');
+
+    // Pengaturan identitas, rekening, dan penanda tangan dokumen invoice klien.
+    Route::get('/master/invoice-settings', [InvoiceDocumentSettingController::class, 'index'])->name('master.invoice-settings.index');
+    Route::patch('/master/invoice-settings', [InvoiceDocumentSettingController::class, 'update'])->name('master.invoice-settings.update');
 
     // Profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

@@ -41,7 +41,7 @@ class RequestItemSupplierInvoiceController extends Controller
                 }
 
                 $lockedItem->update([
-                    'vendor_id' => $validated['vendor_id'],
+                    'vendor_id' => $validated['vendor_id'] ?? null,
                     'hpp_price' => $validated['hpp_price'],
                     'supplier_invoice_number' => $validated['supplier_invoice_number'],
                     'supplier_invoice_date' => $validated['supplier_invoice_date'],

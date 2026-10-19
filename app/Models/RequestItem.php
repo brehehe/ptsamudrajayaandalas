@@ -80,8 +80,7 @@ class RequestItem extends Model
 
     public function hasCompleteSupplierInvoice(): bool
     {
-        return $this->vendor_id !== null
-            && (float) $this->hpp_price > 0
+        return (float) $this->hpp_price > 0
             && filled($this->supplier_invoice_number)
             && $this->supplier_invoice_date !== null
             && $this->supplier_invoice_received_date !== null

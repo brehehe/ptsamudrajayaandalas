@@ -122,7 +122,61 @@ test('authorized admin can preview and download a generated client invoice pdf',
     $download->assertOk()->assertHeader('content-type', 'application/pdf');
     expect($preview->headers->get('content-disposition'))->toStartWith('inline;')
         ->and($download->headers->get('content-disposition'))->toStartWith('attachment;')
-        ->and($preview->getContent())->toStartWith('%PDF-1.4');
+        ->and($preview->getContent())->toStartWith('%PDF-1.4')
+        ->and($preview->getContent())->toContain('(PT. SAMUDRA JAYA ANDALAS) Tj')
+        ->and($preview->getContent())->toContain('(INVOICE) Tj')
+        ->and($preview->getContent())->toContain('(Pembayaran ditransfer ke:) Tj');
+});
+
+test('generated reimbursement document uses the reimbursement heading', function () {
+    $admin = documentPreviewAdmin();
+    $invoice = Invoice::create([
+        'invoice_number' => 'RMB-GENERATED-PREVIEW-001',
+        'invoice_type' => 'reimburse',
+        'subject' => 'Reimbursement KM Preview Dokumen Voy. 024',
+        'origin_port_name' => 'Pasang Kayu',
+        'destination_port_name' => 'Lembar',
+        'invoice_date' => '2026-10-07',
+        'due_date' => '2026-10-21',
+        'subtotal' => 750000,
+        'grand_total' => 750000,
+        'outstanding_amount' => 750000,
+    ]);
+    $invoice->items()->createMany([
+        [
+            'section_title' => 'Pengurusan Keagenan',
+            'sort_order' => 0,
+            'is_custom' => true,
+            'description' => 'Biaya Kepelabuhanan',
+            'quantity' => 1,
+            'unit' => 'Paket',
+            'unit_price' => 500000,
+            'subtotal' => 500000,
+        ],
+        [
+            'section_title' => 'Permintaan Kapal',
+            'sort_order' => 1,
+            'is_custom' => true,
+            'description' => 'Air Tawar',
+            'quantity' => 1,
+            'unit' => 'Paket',
+            'unit_price' => 250000,
+            'subtotal' => 250000,
+        ],
+    ]);
+
+    $response = $this->actingAs($admin)->get(route('invoices.documents.generated', $invoice).'?view=1');
+
+    $response->assertOk()->assertHeader('content-type', 'application/pdf');
+    expect($response->getContent())
+        ->toContain('(REIMBURSEMENT) Tj')
+        ->toContain('(I. Pengurusan Keagenan) Tj')
+        ->toContain('(II. Permintaan Kapal) Tj')
+        ->toContain('(Jumlah) Tj')
+        ->toContain('(Pel. Asal) Tj')
+        ->toContain('(Pasang Kayu) Tj')
+        ->toContain('(Pel. Tujuan) Tj')
+        ->toContain('(Lembar) Tj');
 });
 
 test('admin can release an invoice using a generated private pdf', function () {

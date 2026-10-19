@@ -23,7 +23,6 @@ import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { playSjaChime } from '../../Components/feedback/AudioNotification';
-import Modal from '../../Components/overlays/Modal';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import RequestWorkflowPanel from '../../Components/RequestWorkflowPanel';
 import Table from '../../Components/tables/Table';
@@ -105,6 +104,7 @@ interface ShipRequest {
     forwarded_to_director_at?: string | null;
     director_reviewed_at?: string | null;
     notes?: string;
+    admin_forward_notes?: string | null;
     service_type?: string;
     requested_port_call_status?: string | null;
     operational_occurred_at?: string | null;
@@ -186,6 +186,10 @@ const formatRupiah = (value?: number | string): string => {
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
     }).format(Number.isFinite(amount) ? amount : 0);
+};
+
+const supplierLabel = (item: RequestItem): string => {
+    return item.vendor?.name || 'Tanpa vendor/supplier';
 };
 
 const formatDateTime = (value?: string | null): string => {
@@ -298,9 +302,6 @@ export default function ApprovalShow({
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
     const [activeAction, setActiveAction] = useState<string | null>(null);
     const [copiedNumber, setCopiedNumber] = useState<string | null>(null);
-    const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-    const [rejectReason, setRejectReason] = useState('');
-    const [rejectionErrors, setRejectionErrors] = useState<Record<string, string>>({});
     const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
 
     const toggleSelectItem = (itemId: string) => {
@@ -320,21 +321,33 @@ export default function ApprovalShow({
         }
     };
 
-    const handleOpenBatchReject = () => {
-        if (selectedItemIds.length === 0) return;
-        setIsRejectModalOpen(true);
-        setRejectReason('');
-        setRejectionErrors({});
-    };
+    const pendingItemsAcrossJob = useMemo(() => {
+        const list: { reqId: string; item: RequestItem }[] = [];
+        allRequests.forEach((req) => {
+            (req.items || []).forEach((item) => {
+                if (isDecidableItem(item)) {
+                    list.push({ reqId: req.id, item });
+                }
+            });
+        });
+        return list;
+    }, [allRequests]);
 
     const handleBatchApproveSelected = () => {
         if (selectedItemIds.length === 0) return;
 
-        const payload = selectedItemIds.map((id) => ({
-            item_id: id,
-            status: 'approved',
-            director_notes: null,
-        }));
+        const selectedIds = new Set(selectedItemIds);
+        const payload = pendingItemsAcrossJob.map(({ item }) => {
+            const isSelected = selectedIds.has(item.id);
+
+            return {
+                item_id: item.id,
+                status: isSelected ? 'approved' : 'pending',
+                director_notes: isSelected
+                    ? null
+                    : 'Belum dipilih Direktur. Silakan ajukan ulang setelah ditinjau Admin.',
+            };
+        });
 
         setActionErrors({});
         setActiveAction('batch-selected');
@@ -353,47 +366,6 @@ export default function ApprovalShow({
             }
         );
     };
-
-    const submitRejectModal = () => {
-        if (selectedItemIds.length === 0) return;
-
-        const payload = selectedItemIds.map((id) => ({
-            item_id: id,
-            status: 'rejected',
-            director_notes: rejectReason.trim(),
-        }));
-
-        setActiveAction('batch-reject-modal');
-        setRejectionErrors({});
-        router.post(
-            route('approvals.requests.batch-item-decision'),
-            { decisions: payload },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    playSjaChime('alert');
-                    setSelectedItemIds([]);
-                    setIsRejectModalOpen(false);
-                    setRejectReason('');
-                    setRejectionErrors({});
-                },
-                onError: (errors) => setRejectionErrors(errors as Record<string, string>),
-                onFinish: () => setActiveAction(null),
-            }
-        );
-    };
-
-    const pendingItemsAcrossJob = useMemo(() => {
-        const list: { reqId: string; item: RequestItem }[] = [];
-        allRequests.forEach((req) => {
-            (req.items || []).forEach((item) => {
-                if (isDecidableItem(item)) {
-                    list.push({ reqId: req.id, item });
-                }
-            });
-        });
-        return list;
-    }, [allRequests]);
 
     const pendingItemIds = useMemo(
         () => pendingItemsAcrossJob.map(({ item }) => item.id),
@@ -763,64 +735,57 @@ export default function ApprovalShow({
                         {Object.keys(actionErrors).length > 0 && (
                             <FormErrorSummary errors={actionErrors} />
                         )}
-                        <div className="sticky top-20 z-30 flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-white p-3 shadow-lg dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between md:top-2 md:p-4">
-                        <label className="flex min-h-11 cursor-pointer items-center gap-3">
-                            <input
-                                type="checkbox"
-                                checked={areAllPendingItemsSelected}
-                                onChange={toggleSelectAllPendingItems}
-                                aria-label="Pilih semua item yang menunggu keputusan"
-                                className="size-5 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
-                            />
-                            <span>
-                                <span className="block text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                    Pilih semua
-                                </span>
-                                <span className="block text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                    {selectedItemIds.length} dari {pendingItemsAcrossJob.length} item dipilih
-                                </span>
-                            </span>
-                        </label>
+                        <div className="fixed inset-x-0 bottom-[calc(3.25rem+env(safe-area-inset-bottom))] z-30 border-y border-[#BCE0FD] bg-white px-4 py-2.5 shadow-[0_-4px_18px_rgba(8,40,112,0.12)] dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:sticky md:inset-x-auto md:bottom-auto md:top-2 md:rounded-2xl md:border md:p-4 md:shadow-lg">
+                            <div className="mx-auto flex max-w-full items-center justify-between gap-3">
+                                <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        checked={areAllPendingItemsSelected}
+                                        onChange={toggleSelectAllPendingItems}
+                                        aria-label="Pilih semua item yang menunggu keputusan"
+                                        className="size-5 shrink-0 rounded border-[#B7C9DF] text-[#0060F4] focus:ring-[#0060F4]"
+                                    />
+                                    <span className="min-w-0">
+                                        <span className="block text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            Pilih semua
+                                        </span>
+                                        <span
+                                            aria-live="polite"
+                                            className="block truncate text-xs text-[#52658E] dark:text-[#94A3B8]"
+                                        >
+                                            {selectedItemIds.length} disetujui · {pendingItemsAcrossJob.length - selectedItemIds.length} kembali ke Admin
+                                        </span>
+                                    </span>
+                                </label>
 
-                        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-                            {selectedItemIds.length > 0 && (
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => setSelectedItemIds([])}
-                                    className="col-span-2 min-h-11 sm:col-span-1"
-                                >
-                                    Batal Pilihan
-                                </Button>
-                            )}
+                                <div className="flex shrink-0 items-center gap-2">
+                                    {selectedItemIds.length > 0 && (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => setSelectedItemIds([])}
+                                            className="hidden min-h-11 sm:inline-flex"
+                                        >
+                                            Batal Pilihan
+                                        </Button>
+                                    )}
 
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                leftIcon={<CircleX className="size-3.5" />}
-                                disabled={selectedItemIds.length === 0 || activeAction !== null}
-                                onClick={handleOpenBatchReject}
-                                className="min-h-11 border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
-                            >
-                                Tolak ({selectedItemIds.length})
-                            </Button>
-
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="primary"
-                                leftIcon={<CheckCircle2 className="size-3.5" />}
-                                isLoading={activeAction === 'batch-selected'}
-                                disabled={selectedItemIds.length === 0 || activeAction !== null}
-                                onClick={handleBatchApproveSelected}
-                                className="min-h-11 bg-emerald-600 font-bold text-white hover:bg-emerald-700"
-                            >
-                                Setujui ({selectedItemIds.length})
-                            </Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="primary"
+                                        leftIcon={<CheckCircle2 aria-hidden="true" className="size-4" />}
+                                        isLoading={activeAction === 'batch-selected'}
+                                        disabled={selectedItemIds.length === 0 || activeAction !== null}
+                                        onClick={handleBatchApproveSelected}
+                                        className="min-h-11 bg-emerald-600 px-4 font-bold text-white hover:bg-emerald-700"
+                                    >
+                                        Setujui ({selectedItemIds.length})
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
-                    </div>
                     </div>
                 )}
 
@@ -893,6 +858,12 @@ export default function ApprovalShow({
                                                 {row.request.creator?.name || 'Staff'}
                                             </span>
                                         </div>
+                                        {row.isFirstForRequest && row.request.admin_forward_notes && (
+                                            <p className="rounded-lg bg-[#F0F8FF] px-2 py-1.5 text-[11px] leading-4 text-[#0B1F63] dark:bg-[#132847] dark:text-[#D8E7F6]">
+                                                <strong>Catatan Admin:</strong>{' '}
+                                                <span className="break-words">{row.request.admin_forward_notes}</span>
+                                            </p>
+                                        )}
                                     </div>
                                 ),
                             },
@@ -921,7 +892,7 @@ export default function ApprovalShow({
                                 width: '165px',
                                 render: ({ item }) => (
                                     <span className="text-pretty text-[#52658E] dark:text-[#94A3B8]">
-                                        {item.vendor?.name || 'Belum ditentukan'}
+                                        {supplierLabel(item)}
                                     </span>
                                 ),
                             },
@@ -1140,6 +1111,12 @@ export default function ApprovalShow({
                                             • {formatDateTime(req.request_date)}
                                         </span>
                                         {req.notes && <span className="break-words italic">“{req.notes}”</span>}
+                                        {req.admin_forward_notes && (
+                                            <span className="rounded-lg bg-[#E0F0FF] px-2.5 py-2 text-[#0B1F63] dark:bg-[#132847] dark:text-[#D8E7F6]">
+                                                <strong>Catatan Admin:</strong>{' '}
+                                                <span className="break-words">{req.admin_forward_notes}</span>
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
@@ -1219,7 +1196,7 @@ export default function ApprovalShow({
                                                         </div>
                                                         <p className="mt-1 flex items-start gap-1.5 break-words text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
                                                             <Building2 className="mt-0.5 size-3.5 shrink-0 text-[#0060F4]" aria-hidden="true" />
-                                                            {item.vendor?.name || 'Vendor belum ditentukan'}
+                                                            {supplierLabel(item)}
                                                         </p>
                                                         <RequirementDate value={item.required_date} />
                                                         <ItemEvidenceLinks item={item} />
@@ -1282,68 +1259,6 @@ export default function ApprovalShow({
                 </div>
             </div>
 
-            {/* Modal penolakan item terpilih */}
-            <Modal
-                isOpen={isRejectModalOpen}
-                onClose={() => {
-                    setIsRejectModalOpen(false);
-                    setRejectReason('');
-                    setRejectionErrors({});
-                }}
-                title={`Tolak ${selectedItemIds.length} Item Kebutuhan`}
-            >
-                <div className="space-y-4">
-                    <FormErrorSummary errors={rejectionErrors} />
-                    <p className="text-sm text-[#0B1F63] dark:text-[#F1F5F9]">
-                        <strong>{selectedItemIds.length} item</strong> akan dikembalikan ke Admin untuk direvisi.
-                        Item lain yang tidak dipilih dari pengajuan yang sama juga dikembalikan ke Admin untuk diajukan ulang.
-                    </p>
-
-                    <div>
-                        <label
-                            htmlFor="director-rejection-reason"
-                            className="mb-1 block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]"
-                        >
-                            Alasan penolakan <span className="text-rose-600">*</span>
-                        </label>
-                        <textarea
-                            id="director-rejection-reason"
-                            rows={3}
-                            name="director_notes"
-                            required
-                            value={rejectReason}
-                            onChange={(e) => setRejectReason(e.target.value)}
-                            placeholder="Contoh: harga vendor perlu disesuaikan."
-                            aria-invalid={Object.keys(rejectionErrors).length > 0 ? true : undefined}
-                            className={`w-full rounded-xl border p-3 text-xs text-[#0B1F63] focus:ring-0 dark:bg-[#0C1D36] dark:text-[#F1F5F9] ${Object.keys(rejectionErrors).length > 0 ? 'border-[#C62840] focus:border-[#C62840]' : 'border-[#DCEAF8] focus:border-[#0060F4] dark:border-[#1E3A5F]'}`}
-                        />
-                    </div>
-
-                    <div className="flex items-center justify-end gap-2 pt-2">
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                                setIsRejectModalOpen(false);
-                                setRejectReason('');
-                                setRejectionErrors({});
-                            }}
-                        >
-                            Batal
-                        </Button>
-                        <Button
-                            variant="primary"
-                            size="sm"
-                            disabled={activeAction !== null}
-                            isLoading={activeAction === 'batch-reject-modal'}
-                            onClick={submitRejectModal}
-                            className="bg-rose-600 font-bold text-white hover:bg-rose-700"
-                        >
-                            Tolak item terpilih
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
         </AppLayout>
     );
 }

@@ -118,7 +118,7 @@ export default function VendorInvoiceCreate({ companies, portCalls, availableReq
             ),
         },
         { key: 'quantity', header: 'Qty', render: (item) => <span className="tabular-nums">{Number(item.quantity).toLocaleString('id-ID')} {item.unit || 'Paket'}</span> },
-        { key: 'vendor', header: 'Vendor Item', wrap: 'normal', render: (item) => item.vendor?.name || 'Mengikuti vendor invoice' },
+        { key: 'vendor', header: 'Vendor Item', wrap: 'normal', render: (item) => item.vendor?.name || 'Tanpa vendor/supplier' },
         { key: 'hpp', header: 'HPP', align: 'right', render: (item) => <span className="tabular-nums font-semibold">{money(item.hpp_price)}</span> },
         { key: 'subtotal', header: 'Subtotal', align: 'right', render: (item) => <span className="tabular-nums font-bold">{money(Number(item.hpp_price) * Number(item.quantity))}</span> },
     ];
@@ -215,13 +215,15 @@ export default function VendorInvoiceCreate({ companies, portCalls, availableReq
                     <Card title="Dokumen Invoice" titleLevel={2} subtitle="Data berikut mengikuti dokumen yang diterima dari vendor." padding="none">
                         <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-2">
                             <SelectSearch
-                                required
                                 name="vendor_id"
-                                label="Vendor"
+                                label="Vendor (Opsional)"
                                 value={form.data.vendor_id}
                                 onChange={(value) => form.setData((data) => ({ ...data, vendor_id: String(value), request_item_ids: [] }))}
-                                options={vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }))}
-                                placeholder="Cari vendor"
+                                options={[
+                                    { value: '', label: 'Tanpa vendor/supplier' },
+                                    ...vendors.map((vendor) => ({ value: vendor.id, label: vendor.name })),
+                                ]}
+                                placeholder="Pilih vendor atau kosongkan"
                                 error={form.errors.vendor_id}
                             />
                             <Input required name="document_number" autoComplete="off" label="Nomor Invoice" value={form.data.document_number} onChange={(event) => form.setData('document_number', event.target.value)} error={form.errors.document_number} />

@@ -265,7 +265,7 @@ export default function Modal({
                             {footer && (
                                 <div
                                     className={
-                                        'px-5 pt-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:py-3.5 border-t border-[#DCEAF8] ' +
+                                        'px-5 pt-3.5 pb-[max(1.125rem,calc(env(safe-area-inset-bottom)+0.625rem))] sm:py-3.5 border-t border-[#DCEAF8] ' +
                                         'dark:border-[#1E3A5F] bg-[#F0F8FF] dark:bg-[#071322] flex ' +
                                         'flex-col-reverse items-stretch gap-2 flex-shrink-0 ' +
                                         'sm:flex-row sm:items-center sm:justify-end'

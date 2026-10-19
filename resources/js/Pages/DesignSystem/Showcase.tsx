@@ -797,6 +797,7 @@ export default function Showcase() {
                         setDemoToast({
                             variant: 'success',
                             message: 'Contoh notifikasi berhasil. Tidak ada data yang disimpan.',
+                            action: { label: 'Buka Beranda', href: '/dashboard' },
                         });
                     }}
                 />

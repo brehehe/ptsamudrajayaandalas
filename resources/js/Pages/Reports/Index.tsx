@@ -31,6 +31,8 @@ import Button from '../../Components/ui/Button';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Modal from '../../Components/overlays/Modal';
+import ReportNavigationBar from '../../Components/reports/ReportNavigationBar';
+import ReportExportModal, { useReportExport } from '../../Components/reports/ReportExportModal';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import DateRangePicker, { type DateRange } from '../../Components/forms/DateRangePicker';
@@ -202,6 +204,41 @@ interface ReportsIndexProps {
         chart: DashboardChartData;
         rows: PaginatedData<ActivityReportItem>;
     };
+    vesselDailyExpenseSummary?: {
+        total_vessels: number;
+        total_expenses: number;
+        total_items: number;
+        vessels: Array<{
+            port_call_id: string;
+            job_number: string;
+            client_spk?: string | null;
+            ship_name: string;
+            company_name: string;
+            port_name: string;
+            status: string;
+            eta?: string | null;
+            etd?: string | null;
+            departed_at?: string | null;
+            stay_duration: string;
+            total_expense: number;
+            item_count: number;
+            items: Array<{
+                id: string;
+                date?: string | null;
+                request_number: string;
+                item_name: string;
+                item_type?: string | null;
+                quantity: number;
+                unit: string;
+                hpp_price: number;
+                total_cost: number;
+                cumulative_cost: number;
+                director_status?: string | null;
+                status: string;
+                notes?: string | null;
+            }>;
+        }>;
+    };
     companies?: Array<{ id: string; name: string }>;
     ships?: Array<{ id: string; name: string; ship_company_id?: string }>;
     jobs?: Array<{ id: string; job_number?: string; ship_id?: string }>;
@@ -225,31 +262,41 @@ const formatRupiah = (value: number): string => new Intl.NumberFormat('id-ID', {
     maximumFractionDigits: 0,
 }).format(Number(value ?? 0));
 
-const formatCompactRupiah = (value: number): string => {
-    const compactValue = new Intl.NumberFormat('id-ID', {
-        notation: 'compact',
-        maximumFractionDigits: 1,
-    }).format(Number(value ?? 0)).replace(/\s+/g, '');
-
-    return `Rp ${compactValue}`;
+export const getAdaptiveMoneyFontSize = (text: string): string => {
+    const len = text.length;
+    if (len > 18) {
+        return 'text-[11px] sm:text-xs md:text-sm font-black tracking-tight';
+    }
+    if (len > 15) {
+        return 'text-xs sm:text-sm md:text-base font-black tracking-tight';
+    }
+    if (len > 12) {
+        return 'text-sm sm:text-base md:text-lg font-black tracking-tight';
+    }
+    return 'text-base sm:text-lg md:text-xl font-black';
 };
 
-function MoneyValue({ value, className = '', compactUntil = 'sm' }: {
+function MoneyValue({
+    value,
+    className = '',
+    size = 'inline',
+    compactUntil,
+}: {
     value: number;
     className?: string;
+    size?: 'adaptive' | 'inline';
     compactUntil?: 'sm' | 'lg' | 'xl';
 }) {
     const fullValue = formatRupiah(value);
-    const responsiveClasses = {
-        sm: { compact: 'sm:hidden', full: 'hidden sm:inline' },
-        lg: { compact: 'lg:hidden', full: 'hidden lg:inline' },
-        xl: { compact: 'xl:hidden', full: 'hidden xl:inline' },
-    }[compactUntil];
+    const sizeClass = size === 'adaptive' ? getAdaptiveMoneyFontSize(fullValue) : '';
 
     return (
-        <span className={`whitespace-nowrap tabular-nums ${className}`} aria-label={fullValue} title={fullValue}>
-            <span aria-hidden="true" className={responsiveClasses.compact}>{formatCompactRupiah(value)}</span>
-            <span aria-hidden="true" className={responsiveClasses.full}>{fullValue}</span>
+        <span
+            className={`whitespace-nowrap tabular-nums ${sizeClass} ${className}`}
+            aria-label={fullValue}
+            title={fullValue}
+        >
+            {fullValue}
         </span>
     );
 }
@@ -320,21 +367,23 @@ function MetricCard({ label, value, detail, icon, tone = 'blue', format = 'curre
         },
     }[tone];
 
+    const formattedNonCurrency = `${Number(value ?? 0).toLocaleString('id-ID')}${format === 'percentage' ? '%' : ''}`;
+
     return (
         <Card padding="sm" className="min-w-0">
-            <div className="grid min-h-[86px] grid-cols-[minmax(0,1fr)_32px] gap-2 sm:min-h-[104px] sm:grid-cols-[minmax(0,1fr)_40px]">
+            <div className="grid min-h-[82px] grid-cols-[minmax(0,1fr)_34px] items-center gap-2 sm:min-h-[96px] sm:grid-cols-[minmax(0,1fr)_40px]">
                 <div className="min-w-0">
                     <p className={`text-[11px] font-semibold leading-4 sm:text-xs ${toneClasses.label}`}>{label}</p>
                     {format !== 'currency' ? (
-                        <p className={`mt-1 whitespace-nowrap text-base font-black leading-tight tabular-nums sm:text-xl ${toneClasses.value}`}>
-                            {Number(value ?? 0).toLocaleString('id-ID')}{format === 'percentage' ? '%' : ''}
+                        <p className={`mt-1 whitespace-nowrap leading-tight tabular-nums ${getAdaptiveMoneyFontSize(formattedNonCurrency)} ${toneClasses.value}`}>
+                            {formattedNonCurrency}
                         </p>
                     ) : (
-                        <MoneyValue value={value} compactUntil="xl" className={`mt-1 block text-base font-black leading-tight sm:text-xl ${toneClasses.value}`} />
+                        <MoneyValue value={value} size="adaptive" className={`mt-1 block ${toneClasses.value}`} />
                     )}
                     <div className="mt-1 line-clamp-2 text-[10px] leading-3.5 text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">{detail}</div>
                 </div>
-                <span className={`flex size-8 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl ${toneClasses.icon}`}>
+                <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-10 sm:rounded-xl ${toneClasses.icon}`}>
                     {icon}
                 </span>
             </div>
@@ -350,6 +399,7 @@ export default function ReportsIndex({
     receivableReport,
     expenseReport,
     activityReport,
+    vesselDailyExpenseSummary,
     companies = [],
     ships = [],
     jobs = [],
@@ -394,6 +444,49 @@ export default function ReportsIndex({
         filters.status,
         filters.to,
     ]);
+
+    const exportState = useReportExport();
+
+    const getReportType = (tab: string): string => {
+        switch (tab) {
+            case 'pengeluaran_kapal':
+                return 'vessel_daily_expenses';
+            case 'invoice':
+                return 'invoices';
+            case 'piutang':
+                return 'receivables';
+            case 'pengeluaran':
+                return 'expenses';
+            case 'aktivitas':
+                return 'activities';
+            case 'pengajuan':
+                return 'requests';
+            case 'ringkasan_margin':
+            default:
+                return 'margin';
+        }
+    };
+
+    const handleExport = (format: 'pdf' | 'xlsx', customJob?: string) => {
+        const reportType = getReportType(activeTab);
+        exportState.startExport({
+            report_type: reportType,
+            format,
+            parameters: {
+                from: filters.from,
+                to: filters.to,
+                company_id: companyId,
+                ship_id: shipId,
+                job: customJob || job,
+                status: status,
+                search: search,
+            },
+            job_number: customJob,
+            label: customJob
+                ? `Laporan ${activeReportSection.label} — Job ${customJob}`
+                : `Laporan ${activeReportSection.label} (${format.toUpperCase()})`,
+        });
+    };
 
     const handlePrint = () => {
         window.print();
@@ -850,6 +943,9 @@ export default function ReportsIndex({
             />
 
             <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-5 rounded-t-[28px] bg-white px-4 pb-12 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
+                {/* ── Report Section Navigation (Mobile & Desktop) ── */}
+                <ReportNavigationBar activeKey={activeTab} className="mb-1" />
+
                 {/* ── Page Header & Print Button ── */}
                 <div className="hidden items-center justify-between gap-4 pb-2 border-b border-[#DCEAF8] dark:border-[#1E3A5F] md:flex">
                     <div>
@@ -861,7 +957,25 @@ export default function ReportsIndex({
                         </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="primary"
+                            onClick={() => handleExport('pdf')}
+                            leftIcon={<FileText aria-hidden="true" className="size-4" />}
+                            className="bg-[#0060F4]"
+                        >
+                            Unduh PDF
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleExport('xlsx')}
+                            leftIcon={<FileSpreadsheet aria-hidden="true" className="size-4 text-[#087443]" />}
+                            className="bg-white dark:bg-[#0C1D36]"
+                        >
+                            Unduh Excel
+                        </Button>
                         <Button
                             type="button"
                             variant="outline"
@@ -869,7 +983,7 @@ export default function ReportsIndex({
                             leftIcon={<Printer aria-hidden="true" className="size-4" />}
                             className="bg-white dark:bg-[#0C1D36]"
                         >
-                            Cetak Laporan
+                            Cetak
                         </Button>
                     </div>
                 </div>
@@ -1050,11 +1164,11 @@ export default function ReportsIndex({
                 ═══════════════════════════════════════════════════════════ */}
                 {activeTab === 'ringkasan_margin' && (
                     <div id="report-panel-ringkasan_margin" className="space-y-5">
-                        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                             <MetricCard
                                 label="Total Nilai Tagihan"
                                 value={summary.total_invoiced}
-                                detail={<>Jasa: <MoneyValue value={summary.agency_revenue} compactUntil="xl" /></>}
+                                detail={<>Jasa: <MoneyValue value={summary.agency_revenue} size="inline" className="font-semibold text-[10px] sm:text-[11px]" /></>}
                                 icon={<DollarSign aria-hidden="true" className="size-4 sm:size-5" />}
                             />
                             <MetricCard
@@ -1072,17 +1186,17 @@ export default function ReportsIndex({
                                 icon={<TrendingUp aria-hidden="true" className="size-4 sm:size-5" />}
                             />
                             <Card padding="sm" className="min-w-0">
-                                <div className="grid min-h-[86px] grid-cols-[minmax(0,1fr)_32px] gap-2 sm:min-h-[104px] sm:grid-cols-[minmax(0,1fr)_40px]">
+                                <div className="grid min-h-[82px] grid-cols-[minmax(0,1fr)_34px] items-center gap-2 sm:min-h-[96px] sm:grid-cols-[minmax(0,1fr)_40px]">
                                     <div className="min-w-0">
                                         <p className="text-[10px] font-semibold leading-4 text-[#0060F4] sm:text-xs dark:text-[#38BDF8]">Rata-rata Margin</p>
-                                        <p className="mt-1 whitespace-nowrap text-base font-black leading-tight tabular-nums text-[#0060F4] sm:text-xl dark:text-[#38BDF8]">
+                                        <p className={`mt-1 whitespace-nowrap leading-tight tabular-nums text-[#0060F4] dark:text-[#38BDF8] ${getAdaptiveMoneyFontSize(`${summary.gross_margin_percentage ?? 0}%`)}`}>
                                             {summary.gross_margin_percentage ?? 0}%
                                         </p>
-                                        <p className="mt-1 line-clamp-2 text-[9px] leading-3.5 text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">
-                                            Bersih: <MoneyValue value={summary.company_net_result} compactUntil="xl" />
+                                        <p className="mt-1 line-clamp-2 text-[10px] leading-3.5 text-[#52658E] sm:text-[11px] dark:text-[#9FB0C6]">
+                                            Bersih: <MoneyValue value={summary.company_net_result} size="inline" className="font-semibold text-[10px] sm:text-[11px]" />
                                         </p>
                                     </div>
-                                    <span className="flex size-8 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] sm:size-10 sm:rounded-xl dark:bg-[#152E52]">
+                                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[#0060F4] sm:size-10 sm:rounded-xl dark:bg-[#152E52]">
                                         <Percent aria-hidden="true" className="size-4 sm:size-5" />
                                     </span>
                                 </div>
@@ -1154,7 +1268,7 @@ export default function ReportsIndex({
                                 </div>
                                 <span className="shrink-0 text-xs font-semibold text-[#52658E]">{invoiceReport.summary.total_documents} dokumen</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard label="Total Invoice" value={invoiceReport.summary.total_documents} detail={`${invoiceReport.summary.released_documents} dirilis / terkirim`} format="number" icon={<FileText aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Nilai Ditagihkan" value={invoiceReport.summary.billed_amount} detail="Invoice dirilis, terkirim, atau lunas" icon={<DollarSign aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Sudah Terbayar" value={invoiceReport.summary.paid_amount} detail={`${invoiceReport.summary.paid_documents} invoice berstatus lunas`} tone="green" icon={<CheckCircle2 aria-hidden="true" className="size-4 sm:size-5" />} />
@@ -1208,7 +1322,7 @@ export default function ReportsIndex({
                                 <h2 id="receivable-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">Laporan Piutang Klien</h2>
                                 <p className="mt-0.5 text-pretty text-[11px] text-[#52658E] sm:text-xs dark:text-[#9FB0C6]">Posisi sisa tagihan dan umur piutang berdasarkan jatuh tempo invoice.</p>
                             </div>
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard label="Total Piutang" value={receivableReport.summary.outstanding_amount} detail={`${receivableReport.summary.open_documents} invoice masih terbuka`} tone="red" icon={<Building2 aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Lewat Jatuh Tempo" value={receivableReport.summary.overdue_amount} detail="Perlu tindak lanjut penagihan" tone="amber" icon={<Clock aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Belum Jatuh Tempo" value={receivableReport.summary.current_amount} detail="Masih dalam tenor pembayaran" icon={<FileSpreadsheet aria-hidden="true" className="size-4 sm:size-5" />} />
@@ -1261,7 +1375,7 @@ export default function ReportsIndex({
                                 <h2 id="expense-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">Laporan Pengeluaran</h2>
                                 <p className="mt-0.5 text-pretty text-[11px] text-[#52658E] sm:text-xs dark:text-[#9FB0C6]">Pembayaran keluar tercatat, dipisahkan menurut status verifikasi.</p>
                             </div>
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard label="Total Tercatat" value={expenseReport.summary.total_recorded} detail={`${expenseReport.summary.total_documents} transaksi pembayaran`} icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Terverifikasi" value={expenseReport.summary.verified_amount} detail="Diakui sebagai kas keluar" tone="green" icon={<CheckCircle2 aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Menunggu" value={expenseReport.summary.pending_amount} detail="Belum selesai diverifikasi" tone="amber" icon={<Clock aria-hidden="true" className="size-4 sm:size-5" />} />
@@ -1307,6 +1421,338 @@ export default function ReportsIndex({
                     </div>
                 )}
 
+                {activeTab === 'pengeluaran_kapal' && (
+                    <div id="report-panel-pengeluaran_kapal" className="space-y-5">
+                        <section aria-labelledby="vessel-daily-report-title">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+                                <div>
+                                    <h2 id="vessel-daily-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">
+                                        Laporan Monitoring Pengeluaran Kapal (Harian &amp; Per Item)
+                                    </h2>
+                                    <p className="mt-0.5 text-pretty text-[11px] text-[#52658E] sm:text-xs dark:text-[#9FB0C6]">
+                                        Rekap pengeluaran kapal per item sejak awal sandar/masuk hingga kapal keluar atau rentang hari tertentu untuk pengawasan Direktur, Admin, dan Owner.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="primary"
+                                        onClick={() => handleExport('pdf')}
+                                        leftIcon={<FileText aria-hidden="true" className="size-4" />}
+                                        size="sm"
+                                        className="bg-[#0060F4]"
+                                    >
+                                        Unduh PDF (Semua)
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => handleExport('xlsx')}
+                                        leftIcon={<FileSpreadsheet aria-hidden="true" className="size-4 text-[#087443]" />}
+                                        size="sm"
+                                        className="bg-white dark:bg-[#0C1D36]"
+                                    >
+                                        Unduh Excel (Semua)
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handlePrint}
+                                        leftIcon={<Printer aria-hidden="true" className="size-4" />}
+                                        size="sm"
+                                        className="shrink-0 bg-white dark:bg-[#0C1D36]"
+                                    >
+                                        Cetak
+                                    </Button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+                                <MetricCard
+                                    label="Total Kapal Dimonitor"
+                                    value={vesselDailyExpenseSummary?.total_vessels || 0}
+                                    detail="Kapal dengan catatan pengeluaran"
+                                    format="number"
+                                    icon={<Ship aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                                <MetricCard
+                                    label="Total Pengeluaran (HPP)"
+                                    value={vesselDailyExpenseSummary?.total_expenses || 0}
+                                    detail={`${vesselDailyExpenseSummary?.total_items || 0} item kebutuhan kapal`}
+                                    tone="blue"
+                                    icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                                <MetricCard
+                                    label="Total Item Kebutuhan"
+                                    value={vesselDailyExpenseSummary?.total_items || 0}
+                                    detail="Seluruh kebutuhan operasional &amp; sertifikat"
+                                    format="number"
+                                    tone="green"
+                                    icon={<ClipboardList aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                                <MetricCard
+                                    label="Rata-rata Pengeluaran / Kapal"
+                                    value={
+                                        (vesselDailyExpenseSummary?.total_vessels || 0) > 0
+                                            ? Math.round((vesselDailyExpenseSummary?.total_expenses || 0) / (vesselDailyExpenseSummary?.total_vessels || 1))
+                                            : 0
+                                    }
+                                    detail={`Periode: ${formatDate(filters.from)} - ${formatDate(filters.to)}`}
+                                    tone="slate"
+                                    icon={<Anchor aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                            </div>
+                        </section>
+
+                        <div className="space-y-4">
+                            {(!vesselDailyExpenseSummary?.vessels || vesselDailyExpenseSummary.vessels.length === 0) ? (
+                                <Card padding="lg" className="text-center py-12">
+                                    <Ship className="mx-auto size-10 text-[#8C9BB9] dark:text-[#52658E] mb-2" />
+                                    <p className="font-extrabold text-[#0B1F63] dark:text-white text-base">Tidak Ada Data Pengeluaran Kapal</p>
+                                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1">
+                                        Tidak ditemukan catatan pengeluaran kebutuhan kapal untuk filter periode atau kapal yang dipilih.
+                                    </p>
+                                </Card>
+                            ) : (
+                                vesselDailyExpenseSummary.vessels.map((vessel, vIndex) => (
+                                    <Card key={vessel.port_call_id || vIndex} padding="none" className="overflow-hidden border border-[#BCE0FD] dark:border-[#285585]">
+                                        <div className="bg-[#F0F8FF] dark:bg-[#102B4A] p-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-mono text-xs font-black text-[#0060F4] bg-[#E0F0FF] dark:bg-[#071322] px-2.5 py-0.5 rounded-md">
+                                                            {vessel.job_number}
+                                                        </span>
+                                                        <h3 className="font-black text-base text-[#0B1F63] dark:text-white">
+                                                            {vessel.ship_name}
+                                                        </h3>
+                                                        <StatusBadge
+                                                            status={vessel.status === 'berthed' ? 'success' : vessel.status === 'departed' || vessel.status === 'completed' ? 'neutral' : 'info'}
+                                                            label={statusLabel(vessel.status)}
+                                                            size="sm"
+                                                        />
+                                                    </div>
+                                                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                        <span>Perusahaan: <strong className="text-[#0B1F63] dark:text-white">{vessel.company_name}</strong></span>
+                                                        <span>Pelabuhan: <strong className="text-[#0B1F63] dark:text-white">{vessel.port_name}</strong></span>
+                                                        {vessel.client_spk && <span>SPK Klien: <strong className="font-mono">{vessel.client_spk}</strong></span>}
+                                                        <span>
+                                                            Sandar: {formatDate(vessel.eta)}
+                                                            {vessel.departed_at ? ` · Keluar: ${formatDate(vessel.departed_at)}` : vessel.etd ? ` · Rencana Keluar: ${formatDate(vessel.etd)}` : ''}
+                                                            {` (${vessel.stay_duration})`}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-3 shrink-0 self-start lg:self-center">
+                                                    <div className="text-right">
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Total Pengeluaran Kapal</p>
+                                                        <p className="font-mono text-lg font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                            {formatRupiah(vessel.total_expense)}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-xl bg-white dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] px-3 py-1.5 text-center">
+                                                        <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">Item</p>
+                                                        <p className="font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">{vessel.item_count}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 border-l border-[#DCEAF8] pl-3 dark:border-[#1E3A5F]">
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleExport('pdf', vessel.job_number)}
+                                                            leftIcon={<FileText aria-hidden="true" className="size-3.5 text-[#0060F4]" />}
+                                                            className="bg-white text-xs font-bold dark:bg-[#071322]"
+                                                            title={`Unduh PDF Pengeluaran Job ${vessel.job_number}`}
+                                                        >
+                                                            PDF Job
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleExport('xlsx', vessel.job_number)}
+                                                            leftIcon={<FileSpreadsheet aria-hidden="true" className="size-3.5 text-[#087443]" />}
+                                                            className="bg-white text-xs font-bold dark:bg-[#071322]"
+                                                            title={`Unduh Excel Pengeluaran Job ${vessel.job_number}`}
+                                                        >
+                                                            Excel Job
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Desktop Table: Visible on md and up */}
+                                        <div className="hidden md:block overflow-x-auto">
+                                            <table className="w-full text-left border-collapse text-xs">
+                                                <thead>
+                                                    <tr className="border-b border-[#DCEAF8] bg-slate-50 dark:border-[#1E3A5F] dark:bg-[#0C1D36]/80 text-[#52658E] dark:text-[#94A3B8]">
+                                                        <th className="py-2.5 px-3 font-bold w-10 text-center">No</th>
+                                                        <th className="py-2.5 px-3 font-bold w-28">Tanggal</th>
+                                                        <th className="py-2.5 px-3 font-bold w-36">No. Pengajuan</th>
+                                                        <th className="py-2.5 px-3 font-bold">Item Kebutuhan &amp; Catatan</th>
+                                                        <th className="py-2.5 px-3 font-bold w-24 text-right">Qty</th>
+                                                        <th className="py-2.5 px-3 font-bold w-28 text-right">HPP Satuan</th>
+                                                        <th className="py-2.5 px-3 font-bold w-32 text-right">Biaya Item</th>
+                                                        <th className="py-2.5 px-3 font-bold w-36 text-right bg-[#EAF4FF] dark:bg-[#102B4A]/80 text-[#0060F4] dark:text-[#60A5FA]">
+                                                            Akumulatif s/d Hari Ini
+                                                        </th>
+                                                        <th className="py-2.5 px-3 font-bold w-28 text-center">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
+                                                    {vessel.items.map((it, itIdx) => (
+                                                        <tr key={it.id || itIdx} className="hover:bg-[#F8FBFF] dark:hover:bg-[#102B4A]/40 transition-colors">
+                                                            <td className="py-2.5 px-3 text-center text-[#52658E] font-medium">{itIdx + 1}</td>
+                                                            <td className="py-2.5 px-3 whitespace-nowrap font-medium text-[#0B1F63] dark:text-white">
+                                                                {formatDate(it.date)}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] font-semibold text-[#0060F4]">
+                                                                {it.request_number}
+                                                            </td>
+                                                            <td className="py-2.5 px-3">
+                                                                <p className="font-bold text-[#0B1F63] dark:text-white">{it.item_name}</p>
+                                                                {it.notes && (
+                                                                    <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-0.5 whitespace-pre-line">
+                                                                        {it.notes}
+                                                                    </p>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right font-medium whitespace-nowrap">
+                                                                {it.quantity} {it.unit}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right font-mono text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
+                                                                {formatRupiah(it.hpp_price)}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-bold text-[#0B1F63] dark:text-white whitespace-nowrap">
+                                                                {formatRupiah(it.total_cost)}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right font-mono font-black text-[#0060F4] dark:text-[#60A5FA] bg-[#F4F9FF] dark:bg-[#102B4A]/50 whitespace-nowrap">
+                                                                {formatRupiah(it.cumulative_cost)}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                <StatusBadge
+                                                                    status={it.director_status === 'approved' ? 'success' : it.director_status === 'rejected' ? 'danger' : 'amber'}
+                                                                    label={it.director_status === 'approved' ? 'Disetujui' : it.director_status === 'rejected' ? 'Ditolak' : 'Menunggu'}
+                                                                    size="sm"
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr className="border-t-2 border-[#BCE0FD] dark:border-[#285585] bg-[#EAF4FF] dark:bg-[#102B4A] font-bold text-xs">
+                                                        <td colSpan={6} className="py-3 px-3 text-right text-[#0B1F63] dark:text-white">
+                                                            Total Pengeluaran Kapal ({vessel.ship_name}):
+                                                        </td>
+                                                        <td colSpan={2} className="py-3 px-3 text-right font-mono font-black text-sm text-[#0060F4] dark:text-[#60A5FA]">
+                                                            {formatRupiah(vessel.total_expense)}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-center text-[#52658E] dark:text-[#94A3B8]">
+                                                            {vessel.item_count} Item
+                                                        </td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+
+                                        {/* Mobile Card Stream: No horizontal scrolling */}
+                                        <div className="block md:hidden divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
+                                            {vessel.items.map((it, itIdx) => (
+                                                <div key={it.id || itIdx} className="p-3.5 space-y-2.5 bg-white dark:bg-[#0C1D36]/60">
+                                                    {/* Top Row: Number, Date, Status */}
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#E0F0FF] text-[10px] font-black text-[#0060F4] dark:bg-[#071322] dark:text-[#60A5FA]">
+                                                                {itIdx + 1}
+                                                            </span>
+                                                            <span className="text-xs font-bold text-[#0B1F63] dark:text-white">
+                                                                {formatDate(it.date)}
+                                                            </span>
+                                                        </div>
+                                                        <StatusBadge
+                                                            status={it.director_status === 'approved' ? 'success' : it.director_status === 'rejected' ? 'danger' : 'amber'}
+                                                            label={it.director_status === 'approved' ? 'Disetujui' : it.director_status === 'rejected' ? 'Ditolak' : 'Menunggu'}
+                                                            size="sm"
+                                                        />
+                                                    </div>
+
+                                                    {/* Item Name & Notes */}
+                                                    <div className="min-w-0">
+                                                        <h4 className="text-sm font-bold text-[#0B1F63] dark:text-white leading-snug">
+                                                            {it.item_name}
+                                                        </h4>
+                                                        {it.notes && (
+                                                            <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8] whitespace-pre-line leading-relaxed">
+                                                                {it.notes}
+                                                            </p>
+                                                        )}
+                                                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                                                            <span className="inline-flex items-center font-mono text-[10px] font-bold text-[#0060F4] bg-[#EAF4FF] dark:bg-[#102B4A] px-2 py-0.5 rounded border border-[#BCE0FD]/70 dark:border-[#1E3A5F]">
+                                                                {it.request_number}
+                                                            </span>
+                                                            <span className="text-[#52658E] dark:text-[#94A3B8]">
+                                                                Qty: <strong className="text-[#0B1F63] dark:text-white">{it.quantity} {it.unit}</strong>
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Financial Info Grid (2 Columns) */}
+                                                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#DCEAF8]/70 dark:border-[#1E3A5F]/70 text-xs">
+                                                        <div className="rounded-lg bg-slate-50 dark:bg-[#071322] p-2">
+                                                            <span className="text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8] block">HPP Satuan</span>
+                                                            <span className="font-mono text-xs font-semibold text-[#0B1F63] dark:text-white">
+                                                                {formatRupiah(it.hpp_price)}
+                                                            </span>
+                                                        </div>
+                                                        <div className="rounded-lg bg-slate-50 dark:bg-[#071322] p-2">
+                                                            <span className="text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8] block">Biaya Item</span>
+                                                            <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-white">
+                                                                {formatRupiah(it.total_cost)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Cumulative Cost Highlight Box */}
+                                                    <div className="flex items-center justify-between rounded-lg bg-[#F0F8FF] dark:bg-[#102B4A]/60 px-3 py-2 border border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                                        <span className="text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                            Akumulatif s/d Hari Ini
+                                                        </span>
+                                                        <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                            {formatRupiah(it.cumulative_cost)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {/* Mobile Total Footer Card */}
+                                            <div className="p-3.5 bg-[#EAF4FF] dark:bg-[#102B4A] border-t-2 border-[#BCE0FD] dark:border-[#285585]">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                                            Total Pengeluaran Kapal
+                                                        </p>
+                                                        <p className="text-xs font-bold text-[#0B1F63] dark:text-white truncate">
+                                                            {vessel.ship_name}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <p className="font-mono text-base font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                            {formatRupiah(vessel.total_expense)}
+                                                        </p>
+                                                        <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                                            {vessel.item_count} Item Kebutuhan
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'aktivitas' && (
                     <div id="report-panel-aktivitas" className="space-y-5">
                         <section aria-labelledby="activity-report-title">
@@ -1314,7 +1760,7 @@ export default function ReportsIndex({
                                 <h2 id="activity-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">Laporan Aktivitas Operasional</h2>
                                 <p className="mt-0.5 text-pretty text-[11px] text-[#52658E] sm:text-xs dark:text-[#9FB0C6]">Rekap catatan lapangan, laporan harian, cakupan kapal, dan petugas.</p>
                             </div>
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard label="Aktivitas Lapangan" value={activityReport.summary.total_activities} detail={`${activityReport.summary.with_constraints} catatan memiliki kendala`} format="number" icon={<ClipboardList aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Laporan Harian" value={activityReport.summary.daily_reports} detail="Laporan operasional terkirim" format="number" tone="green" icon={<FileText aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Kapal Tercakup" value={activityReport.summary.ships_covered} detail="Kapal dengan catatan aktivitas" format="number" icon={<Ship aria-hidden="true" className="size-4 sm:size-5" />} />
@@ -1482,7 +1928,7 @@ export default function ReportsIndex({
                                     Posisi tagihan, penerimaan, piutang, dan arus kas berdasarkan periode serta filter aktif.
                                 </p>
                             </div>
-                            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard label="Nilai Tagihan" value={summary.ar_invoiced ?? summary.total_invoiced} detail="Invoice klien dirilis" icon={<FileSpreadsheet aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Kas Masuk" value={summary.cash_in ?? 0} detail="Penerimaan terkonfirmasi" tone="green" icon={<ArrowUpRight aria-hidden="true" className="size-4 sm:size-5" />} />
                                 <MetricCard label="Piutang" value={summary.ar_outstanding ?? 0} detail={`${summary.ar_collection_rate ?? 0}% sudah tertagih`} tone="red" icon={<Building2 aria-hidden="true" className="size-4 sm:size-5" />} />
@@ -1595,7 +2041,7 @@ export default function ReportsIndex({
                 ═══════════════════════════════════════════════════════════ */}
                 {activeTab === 'operasional' && (
                     <div id="report-panel-operasional" className="space-y-5">
-                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                             <Card padding="md">
                                 <div className="flex items-start justify-between gap-2">
                                     <div>
@@ -1780,6 +2226,8 @@ export default function ReportsIndex({
                     </div>
                 </div>
             </Modal>
+
+            <ReportExportModal exportState={exportState} />
         </AppLayout>
     );
 }

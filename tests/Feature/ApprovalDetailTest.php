@@ -6,6 +6,8 @@ use App\Models\Ship;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Notifications\WorkflowActionNotification;
+use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 
@@ -330,6 +332,7 @@ test('director can approve 3 items and reject 1 item one by one, and admin can r
         ->and($items[4]->status)->toBe('diajukan_ke_direktur')
         ->and($items[4]->director_status)->toBe('pending')
         ->and((float) $items[4]->hpp_price)->toBe(320000.0)
+        ->and($shipRequest->admin_forward_notes)->toBe('Sudah dinegosiasikan dengan vendor baru, HPP turun menjadi Rp 320.000.')
         ->and($shipRequest->status)->toBe('Menunggu Approval Direktur');
 
     // Step 4: Director reviews again and approves the re-submitted item 4
@@ -346,4 +349,104 @@ test('director can approve 3 items and reject 1 item one by one, and admin can r
     expect($items[4]->director_status)->toBe('approved')
         ->and($items[4]->status)->toBe('disetujui')
         ->and($shipRequest->status)->toBe('Disetujui');
+});
+
+test('director batch decision returns unselected items and sends one consolidated admin notification', function () {
+    Notification::fake();
+
+    $adminRole = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+    $directorRole = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
+    $administrator = User::factory()->create();
+    $administrator->assignRole($adminRole);
+    $director = User::factory()->create();
+    $director->assignRole($directorRole);
+
+    $ship = Ship::create([
+        'name' => 'KM Approval Gabungan',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-SPK-SJA-APPROVAL-BATCH',
+        'ship_id' => $ship->id,
+        'status' => 'Akan Datang',
+    ]);
+    $approvedRequest = ShipRequest::create([
+        'request_number' => 'REQ-APPROVAL-BATCH-001',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $administrator->id,
+        'status' => 'Menunggu Approval Direktur',
+        'request_date' => now()->toDateString(),
+    ]);
+    $returnedRequest = ShipRequest::create([
+        'request_number' => 'REQ-APPROVAL-BATCH-002',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $administrator->id,
+        'status' => 'Menunggu Approval Direktur',
+        'request_date' => now()->toDateString(),
+    ]);
+    $approvedItem = RequestItem::create([
+        'request_id' => $approvedRequest->id,
+        'item_type' => 'non_jasa',
+        'item_name' => 'Air Tawar',
+        'unit' => 'Ton',
+        'quantity' => 10,
+        'hpp_price' => 75000,
+        'selling_price' => 100000,
+        'status' => 'diajukan_ke_direktur',
+        'director_status' => 'pending',
+    ]);
+    $returnedItem = RequestItem::create([
+        'request_id' => $returnedRequest->id,
+        'item_type' => 'non_jasa',
+        'item_name' => 'Pelumas Mesin',
+        'unit' => 'Drum',
+        'quantity' => 2,
+        'hpp_price' => 1000000,
+        'selling_price' => 1250000,
+        'status' => 'diajukan_ke_direktur',
+        'director_status' => 'pending',
+    ]);
+
+    $response = $this->actingAs($director)->post(route('approvals.requests.batch-item-decision'), [
+        'decisions' => [
+            [
+                'item_id' => $approvedItem->id,
+                'status' => 'approved',
+            ],
+            [
+                'item_id' => $returnedItem->id,
+                'status' => 'pending',
+            ],
+        ],
+    ]);
+
+    $response->assertRedirect()
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('success', fn (string $message): bool => str_contains($message, '1 item yang tidak dipilih dikembalikan ke Admin'));
+    expect($approvedItem->fresh()->status)->toBe('disetujui')
+        ->and($approvedItem->fresh()->director_status)->toBe('approved')
+        ->and($returnedItem->fresh()->status)->toBe('pending')
+        ->and($returnedItem->fresh()->director_status)->toBe('pending')
+        ->and($returnedItem->fresh()->director_notes)->toBe('Belum diputuskan Direktur. Silakan ajukan ulang setelah ditinjau Admin.')
+        ->and($approvedRequest->fresh()->status)->toBe('Disetujui')
+        ->and($returnedRequest->fresh()->status)->toBe('Menunggu Approval');
+
+    Notification::assertSentToTimes($administrator, WorkflowActionNotification::class, 1);
+    Notification::assertSentTo(
+        $administrator,
+        WorkflowActionNotification::class,
+        function (WorkflowActionNotification $notification) use ($approvedRequest, $returnedRequest): bool {
+            $entityIds = collect($notification->payload['entity_ids'] ?? [])->sort()->values()->all();
+            $expectedEntityIds = collect([$approvedRequest->id, $returnedRequest->id])->sort()->values()->all();
+
+            return $notification->payload['entity_type'] === 'ship_request_batch'
+                && $notification->payload['job_number'] === 'JOB-SPK-SJA-APPROVAL-BATCH'
+                && $entityIds === $expectedEntityIds
+                && str_contains($notification->payload['message'], '1 item disetujui')
+                && str_contains($notification->payload['message'], '1 item dikembalikan ke Admin');
+        },
+    );
 });

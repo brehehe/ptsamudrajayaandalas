@@ -15,6 +15,7 @@ use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -52,7 +53,13 @@ class NeedController extends Controller
         }
 
         if ($job) {
-            $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', 'ilike', "%{$job}%")->orWhere('id', $job));
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $query->whereHas('portCall', function ($pq) use ($job, $like): void {
+                $pq->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $pq->orWhere('id', $job);
+                }
+            });
         }
 
         if ($startDate) {
@@ -133,6 +140,7 @@ class NeedController extends Controller
                 'items.*.item_name' => ['required', 'string', 'max:255'],
                 'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
                 'items.*.unit' => ['required', 'string', 'max:50'],
+                'items.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
                 'items.*.notes' => ['nullable', 'string'],
                 'items.*.is_urgent' => ['required', 'boolean'],
                 'items.*.required_date' => ['nullable', 'date_format:Y-m-d'],
@@ -247,7 +255,9 @@ class NeedController extends Controller
                         'is_urgent' => $item['is_urgent'],
                         'required_date' => ! empty($item['required_date']) ? $item['required_date'] : null,
                         'required_time' => ! empty($item['required_time']) ? $item['required_time'] : null,
-                        'hpp_price' => $product?->hpp_default ?? 0,
+                        'hpp_price' => isset($item['hpp_price']) && is_numeric($item['hpp_price'])
+                            ? (float) $item['hpp_price']
+                            : ($product?->hpp_default ?? 0),
                         'selling_price' => 0,
                         'attachment_path' => $attachmentPath,
                         'status' => 'Pending',

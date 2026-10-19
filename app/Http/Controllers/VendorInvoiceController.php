@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -59,7 +60,12 @@ class VendorInvoiceController extends Controller
                 });
             }))
             ->when($shipId, fn ($query, $sid) => $query->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $sid)))
-            ->when($job, fn ($query, $val) => $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$val}%")->orWhere('id', $val)))
+            ->when($job, fn ($query, $val) => $query->whereHas('portCall', function ($pq) use ($like, $val): void {
+                $pq->where('job_number', $like, "%{$val}%");
+                if (Str::isUuid($val)) {
+                    $pq->orWhere('id', $val);
+                }
+            }))
             ->when($startDate, fn ($query, $val) => $query->whereDate('received_date', '>=', $val))
             ->when($endDate, fn ($query, $val) => $query->whereDate('received_date', '<=', $val))
             ->when($search, fn ($query, $value) => $query->where(function ($scope) use ($like, $value) {
@@ -115,6 +121,7 @@ class VendorInvoiceController extends Controller
             'abilities' => [
                 'create' => Gate::allows('create', CostDocument::class),
                 'verify' => $request->user()->isOperationalAdmin(),
+                'pay' => $request->user()->isOperationalAdmin(),
             ],
         ]);
     }
@@ -189,7 +196,10 @@ class VendorInvoiceController extends Controller
         $validated = $request->validated();
 
         $invoice = DB::transaction(function () use ($request, $validated): CostDocument {
-            $vendor = Vendor::query()->where('is_active', true)->lockForUpdate()->findOrFail($validated['vendor_id']);
+            $vendorId = $validated['vendor_id'] ?? null;
+            $vendor = $vendorId
+                ? Vendor::query()->where('is_active', true)->lockForUpdate()->findOrFail($vendorId)
+                : null;
             $requestItems = RequestItem::query()
                 ->whereIn('id', $validated['request_item_ids'])
                 ->with([
@@ -217,11 +227,11 @@ class VendorInvoiceController extends Controller
                 if ((float) $requestItem->hpp_price <= 0) {
                     throw ValidationException::withMessages(['request_item_ids' => "HPP item {$requestItem->item_name} belum valid."]);
                 }
-                if ($requestItem->vendor_id && $requestItem->vendor_id !== $vendor->id) {
+                if ($vendor && $requestItem->vendor_id && $requestItem->vendor_id !== $vendor->id) {
                     throw ValidationException::withMessages(['request_item_ids' => "Item {$requestItem->item_name} terhubung ke vendor lain."]);
                 }
 
-                if (! $requestItem->vendor_id) {
+                if ($vendor && ! $requestItem->vendor_id) {
                     $requestItem->update(['vendor_id' => $vendor->id]);
                 }
             }
@@ -233,10 +243,10 @@ class VendorInvoiceController extends Controller
 
             $invoice = CostDocument::create([
                 'port_call_id' => $validated['port_call_id'],
-                'vendor_id' => $vendor->id,
+                'vendor_id' => $vendor?->id,
                 'document_type' => 'vendor_invoice',
                 'document_number' => $validated['document_number'],
-                'issuer_name' => $vendor->name,
+                'issuer_name' => $vendor?->name ?? 'Tanpa vendor/supplier',
                 'document_date' => $validated['document_date'],
                 'received_date' => $validated['received_date'],
                 'due_date' => $validated['due_date'] ?? null,
@@ -265,7 +275,7 @@ class VendorInvoiceController extends Controller
                 ->performedOn($invoice)
                 ->causedBy($request->user())
                 ->withProperties([
-                    'vendor_id' => $vendor->id,
+                    'vendor_id' => $vendor?->id,
                     'request_item_ids' => $requestItems->pluck('id')->all(),
                     'total' => $subtotal + $tax,
                 ])

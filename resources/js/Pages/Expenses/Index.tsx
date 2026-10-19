@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
 import {
     Banknote,
@@ -6,7 +6,6 @@ import {
     Clock3,
     FilePlus2,
     Plus,
-    ReceiptText,
     RotateCcw,
     Search,
     SlidersHorizontal,
@@ -28,6 +27,7 @@ import Pagination from '../../Components/pagination/Pagination';
 import Select from '../../Components/selects/Select';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
+import VendorInvoicePaymentModal, { type PayableVendorInvoice } from '../../Components/finance/VendorInvoicePaymentModal';
 import { formatDate } from '../../lib/formatDate';
 
 interface OutgoingPayment {
@@ -47,22 +47,6 @@ interface OutgoingPayment {
     allocations?: Array<{
         cost_document?: { document_number: string };
     }>;
-}
-
-interface PayableVendorInvoice {
-    id: string;
-    document_number: string;
-    vendor_name: string;
-    verified_total: number;
-    paid_amount: number;
-    outstanding_amount: number;
-    payable_amount: number;
-    due_date?: string | null;
-    port_call: {
-        job_number?: string | null;
-        ship_name?: string | null;
-        port_name?: string | null;
-    };
 }
 
 interface CompanyExpenseRequest {
@@ -142,15 +126,6 @@ const today = () => {
     return `${value.year}-${value.month}-${value.day}`;
 };
 
-const initialPaymentData = () => ({
-    cost_document_id: '',
-    amount: '',
-    payment_date: today(),
-    reference_number: '',
-    notes: '',
-    proof: null as File | null,
-});
-
 const paymentStatus = (status: string) => {
     if (status === 'verified') {
         return { status: 'success', label: 'Terbayar' };
@@ -201,12 +176,9 @@ export default function ExpensesIndex({
     const [isCompanyExpenseModalOpen, setIsCompanyExpenseModalOpen] = useState(false);
     const [decisionExpense, setDecisionExpense] = useState<CompanyExpenseRequest | null>(null);
     const [realizationExpense, setRealizationExpense] = useState<CompanyExpenseRequest | null>(null);
-    const paymentForm = useForm(initialPaymentData());
     const companyExpenseForm = useForm({ category: '', description: '', amount: '', notes: '', supporting_document: null as File | null });
     const decisionForm = useForm({ decision: 'approve', notes: '' });
     const realizationForm = useForm({ realized_amount: '', realized_date: today(), payment_reference: '', payment_proof: null as File | null });
-    const paymentErrorRef = useRef<HTMLDivElement>(null);
-    const selectedInvoice = payableVendorInvoices.find((invoice) => invoice.id === paymentForm.data.cost_document_id);
 
     const availableShips = useMemo(() => {
         if (!companyId) return ships;
@@ -291,50 +263,7 @@ export default function ExpensesIndex({
     };
 
     const openPaymentModal = () => {
-        paymentForm.clearErrors();
-        paymentForm.reset();
         setIsCreateModalOpen(true);
-    };
-
-    const closePaymentModal = () => {
-        if (paymentForm.processing) {
-            return;
-        }
-
-        paymentForm.clearErrors();
-        setIsCreateModalOpen(false);
-    };
-
-    const selectInvoice = (invoiceId: string) => {
-        const invoice = payableVendorInvoices.find((candidate) => candidate.id === invoiceId);
-
-        paymentForm.setData((current) => ({
-            ...current,
-            cost_document_id: invoiceId,
-            amount: invoice ? String(invoice.payable_amount) : '',
-        }));
-    };
-
-    const submitPayment = (event: React.FormEvent) => {
-        event.preventDefault();
-
-        if (!selectedInvoice) {
-            paymentForm.setError('cost_document_id', 'Pilih nomor invoice yang akan dibayar.');
-            window.requestAnimationFrame(() => paymentErrorRef.current?.focus());
-            return;
-        }
-
-        paymentForm.post('/expenses', {
-            forceFormData: true,
-            preserveScroll: true,
-            onSuccess: () => {
-                setIsCreateModalOpen(false);
-                paymentForm.reset();
-            },
-            onError: () => {
-                window.requestAnimationFrame(() => paymentErrorRef.current?.focus());
-            },
-        });
     };
 
     const submitCompanyExpense = (event: React.FormEvent) => {
@@ -418,7 +347,33 @@ export default function ExpensesIndex({
     }[status]);
     const companyColumns: Column<CompanyExpenseRequest>[] = [
         { key: 'request', header: 'Nomor Pengajuan', wrap: 'normal', render: (expense) => <div><p className="font-mono font-bold text-[#0060F4]" translate="no">{expense.request_number}</p><p className="text-[11px] text-[#52658E]">{formatDate(expense.created_at)}</p></div> },
-        { key: 'description', header: 'Kategori / Uraian', wrap: 'normal', render: (expense) => <div><p className="font-semibold">{expense.category}</p><p className="text-xs text-[#52658E]">{expense.items[0]?.description || '—'}</p></div> },
+        {
+            key: 'description',
+            header: 'Kategori / Uraian & Catatan',
+            wrap: 'normal',
+            width: '280px',
+            render: (expense) => (
+                <div>
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold text-[#0B1F63] dark:text-white">{expense.category}</span>
+                        {expense.creator?.name && (
+                            <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">({expense.creator.name})</span>
+                        )}
+                    </div>
+                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">{expense.items[0]?.description || '—'}</p>
+                    {expense.notes && (
+                        <div className={`mt-1.5 p-1.5 rounded-lg text-xs ${
+                            expense.status === 'rejected'
+                                ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-semibold'
+                                : 'text-[#52658E] dark:text-[#94A3B8] italic'
+                        }`}>
+                            {expense.status === 'rejected' && <span className="font-bold block text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-300">Catatan Ditolak:</span>}
+                            "{expense.notes}"
+                        </div>
+                    )}
+                </div>
+            ),
+        },
         { key: 'amount', header: 'Diajukan', align: 'right', render: (expense) => <span className="font-bold tabular-nums">{money(expense.total)}</span> },
         { key: 'status', header: 'Status', render: (expense) => { const badge = companyExpenseStatus(expense.status); return <StatusBadge status={badge.status} label={badge.label} showDot />; } },
         { key: 'document', header: 'Dokumen', render: (expense) => expense.supporting_document_path ? <DocumentActions viewHref={`/expenses/company-requests/${expense.id}/documents/supporting?view=1`} downloadHref={`/expenses/company-requests/${expense.id}/documents/supporting`} /> : '—' },
@@ -772,6 +727,52 @@ export default function ExpensesIndex({
                                         { label: 'Uraian', fullWidth: true, render: (expense) => expense.items[0]?.description || '—' },
                                         { label: 'Diajukan', render: (expense) => money(expense.total) },
                                         { label: 'Tanggal', render: (expense) => formatDate(expense.created_at) },
+                                        { label: 'Pemohon', render: (expense) => expense.creator?.name || '—' },
+                                        {
+                                            label: 'Dokumen',
+                                            fullWidth: true,
+                                            render: (expense) =>
+                                                expense.supporting_document_path ? (
+                                                    <DocumentActions
+                                                        viewHref={`/expenses/company-requests/${expense.id}/documents/supporting?view=1`}
+                                                        downloadHref={`/expenses/company-requests/${expense.id}/documents/supporting`}
+                                                        viewLabel="Buka Lampiran"
+                                                    />
+                                                ) : (
+                                                    <span className="text-xs text-[#8C9BB9]">—</span>
+                                                ),
+                                        },
+                                        {
+                                            label: 'Catatan / Alasan',
+                                            fullWidth: true,
+                                            render: (expense) =>
+                                                expense.notes ? (
+                                                    <div className={`p-2 rounded-xl text-xs ${
+                                                        expense.status === 'rejected'
+                                                            ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-semibold'
+                                                            : 'text-[#52658E] dark:text-[#94A3B8]'
+                                                    }`}>
+                                                        {expense.status === 'rejected' && <span className="block font-bold text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-0.5">Alasan Penolakan:</span>}
+                                                        "{expense.notes}"
+                                                    </div>
+                                                ) : (
+                                                    '-'
+                                                ),
+                                        },
+                                        {
+                                            label: 'Bukti Bayar',
+                                            fullWidth: true,
+                                            render: (expense) =>
+                                                expense.payment_proof_path ? (
+                                                    <DocumentActions
+                                                        viewHref={`/expenses/company-requests/${expense.id}/documents/payment?view=1`}
+                                                        downloadHref={`/expenses/company-requests/${expense.id}/documents/payment`}
+                                                        viewLabel="Bukti Bayar"
+                                                    />
+                                                ) : (
+                                                    '-'
+                                                ),
+                                        },
                                     ],
                                     actionsRender: (expense) => (
                                         <div className="flex w-full flex-wrap gap-2">
@@ -796,60 +797,11 @@ export default function ExpensesIndex({
                 )}
             </div>
 
-            <Modal
+            <VendorInvoicePaymentModal
+                invoices={payableVendorInvoices}
                 isOpen={abilities.manage && isCreateModalOpen}
-                onClose={closePaymentModal}
-                title="Catat Pembayaran Invoice Vendor"
-                subtitle="Pilih nomor invoice. Vendor, kunjungan, dan nominal diambil langsung dari invoice yang terhubung ke pengajuan."
-                size="lg"
-                footer={(
-                    <>
-                        <Button type="button" variant="secondary" disabled={paymentForm.processing} onClick={closePaymentModal}>Batal</Button>
-                        <Button type="submit" form="vendor-invoice-payment-form" isLoading={paymentForm.processing} disabled={!paymentForm.data.cost_document_id}>Simpan Pembayaran</Button>
-                    </>
-                )}
-            >
-                <form id="vendor-invoice-payment-form" noValidate onSubmit={submitPayment} className="space-y-4">
-                    <FormErrorSummary ref={paymentErrorRef} errors={paymentForm.errors} />
-
-                    <Select
-                        required
-                        name="cost_document_id"
-                        autoComplete="off"
-                        label="Nomor invoice vendor"
-                        placeholder="Pilih invoice yang akan dibayar"
-                        value={paymentForm.data.cost_document_id}
-                        onChange={(event) => selectInvoice(event.target.value)}
-                        error={paymentForm.errors.cost_document_id}
-                        options={payableVendorInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.document_number} · ${invoice.vendor_name}` }))}
-                    />
-
-                    {selectedInvoice && (
-                        <div className="rounded-2xl border border-[#DCEAF8] bg-[#F8FBFF] p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                            <div className="flex items-start gap-3">
-                                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4] dark:bg-[#173B5C] dark:text-[#38BDF8]"><ReceiptText aria-hidden="true" className="size-5" /></span>
-                                <div className="min-w-0 flex-1"><p className="break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{selectedInvoice.vendor_name}</p><p className="mt-0.5 break-all font-mono text-xs text-[#52658E]" translate="no">{selectedInvoice.port_call.job_number || 'Job belum tersedia'} · {selectedInvoice.port_call.ship_name || 'Kapal belum tersedia'}</p></div>
-                            </div>
-                            <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-                                <div><dt className="text-[11px] text-[#52658E]">Nilai invoice</dt><dd className="mt-0.5 font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{money(selectedInvoice.verified_total)}</dd></div>
-                                <div><dt className="text-[11px] text-[#52658E]">Sisa invoice</dt><dd className="mt-0.5 font-bold tabular-nums text-[#0060F4]">{money(selectedInvoice.outstanding_amount)}</dd></div>
-                                <div><dt className="text-[11px] text-[#52658E]">Jatuh tempo</dt><dd className="mt-0.5 font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{formatDate(selectedInvoice.due_date)}</dd></div>
-                            </dl>
-                        </div>
-                    )}
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <MoneyInput required name="amount" autoComplete="off" label="Nominal pembayaran" value={paymentForm.data.amount} onChange={(value) => paymentForm.setData('amount', value)} error={paymentForm.errors.amount} helperText="Nominal dapat lebih kecil untuk pembayaran sebagian." />
-                        <Input required name="payment_date" autoComplete="off" label="Tanggal transfer" type="date" value={paymentForm.data.payment_date} onChange={(event) => paymentForm.setData('payment_date', event.target.value)} error={paymentForm.errors.payment_date} />
-                    </div>
-
-                    <Input required name="reference_number" autoComplete="off" spellCheck={false} label="Nomor referensi transfer" value={paymentForm.data.reference_number} onChange={(event) => paymentForm.setData('reference_number', event.target.value)} error={paymentForm.errors.reference_number} />
-
-                    <PhotoUploadPicker label="Bukti pembayaran" required value={paymentForm.data.proof} onChange={(file) => paymentForm.setData('proof', file)} mode="gallery" accept=".pdf,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={paymentForm.errors.proof} helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB." />
-
-                    <Textarea name="notes" autoComplete="off" label="Catatan" value={paymentForm.data.notes} onChange={(event) => paymentForm.setData('notes', event.target.value)} error={paymentForm.errors.notes} maxLength={2000} showCharCount />
-                </form>
-            </Modal>
+                onClose={() => setIsCreateModalOpen(false)}
+            />
 
             <Modal isOpen={abilities.create_company_expense && isCompanyExpenseModalOpen} onClose={() => !companyExpenseForm.processing && setIsCompanyExpenseModalOpen(false)} title="Pengajuan Biaya Perusahaan" subtitle="Pengajuan nonkapal langsung dikirim ke Direktur." size="lg" footer={<><Button type="button" variant="secondary" onClick={() => setIsCompanyExpenseModalOpen(false)} disabled={companyExpenseForm.processing}>Batal</Button><Button type="submit" form="company-expense-form" isLoading={companyExpenseForm.processing}>Kirim Pengajuan</Button></>}>
                 <form id="company-expense-form" noValidate onSubmit={submitCompanyExpense} className="space-y-4">

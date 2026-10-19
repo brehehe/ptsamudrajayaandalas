@@ -259,6 +259,7 @@ class OperationController extends Controller
                     $previousStatus,
                     $nextStatus,
                     $occurredAt,
+                    $validated['items'] ?? null,
                 );
             }
 
@@ -289,6 +290,7 @@ class OperationController extends Controller
         string $previousStatus,
         string $nextStatus,
         Carbon $occurredAt,
+        ?array $submittedItems = null,
     ): RedirectResponse {
         $isClearanceIn = $previousStatus === 'scheduled';
         $serviceType = $isClearanceIn ? 'clearance_in' : 'clearance_out';
@@ -322,7 +324,7 @@ class OperationController extends Controller
             'notes' => "Pengajuan {$label} untuk kapal {$portCall->ship?->name} ({$portCall->job_number})",
         ]);
 
-        $this->createClearanceRequestItems($clearanceRequest, $serviceType, $nextStatus, $label);
+        $this->createClearanceRequestItems($clearanceRequest, $serviceType, $nextStatus, $label, $submittedItems);
 
         $this->workflowNotifier->notifyClearanceSubmission($clearanceRequest, $request->user(), $label);
 
@@ -346,7 +348,11 @@ class OperationController extends Controller
         string $serviceType,
         string $nextStatus,
         string $label,
+        ?array $submittedItems = null,
     ): void {
+        $submittedByProductId = collect($submittedItems ?? [])->keyBy('product_id');
+        $submittedByName = collect($submittedItems ?? [])->keyBy(fn ($it) => strtolower(trim($it['item_name'] ?? '')));
+
         if ($serviceType === 'clearance_in' && $nextStatus === 'berthed') {
             $products = Product::query()
                 ->whereIn('code', ['PRD-PLD-TAKTIS', 'PRD-PLD-EPB'])
@@ -359,17 +365,27 @@ class OperationController extends Controller
                 ['code' => 'PRD-PLD-EPB', 'name' => 'Pembayaran EPB (Pandu Tunda)'],
             ] as $definition) {
                 $product = $products->get($definition['code']);
+                $submitted = $product ? $submittedByProductId->get($product->id) : null;
+                if (! $submitted) {
+                    $submitted = $submittedByName->get(strtolower(trim($definition['name'])));
+                }
+
+                $hppPrice = ($submitted && isset($submitted['hpp_price']) && is_numeric($submitted['hpp_price']))
+                    ? (float) $submitted['hpp_price']
+                    : ($product?->hpp_default ?? 0);
 
                 RequestItem::create([
                     'request_id' => $clearanceRequest->id,
                     'product_id' => $product?->id,
-                    'vendor_id' => $product?->vendor_id,
+                    'vendor_id' => $definition['code'] === 'PRD-PLD-TAKTIS'
+                        ? null
+                        : $product?->vendor_id,
                     'item_type' => $product?->item_type ?? 'jasa',
                     'item_name' => $definition['name'],
                     'unit' => $product?->unit ?? 'Kegiatan',
                     'quantity' => 1,
                     'required_date' => now()->toDateString(),
-                    'hpp_price' => $product?->hpp_default ?? 0,
+                    'hpp_price' => $hppPrice,
                     'selling_price' => 0,
                     'is_urgent' => true,
                     'status' => 'pending',
@@ -381,16 +397,26 @@ class OperationController extends Controller
         }
 
         $product = $this->resolveClearanceProduct->handle($serviceType);
+        $itemName = "{$label} (Syahbandar & Karantina)";
+        $submitted = $product ? $submittedByProductId->get($product->id) : null;
+        if (! $submitted) {
+            $submitted = $submittedByName->get(strtolower(trim($itemName)));
+        }
+
+        $hppPrice = ($submitted && isset($submitted['hpp_price']) && is_numeric($submitted['hpp_price']))
+            ? (float) $submitted['hpp_price']
+            : ($product?->hpp_default ?? 0);
+
         RequestItem::create([
             'request_id' => $clearanceRequest->id,
             'product_id' => $product?->id,
             'vendor_id' => $product?->vendor_id,
             'item_type' => 'jasa',
-            'item_name' => "{$label} (Syahbandar & Karantina)",
+            'item_name' => $itemName,
             'unit' => 'Dokumen',
             'quantity' => 1,
             'required_date' => now()->toDateString(),
-            'hpp_price' => $product?->hpp_default ?? 0,
+            'hpp_price' => $hppPrice,
             'selling_price' => 0,
             'is_urgent' => true,
             'status' => 'pending',

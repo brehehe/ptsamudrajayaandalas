@@ -3,6 +3,7 @@ import { Link } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import Table, { type Column } from '../../Components/tables/Table';
 import Tabs from '../../Components/ui/Tabs';
+import StatusBadge from '../../Components/ui/StatusBadge';
 
 interface AdminDashboardViewProps {
     kpi: any;
@@ -75,52 +76,19 @@ export default function AdminDashboardView({
 
     const getStatusBadge = (status: string) => {
         const s = status.toLowerCase();
-        if (s.includes('menunggu')) {
-            return (
-                <span
-                    className={
-                        'px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#FFF0CC] ' +
-                        'text-[#A65300] border border-[#FFE082]'
-                    }
-                >
-                    Menunggu Approval
-                </span>
-            );
+        let label = 'Dalam Proses';
+
+        if (s.includes('tolak') || s.includes('reject')) {
+            label = 'Ditolak';
+        } else if (s.includes('menunggu')) {
+            label = 'Menunggu Approval';
+        } else if (s.includes('selesai')) {
+            label = 'Selesai';
+        } else if (s.includes('vendor')) {
+            label = 'Diproses Vendor';
         }
-        if (s.includes('selesai')) {
-            return (
-                <span
-                    className={
-                        'px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#DCF7E8] ' +
-                        'text-[#087443] border border-[#A3E9C0]'
-                    }
-                >
-                    Selesai
-                </span>
-            );
-        }
-        if (s.includes('vendor')) {
-            return (
-                <span
-                    className={
-                        'px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#E0F0FF] ' +
-                        'text-[#0060F4] border border-[#B8DCFF]'
-                    }
-                >
-                    Diproses Vendor
-                </span>
-            );
-        }
-        return (
-            <span
-                className={
-                    'px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#E0F0FF] ' +
-                    'text-[#0060F4] border border-[#B8DCFF]'
-                }
-            >
-                Dalam Proses
-            </span>
-        );
+
+        return <StatusBadge status={status} label={label} size="sm" />;
     };
 
     const requestColumns: Column<any>[] = [

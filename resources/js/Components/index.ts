@@ -21,7 +21,7 @@ export { default as ConfirmDialog } from './overlays/ConfirmDialog';
 export type { ConfirmDialogProps } from './overlays/ConfirmDialog';
 
 export { default as AlertToast } from './feedback/AlertToast';
-export type { AlertToastProps, AlertToastMessage } from './feedback/AlertToast';
+export type { AlertToastAction, AlertToastProps, AlertToastMessage } from './feedback/AlertToast';
 
 export { default as PageLoadingSkeleton } from './feedback/PageLoadingSkeleton';
 export type { PageLoadingSkeletonVariant } from './feedback/PageLoadingSkeleton';
@@ -69,6 +69,15 @@ export type { CardProps } from './ui/Card';
 export { default as Button } from './ui/Button';
 export type { ButtonProps } from './ui/Button';
 
+export { default as ActionMenu } from './ui/ActionMenu';
+export type {
+    ActionMenuButtonItem,
+    ActionMenuGroup,
+    ActionMenuItem,
+    ActionMenuLinkItem,
+    ActionMenuProps,
+} from './ui/ActionMenu';
+
 export { default as StatusBadge } from './ui/StatusBadge';
 export type { StatusBadgeProps } from './ui/StatusBadge';
 
@@ -80,3 +89,11 @@ export type { StatCardProps, StatTrend } from './dashboard/StatCard';
 
 export { default as Chart } from './dashboard/Chart';
 export type { ChartProps, ChartDataPoint } from './dashboard/Chart';
+
+// Finance documents
+export { default as ClientInvoiceDocument } from './finance/ClientInvoiceDocument';
+export type {
+    ClientInvoiceDocumentJob,
+    ClientInvoiceDocumentLine,
+    ClientInvoiceDocumentSettings,
+} from './finance/ClientInvoiceDocument';

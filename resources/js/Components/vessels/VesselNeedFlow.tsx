@@ -29,12 +29,23 @@ interface NeedItem {
     is_custom: boolean;
     quantity: number | string;
     unit: string;
+    hpp_price?: number | string;
     notes: string;
     required_date: string;
     required_time: string;
     is_urgent: boolean;
     attachment?: File | null;
 }
+
+const formatRupiah = (val?: number | string | null): string => {
+    const num = Number(val) || 0;
+    return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    }).format(num);
+};
 
 interface HeaderValidationErrors {
     section?: string;
@@ -152,6 +163,7 @@ export default function VesselNeedFlow({
             is_custom: false,
             quantity: '',
             unit: '',
+            hpp_price: 0,
             notes: '',
             is_urgent: false,
             required_date: '',
@@ -273,6 +285,7 @@ export default function VesselNeedFlow({
                         product_id: '',
                         item_name: '',
                         unit: '',
+                        hpp_price: 0,
                         is_custom: true,
                     };
                 }
@@ -283,6 +296,7 @@ export default function VesselNeedFlow({
                         product_id: prod.id,
                         item_name: prod.name,
                         unit: prod.unit || 'Unit',
+                        hpp_price: prod.hpp_default ? Number(prod.hpp_default) : 0,
                         is_custom: false,
                     }
                     : {
@@ -290,6 +304,7 @@ export default function VesselNeedFlow({
                         product_id: '',
                         item_name: '',
                         unit: '',
+                        hpp_price: 0,
                         is_custom: false,
                     };
             })
@@ -306,6 +321,7 @@ export default function VesselNeedFlow({
                 is_custom: false,
                 quantity: '',
                 unit: '',
+                hpp_price: 0,
                 notes: '',
                 is_urgent: false,
                 required_date: '',
@@ -396,6 +412,7 @@ export default function VesselNeedFlow({
             formData.append(`items[${idx}][item_name]`, it.item_name);
             formData.append(`items[${idx}][quantity]`, String(it.quantity));
             formData.append(`items[${idx}][unit]`, it.unit);
+            formData.append(`items[${idx}][hpp_price]`, String(it.hpp_price ?? 0));
             formData.append(`items[${idx}][notes]`, it.notes || '');
             if (it.is_urgent !== null) {
                 formData.append(`items[${idx}][is_urgent]`, it.is_urgent ? '1' : '0');
@@ -748,26 +765,6 @@ export default function VesselNeedFlow({
                                     error={headerErrors.orderedByPhone}
                                 />
 
-                                {/* Pembuat Pengajuan / Diajukan Oleh */}
-                                {users && users.length > 0 ? (
-                                    <Select
-                                        label="Pembuat Pengajuan (Staf SJA)"
-                                        options={users.map((u) => ({
-                                            value: u.id,
-                                            label: `${u.name} (${u.role})`,
-                                        }))}
-                                        value={formCreatedBy}
-                                        onChange={(val) => setFormCreatedBy(String(val))}
-                                        sizeVariant="sm"
-                                    />
-                                ) : (
-                                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                        <span className="block font-semibold text-[#52658E] dark:text-[#94A3B8]">Pembuat Pengajuan</span>
-                                        <p className="mt-0.5 font-bold text-[#0B1F63] dark:text-white">
-                                            {authUser?.name || 'Staff Lapangan'}
-                                        </p>
-                                    </div>
-                                )}
                             </div>
                         </section>
 
@@ -985,6 +982,8 @@ export default function VesselNeedFlow({
                                                     error={itemErrors[idx]?.unit}
                                                 />
                                             </div>
+
+
 
                                             {/* Keterangan */}
                                             <Textarea
@@ -1266,6 +1265,7 @@ export default function VesselNeedFlow({
                                                 {item.quantity} {item.unit}
                                             </span>
                                         </div>
+
                                         {item.notes && (
                                             <p className="text-[11px] text-[#52658E]">
                                                 {item.notes}

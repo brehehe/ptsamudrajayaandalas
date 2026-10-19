@@ -20,6 +20,7 @@ use App\Models\WorkOrder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,8 +31,68 @@ class DashboardController extends Controller
         $user = $request->user();
         $today = today();
 
-        $activePortCalls = PortCall::query()
-            ->with(['ship.company', 'port'])
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'ship_id' => ['nullable', 'uuid'],
+            'company_id' => ['nullable', 'uuid'],
+            'port_id' => ['nullable', 'uuid'],
+            'period' => ['nullable', 'string', 'in:semua,hari_ini,7_hari,bulan_ini,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
+        $search = $validated['search'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $companyId = $validated['company_id'] ?? null;
+        $portId = $validated['port_id'] ?? null;
+        $period = $validated['period'] ?? null;
+        $startDateStr = $validated['start_date'] ?? null;
+        $endDateStr = $validated['end_date'] ?? null;
+
+        $startDate = null;
+        $endDate = null;
+
+        if ($period === 'hari_ini') {
+            $startDate = today()->startOfDay();
+            $endDate = today()->endOfDay();
+        } elseif ($period === '7_hari') {
+            $startDate = today()->subDays(6)->startOfDay();
+            $endDate = today()->endOfDay();
+        } elseif ($period === 'bulan_ini') {
+            $startDate = today()->startOfMonth()->startOfDay();
+            $endDate = today()->endOfMonth()->endOfDay();
+        } elseif ($period === 'custom' || ($startDateStr && $endDateStr)) {
+            $startDate = $startDateStr ? Carbon::parse($startDateStr)->startOfDay() : null;
+            $endDate = $endDateStr ? Carbon::parse($endDateStr)->endOfDay() : null;
+        }
+
+        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        $portCallsQuery = PortCall::query()->with(['ship.company', 'port']);
+
+        if ($shipId) {
+            $portCallsQuery->where('ship_id', $shipId);
+        }
+        if ($companyId) {
+            $portCallsQuery->whereHas('ship', fn ($q) => $q->where('ship_company_id', $companyId));
+        }
+        if ($portId) {
+            $portCallsQuery->where('port_id', $portId);
+        }
+        if ($search) {
+            $portCallsQuery->where(function ($q) use ($search, $like) {
+                $q->where('job_number', $like, "%{$search}%")
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"));
+            });
+        }
+        if ($startDate && $endDate && $period !== 'semua') {
+            $portCallsQuery->where(function ($q) use ($startDate, $endDate) {
+                $q->whereBetween('eta_at', [$startDate, $endDate])
+                    ->orWhereBetween('berthed_at', [$startDate, $endDate]);
+            });
+        }
+
+        $activePortCalls = (clone $portCallsQuery)
             ->whereIn('status', ['scheduled', 'anchored', 'berthed'])
             ->orderBy('eta_at')
             ->get();
@@ -40,21 +101,46 @@ class DashboardController extends Controller
             'akan_datang' => $activePortCalls->where('status', 'scheduled')->count(),
             'sandar' => $activePortCalls->where('status', 'berthed')->count(),
             'labuh' => $activePortCalls->where('status', 'anchored')->count(),
-            'berangkat' => PortCall::query()->where('status', 'departed')->whereDate('departed_at', $today)->count(),
-            'selesai' => PortCall::query()
+            'berangkat' => (clone $portCallsQuery)->where('status', 'departed')->whereDate('departed_at', $today)->count(),
+            'selesai' => (clone $portCallsQuery)
                 ->whereIn('status', ['departed', 'completed'])
                 ->whereDate('departed_at', $today)
                 ->count(),
         ];
 
-        $totalRequests = ShipRequest::query()->count();
+        $requestsQuery = ShipRequest::query();
+
+        if ($shipId) {
+            $requestsQuery->where('ship_id', $shipId);
+        }
+        if ($companyId) {
+            $requestsQuery->where(function ($q) use ($companyId) {
+                $q->where('company_id', $companyId)
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+            });
+        }
+        if ($portId) {
+            $requestsQuery->where('port_id', $portId);
+        }
+        if ($search) {
+            $requestsQuery->where(function ($q) use ($search, $like) {
+                $q->where('request_number', $like, "%{$search}%")
+                    ->orWhere('notes', $like, "%{$search}%")
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"));
+            });
+        }
+        if ($startDate && $endDate && $period !== 'semua') {
+            $requestsQuery->whereBetween('request_date', [$startDate, $endDate]);
+        }
+
+        $totalRequests = (clone $requestsQuery)->count();
         $requestsByStatus = [
-            'menunggu' => ShipRequest::query()->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count(),
-            'proses' => ShipRequest::query()->whereIn('status', ['Dalam Proses', 'Diproses', 'Disetujui'])->count(),
-            'selesai' => ShipRequest::query()->where('status', 'Selesai')->count(),
+            'menunggu' => (clone $requestsQuery)->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count(),
+            'proses' => (clone $requestsQuery)->whereIn('status', ['Dalam Proses', 'Diproses', 'Disetujui'])->count(),
+            'selesai' => (clone $requestsQuery)->where('status', 'Selesai')->count(),
         ];
 
-        $latestRequests = ShipRequest::query()
+        $latestRequests = (clone $requestsQuery)
             ->with(['ship', 'creator', 'items'])
             ->latest()
             ->limit(10)
@@ -81,9 +167,14 @@ class DashboardController extends Controller
             ])
             ->values();
 
-        $needsToday = ShipRequest::query()
-            ->with(['ship', 'items'])
-            ->whereDate('request_date', $today)
+        $needsQuery = (clone $requestsQuery)->with(['ship', 'items']);
+        if ($startDate && $endDate && $period !== 'semua' && $period !== 'hari_ini') {
+            $needsQuery->whereBetween('request_date', [$startDate, $endDate]);
+        } else {
+            $needsQuery->whereDate('request_date', $today);
+        }
+
+        $needsToday = $needsQuery
             ->latest()
             ->get()
             ->flatMap(fn (ShipRequest $shipRequest) => $shipRequest->items->map(fn ($item): array => [
@@ -97,8 +188,29 @@ class DashboardController extends Controller
             ->take(20)
             ->values();
 
-        $rawInvoices = Invoice::query()
-            ->with(['company', 'portCall.ship.company', 'request.ship'])
+        $invoicesQuery = Invoice::query()
+            ->with(['company', 'portCall.ship.company', 'request.ship']);
+
+        if ($companyId) {
+            $invoicesQuery->where('company_id', $companyId);
+        }
+        if ($shipId) {
+            $invoicesQuery->where(function ($q) use ($shipId) {
+                $q->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $shipId))
+                    ->orWhereHas('request', fn ($rq) => $rq->where('ship_id', $shipId));
+            });
+        }
+        if ($search) {
+            $invoicesQuery->where(function ($q) use ($search, $like) {
+                $q->where('invoice_number', $like, "%{$search}%")
+                    ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"));
+            });
+        }
+        if ($startDate && $endDate && $period !== 'semua') {
+            $invoicesQuery->whereBetween('invoice_date', [$startDate, $endDate]);
+        }
+
+        $rawInvoices = $invoicesQuery
             ->latest('invoice_date')
             ->get();
         $totalInvoiced = (float) $rawInvoices->sum('grand_total');
@@ -271,7 +383,7 @@ class DashboardController extends Controller
         $canViewFinancials = $user->isOperationalAdmin() || $user->isDirector() || $user->isOwner();
         $canViewApprovals = $user->isDirector() || $user->isOwner();
 
-        $myRequests = ShipRequest::query()->where('created_by', $user->id);
+        $myRequests = (clone $requestsQuery)->where('created_by', $user->id);
         $pendingCount = (clone $myRequests)->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count();
 
         return Inertia::render('Dashboard', [
@@ -280,7 +392,7 @@ class DashboardController extends Controller
                 'ships_by_status' => $shipsByStatus,
                 'total_pengajuan' => $totalRequests,
                 'requests_by_status' => $requestsByStatus,
-                'total_nilai_pengajuan' => (float) ShipRequest::query()->with('items')->get()->sum(
+                'total_nilai_pengajuan' => (float) (clone $requestsQuery)->with('items')->get()->sum(
                     fn (ShipRequest $shipRequest): float => (float) $shipRequest->items->sum(
                         fn ($item): float => (float) $item->selling_price * (float) $item->quantity,
                     ),
@@ -290,7 +402,7 @@ class DashboardController extends Controller
                 'total_piutang' => $totalOutstanding,
                 'total_invoiced' => $totalInvoiced,
                 'collection_rate' => $collectionRate,
-                'kapal_sandar_hari_ini' => PortCall::query()->where('status', 'berthed')->whereDate('berthed_at', $today)->count(),
+                'kapal_sandar_hari_ini' => (clone $portCallsQuery)->where('status', 'berthed')->whereDate('berthed_at', $today)->count(),
             ],
             'latest_requests' => $latestRequests,
             'attention_ships' => $activePortCalls->map(fn (PortCall $portCall): array => $this->portCallCard($portCall))->values(),
@@ -310,8 +422,8 @@ class DashboardController extends Controller
             'summary_today' => [
                 'kapal_hari_ini' => $todayShips->count(),
                 'aktivitas_hari_ini' => OperationalActivity::query()->whereDate('activity_date', $today)->count(),
-                'kebutuhan_menunggu' => ShipRequest::query()->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count(),
-                'pengajuan_diproses' => ShipRequest::query()->whereIn('status', ['Dalam Proses', 'Diproses'])->count(),
+                'kebutuhan_menunggu' => (clone $requestsQuery)->whereIn('status', ['Menunggu Approval', 'Menunggu Approval Direktur'])->count(),
+                'pengajuan_diproses' => (clone $requestsQuery)->whereIn('status', ['Dalam Proses', 'Diproses'])->count(),
             ],
             'today_ships' => $todayShips,
             'upcoming_ships' => $upcomingShips,
@@ -340,6 +452,15 @@ class DashboardController extends Controller
             'current_role' => $user->getPrimaryRoleName(),
             'pending_approvals' => $canViewApprovals ? $pendingApprovals : [],
             'financial_overview' => $canViewFinancials ? $financialOverview : null,
+            'filters' => [
+                'search' => $search ?? '',
+                'ship_id' => $shipId ?? '',
+                'company_id' => $companyId ?? '',
+                'port_id' => $portId ?? '',
+                'period' => $period ?? 'semua',
+                'start_date' => $startDateStr ?? '',
+                'end_date' => $endDateStr ?? '',
+            ],
             'role_dashboard' => $this->roleDashboard(
                 $user,
                 $activePortCalls,
@@ -347,6 +468,11 @@ class DashboardController extends Controller
                 $financialOverview,
                 $shipsByStatus,
                 $totalRequests,
+                $shipId,
+                $companyId,
+                $startDate,
+                $endDate,
+                $period,
             ),
         ]);
     }
@@ -368,12 +494,32 @@ class DashboardController extends Controller
         array $financialOverview,
         array $shipsByStatus,
         int $totalRequests,
+        ?string $shipId = null,
+        ?string $companyId = null,
+        ?Carbon $startDate = null,
+        ?Carbon $endDate = null,
+        ?string $period = null,
     ): array {
-        $activeWorkOrders = WorkOrder::query()->whereNotIn('status', ['closed'])->count();
-        $pendingNeeds = RequestItem::query()
+        $woQuery = WorkOrder::query()->whereNotIn('status', ['closed']);
+        if ($shipId) {
+            $woQuery->where('ship_id', $shipId);
+        }
+        if ($companyId) {
+            $woQuery->where('ship_company_id', $companyId);
+        }
+        $activeWorkOrders = $woQuery->count();
+
+        $needsQuery = RequestItem::query()
             ->where('is_invoiced', false)
-            ->whereNotIn('status', ['Selesai', 'Dibatalkan'])
-            ->count();
+            ->whereNotIn('status', ['Selesai', 'Dibatalkan']);
+        if ($shipId) {
+            $needsQuery->whereHas('request', fn ($q) => $q->where('ship_id', $shipId));
+        }
+        if ($companyId) {
+            $needsQuery->whereHas('request', fn ($q) => $q->where('company_id', $companyId)->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId)));
+        }
+        $pendingNeeds = $needsQuery->count();
+
         $vendorInvoicesToVerify = CostDocument::query()
             ->where('document_type', 'vendor_invoice')
             ->where('status', 'received')
@@ -403,12 +549,27 @@ class DashboardController extends Controller
                 ->whereNotIn('status', ['reconciled'])
                 ->count();
         $unpaidClientInvoices = Invoice::query()->where('outstanding_amount', '>', 0)->count();
-        $activitiesToday = OperationalActivity::query()->whereDate('activity_date', today())->count();
+
+        $activitiesTodayQuery = OperationalActivity::query();
+        if ($shipId) {
+            $activitiesTodayQuery->where('ship_id', $shipId);
+        }
+        if ($startDate && $endDate && $period !== 'semua' && $period !== 'hari_ini') {
+            $activitiesTodayQuery->whereBetween('activity_date', [$startDate, $endDate]);
+        } else {
+            $activitiesTodayQuery->whereDate('activity_date', today());
+        }
+        $activitiesToday = $activitiesTodayQuery->count();
+
         $reportsToday = DailyReport::query()->whereDate('report_date', today())->count();
-        $myOpenRequests = ShipRequest::query()
+
+        $myOpenQuery = ShipRequest::query()
             ->where('created_by', $user->id)
-            ->whereNotIn('status', ['Selesai', 'Ditolak', 'Dibatalkan'])
-            ->count();
+            ->whereNotIn('status', ['Selesai', 'Ditolak', 'Dibatalkan']);
+        if ($shipId) {
+            $myOpenQuery->where('ship_id', $shipId);
+        }
+        $myOpenRequests = $myOpenQuery->count();
         $activeUsers = User::query()->where('is_active', true)->count();
 
         $commonPipeline = [

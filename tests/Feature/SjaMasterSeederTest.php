@@ -29,7 +29,7 @@ test('master seeder creates related companies ships and ports without duplicates
         ->and($tacticalBerthing->item_type)->toBe('jasa')
         ->and((float) $tacticalBerthing->tax_rate)->toBe(2.0)
         ->and((float) $tacticalBerthing->hpp_default)->toBe(0.0)
-        ->and($tacticalBerthing->vendor_id)->toBe($pelindo->id)
+        ->and($tacticalBerthing->vendor_id)->toBeNull()
         ->and($epbPayment->name)->toBe('Pembayaran EPB (Pandu Tunda)')
         ->and($epbPayment->category)->toBe('Jasa Keagenan')
         ->and($epbPayment->item_type)->toBe('jasa')

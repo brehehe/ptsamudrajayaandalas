@@ -184,6 +184,144 @@ test('supplier invoice is required per item and director approval creates a veri
     $this->assertDatabaseCount('expense_requests', 0);
 });
 
+test('items can use supplier invoices without a vendor and keep one optional admin note for the director', function () {
+    Storage::fake('local');
+    $admin = vendorWorkflowUser('Admin');
+    $director = vendorWorkflowUser('Direktur');
+    $portCall = vendorWorkflowPortCall('TAKTIS', $admin);
+    $firstItem = vendorWorkflowRequestItem($portCall, $admin, 'TAKTIS-01', 250000);
+    $secondItem = vendorWorkflowRequestItem($portCall, $admin, 'TAKTIS-02', 300000);
+
+    foreach ([[$firstItem, 'INV-TAKTIS-01'], [$secondItem, 'INV-TAKTIS-02']] as [$item, $documentNumber]) {
+        $this->actingAs($admin)->post(route('request-items.supplier-invoice.store', $item), [
+            'vendor_id' => null,
+            'hpp_price' => $item->hpp_price,
+            'supplier_invoice_number' => $documentNumber,
+            'supplier_invoice_date' => '2026-10-01',
+            'supplier_invoice_received_date' => '2026-10-01',
+            'supplier_invoice_document' => UploadedFile::fake()->create("{$documentNumber}.pdf", 10, 'application/pdf'),
+        ])->assertRedirect()->assertSessionHasNoErrors();
+    }
+
+    $this->actingAs($admin)
+        ->get(route('request-items.supplier-invoice.show', $firstItem))
+        ->assertOk();
+
+    $response = $this->actingAs($admin)->post(route('requests.batch-forward-director'), [
+        'selected_items' => [$firstItem->id, $secondItem->id],
+        'admin_notes' => 'Taktis tidak menggunakan vendor. Nominal sudah ditinjau untuk dua REQ.',
+    ]);
+
+    $response->assertRedirect()->assertSessionHasNoErrors();
+
+    foreach ([$firstItem, $secondItem] as $item) {
+        $item->refresh();
+
+        expect($item->vendor_id)->toBeNull()
+            ->and($item->hasCompleteSupplierInvoice())->toBeTrue()
+            ->and($item->status)->toBe('diajukan_ke_direktur')
+            ->and($item->request->fresh()->admin_forward_notes)
+            ->toBe('Taktis tidak menggunakan vendor. Nominal sudah ditinjau untuk dua REQ.');
+    }
+
+    $this->actingAs($director)
+        ->get(route('approvals.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Index')
+            ->where('requests.0.admin_forward_notes', 'Taktis tidak menggunakan vendor. Nominal sudah ditinjau untuk dua REQ.')
+            ->where('requests.0.items.0.supplier_invoice_complete', true)
+            ->where('requests.0.items.0.vendor', null));
+
+    $this->actingAs($director)
+        ->get(route('approvals.detail', $portCall->job_number))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Show')
+            ->where('requests.0.admin_forward_notes', 'Taktis tidak menggunakan vendor. Nominal sudah ditinjau untuk dua REQ.')
+            ->where('requests.0.items.0.supplier_invoice_complete', true)
+            ->where('requests.0.items.0.vendor', null));
+
+    $this->actingAs($director)->post(route('approvals.requests.batch-item-decision'), [
+        'decisions' => [
+            ['item_id' => $firstItem->id, 'status' => 'approved'],
+            ['item_id' => $secondItem->id, 'status' => 'approved'],
+        ],
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(CostDocument::query()->whereNull('vendor_id')->count())->toBe(2)
+        ->and(CostDocument::query()->whereNull('vendor_id')->pluck('issuer_name')->unique()->all())
+        ->toBe(['Tanpa vendor/supplier']);
+});
+
+test('selected item remains approved when automatic vendor invoice needs admin review', function () {
+    $admin = vendorWorkflowUser('Admin');
+    $director = vendorWorkflowUser('Direktur');
+    $sourcePortCall = vendorWorkflowPortCall('SOURCE', $admin);
+    $approvalPortCall = vendorWorkflowPortCall('APPROVAL', $admin);
+    $vendor = Vendor::create([
+        'code' => 'VD-SHARED-INVOICE',
+        'name' => 'PT Vendor Shared Invoice',
+        'is_active' => true,
+    ]);
+    CostDocument::create([
+        'port_call_id' => $sourcePortCall->id,
+        'vendor_id' => $vendor->id,
+        'document_type' => 'vendor_invoice',
+        'document_number' => 'INV-SHARED-001',
+        'issuer_name' => $vendor->name,
+        'document_date' => '2026-10-01',
+        'received_date' => '2026-10-01',
+        'currency' => 'IDR',
+        'estimated_total' => 500000,
+        'verified_total' => 500000,
+        'status' => 'verified',
+        'payment_status' => 'unpaid',
+        'recorded_by' => $admin->id,
+    ]);
+    $selectedItem = vendorWorkflowRequestItem($approvalPortCall, $admin, 'SELECTED', 25000);
+    $selectedItem->update([
+        'vendor_id' => $vendor->id,
+        'supplier_invoice_number' => 'INV-SHARED-001',
+        'supplier_invoice_date' => '2026-10-15',
+        'supplier_invoice_received_date' => '2026-10-15',
+        'supplier_invoice_path' => 'tests/INV-SHARED-001.pdf',
+        'supplier_invoice_uploaded_by' => $admin->id,
+        'status' => 'diajukan_ke_direktur',
+    ]);
+    $unselectedItem = $selectedItem->request->items()->create([
+        'item_name' => 'Item dikembalikan ke Admin',
+        'quantity' => 1,
+        'unit' => 'Paket',
+        'hpp_price' => 100000,
+        'selling_price' => 125000,
+        'status' => 'diajukan_ke_direktur',
+        'director_status' => 'pending',
+    ]);
+    $selectedItem->request->update(['status' => 'Menunggu Approval Direktur']);
+
+    $response = $this->actingAs($director)->post(route('approvals.requests.batch-item-decision'), [
+        'decisions' => [[
+            'item_id' => $selectedItem->id,
+            'status' => 'approved',
+        ]],
+    ]);
+
+    $response->assertRedirect()->assertSessionHasNoErrors();
+    $this->assertDatabaseHas('request_items', [
+        'id' => $selectedItem->id,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+    $this->assertDatabaseHas('request_items', [
+        'id' => $unselectedItem->id,
+        'status' => 'pending',
+        'director_status' => 'pending',
+    ]);
+    $this->assertDatabaseCount('cost_documents', 1);
+    expect($selectedItem->fresh()->costDocumentItem)->toBeNull();
+});
+
 test('only admin can upload a supplier invoice and its private document requires authentication', function () {
     Storage::fake('local');
     $admin = vendorWorkflowUser('Admin');
@@ -267,6 +405,31 @@ test('operational users cannot record vendor invoices', function () {
         'amount' => 100000,
         'document' => UploadedFile::fake()->create('invoice.pdf', 10, 'application/pdf'),
     ])->assertForbidden();
+});
+
+test('admin can record a vendor invoice without selecting a vendor', function () {
+    Storage::fake('local');
+    $admin = vendorWorkflowUser('Admin');
+    $portCall = vendorWorkflowPortCall('NO-VENDOR', $admin);
+    $requestItem = vendorWorkflowRequestItem($portCall, $admin, 'NO-VENDOR', 450000);
+
+    $this->actingAs($admin)->post(route('vendor-invoices.store'), [
+        'port_call_id' => $portCall->id,
+        'vendor_id' => null,
+        'document_number' => 'INV-NO-VENDOR-01',
+        'document_date' => '2026-10-01',
+        'received_date' => '2026-10-01',
+        'request_item_ids' => [$requestItem->id],
+        'tax_amount' => 0,
+        'document' => UploadedFile::fake()->create('invoice-no-vendor.pdf', 10, 'application/pdf'),
+    ])->assertRedirect(route('vendor-invoices.index'))->assertSessionHasNoErrors();
+
+    $invoice = CostDocument::query()->where('document_number', 'INV-NO-VENDOR-01')->firstOrFail();
+
+    expect($invoice->vendor_id)->toBeNull()
+        ->and($invoice->issuer_name)->toBe('Tanpa vendor/supplier')
+        ->and($requestItem->fresh()->vendor_id)->toBeNull()
+        ->and($invoice->items()->value('request_item_id'))->toBe($requestItem->id);
 });
 
 test('a request item cannot be used by more than one vendor invoice', function () {
@@ -365,7 +528,8 @@ test('vendor payment is allocated per invoice and cannot exceed its outstanding 
             ->where('invoices.data.0.payment_status', 'paid')
             ->where('invoices.data.0.payment_allocations.0.payment.id', $payment->id)
             ->where('invoices.data.0.payment_allocations.0.payment.verification_status', 'verified')
-            ->where('abilities.verify', true));
+            ->where('abilities.verify', true)
+            ->where('abilities.pay', true));
 });
 
 test('partial vendor payment updates the invoice and prevents overpayment', function () {

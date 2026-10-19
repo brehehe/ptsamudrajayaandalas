@@ -16,6 +16,7 @@ class InvoiceItem extends Model
         'request_item_id',
         'sort_order',
         'is_custom',
+        'section_title',
         'description',
         'vendor_name',
         'quantity',

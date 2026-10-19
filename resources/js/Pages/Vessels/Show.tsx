@@ -217,10 +217,6 @@ export default function VesselShow({
                 setActivityCategoryOther('');
                 setActivityPhotos([]);
                 setActivityErrors({});
-                setClearanceToast({
-                    variant: 'success',
-                    message: 'Aktivitas lapangan berhasil disimpan ke sistem.',
-                });
             },
             onError: (errs) => {
                 const validationErrors = errs as Record<string, string>;
@@ -370,6 +366,7 @@ export default function VesselShow({
                     vesselName={vessel.name}
                     portCalls={clearancePortCalls}
                     selectedPortCallId={selectedPortCallId}
+                    products={products}
                     onClose={() => setClearanceDirection(null)}
                     onFeedback={setClearanceToast}
                 />

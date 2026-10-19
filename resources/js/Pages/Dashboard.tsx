@@ -14,6 +14,10 @@ interface DashboardProps {
     pending_approvals?: any[];
     financial_overview?: any;
     role_dashboard: RoleDashboardData;
+    filters?: any;
+    ships?: any[];
+    companies?: any[];
+    ports?: any[];
 }
 
 export default function Dashboard({
@@ -26,6 +30,10 @@ export default function Dashboard({
     pending_approvals = [],
     financial_overview,
     role_dashboard,
+    filters = {},
+    ships = [],
+    companies = [],
+    ports = [],
 }: DashboardProps) {
     const { auth } = usePage<PageProps>().props;
     const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -72,6 +80,10 @@ export default function Dashboard({
                 todayActivities={today_activities}
                 pendingApprovals={pending_approvals}
                 financialOverview={financial_overview}
+                filters={filters}
+                ships={ships}
+                companies={companies}
+                ports={ports}
             />
         </AppLayout>
     );

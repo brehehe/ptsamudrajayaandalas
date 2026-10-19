@@ -88,7 +88,7 @@ export default function TableMobile<T>({
     }
 
     return (
-        <div className={`space-y-3 ${className}`}>
+        <div className={`min-w-0 space-y-3 ${className}`}>
             {data.map((row, index) => {
                 const rowKey = keyExtractor(row, index);
                 const actionsContent = actionsRender?.(row, index);
@@ -99,7 +99,7 @@ export default function TableMobile<T>({
                         role={onCardClick ? 'button' : undefined}
                         tabIndex={onCardClick ? 0 : undefined}
                         aria-label={onCardClick ? cardAriaLabel?.(row, index) : undefined}
-                        className={`border border-[#DCEAF8] p-3.5 transition-[border-color,box-shadow,background-color] duration-200 motion-reduce:transition-none dark:border-[#1E3A5F] ${
+                        className={`min-w-0 border border-[#DCEAF8] p-3.5 transition-[border-color,box-shadow,background-color] duration-200 motion-reduce:transition-none dark:border-[#1E3A5F] ${
                             onCardClick
                                 ? 'cursor-pointer hover:border-[#0060F4]/40 ' +
                                   'dark:hover:border-[#38BDF8]/40 hover:shadow-xs ' +
@@ -120,16 +120,16 @@ export default function TableMobile<T>({
                         <div className="flex items-start justify-between gap-3">
                             <div className="flex items-start gap-3 min-w-0 flex-1">
                                 {imageRender && (
-                                    <div className="flex-shrink-0 mt-0.5">
+                                    <div className="mt-0.5 shrink-0">
                                         {imageRender(row, index)}
                                     </div>
                                 )}
                                 <div className="min-w-0 flex-1">
-                                    <div className="break-words text-sm font-bold leading-snug text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    <div className="min-w-0 whitespace-normal wrap-anywhere text-sm font-bold leading-snug text-[#0B1F63] dark:text-[#F1F5F9]">
                                         {titleRender(row, index)}
                                     </div>
                                     {subtitleRender && (
-                                        <div className="mt-0.5 break-words text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                        <div className="mt-0.5 min-w-0 whitespace-normal wrap-anywhere text-xs text-[#52658E] dark:text-[#94A3B8]">
                                             {subtitleRender(row, index)}
                                         </div>
                                     )}
@@ -137,7 +137,7 @@ export default function TableMobile<T>({
                             </div>
 
                             {statusRender && (
-                                <div className="flex-shrink-0">{statusRender(row, index)}</div>
+                                <div className="max-w-full shrink-0">{statusRender(row, index)}</div>
                             )}
                         </div>
 
@@ -152,7 +152,7 @@ export default function TableMobile<T>({
                                 {fields.map((field, fIdx) => (
                                     <div
                                         key={`field-${fIdx}`}
-                                        className={field.fullWidth ? 'col-span-2' : 'col-span-1'}
+                                        className={`min-w-0 ${field.fullWidth ? 'col-span-2' : 'col-span-1'}`}
                                     >
                                         <span
                                             className={
@@ -163,12 +163,12 @@ export default function TableMobile<T>({
                                             {field.icon && (
                                                 <span className="text-[11px]">{field.icon}</span>
                                             )}
-                                            <span>{field.label}</span>
+                                            <span className="min-w-0 whitespace-normal wrap-anywhere">{field.label}</span>
                                         </span>
                                         <div
                                             className={
                                                 'font-semibold text-[#0B1F63] dark:text-[#F1F5F9] ' +
-                                                'mt-0.5 break-words'
+                                                'mt-0.5 min-w-0 whitespace-normal wrap-anywhere'
                                             }
                                         >
                                             {field.render(row, index)}
@@ -183,7 +183,7 @@ export default function TableMobile<T>({
                             <div
                                 className={
                                     'mt-3 pt-2.5 border-t border-[#DCEAF8] ' +
-                                    'dark:border-[#1E3A5F] flex items-center justify-end gap-2'
+                                    'dark:border-[#1E3A5F] flex flex-wrap items-center justify-end gap-2'
                                 }
                                 onClick={(e) => e.stopPropagation()}
                             >

@@ -1,5 +1,6 @@
 import { Link } from '@inertiajs/react';
 import ReceivablesOverview, { type ReceivablesOverviewData } from '@/Components/dashboard/ReceivablesOverview';
+import DashboardFilterBar, { type DashboardFilters } from '@/Components/dashboard/DashboardFilterBar';
 import {
     Activity,
     Anchor,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import ShipImage from '@/Components/vessels/ShipImage';
+import StatusBadge from '@/Components/ui/StatusBadge';
 
 type DashboardRole = 'admin' | 'operasional' | 'direktur' | 'owner';
 type MetricFormat = 'number' | 'currency' | 'percentage';
@@ -57,6 +59,10 @@ interface RoleDashboardMobileViewProps {
     needsToday: any[];
     pendingApprovals: any[];
     receivablesOverview: ReceivablesOverviewData | null;
+    filters?: DashboardFilters;
+    ships?: any[];
+    companies?: any[];
+    ports?: any[];
 }
 
 interface MetricPresentation {
@@ -184,28 +190,6 @@ const formatCurrency = (value: number): string =>
         maximumFractionDigits: 0,
     }).format(Number(value ?? 0));
 
-const statusClasses = (status: string): string => {
-    const normalizedStatus = status.toLowerCase();
-
-    if (normalizedStatus.includes('sandar') || normalizedStatus.includes('selesai') || normalizedStatus.includes('lunas')) {
-        return 'bg-[#DCF7E8] text-[#087443] dark:bg-emerald-950/55 dark:text-emerald-300';
-    }
-
-    if (normalizedStatus.includes('labuh') || normalizedStatus.includes('menunggu')) {
-        return 'bg-[#FFF0CC] text-[#A65300] dark:bg-amber-950/55 dark:text-amber-300';
-    }
-
-    if (normalizedStatus.includes('tolak') || normalizedStatus.includes('terlambat')) {
-        return 'bg-[#FFE7EC] text-[#C62840] dark:bg-rose-950/55 dark:text-rose-300';
-    }
-
-    if (normalizedStatus.includes('berangkat')) {
-        return 'bg-[#EFE7FF] text-[#6840BB] dark:bg-violet-950/55 dark:text-violet-300';
-    }
-
-    return 'bg-[#E0F0FF] text-[#0057D9] dark:bg-blue-950/55 dark:text-blue-300';
-};
-
 function MobileSection({
     icon: Icon,
     title,
@@ -329,9 +313,7 @@ function OperationalShipList({ ships, limit = 5 }: { ships: any[]; limit?: numbe
                             <span className="line-clamp-2 min-w-0 flex-1 break-words text-[11px] font-extrabold leading-4 text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white">
                                 {shipItem.name}
                             </span>
-                            <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-[9px] font-bold ${statusClasses(shipItem.status)}`}>
-                                {shipItem.status}
-                            </span>
+                            <StatusBadge status={shipItem.status} label={shipItem.status} size="sm" className="shrink-0" />
                         </span>
                         <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-[#52658E] dark:text-[#9FB0C6]">
                             <span className="flex min-w-0 items-center gap-1 tabular-nums">
@@ -390,9 +372,7 @@ function ShipList({ ships, limit = 5 }: { ships: any[]; limit?: number }) {
                     </span>
 
                     <span className="flex flex-col items-end justify-center gap-2 self-stretch">
-                        <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[9px] font-bold ${statusClasses(shipItem.status)}`}>
-                            {shipItem.status}
-                        </span>
+                        <StatusBadge status={shipItem.status} label={shipItem.status} size="sm" />
                         <ArrowRight aria-hidden="true" className="size-3.5 text-[#8BA4C1] group-hover:text-[#0060F4]" />
                     </span>
                 </Link>
@@ -500,9 +480,7 @@ function RequestList({ requests }: { requests: any[] }) {
                         </span>
                     </span>
                     <span className="flex flex-col items-end gap-1.5">
-                        <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${statusClasses(requestItem.status)}`}>
-                            {requestItem.status}
-                        </span>
+                        <StatusBadge status={requestItem.status} label={requestItem.status} size="sm" />
                         <span className="text-[9px] font-bold tabular-nums text-[#0B1F63] dark:text-white">
                             {formatCurrency(requestItem.estimated_cost)}
                         </span>
@@ -560,6 +538,10 @@ export default function RoleDashboardMobileView({
     needsToday,
     pendingApprovals,
     receivablesOverview,
+    filters = {},
+    ships = [],
+    companies = [],
+    ports = [],
 }: RoleDashboardMobileViewProps) {
     const role = rolePresentation[dashboard.role];
     const RoleIcon = role.icon;
@@ -620,6 +602,15 @@ export default function RoleDashboardMobileView({
             </section>
 
             <div className="relative z-10 -mt-6 space-y-4 rounded-t-[28px] bg-white px-3.5 pb-5 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36]">
+                <DashboardFilterBar
+                    filters={filters}
+                    ships={ships}
+                    companies={companies}
+                    ports={ports}
+                    role={dashboard.role}
+                    isMobile={true}
+                />
+
                 <section aria-labelledby="mobile-summary-heading" className="rounded-2xl bg-[#082870] p-3 shadow-sm dark:bg-[#071A33]">
                     <div className="mb-3 flex items-center gap-2 px-0.5 text-white">
                         <RoleIcon aria-hidden="true" className="size-4 text-[#38BDF8]" />
@@ -702,7 +693,7 @@ export default function RoleDashboardMobileView({
                                     {needsToday.slice(0, 2).map((need, index) => (
                                         <Link key={`${need.pengajuan}-${need.kebutuhan}-${index}`} href="/needs" className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]">
                                             <span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#0B1F63] dark:text-white">{need.kapal}</span><span className="mt-0.5 block truncate text-[9px] text-[#52658E] dark:text-[#9FB0C6]">{need.kebutuhan} · {need.jumlah}</span></span>
-                                            <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${statusClasses(need.status)}`}>{need.status}</span>
+                                            <StatusBadge status={need.status} label={need.status} size="sm" />
                                         </Link>
                                     ))}
                                 </div>

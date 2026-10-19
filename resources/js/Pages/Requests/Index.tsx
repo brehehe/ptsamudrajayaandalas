@@ -1,6 +1,6 @@
 import React, { FormEvent, useMemo, useState } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ArrowRight, CalendarDays, CheckCircle2, Clock, FilePlus2, FileText, FileUp, Filter, ListChecks, MapPin, RotateCcw, Search, Send, Ship, X } from 'lucide-react';
+import { ArrowRight, CalendarDays, CheckCircle2, Clock, FilePlus2, FileText, FileUp, ListChecks, MapPin, RotateCcw, Search, Send, Ship, SlidersHorizontal, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
@@ -9,6 +9,7 @@ import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
 import MoneyInput, { normalizeRupiahInput } from '../../Components/forms/MoneyInput';
 import PhotoUploadPicker from '../../Components/forms/PhotoUploadPicker';
+import Textarea from '../../Components/forms/Textarea';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Tabs from '../../Components/ui/Tabs';
 import Table, { Column } from '../../Components/tables/Table';
@@ -225,12 +226,19 @@ export default function RequestsIndex({
         startDate: filters?.start_date || '',
         endDate: filters?.end_date || '',
     });
-    const [isFilterExpandedMobile, setIsFilterExpandedMobile] = useState(false);
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [modalCompanyId, setModalCompanyId] = useState(filters?.company_id || '');
+    const [modalShipId, setModalShipId] = useState(filters?.ship_id || '');
+    const [modalJobNumber, setModalJobNumber] = useState(filters?.job || '');
+    const [modalDateRange, setModalDateRange] = useState<DateRange>({
+        startDate: filters?.start_date || '',
+        endDate: filters?.end_date || '',
+    });
 
-    const availableShips = useMemo(() => {
-        if (!companyId) return ships;
-        return ships.filter((s) => (s.ship_company_id || s.company?.id) === companyId);
-    }, [ships, companyId]);
+    const modalAvailableShips = useMemo(() => {
+        if (!modalCompanyId) return ships;
+        return ships.filter((ship) => (ship.ship_company_id || ship.company?.id) === modalCompanyId);
+    }, [modalCompanyId, ships]);
 
     const companyOptions = useMemo<SelectSearchOption[]>(
         () => [
@@ -240,12 +248,12 @@ export default function RequestsIndex({
         [companies]
     );
 
-    const shipOptions = useMemo<SelectSearchOption[]>(
+    const modalShipOptions = useMemo<SelectSearchOption[]>(
         () => [
             { value: '', label: 'Semua Kapal' },
-            ...availableShips.map((s) => ({ value: s.id, label: s.name })),
+            ...modalAvailableShips.map((ship) => ({ value: ship.id, label: ship.name })),
         ],
-        [availableShips]
+        [modalAvailableShips]
     );
 
     const jobOptions = useMemo<SelectSearchOption[]>(
@@ -260,6 +268,7 @@ export default function RequestsIndex({
     const [itemPickerJobKey, setItemPickerJobKey] = useState<string | null>(null);
     const [isBatchForwarding, setIsBatchForwarding] = useState(false);
     const [batchError, setBatchError] = useState('');
+    const [batchAdminNotes, setBatchAdminNotes] = useState('');
     const [supplierInvoiceTarget, setSupplierInvoiceTarget] = useState<SupplierInvoiceTarget | null>(null);
     const supplierInvoiceForm = useForm({
         vendor_id: '',
@@ -446,9 +455,9 @@ export default function RequestsIndex({
                 render: (row) => (
                     <div className="flex min-w-0 items-center gap-2.5">
                         <ShipImage src={row.shipImage} alt={`Foto ${row.shipName}`} width={44} height={44} loading="lazy" className="size-11 shrink-0 rounded-lg object-cover" placeholderIconClassName="size-4" />
-                        <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="break-all font-mono text-xs font-bold text-[#0060F4]">
+                        <div className="whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                <span className="whitespace-nowrap font-mono text-xs font-bold text-[#0060F4]">
                                     {row.jobNumber}
                                 </span>
                                 {row.isNew && (
@@ -457,11 +466,11 @@ export default function RequestsIndex({
                                     </span>
                                 )}
                             </div>
-                            <p className="mt-1 break-words font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                            <p className="mt-1 whitespace-nowrap font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                 {row.shipName}
                             </p>
                             {row.creatorNames.length > 0 && (
-                                <p className="mt-0.5 text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
+                                <p className="mt-0.5 whitespace-nowrap text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
                                     Diajukan: <span className="font-semibold">{row.creatorNames.join(', ')}</span>
                                 </p>
                             )}
@@ -474,7 +483,7 @@ export default function RequestsIndex({
                 header: 'Klien / Pelabuhan',
                 width: '240px',
                 render: (row) => (
-                    <div className="space-y-1">
+                    <div className="space-y-1 whitespace-nowrap">
                         <p className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
                             {row.companyName}
                         </p>
@@ -595,8 +604,25 @@ export default function RequestsIndex({
                 start_date: dRange.startDate || undefined,
                 end_date: dRange.endDate || undefined,
             },
-            { preserveState: true }
+            { preserveState: true, preserveScroll: true, replace: true }
         );
+    };
+
+    const openFilterModal = (): void => {
+        setModalCompanyId(companyId);
+        setModalShipId(shipId);
+        setModalJobNumber(jobNumber);
+        setModalDateRange(dateRange);
+        setIsFilterModalOpen(true);
+    };
+
+    const applyModalFilters = (): void => {
+        setCompanyId(modalCompanyId);
+        setShipId(modalShipId);
+        setJobNumber(modalJobNumber);
+        setDateRange(modalDateRange);
+        setIsFilterModalOpen(false);
+        visit(activeTab, search, modalCompanyId, modalShipId, modalJobNumber, modalDateRange);
     };
 
     const handleResetAllFilters = (): void => {
@@ -612,6 +638,12 @@ export default function RequestsIndex({
     const hasActiveFilters = Boolean(
         search || companyId || shipId || jobNumber || dateRange.startDate || dateRange.endDate
     );
+    const activeFilterCount = [
+        companyId,
+        shipId,
+        jobNumber,
+        dateRange.startDate || dateRange.endDate,
+    ].filter(Boolean).length;
 
     const selectedRows = useMemo(
         () => rows.filter((row) => row.forwardableItems.some((item) => selectedItemIds.includes(item.id))),
@@ -686,7 +718,7 @@ export default function RequestsIndex({
             route('requests.batch-forward-director'),
             {
                 selected_items: selectedItemIds,
-                admin_notes: `${selectedItemIds.length} item pilihan dari ${selectedRows.length} kapal diajukan ke Direktur.`,
+                admin_notes: batchAdminNotes.trim() || null,
             },
             {
                 preserveScroll: true,
@@ -694,6 +726,7 @@ export default function RequestsIndex({
                 onSuccess: () => {
                     setSelectedItemIds([]);
                     setItemPickerJobKey(null);
+                    setBatchAdminNotes('');
                 },
                 onError: (errors) => {
                     const message = Object.values(errors).find((error) => typeof error === 'string');
@@ -737,6 +770,22 @@ export default function RequestsIndex({
                         Kirim {selectedItemIds.length > 0 ? `${selectedItemIds.length} Item` : 'ke Direktur'}
                     </Button>
                 </div>
+                <div className="mt-3">
+                    <Textarea
+                        id={mobile ? 'batch-admin-notes-mobile' : 'batch-admin-notes-desktop'}
+                        name="admin_notes"
+                        autoComplete="off"
+                        label="Catatan untuk Direktur (Opsional)"
+                        helperText="Catatan ini akan tampil bersama pengajuan di halaman approval Direktur."
+                        rows={2}
+                        maxLength={1000}
+                        showCharCount
+                        value={batchAdminNotes}
+                        onChange={(event) => setBatchAdminNotes(event.target.value)}
+                        disabled={isBatchForwarding}
+                        placeholder="Contoh: HPP Taktis sudah ditinjau dan tidak menggunakan vendor…"
+                    />
+                </div>
                 {batchError && (
                     <p className="mt-2 text-xs font-semibold text-[#C62840] dark:text-[#F87171]" role="alert">
                         {batchError}
@@ -745,6 +794,155 @@ export default function RequestsIndex({
             </section>
         );
     };
+
+    const renderFilterToolbar = () => (
+        <Card padding="md">
+            <div className="space-y-3">
+                <div className="flex flex-col items-stretch gap-2.5 sm:flex-row sm:items-center">
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault();
+                            visit();
+                        }}
+                        className="relative min-w-0 flex-1"
+                    >
+                        <Search
+                            aria-hidden="true"
+                            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]"
+                        />
+                        <input
+                            type="search"
+                            name="search"
+                            autoComplete="off"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Cari job, kapal, atau nomor pengajuan…"
+                            aria-label="Cari pengajuan"
+                            className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] pl-10 pr-11 text-xs font-semibold text-[#0B1F63] placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/30 sm:text-sm dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
+                        />
+                        {search && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSearch('');
+                                    visit(activeTab, '', companyId, shipId, jobNumber, dateRange);
+                                }}
+                                className="absolute inset-y-0 right-0 flex min-w-11 items-center justify-center rounded-r-xl text-[#8C9BB9] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-[#0060F4] dark:hover:text-[#F87171]"
+                                aria-label="Hapus pencarian"
+                            >
+                                <X aria-hidden="true" className="size-4" />
+                            </button>
+                        )}
+                    </form>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                            type="button"
+                            variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                            onClick={openFilterModal}
+                            leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                            className="h-11 flex-1 px-4 text-xs font-bold sm:flex-none"
+                            aria-haspopup="dialog"
+                            aria-expanded={isFilterModalOpen}
+                        >
+                            <span>Filter</span>
+                            {activeFilterCount > 0 && (
+                                <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                    {activeFilterCount}
+                                </span>
+                            )}
+                        </Button>
+
+                        {hasActiveFilters && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={handleResetAllFilters}
+                                className="h-11 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                            >
+                                <RotateCcw aria-hidden="true" className="mr-1 size-3.5" />
+                                Reset
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
+                {activeFilterCount > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 border-t border-[#DCEAF8]/60 pt-2.5 text-xs dark:border-[#1E3A5F]/60">
+                        <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">
+                            Filter aktif:
+                        </span>
+                        {companyId && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                Perusahaan: {companies.find((company) => company.id === companyId)?.name || companyId}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCompanyId('');
+                                        setShipId('');
+                                        visit(activeTab, search, '', '', jobNumber, dateRange);
+                                    }}
+                                    className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                                    aria-label="Hapus filter perusahaan"
+                                >
+                                    <X aria-hidden="true" className="size-3" />
+                                </button>
+                            </span>
+                        )}
+                        {shipId && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                Kapal: {ships.find((ship) => ship.id === shipId)?.name || shipId}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShipId('');
+                                        visit(activeTab, search, companyId, '', jobNumber, dateRange);
+                                    }}
+                                    className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                                    aria-label="Hapus filter kapal"
+                                >
+                                    <X aria-hidden="true" className="size-3" />
+                                </button>
+                            </span>
+                        )}
+                        {jobNumber && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                Job: {jobNumber}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setJobNumber('');
+                                        visit(activeTab, search, companyId, shipId, '', dateRange);
+                                    }}
+                                    className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                                    aria-label="Hapus filter job"
+                                >
+                                    <X aria-hidden="true" className="size-3" />
+                                </button>
+                            </span>
+                        )}
+                        {(dateRange.startDate || dateRange.endDate) && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                Periode: {dateRange.startDate || 'Awal'} — {dateRange.endDate || 'Akhir'}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const emptyRange: DateRange = { startDate: '', endDate: '' };
+                                        setDateRange(emptyRange);
+                                        visit(activeTab, search, companyId, shipId, jobNumber, emptyRange);
+                                    }}
+                                    className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                                    aria-label="Hapus filter periode"
+                                >
+                                    <X aria-hidden="true" className="size-3" />
+                                </button>
+                            </span>
+                        )}
+                    </div>
+                )}
+            </div>
+        </Card>
+    );
 
     return (
         <AppLayout
@@ -781,134 +979,21 @@ export default function RequestsIndex({
                 </div>
 
                 <div className="relative z-10 -mt-5 rounded-t-[28px] bg-sja-surface px-3.5 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#071322]">
-                    <div className="flex items-center gap-2">
-                        <form
-                            onSubmit={(event) => {
-                                event.preventDefault();
-                                visit();
-                            }}
-                            className="relative min-w-0 flex-1"
+                    {renderFilterToolbar()}
+
+                    {capabilities.can_create_requests && (
+                        <Link
+                            href={route('requests.create')}
+                            prefetch
+                            className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
                         >
-                            <Search
-                                aria-hidden="true"
-                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]"
-                            />
-                            <input
-                                type="search"
-                                name="search"
-                                autoComplete="off"
-                                value={search}
-                                onChange={(event) => setSearch(event.target.value)}
-                                placeholder="Cari job, kapal, atau pengajuan…"
-                                aria-label="Cari pengajuan"
-                                className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-9 pr-10 text-xs text-[#0B1F63] shadow-2xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#F1F5F9]"
-                            />
-                            {search && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSearch('');
-                                        visit(activeTab, '', companyId, shipId, jobNumber, dateRange);
-                                    }}
-                                    className="absolute inset-y-0 right-0 flex w-11 touch-manipulation items-center justify-center rounded-r-xl text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
-                                    aria-label="Hapus pencarian"
-                                >
-                                    <X aria-hidden="true" className="size-4" />
-                                </button>
-                            )}
-                        </form>
-
-                        <button
-                            type="button"
-                            onClick={() => setIsFilterExpandedMobile(!isFilterExpandedMobile)}
-                            className={`flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border text-xs font-bold transition-colors ${
-                                hasActiveFilters || isFilterExpandedMobile
-                                    ? 'bg-[#EAF4FF] border-[#0060F4] text-[#0060F4] dark:bg-[#132847] dark:border-[#38BDF8] dark:text-[#60A5FA]'
-                                    : 'bg-white border-[#DCEAF8] text-[#52658E] dark:bg-[#0C1D36] dark:border-[#1E3A5F]'
-                            }`}
-                            aria-label="Toggle Filter"
-                        >
-                            <Filter className="size-4" />
-                        </button>
-
-                        {capabilities.can_create_requests && (
-                            <Link
-                                href={route('requests.create')}
-                                prefetch
-                                aria-label="Buat pengajuan"
-                                className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
-                            >
-                                <FilePlus2 aria-hidden="true" className="size-5" />
-                            </Link>
-                        )}
-                    </div>
-
-                    {/* Mobile Collapsible Filter Controls */}
-                    {isFilterExpandedMobile && (
-                        <div className="mt-2.5 rounded-2xl border border-[#DCEAF8] bg-white p-3 space-y-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36] shadow-xs">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-[#0B1F63] dark:text-white">Filter Pengajuan</span>
-                                {hasActiveFilters && (
-                                    <button
-                                        type="button"
-                                        onClick={handleResetAllFilters}
-                                        className="text-[11px] font-bold text-rose-600 dark:text-rose-400"
-                                    >
-                                        Reset Semua
-                                    </button>
-                                )}
-                            </div>
-
-                            <SelectSearch
-                                options={companyOptions}
-                                value={companyId}
-                                onChange={(val) => {
-                                    const nextVal = String(val || '');
-                                    setCompanyId(nextVal);
-                                    setShipId('');
-                                    visit(activeTab, search, nextVal, '', jobNumber, dateRange);
-                                }}
-                                placeholder="Semua Perusahaan"
-                                searchPlaceholder="Cari perusahaan..."
-                            />
-
-                            <SelectSearch
-                                options={shipOptions}
-                                value={shipId}
-                                onChange={(val) => {
-                                    const nextVal = String(val || '');
-                                    setShipId(nextVal);
-                                    visit(activeTab, search, companyId, nextVal, jobNumber, dateRange);
-                                }}
-                                placeholder="Semua Kapal"
-                                searchPlaceholder="Cari kapal..."
-                            />
-
-                            <SelectSearch
-                                options={jobOptions}
-                                value={jobNumber}
-                                onChange={(val) => {
-                                    const nextVal = String(val || '');
-                                    setJobNumber(nextVal);
-                                    visit(activeTab, search, companyId, shipId, nextVal, dateRange);
-                                }}
-                                placeholder="Semua Job"
-                                searchPlaceholder="Cari nomor job..."
-                            />
-
-                            <DateRangePicker
-                                value={dateRange}
-                                onChange={(range) => {
-                                    setDateRange(range);
-                                    visit(activeTab, search, companyId, shipId, jobNumber, range);
-                                }}
-                                placeholder="Rentang Tanggal"
-                            />
-                        </div>
+                            <FilePlus2 aria-hidden="true" className="size-4" />
+                            Buat Pengajuan
+                        </Link>
                     )}
 
                     <Tabs
-                        className="py-1"
+                        className="mt-3 py-1"
                         ariaLabel="Filter status pengajuan"
                         activeId={activeTab}
                         onChange={visit}
@@ -1123,158 +1208,7 @@ export default function RequestsIndex({
                 </div>
 
                 <section className="space-y-3" aria-label="Filter pengajuan">
-                    <div className="rounded-2xl border border-[#DCEAF8] bg-white p-3.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-                            {/* Search Input */}
-                            <form
-                                onSubmit={(event) => {
-                                    event.preventDefault();
-                                    visit();
-                                }}
-                                className="md:col-span-3 relative"
-                            >
-                                <Search
-                                    aria-hidden="true"
-                                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]"
-                                />
-                                <input
-                                    type="search"
-                                    name="search"
-                                    autoComplete="off"
-                                    value={search}
-                                    onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Cari job, kapal, nomor..."
-                                    aria-label="Cari pengajuan"
-                                    className="w-full pl-9 pr-8 h-10 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
-                                />
-                                {search && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setSearch('');
-                                            visit(activeTab, '', companyId, shipId, jobNumber, dateRange);
-                                        }}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
-                                        aria-label="Hapus pencarian"
-                                    >
-                                        <X aria-hidden="true" className="size-3.5" />
-                                    </button>
-                                )}
-                            </form>
-
-                            {/* Filter Perusahaan */}
-                            <div className="md:col-span-2">
-                                <SelectSearch
-                                    options={companyOptions}
-                                    value={companyId}
-                                    onChange={(val) => {
-                                        const nextVal = String(val || '');
-                                        setCompanyId(nextVal);
-                                        setShipId('');
-                                        visit(activeTab, search, nextVal, '', jobNumber, dateRange);
-                                    }}
-                                    placeholder="Semua Perusahaan"
-                                    searchPlaceholder="Cari perusahaan..."
-                                />
-                            </div>
-
-                            {/* Filter Kapal */}
-                            <div className="md:col-span-2">
-                                <SelectSearch
-                                    options={shipOptions}
-                                    value={shipId}
-                                    onChange={(val) => {
-                                        const nextVal = String(val || '');
-                                        setShipId(nextVal);
-                                        visit(activeTab, search, companyId, nextVal, jobNumber, dateRange);
-                                    }}
-                                    placeholder="Semua Kapal"
-                                    searchPlaceholder="Cari kapal..."
-                                />
-                            </div>
-
-                            {/* Filter Nomor Job */}
-                            <div className="md:col-span-2">
-                                <SelectSearch
-                                    options={jobOptions}
-                                    value={jobNumber}
-                                    onChange={(val) => {
-                                        const nextVal = String(val || '');
-                                        setJobNumber(nextVal);
-                                        visit(activeTab, search, companyId, shipId, nextVal, dateRange);
-                                    }}
-                                    placeholder="Semua Job"
-                                    searchPlaceholder="Cari nomor job..."
-                                />
-                            </div>
-
-                            {/* Date Range Picker Responsif */}
-                            <div className="md:col-span-2">
-                                <DateRangePicker
-                                    value={dateRange}
-                                    onChange={(range) => {
-                                        setDateRange(range);
-                                        visit(activeTab, search, companyId, shipId, jobNumber, range);
-                                    }}
-                                    placeholder="Rentang Tanggal"
-                                />
-                            </div>
-
-                            {/* Reset Filter Button */}
-                            <div className="md:col-span-1 flex justify-end">
-                                {hasActiveFilters && (
-                                    <button
-                                        type="button"
-                                        onClick={handleResetAllFilters}
-                                        title="Reset semua filter"
-                                        className="flex h-10 w-full items-center justify-center gap-1 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 cursor-pointer"
-                                    >
-                                        <RotateCcw className="size-4" />
-                                        <span className="md:hidden text-xs font-bold">Reset</span>
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Active Filter Badges */}
-                        {hasActiveFilters && (
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#EAF2FA] dark:border-[#1E3A5F]/60 text-xs">
-                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
-                                {companyId && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
-                                        <button type="button" onClick={() => { setCompanyId(''); visit(activeTab, search, '', shipId, jobNumber, dateRange); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                                {shipId && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Kapal: {ships.find((s) => s.id === shipId)?.name || shipId}
-                                        <button type="button" onClick={() => { setShipId(''); visit(activeTab, search, companyId, '', jobNumber, dateRange); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                                {jobNumber && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Job: {jobNumber}
-                                        <button type="button" onClick={() => { setJobNumber(''); visit(activeTab, search, companyId, shipId, '', dateRange); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                                {(dateRange.startDate || dateRange.endDate) && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#EAF4FF] px-2.5 py-0.5 text-[11px] font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Tanggal: {dateRange.startDate || '...'} s/d {dateRange.endDate || '...'}
-                                        <button type="button" onClick={() => { const emptyRange = { startDate: '', endDate: '' }; setDateRange(emptyRange); visit(activeTab, search, companyId, shipId, jobNumber, emptyRange); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                            </div>
-                        )}
-                    </div>
+                    {renderFilterToolbar()}
 
                     <Tabs
                         ariaLabel="Filter status pengajuan"
@@ -1302,7 +1236,7 @@ export default function RequestsIndex({
                     emptyMessage="Data Tidak Ditemukan"
                     rowClassName={(row) =>
                         row.isNew
-                            ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]'
+                            ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A]'
                             : ''
                     }
                 />
@@ -1313,6 +1247,88 @@ export default function RequestsIndex({
                     oleh role Anda.
                 </p>
             </div>
+
+            <Modal
+                isOpen={isFilterModalOpen}
+                onClose={() => setIsFilterModalOpen(false)}
+                title="Filter Pengajuan"
+                subtitle="Saring pengajuan berdasarkan perusahaan, kapal, job, atau periode"
+                size="lg"
+                asBottomSheetOnMobile
+                footer={(
+                    <div className="flex w-full items-center justify-between gap-3">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setModalCompanyId('');
+                                setModalShipId('');
+                                setModalJobNumber('');
+                                setModalDateRange({ startDate: '', endDate: '' });
+                            }}
+                            className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
+                        >
+                            <RotateCcw aria-hidden="true" className="mr-1.5 size-3.5" />
+                            Reset Pilihan
+                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setIsFilterModalOpen(false)}
+                            >
+                                Batal
+                            </Button>
+                            <Button type="button" variant="primary" onClick={applyModalFilters}>
+                                Terapkan Filter
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            >
+                <div className="space-y-4 py-1">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <SelectSearch
+                            label="Perusahaan Pelayaran"
+                            value={modalCompanyId}
+                            onChange={(value) => {
+                                const nextCompanyId = String(value || '');
+                                setModalCompanyId(nextCompanyId);
+                                setModalShipId('');
+                            }}
+                            options={companyOptions}
+                            placeholder="Pilih Perusahaan"
+                            searchPlaceholder="Cari perusahaan…"
+                        />
+                        <SelectSearch
+                            label="Armada Kapal"
+                            value={modalShipId}
+                            onChange={(value) => setModalShipId(String(value || ''))}
+                            options={modalShipOptions}
+                            placeholder="Pilih Kapal"
+                            searchPlaceholder="Cari kapal…"
+                        />
+                        <SelectSearch
+                            label="Nomor Job / Port Call"
+                            value={modalJobNumber}
+                            onChange={(value) => setModalJobNumber(String(value || ''))}
+                            options={jobOptions}
+                            placeholder="Pilih Job"
+                            searchPlaceholder="Cari nomor job…"
+                        />
+                        <div className="space-y-1.5 text-left">
+                            <p className="text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Periode Pengajuan
+                            </p>
+                            <DateRangePicker
+                                value={modalDateRange}
+                                onChange={setModalDateRange}
+                                placeholder="Pilih Rentang Tanggal"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </Modal>
 
             <Modal
                 isOpen={itemPickerRow !== null}
@@ -1335,7 +1351,7 @@ export default function RequestsIndex({
             >
                 <div className="space-y-3">
                     <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 text-xs text-[#52658E] dark:border-[#285585] dark:bg-[#102B4A] dark:text-[#B5C8DC]">
-                        Centang hanya item yang ingin diajukan. Jika nota supplier atau HPP belum lengkap, unggah dan lengkapi datanya langsung dari item tersebut.
+                        Centang hanya item yang ingin diajukan. Item Taktis tidak memerlukan vendor atau nota supplier; item lain tetap harus dilengkapi sebelum dikirim.
                     </div>
 
                     <div className="space-y-2">
@@ -1436,13 +1452,12 @@ export default function RequestsIndex({
 
                     <div className="grid gap-4 sm:grid-cols-2">
                         <Select
-                            required
                             name="supplier_vendor_id"
-                            label="Vendor Supplier"
+                            label="Vendor Supplier (Opsional)"
                             value={supplierInvoiceForm.data.vendor_id}
                             onChange={(event) => supplierInvoiceForm.setData('vendor_id', event.target.value)}
                             options={[
-                                { value: '', label: 'Pilih vendor supplier' },
+                                { value: '', label: 'Tanpa vendor/supplier' },
                                 ...vendors.map((vendor) => ({ value: vendor.id, label: vendor.name })),
                             ]}
                             error={supplierInvoiceForm.errors.vendor_id}

@@ -33,9 +33,11 @@ interface NavigationItem {
 
 const reportIconByKey: Record<ReportSectionKey, LucideIcon> = {
     ringkasan_margin: FileSpreadsheet,
+    pengajuan: ClipboardCheck,
     invoice: FileText,
     piutang: HandCoins,
     pengeluaran: Banknote,
+    pengeluaran_kapal: Ship,
     aktivitas: ClipboardList,
     laba_rugi: TrendingUp,
     keuangan_kas: WalletCards,

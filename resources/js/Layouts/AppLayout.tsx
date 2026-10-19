@@ -9,6 +9,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Bell, Menu, X } from 'lucide-react';
 import { PageProps } from '@/types';
 import NotificationCenter, { openNotificationCenter } from '@/Components/notifications/NotificationCenter';
+import WorkflowFlashToast from '@/Components/feedback/WorkflowFlashToast';
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -285,6 +286,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </main>
 
                 {/* Mobile Bottom Navigation */}
+                <WorkflowFlashToast />
                 <NotificationCenter />
                 <RoleMobileBottomNavigation />
             </div>

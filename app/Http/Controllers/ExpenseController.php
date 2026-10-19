@@ -84,7 +84,13 @@ class ExpenseController extends Controller
         }
 
         if ($job) {
-            $query->whereHas('portCall', fn ($pq) => $pq->where('job_number', 'ilike', "%{$job}%")->orWhere('id', $job));
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $query->whereHas('portCall', function ($pq) use ($job, $like): void {
+                $pq->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $pq->orWhere('id', $job);
+                }
+            });
         }
 
         if ($startDate) {

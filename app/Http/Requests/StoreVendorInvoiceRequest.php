@@ -24,7 +24,7 @@ class StoreVendorInvoiceRequest extends FormRequest
     {
         return [
             'port_call_id' => ['required', 'uuid', 'exists:port_calls,id'],
-            'vendor_id' => ['required', 'uuid', 'exists:vendors,id'],
+            'vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'document_number' => [
                 'required', 'string', 'max:100',
                 Rule::unique('cost_documents', 'document_number')

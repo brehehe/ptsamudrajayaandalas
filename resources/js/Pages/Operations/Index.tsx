@@ -220,7 +220,7 @@ export default function OperationsIndex({
     filters,
 }: OperationsIndexProps) {
     const page = usePage<PageProps>();
-    const { auth, flash } = page.props as PageProps & { flash?: { success?: string; error?: string } };
+    const { auth } = page.props;
     const user = auth?.user;
 
     const isOperational = useMemo(() => {
@@ -357,7 +357,6 @@ export default function OperationsIndex({
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [activityErrors, setActivityErrors] = useState<Record<string, string>>({});
-    const [showSuccessAlert, setShowSuccessAlert] = useState(false);
 
     /* ── Lightbox & Detail state ── */
     const [selectedActivity, setSelectedActivity] = useState<OperationalActivityData | null>(null);
@@ -370,15 +369,6 @@ export default function OperationsIndex({
             setActLocationName(geo.locationName);
         }
     }, [geo.locationName]);
-
-    /* ── Flash success ── */
-    useEffect(() => {
-        if (flash?.success) {
-            setShowSuccessAlert(true);
-            const t = setTimeout(() => setShowSuccessAlert(false), 4000);
-            return () => clearTimeout(t);
-        }
-    }, [flash?.success]);
 
     /* ── Daily report form ── */
     const { data, setData, post, processing, reset, errors, clearErrors } = useForm({
@@ -484,7 +474,6 @@ export default function OperationsIndex({
                 setActCategoryOther('');
                 setActDate(currentDateTime.date);
                 setActTime(currentDateTime.time);
-                setShowSuccessAlert(true);
                 setActivityErrors({});
                 setMobileTab('riwayat');
                 setSubmitting(false);
@@ -638,16 +627,6 @@ export default function OperationsIndex({
                             equalWidth
                             className="min-h-14"
                         />
-                    )}
-
-                    {/* ── Success Alert ── */}
-                    {showSuccessAlert && (
-                        <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-                            <svg aria-hidden="true" className="size-4 shrink-0 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Aktivitas lapangan berhasil dicatat!
-                        </div>
                     )}
 
                     {/* ════════════════════════════════════════════════════
@@ -1522,16 +1501,6 @@ export default function OperationsIndex({
                                                 <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">Input kegiatan armada &amp; logistik</p>
                                             </div>
                                         </div>
-
-                                        {/* Success Alert */}
-                                        {showSuccessAlert && (
-                                            <div role="status" aria-live="polite" className="mx-4 mt-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                                <svg aria-hidden="true" className="size-4 shrink-0 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                                Aktivitas lapangan berhasil dicatat!
-                                            </div>
-                                        )}
 
                                         {/* Form */}
                                         <form noValidate onSubmit={handleActivitySubmit} className="flex flex-col">

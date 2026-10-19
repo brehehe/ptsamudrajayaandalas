@@ -126,16 +126,85 @@ test('each visit is listed separately while the vessel remains one master record
         ->component('Vessels/Index')
         ->has('vessels', 2)
         ->where('vessels.0.id', $ship->id)
-        ->where('vessels.0.visit_id', $firstVisit->id)
+        ->where('vessels.0.visit_id', $secondVisit->id)
         ->where('vessels.0.image', null)
-        ->where('vessels.0.status', 'Selesai')
+        ->where('vessels.0.status', 'Akan Datang')
         ->where('vessels.1.id', $ship->id)
-        ->where('vessels.1.visit_id', $secondVisit->id)
+        ->where('vessels.1.visit_id', $firstVisit->id)
         ->where('vessels.1.image', null)
-        ->where('vessels.1.status', 'Akan Datang')
+        ->where('vessels.1.status', 'Selesai')
         ->where('counts.semua', 2)
         ->where('counts.selesai', 1)
     );
+});
+
+test('vessels index orders the latest visit first at the top', function () {
+    $user = User::factory()->create();
+    $company = ShipCompany::create(['name' => 'PT Order Test', 'is_active' => true]);
+    $port = Port::create(['name' => 'Pelabuhan Order Test', 'code' => 'POT', 'city' => 'Gresik', 'is_active' => true]);
+    $ship1 = Ship::create(['name' => 'KM Kapal Lama', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $ship2 = Ship::create(['name' => 'KM Kapal Baru', 'ship_company_id' => $company->id, 'is_active' => true]);
+
+    $oldVisit = createVesselIndexVisit($ship1, $port, $user, [
+        'job_number' => 'JOB-OLD-001',
+        'created_at' => now()->subHours(2),
+    ]);
+    $newVisit = createVesselIndexVisit($ship2, $port, $user, [
+        'job_number' => 'JOB-NEW-002',
+        'created_at' => now(),
+    ]);
+
+    $response = $this->actingAs($user)->get(route('vessels.index'));
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('Vessels/Index')
+        ->where('selectedSort', 'terbaru')
+        ->where('vessels.0.visit_id', $newVisit->id)
+        ->where('vessels.0.job_number', 'JOB-NEW-002')
+        ->where('vessels.1.visit_id', $oldVisit->id)
+        ->where('vessels.1.job_number', 'JOB-OLD-001')
+    );
+});
+
+test('vessels index sorts visits on the server', function (string $sort, string $expectedFirstJob) {
+    $user = User::factory()->create();
+    $company = ShipCompany::create(['name' => 'PT Sort Kapal', 'is_active' => true]);
+    $port = Port::create(['name' => 'Pelabuhan Sort Kapal', 'code' => 'PSK', 'city' => 'Gresik', 'is_active' => true]);
+    $alphaShip = Ship::create(['name' => 'KM Alfa', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $zuluShip = Ship::create(['name' => 'KM Zulu', 'ship_company_id' => $company->id, 'is_active' => true]);
+
+    createVesselIndexVisit($alphaShip, $port, $user, [
+        'job_number' => 'JOB-ALFA',
+        'eta_at' => now()->addDays(2),
+    ]);
+    createVesselIndexVisit($zuluShip, $port, $user, [
+        'job_number' => 'JOB-ZULU',
+        'eta_at' => now()->addDay(),
+    ]);
+
+    $response = $this->actingAs($user)->get(route('vessels.index', ['sort' => $sort]));
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('Vessels/Index')
+        ->where('selectedSort', $sort)
+        ->where('vessels.0.job_number', $expectedFirstJob)
+    );
+})->with([
+    'eta terdekat' => ['terdekat', 'JOB-ZULU'],
+    'nama kapal' => ['nama', 'JOB-ALFA'],
+]);
+
+test('vessels index rejects an unsupported sort value', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)
+        ->from(route('vessels.index'))
+        ->get(route('vessels.index', ['sort' => 'acak']));
+
+    $response->assertRedirect(route('vessels.index'));
+    $response->assertSessionHasErrors('sort');
 });
 
 test('vessel list exposes hpp billing and margin for every visit', function () {

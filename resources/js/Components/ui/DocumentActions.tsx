@@ -6,6 +6,7 @@ interface DocumentActionsProps {
     downloadHref: string;
     viewLabel?: string;
     downloadLabel?: string;
+    layout?: 'wrap' | 'paired';
     className?: string;
 }
 
@@ -22,10 +23,13 @@ export default function DocumentActions({
     downloadHref,
     viewLabel = 'Lihat',
     downloadLabel = 'Unduh',
+    layout = 'wrap',
     className = '',
 }: DocumentActionsProps) {
     return (
-        <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
+        <div
+            className={`${layout === 'paired' ? 'grid grid-cols-2' : 'flex flex-wrap items-center'} gap-1.5 ${className}`}
+        >
             <a
                 href={viewHref}
                 target="_blank"

@@ -449,10 +449,19 @@ test('lapangan user can submit multi kapal request and view filtered tabs', func
         'status' => 'Menunggu Approval',
     ]);
 
+    $clearanceRequest = ShipRequest::query()->where('port_call_id', $visit1->id)->firstOrFail();
+    expect($clearanceRequest->items()->count())->toBe(2);
     $this->assertDatabaseHas('request_items', [
+        'request_id' => $clearanceRequest->id,
+        'item_name' => 'Taktis Penyandaran',
+    ]);
+    $this->assertDatabaseHas('request_items', [
+        'request_id' => $clearanceRequest->id,
+        'item_name' => 'Pembayaran EPB (Pandu Tunda)',
+    ]);
+    $this->assertDatabaseMissing('request_items', [
+        'request_id' => $clearanceRequest->id,
         'item_name' => 'Air Tawar',
-        'quantity' => 60,
-        'unit' => 'Ton',
     ]);
 
     // Test tabs on index
@@ -688,4 +697,215 @@ test('request wizard disables duplicate clearance in and omits completed visits'
         ->where('service_type', 'clearance_in')
         ->count())->toBe(1);
     expect(ShipRequest::query()->where('port_call_id', $completedVisit->id)->count())->toBe(0);
+});
+
+test('storeMulti persists submitted custom hpp_price for items', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $company = ShipCompany::create(['name' => 'PT HPP Armada', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM HPP Express', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $port = Port::create(['code' => 'HPP1', 'name' => 'Pelabuhan HPP', 'city' => 'Gresik', 'is_active' => true]);
+    $workOrder = WorkOrder::create([
+        'system_number' => 'SPK-HPP-001',
+        'company_id' => $company->id,
+        'status' => 'active',
+        'created_by' => $user->id,
+        'assigned_to' => $user->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-HPP-001',
+        'work_order_id' => $workOrder->id,
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => now()->addDay(),
+    ]);
+
+    $product = Product::create([
+        'code' => 'PRD-TEST-HPP',
+        'name' => 'Cat Kapal Anti Fouling',
+        'category' => 'Material',
+        'item_type' => 'non_jasa',
+        'unit' => 'Pail',
+        'hpp_default' => 850000,
+        'selling_price_default' => 1200000,
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($user)->post(route('requests.store-multi'), [
+        'ships' => [[
+            'ship_id' => $ship->id,
+            'port_call_id' => $portCall->id,
+            'request_type' => 'Kebutuhan Kapal',
+            'department' => 'Deck',
+            'requester_name' => 'Capt. HPP',
+            'requester_phone' => '081299999999',
+            'required_date' => now()->toDateString(),
+            'items' => [[
+                'product_id' => $product->id,
+                'item_name' => 'Cat Kapal Anti Fouling',
+                'quantity' => 4,
+                'unit' => 'Pail',
+                'hpp_price' => 900000, // Custom edited HPP
+            ]],
+        ]],
+    ])->assertRedirect(route('requests.index'))->assertSessionHasNoErrors();
+
+    $createdRequest = ShipRequest::query()->where('port_call_id', $portCall->id)->firstOrFail();
+    $item = $createdRequest->items()->firstOrFail();
+
+    expect((float) $item->hpp_price)->toBe(900000.0)
+        ->and($item->product_id)->toBe($product->id)
+        ->and((float) $item->quantity)->toBe(4.0);
+});
+
+test('storeMulti enforces only tactical berthing and epb items for a sandar clearance request', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $company = ShipCompany::create(['name' => 'PT Clearance Armada', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM Clearance Express', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $port = Port::create(['code' => 'CLR1', 'name' => 'Pelabuhan Merak', 'city' => 'Cilegon', 'is_active' => true]);
+    $workOrder = WorkOrder::create([
+        'system_number' => 'SPK-CLR-001',
+        'company_id' => $company->id,
+        'status' => 'active',
+        'created_by' => $user->id,
+        'assigned_to' => $user->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-CLR-001',
+        'work_order_id' => $workOrder->id,
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => now()->addDay(),
+    ]);
+
+    $prodClr = Product::firstOrCreate(
+        ['code' => 'PRD-CLR'],
+        ['name' => 'Clearance In / Out (Syahbandar & Karantina)', 'category' => 'Jasa Keagenan', 'item_type' => 'jasa', 'unit' => 'Paket', 'hpp_default' => 2500000, 'selling_price_default' => 3000000, 'is_active' => true]
+    );
+    $configuredVendor = Vendor::create([
+        'code' => 'VD-TAKTIS-IGNORED',
+        'name' => 'Vendor Taktis Tidak Dipakai',
+        'is_active' => true,
+    ]);
+    $prodTaktis = Product::firstOrCreate(
+        ['code' => 'PRD-PLD-TAKTIS'],
+        ['name' => 'Taktis Penyandaran', 'category' => 'Jasa Pelindo', 'item_type' => 'jasa', 'unit' => 'Kegiatan', 'hpp_default' => 0, 'selling_price_default' => 0, 'vendor_id' => $configuredVendor->id, 'is_active' => true]
+    );
+    $prodTaktis->update(['vendor_id' => $configuredVendor->id]);
+    $prodEpb = Product::firstOrCreate(
+        ['code' => 'PRD-PLD-EPB'],
+        ['name' => 'Pembayaran EPB (Pandu Tunda)', 'category' => 'Jasa Pelindo', 'item_type' => 'jasa', 'unit' => 'Kegiatan', 'hpp_default' => 100000, 'selling_price_default' => 150000, 'is_active' => true]
+    );
+
+    // A stale client payload may still include Clearance In, but the backend owns the Sandar item set.
+    $this->actingAs($user)->post(route('requests.store-multi'), [
+        'ships' => [[
+            'ship_id' => $ship->id,
+            'port_call_id' => $portCall->id,
+            'request_type' => 'Kedatangan (Clearance In)',
+            'requested_port_call_status' => 'berthed',
+            'operational_occurred_at' => now()->toDateString(),
+            'department' => 'Deck',
+            'requester_name' => 'Capt. Merak',
+            'requester_phone' => '081211111111',
+            'required_date' => now()->toDateString(),
+            'items' => [
+                [
+                    'item_name' => 'Clearance In (Syahbandar & Karantina)',
+                    'quantity' => 1,
+                    'unit' => 'Dokumen',
+                ],
+                [
+                    'item_name' => 'Taktis Penyandaran',
+                    'quantity' => 1,
+                    'unit' => 'Kegiatan',
+                ],
+                [
+                    'item_name' => 'Pembayaran EPB (Pandu Tunda)',
+                    'quantity' => 1,
+                    'unit' => 'Kegiatan',
+                ],
+            ],
+        ]],
+    ])->assertRedirect(route('requests.index'))->assertSessionHasNoErrors();
+
+    $createdRequest = ShipRequest::query()->where('port_call_id', $portCall->id)->firstOrFail();
+    $items = $createdRequest->items()->get()->keyBy('item_name');
+
+    expect($items)->toHaveCount(2)
+        ->and($items->has('Clearance In (Syahbandar & Karantina)'))->toBeFalse();
+    expect((float) $items->get('Taktis Penyandaran')->hpp_price)->toBe(0.0)
+        ->and($items->get('Taktis Penyandaran')->product_id)->toBe($prodTaktis->id)
+        ->and($items->get('Taktis Penyandaran')->vendor_id)->toBeNull();
+    expect((float) $items->get('Pembayaran EPB (Pandu Tunda)')->hpp_price)->toBe(100000.0)
+        ->and($items->get('Pembayaran EPB (Pandu Tunda)')->product_id)->toBe($prodEpb->id);
+});
+
+test('storeMulti generates only clearance in for a labuh clearance request', function () {
+    $user = User::factory()->create();
+    $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    $company = ShipCompany::create(['name' => 'PT Auto Clearance', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM Auto Express', 'ship_company_id' => $company->id, 'is_active' => true]);
+    $port = Port::create(['code' => 'AUTO1', 'name' => 'Pelabuhan Ciwandan', 'city' => 'Cilegon', 'is_active' => true]);
+    $workOrder = WorkOrder::create([
+        'system_number' => 'SPK-AUTO-001',
+        'company_id' => $company->id,
+        'status' => 'active',
+        'created_by' => $user->id,
+        'assigned_to' => $user->id,
+        'planned_ship_id' => $ship->id,
+        'planned_port_id' => $port->id,
+    ]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-AUTO-001',
+        'work_order_id' => $workOrder->id,
+        'ship_id' => $ship->id,
+        'port_id' => $port->id,
+        'status' => 'scheduled',
+        'eta_at' => now()->addDay(),
+    ]);
+
+    $prodClr = Product::firstOrCreate(
+        ['code' => 'PRD-CLR'],
+        ['name' => 'Clearance In / Out (Syahbandar & Karantina)', 'category' => 'Jasa Keagenan', 'item_type' => 'jasa', 'unit' => 'Paket', 'hpp_default' => 2500000, 'selling_price_default' => 3000000, 'is_active' => true]
+    );
+    $prodTaktis = Product::firstOrCreate(
+        ['code' => 'PRD-PLD-TAKTIS'],
+        ['name' => 'Taktis Penyandaran', 'category' => 'Jasa Pelindo', 'item_type' => 'jasa', 'unit' => 'Kegiatan', 'hpp_default' => 0, 'selling_price_default' => 0, 'is_active' => true]
+    );
+    $prodEpb = Product::firstOrCreate(
+        ['code' => 'PRD-PLD-EPB'],
+        ['name' => 'Pembayaran EPB (Pandu Tunda)', 'category' => 'Jasa Pelindo', 'item_type' => 'jasa', 'unit' => 'Kegiatan', 'hpp_default' => 100000, 'selling_price_default' => 150000, 'is_active' => true]
+    );
+
+    // Labuh only needs Clearance In and must not include the Sandar-specific items.
+    $this->actingAs($user)->post(route('requests.store-multi'), [
+        'ships' => [[
+            'ship_id' => $ship->id,
+            'port_call_id' => $portCall->id,
+            'request_type' => 'Kedatangan (Clearance In)',
+            'requested_port_call_status' => 'anchored',
+            'operational_occurred_at' => now()->toDateString(),
+            'department' => 'Deck',
+            'requester_name' => 'Capt. Auto',
+            'requester_phone' => '081222222222',
+            'required_date' => now()->toDateString(),
+        ]],
+    ])->assertRedirect(route('requests.index'))->assertSessionHasNoErrors();
+
+    $createdRequest = ShipRequest::query()->where('port_call_id', $portCall->id)->firstOrFail();
+    $items = $createdRequest->items()->get()->keyBy('item_name');
+
+    expect($items)->toHaveCount(1);
+    expect((float) $items->get('Clearance In (Syahbandar & Karantina)')->hpp_price)->toBe(2500000.0)
+        ->and($items->get('Clearance In (Syahbandar & Karantina)')->product_id)->toBe($prodClr->id);
+    expect($items->has('Taktis Penyandaran'))->toBeFalse()
+        ->and($items->has('Pembayaran EPB (Pandu Tunda)'))->toBeFalse();
 });

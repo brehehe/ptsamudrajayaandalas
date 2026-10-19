@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Anchor, Building2, Clock, RotateCcw, Search, Ship as ShipIcon, X } from 'lucide-react';
+import { motion, Variants } from 'framer-motion';
+import { Anchor, Building2, Clock, RotateCcw, Search, Ship as ShipIcon, SlidersHorizontal, X } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import Button from '../../Components/ui/Button';
@@ -117,6 +117,7 @@ interface VesselsIndexProps {
     selectedCompanyId?: string;
     selectedShipId?: string;
     selectedJob?: string;
+    selectedSort?: 'terbaru' | 'terdekat' | 'nama';
     search: string;
     stats?: {
         total: number;
@@ -161,6 +162,7 @@ export default function VesselsIndex({
     selectedCompanyId = '',
     selectedShipId = '',
     selectedJob = '',
+    selectedSort = 'terbaru',
     search = '',
     stats,
 }: VesselsIndexProps) {
@@ -171,8 +173,12 @@ export default function VesselsIndex({
     const [companyFilter, setCompanyFilter] = useState(selectedCompanyId);
     const [shipFilter, setShipFilter] = useState(selectedShipId || '');
     const [jobFilter, setJobFilter] = useState(selectedJob || '');
-    const [sortBy, setSortBy] = useState<'terdekat' | 'terbaru' | 'nama'>('terdekat');
-    const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false);
+    const [sortBy, setSortBy] = useState<'terbaru' | 'terdekat' | 'nama'>(selectedSort);
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [modalCompanyFilter, setModalCompanyFilter] = useState(selectedCompanyId);
+    const [modalShipFilter, setModalShipFilter] = useState(selectedShipId || '');
+    const [modalJobFilter, setModalJobFilter] = useState(selectedJob || '');
+    const [modalSortBy, setModalSortBy] = useState<'terbaru' | 'terdekat' | 'nama'>(selectedSort);
 
     // Filter Options
     const companyOptions = useMemo<SelectSearchOption[]>(
@@ -186,20 +192,20 @@ export default function VesselsIndex({
         [companies]
     );
 
-    const availableShipsForFilter = useMemo(() => {
-        if (!companyFilter) return allMasterShips;
-        return allMasterShips.filter((s) => s.ship_company_id === companyFilter);
-    }, [allMasterShips, companyFilter]);
+    const modalAvailableShips = useMemo(() => {
+        if (!modalCompanyFilter) return allMasterShips;
+        return allMasterShips.filter((ship) => ship.ship_company_id === modalCompanyFilter);
+    }, [allMasterShips, modalCompanyFilter]);
 
-    const shipOptions = useMemo<SelectSearchOption[]>(
+    const modalShipOptions = useMemo<SelectSearchOption[]>(
         () => [
             { value: '', label: 'Semua Kapal' },
-            ...availableShipsForFilter.map((s) => ({
-                value: s.id,
-                label: s.name,
+            ...modalAvailableShips.map((ship) => ({
+                value: ship.id,
+                label: ship.name,
             })),
         ],
-        [availableShipsForFilter]
+        [modalAvailableShips]
     );
 
     const jobOptions = useMemo<SelectSearchOption[]>(
@@ -219,12 +225,14 @@ export default function VesselsIndex({
         company_id?: string;
         ship_id?: string;
         job?: string;
+        sort?: 'terbaru' | 'terdekat' | 'nama';
     }) => {
         const q = overrides?.search !== undefined ? overrides.search : searchTerm;
         const st = overrides?.status !== undefined ? overrides.status : activeStatus;
         const comp = overrides?.company_id !== undefined ? overrides.company_id : companyFilter;
         const shp = overrides?.ship_id !== undefined ? overrides.ship_id : shipFilter;
         const jb = overrides?.job !== undefined ? overrides.job : jobFilter;
+        const sorting = overrides?.sort !== undefined ? overrides.sort : sortBy;
 
         router.get(
             '/vessels',
@@ -234,8 +242,9 @@ export default function VesselsIndex({
                 company_id: comp || undefined,
                 ship_id: shp || undefined,
                 job: jb || undefined,
+                sort: sorting !== 'terbaru' ? sorting : undefined,
             },
-            { preserveState: true }
+            { preserveState: true, preserveScroll: true, replace: true }
         );
     };
 
@@ -244,10 +253,16 @@ export default function VesselsIndex({
         setCompanyFilter('');
         setShipFilter('');
         setJobFilter('');
-        router.get('/vessels', { status: activeStatus }, { preserveState: true });
+        setSortBy('terbaru');
+        setModalCompanyFilter('');
+        setModalShipFilter('');
+        setModalJobFilter('');
+        setModalSortBy('terbaru');
+        router.get('/vessels', { status: activeStatus }, { preserveState: true, preserveScroll: true, replace: true });
     };
 
-    const hasActiveFilters = Boolean(searchTerm || companyFilter || shipFilter || jobFilter);
+    const activeFilterCount = [companyFilter, shipFilter, jobFilter, sortBy !== 'terbaru'].filter(Boolean).length;
+    const hasActiveFilters = Boolean(searchTerm || activeFilterCount > 0);
 
     // Modal state for Kapal & Kunjungan Baru
     const [showAddModal, setShowAddModal] = useState(false);
@@ -296,24 +311,29 @@ export default function VesselsIndex({
         applyVesselsFilter({ status });
     };
 
-    const handleCompanyFilterChange = (compId: string) => {
-        setCompanyFilter(compId);
-        setShipFilter('');
-        applyVesselsFilter({ company_id: compId, ship_id: '' });
+    const openFilterModal = () => {
+        setModalCompanyFilter(companyFilter);
+        setModalShipFilter(shipFilter);
+        setModalJobFilter(jobFilter);
+        setModalSortBy(sortBy);
+        setIsFilterModalOpen(true);
     };
 
-    // Sort vessels locally based on selection
-    const sortedVessels = [...vessels].sort((a, b) => {
-        if (sortBy === 'nama') {
-            return a.name.localeCompare(b.name);
-        }
-        if (sortBy === 'terdekat') {
-            const dateA = a.eta ? new Date(a.eta).getTime() : 0;
-            const dateB = b.eta ? new Date(b.eta).getTime() : 0;
-            return dateA - dateB;
-        }
-        return 0; // default
-    });
+    const applyModalFilters = () => {
+        setCompanyFilter(modalCompanyFilter);
+        setShipFilter(modalShipFilter);
+        setJobFilter(modalJobFilter);
+        setSortBy(modalSortBy);
+        setIsFilterModalOpen(false);
+        applyVesselsFilter({
+            company_id: modalCompanyFilter,
+            ship_id: modalShipFilter,
+            job: modalJobFilter,
+            sort: modalSortBy,
+        });
+    };
+
+    const sortedVessels = vessels;
 
     // Filter companies locally based on company search
     const filteredCompanies = companies.filter((c) => {
@@ -540,6 +560,289 @@ export default function VesselsIndex({
         }
     });
 
+    const renderMobileVesselCard = (vessel: Vessel) => (
+        <Link
+            key={vessel.visit_id}
+            href={`/vessels/${vessel.id}?visit=${vessel.visit_id}`}
+            aria-label={`Buka detail ${vessel.name}, ${vessel.job_number}`}
+            className="block group"
+        >
+            <div
+                className={
+                    'bg-white dark:bg-[#0C1D36] p-2.5 rounded-2xl border ' +
+                    'border-[#E2EEF9] dark:border-[#1E3A5F] shadow-2xs ' +
+                    'hover:border-[#0060F4]/40 transition-all flex ' +
+                    'items-center gap-3'
+                }
+            >
+                {/* Left: Thumbnail image */}
+                <ShipImage
+                    src={vessel.image}
+                    alt={vessel.name}
+                    className={
+                        'min-h-24 w-24 self-stretch rounded-xl object-cover ' +
+                        'flex-shrink-0 border sm:w-28 ' +
+                        'border-[#DCEAF8]/60 dark:border-[#1E3A5F]'
+                    }
+                />
+
+                {/* Middle: Details */}
+                <div className="flex-1 min-w-0 space-y-1">
+                    {/* Row 1: Ship name */}
+                    <h3
+                        className={
+                            'wrap-anywhere text-balance font-bold text-[13.5px] ' +
+                            'leading-5 text-[#082870] ' +
+                            'transition-colors group-hover:text-[#0060F4] ' +
+                            'dark:text-[#F1F5F9]'
+                        }
+                    >
+                        {vessel.name}
+                    </h3>
+
+                    {/* Row 2: Status */}
+                    <div className="flex items-center">
+                        {renderStatusBadge(vessel.status)}
+                    </div>
+
+                    {/* Row 3: Full job number */}
+                    <p
+                        translate="no"
+                        className={
+                            'wrap-anywhere text-[10px] font-bold leading-4 ' +
+                            'text-[#52658E] dark:text-[#94A3B8]'
+                        }
+                    >
+                        {vessel.job_number}
+                    </p>
+
+                    {/* Row 4: Date + Location */}
+                    <div
+                        className={
+                            'flex items-center gap-2 text-[11px] ' +
+                            'text-[#52658E] dark:text-[#94A3B8] flex-wrap'
+                        }
+                    >
+                        <div className="flex items-center gap-1 font-medium whitespace-nowrap">
+                            <svg
+                                className="w-3.5 h-3.5 text-[#52658E] shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                            >
+                                <rect
+                                    x="3"
+                                    y="4"
+                                    width="18"
+                                    height="18"
+                                    rx="2"
+                                    ry="2"
+                                />
+                                <line x1="16" y1="2" x2="16" y2="6" />
+                                <line x1="8" y1="2" x2="8" y2="6" />
+                                <line x1="3" y1="10" x2="21" y2="10" />
+                            </svg>
+                            <span>{formatEtaDateTime(vessel.eta)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 min-w-0">
+                            <svg
+                                className="w-3.5 h-3.5 text-[#52658E] shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                />
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                />
+                            </svg>
+                            <span className="wrap-anywhere text-pretty">
+                                {vessel.port_name || 'Pelabuhan belum diisi'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Row 5: Kebutuhan + Pengajuan */}
+                    <div
+                        className={
+                            'flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] ' +
+                            'text-[#52658E] dark:text-[#94A3B8] ' +
+                            'whitespace-nowrap'
+                        }
+                    >
+                        <div
+                            className={
+                                'inline-flex items-center gap-1 ' +
+                                'whitespace-nowrap shrink-0'
+                            }
+                        >
+                            <svg
+                                className="w-3.5 h-3.5 text-[#0060F4] shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                                />
+                            </svg>
+                            <span>Kebutuhan:</span>
+                            <span
+                                className={`whitespace-nowrap ${vessel.needs_count && vessel.needs_count > 0 ? 'text-[#0060F4] font-bold' : 'font-medium'}`}
+                            >
+                                {vessel.needs_count &&
+                                    vessel.needs_count > 0
+                                    ? `${vessel.needs_count}\u00A0item`
+                                    : '-'}
+                            </span>
+                        </div>
+                        <div
+                            className={
+                                'inline-flex items-center gap-1 ' +
+                                'whitespace-nowrap shrink-0'
+                            }
+                        >
+                            <svg
+                                className="w-3.5 h-3.5 text-[#52658E] shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d={
+                                        'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-' +
+                                        '2V5a2 2 0 012-2h5.586a1 1 0 01.7' +
+                                        '07.293l5.414 5.414a1 1 0 01.293.' +
+                                        '707V19a2 2 0 01-2 2z'
+                                    }
+                                />
+                            </svg>
+                            <span>Pengajuan:</span>
+                            <span
+                                className={`whitespace-nowrap ${vessel.requests_count && vessel.requests_count > 0 ? 'text-[#082870] dark:text-white font-bold' : 'font-medium'}`}
+                            >
+                                {vessel.requests_count &&
+                                    vessel.requests_count > 0
+                                    ? `${vessel.requests_count}`
+                                    : '-'}
+                            </span>
+                        </div>
+                        <div className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+                            <span>Margin:</span>
+                            <span className={`truncate font-bold ${vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
+                                {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right: Blue Chevron */}
+                <div className="flex-shrink-0 text-[#0060F4] pr-1">
+                    <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                        viewBox="0 0 24 24"
+                    >
+                        <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                </div>
+            </div>
+        </Link>
+    );
+
+    const sortLabels = {
+        terbaru: 'Terbaru',
+        terdekat: 'ETA Terdekat',
+        nama: 'Nama A–Z',
+    } as const;
+
+    const renderActiveFilterChips = () => activeFilterCount > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-[#DCEAF8]/60 pt-2.5 text-xs dark:border-[#1E3A5F]/60">
+            <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+            {companyFilter && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                    Perusahaan: {companies.find((company) => company.id === companyFilter)?.name || companyFilter}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setCompanyFilter('');
+                            setShipFilter('');
+                            applyVesselsFilter({ company_id: '', ship_id: '' });
+                        }}
+                        className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                        aria-label="Hapus filter perusahaan"
+                    >
+                        <X aria-hidden="true" className="size-3" />
+                    </button>
+                </span>
+            )}
+            {shipFilter && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                    Kapal: {allMasterShips.find((ship) => ship.id === shipFilter)?.name || shipFilter}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShipFilter('');
+                            applyVesselsFilter({ ship_id: '' });
+                        }}
+                        className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                        aria-label="Hapus filter kapal"
+                    >
+                        <X aria-hidden="true" className="size-3" />
+                    </button>
+                </span>
+            )}
+            {jobFilter && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                    Job: {jobFilter}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setJobFilter('');
+                            applyVesselsFilter({ job: '' });
+                        }}
+                        className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                        aria-label="Hapus filter job"
+                    >
+                        <X aria-hidden="true" className="size-3" />
+                    </button>
+                </span>
+            )}
+            {sortBy !== 'terbaru' && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                    Urutan: {sortLabels[sortBy]}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSortBy('terbaru');
+                            applyVesselsFilter({ sort: 'terbaru' });
+                        }}
+                        className="flex size-6 items-center justify-center rounded-full hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#0060F4]"
+                        aria-label="Hapus urutan khusus"
+                    >
+                        <X aria-hidden="true" className="size-3" />
+                    </button>
+                </span>
+            )}
+        </div>
+    );
+
     return (
         <AppLayout title="Kapal" transparentMobileHeader mobileBackground="surface">
             <Head title="Kapal — PT Samudra Jaya Andalas" />
@@ -607,149 +910,80 @@ export default function VesselsIndex({
                         </Link>
                     </nav>
 
-                    {/* Search & Filter Bar */}
-                    <div className="flex items-center gap-2">
-                        {/* Search Input */}
-                        <form onSubmit={handleSearch} className="flex-1 min-w-0 relative">
-                            <div
-                                className={
-                                    'absolute inset-y-0 left-0 pl-3 flex items-center ' +
-                                    'pointer-events-none text-[#8C9BB9]'
-                                }
-                            >
-                                <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth={2.2}
-                                    viewBox="0 0 24 24"
-                                >
-                                    <circle cx="11" cy="11" r="8" />
-                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                </svg>
-                            </div>
-                            <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Cari nama kapal, SPK, atau lokasi..."
-                                className={
-                                    'w-full pl-9 pr-7 py-2 bg-white dark:bg-[#071322] border ' +
-                                    'border-[#DCEAF8] dark:border-[#1E3A5F] rounded-xl text-xs ' +
-                                    'text-[#0B1F63] dark:text-[#F1F5F9] placeholder-[#8C9BB9] ' +
-                                    'focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 ' +
-                                    'focus:border-[#0060F4] shadow-2xs'
-                                }
-                            />
-                            {searchTerm && (
-                                <button
+                    <div className="space-y-3">
+                        <div className="space-y-2">
+                            <form onSubmit={handleSearch} className="relative min-w-0">
+                                <Search aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]" />
+                                <input
+                                    type="search"
+                                    name="search"
+                                    autoComplete="off"
+                                    value={searchTerm}
+                                    onChange={(event) => setSearchTerm(event.target.value)}
+                                    placeholder="Cari kapal, SPK, atau lokasi…"
+                                    aria-label="Cari kapal"
+                                    className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-10 pr-11 text-base font-semibold text-[#0B1F63] shadow-2xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/30 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
+                                />
+                                {searchTerm && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSearchTerm('');
+                                            applyVesselsFilter({ search: '' });
+                                        }}
+                                        className="absolute inset-y-0 right-0 flex min-w-11 items-center justify-center rounded-r-xl text-[#8C9BB9] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-[#0060F4]"
+                                        aria-label="Hapus pencarian"
+                                    >
+                                        <X aria-hidden="true" className="size-4" />
+                                    </button>
+                                )}
+                            </form>
+
+                            <div className="flex items-center gap-2">
+                                <Button
                                     type="button"
-                                    onClick={() => {
-                                        setSearchTerm('');
-                                        router.get('/vessels', {
-                                            status: activeStatus,
-                                            company_id: companyFilter,
-                                        });
-                                    }}
-                                    className={
-                                        'absolute inset-y-0 right-0 pr-2.5 flex items-center ' +
-                                        'text-[#8C9BB9] text-xs hover:text-[#C62840]'
-                                    }
+                                    variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                                    onClick={openFilterModal}
+                                    leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                                    className="h-11 flex-1 px-3 text-xs font-bold"
+                                    aria-haspopup="dialog"
+                                    aria-expanded={isFilterModalOpen}
                                 >
-                                    ✕
-                                </button>
-                            )}
-                        </form>
-
-                        {/* Filter Button with Funnel */}
-                        <button
-                            type="button"
-                            onClick={() => setShowMobileFilterSheet(!showMobileFilterSheet)}
-                            className={
-                                'inline-flex items-center gap-1.5 px-3 py-2 bg-white ' +
-                                'dark:bg-[#071322] border border-[#DCEAF8] ' +
-                                'dark:border-[#1E3A5F] rounded-xl text-xs font-semibold ' +
-                                'text-[#0B1F63] dark:text-[#F1F5F9] hover:bg-[#F0F8FF] ' +
-                                'transition-all flex-shrink-0 shadow-2xs'
-                            }
-                        >
-                            <svg
-                                className="w-3.5 h-3.5 text-[#0060F4]"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={2.2}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            >
-                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                            </svg>
-                            <span>Filter</span>
-                        </button>
-
-                        {/* Admin Add Button on Mobile */}
-                        {canCreateShip && (
-                            <Link
-                                href="/work-orders/create"
-                                className={
-                                    'inline-flex items-center gap-1 px-3 py-2 bg-[#0060F4] ' +
-                                    'hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
-                                    'rounded-xl text-xs font-bold shadow-xs transition-colors flex-shrink-0'
-                                }
-                                title="Buat SPK dan jadwalkan kunjungan kapal"
-                            >
-                                <span className="text-base leading-none font-bold">+</span>
-                                <span>Buat SPK</span>
-                            </Link>
-                        )}
-                    </div>
-
-                    {/* Filter Sheet / Options if toggled */}
-                    <AnimatePresence>
-                        {showMobileFilterSheet && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className={
-                                    'overflow-hidden mt-2 p-3 rounded-xl bg-[#F0F8FF] ' +
-                                    'dark:bg-[#071322] border border-[#DCEAF8] ' +
-                                    'dark:border-[#1E3A5F] space-y-2'
-                                }
-                            >
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="font-bold text-[#082870] dark:text-[#F1F5F9]">
-                                        Filter Perusahaan:
-                                    </span>
-                                    {companyFilter && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCompanyFilterChange('')}
-                                            className="text-[11px] text-[#C62840] font-bold"
-                                        >
-                                            Reset Filter
-                                        </button>
+                                    Filter
+                                    {activeFilterCount > 0 && (
+                                        <span className="ml-1 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                            {activeFilterCount}
+                                        </span>
                                     )}
-                                </div>
-                                <select
-                                    value={companyFilter}
-                                    onChange={(e) => handleCompanyFilterChange(e.target.value)}
-                                    className={
-                                        'w-full text-xs font-medium bg-white dark:bg-[#0C1D36] ' +
-                                        'border border-[#DCEAF8] dark:border-[#1E3A5F] ' +
-                                        'rounded-lg p-2'
-                                    }
-                                >
-                                    <option value="">Semua Perusahaan ({companies.length})</option>
-                                    {companies.map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                            {c.name} {c.code ? `(${c.code})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                                </Button>
+
+                                {hasActiveFilters && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleResetFilters}
+                                        className="h-11 border-rose-200 px-3 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
+                                    >
+                                        <RotateCcw aria-hidden="true" className="mr-1 size-3.5" />
+                                        Reset
+                                    </Button>
+                                )}
+
+                                {canCreateShip && (
+                                    <Link
+                                        href="/work-orders/create"
+                                        className="inline-flex h-11 shrink-0 items-center gap-1 rounded-xl bg-[#0060F4] px-3 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#0052D4] active:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                                        title="Buat SPK dan jadwalkan kunjungan kapal"
+                                    >
+                                        <span aria-hidden="true" className="text-base leading-none font-bold">+</span>
+                                        <span>Buat SPK</span>
+                                    </Link>
+                                )}
+                            </div>
+                        </div>
+
+                        {renderActiveFilterChips()}
+                    </div>
 
                     {/* Horizontal Status Pills */}
                     <div className="flex items-center gap-1.5 overflow-x-auto py-3 scrollbar-none">
@@ -772,447 +1006,54 @@ export default function VesselsIndex({
                         })}
                     </div>
 
-                    {/* Group 1: "Hari ini" */}
-                    {todayVessels.length > 0 && (
+                    {/* Vessel Cards Listing */}
+                    {sortBy === 'terdekat' ? (
+                        <>
+                            {todayVessels.length > 0 && (
+                                <div className="mt-2 space-y-2.5">
+                                    <div className="flex items-center justify-between pt-1 pb-1">
+                                        <h2 className="text-sm font-bold text-[#082870] dark:text-[#F1F5F9]">
+                                            Hari ini
+                                        </h2>
+                                        <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
+                                            {formatGroupDate(now)}
+                                        </span>
+                                    </div>
+                                    {todayVessels.map(renderMobileVesselCard)}
+                                </div>
+                            )}
+
+                            {tomorrowVessels.length > 0 && (
+                                <div className="mt-4 space-y-2.5">
+                                    <div className="flex items-center justify-between pt-1 pb-1">
+                                        <h2 className="text-sm font-bold text-[#082870] dark:text-[#F1F5F9]">
+                                            Besok
+                                        </h2>
+                                        <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
+                                            {formatGroupDate(tomorrow)}
+                                        </span>
+                                    </div>
+                                    {tomorrowVessels.map(renderMobileVesselCard)}
+                                </div>
+                            )}
+
+                            {otherVessels.length > 0 && (
+                                <div className="mt-4 space-y-2.5">
+                                    <div className="flex items-center justify-between pt-1 pb-1">
+                                        <h2 className="text-sm font-bold text-[#082870] dark:text-[#F1F5F9]">
+                                            Jadwal Lainnya
+                                        </h2>
+                                        <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
+                                            {otherVessels.length} kapal
+                                        </span>
+                                    </div>
+                                    {otherVessels.map(renderMobileVesselCard)}
+                                </div>
+                            )}
+                        </>
+                    ) : (
                         <div className="mt-2 space-y-2.5">
-                            {/* Section Header */}
-                            <div className="flex items-center justify-between pt-1 pb-1">
-                                <h2 className="text-sm font-bold text-[#082870] dark:text-[#F1F5F9]">
-                                    Hari ini
-                                </h2>
-                                <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
-                                    {formatGroupDate(now)}
-                                </span>
-                            </div>
-
-                            {/* Cards in Hari ini */}
-                            {todayVessels.map((vessel) => (
-                                <Link
-                                    key={vessel.visit_id}
-                                    href={`/vessels/${vessel.id}?visit=${vessel.visit_id}`}
-                                    aria-label={`Buka detail ${vessel.name}, ${vessel.job_number}`}
-                                    className="block group"
-                                >
-                                    <div
-                                        className={
-                                            'bg-white dark:bg-[#0C1D36] p-2.5 rounded-2xl border ' +
-                                            'border-[#E2EEF9] dark:border-[#1E3A5F] shadow-2xs ' +
-                                            'hover:border-[#0060F4]/40 transition-all flex ' +
-                                            'items-center gap-3'
-                                        }
-                                    >
-                                        {/* Left: Thumbnail image */}
-                                        <ShipImage
-                                            src={vessel.image}
-                                            alt={vessel.name}
-                                            className={
-                                                'min-h-24 w-24 self-stretch rounded-xl object-cover ' +
-                                                'flex-shrink-0 border sm:w-28 ' +
-                                                'border-[#DCEAF8]/60 dark:border-[#1E3A5F]'
-                                            }
-                                        />
-
-                                        {/* Middle: Details */}
-                                        <div className="flex-1 min-w-0 space-y-1">
-                                            {/* Row 1: Ship name */}
-                                            <h3
-                                                className={
-                                                    'wrap-anywhere text-balance font-bold text-[13.5px] ' +
-                                                    'leading-5 text-[#082870] ' +
-                                                    'transition-colors group-hover:text-[#0060F4] ' +
-                                                    'dark:text-[#F1F5F9]'
-                                                }
-                                            >
-                                                {vessel.name}
-                                            </h3>
-
-                                            {/* Row 2: Status */}
-                                            <div className="flex items-center">
-                                                {renderStatusBadge(vessel.status)}
-                                            </div>
-
-                                            {/* Row 3: Full job number */}
-                                            <p
-                                                translate="no"
-                                                className={
-                                                    'wrap-anywhere text-[10px] font-bold leading-4 ' +
-                                                    'text-[#52658E] dark:text-[#94A3B8]'
-                                                }
-                                            >
-                                                {vessel.job_number}
-                                            </p>
-
-                                            {/* Row 4: Date + Location */}
-                                            <div
-                                                className={
-                                                    'flex items-center gap-2 text-[11px] ' +
-                                                    'text-[#52658E] dark:text-[#94A3B8] flex-wrap'
-                                                }
-                                            >
-                                                <div className="flex items-center gap-1 font-medium whitespace-nowrap">
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#52658E] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <rect
-                                                            x="3"
-                                                            y="4"
-                                                            width="18"
-                                                            height="18"
-                                                            rx="2"
-                                                            ry="2"
-                                                        />
-                                                        <line x1="16" y1="2" x2="16" y2="6" />
-                                                        <line x1="8" y1="2" x2="8" y2="6" />
-                                                        <line x1="3" y1="10" x2="21" y2="10" />
-                                                    </svg>
-                                                    <span>{formatEtaDateTime(vessel.eta)}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 min-w-0">
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#52658E] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                                                        />
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                                                        />
-                                                    </svg>
-                                                    <span className="wrap-anywhere text-pretty">
-                                                        {vessel.port_name || 'Pelabuhan belum diisi'}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {/* Row 5: Kebutuhan + Pengajuan */}
-                                            <div
-                                                className={
-                                                    'flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] ' +
-                                                    'text-[#52658E] dark:text-[#94A3B8] ' +
-                                                    'whitespace-nowrap'
-                                                }
-                                            >
-                                                <div
-                                                    className={
-                                                        'inline-flex items-center gap-1 ' +
-                                                        'whitespace-nowrap shrink-0'
-                                                    }
-                                                >
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#0060F4] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                                                        />
-                                                    </svg>
-                                                    <span>Kebutuhan:</span>
-                                                    <span
-                                                        className={`whitespace-nowrap ${vessel.needs_count && vessel.needs_count > 0 ? 'text-[#0060F4] font-bold' : 'font-medium'}`}
-                                                    >
-                                                        {vessel.needs_count &&
-                                                            vessel.needs_count > 0
-                                                            ? `${vessel.needs_count}\u00A0item`
-                                                            : '-'}
-                                                    </span>
-                                                </div>
-                                                <div
-                                                    className={
-                                                        'inline-flex items-center gap-1 ' +
-                                                        'whitespace-nowrap shrink-0'
-                                                    }
-                                                >
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#52658E] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d={
-                                                                'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-' +
-                                                                '2V5a2 2 0 012-2h5.586a1 1 0 01.7' +
-                                                                '07.293l5.414 5.414a1 1 0 01.293.' +
-                                                                '707V19a2 2 0 01-2 2z'
-                                                            }
-                                                        />
-                                                    </svg>
-                                                    <span>Pengajuan:</span>
-                                                    <span
-                                                        className={`whitespace-nowrap ${vessel.requests_count && vessel.requests_count > 0 ? 'text-[#082870] dark:text-white font-bold' : 'font-medium'}`}
-                                                    >
-                                                        {vessel.requests_count &&
-                                                            vessel.requests_count > 0
-                                                            ? `${vessel.requests_count}`
-                                                            : '-'}
-                                                    </span>
-                                                </div>
-                                                <div className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
-                                                    <span>Margin:</span>
-                                                    <span className={`truncate font-bold ${vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
-                                                        {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Right: Blue Chevron */}
-                                        <div className="flex-shrink-0 text-[#0060F4] pr-1">
-                                            <svg
-                                                className="w-5 h-5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth={2.5}
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <polyline points="9 18 15 12 9 6" />
-                                            </svg>
-                                        </div>
-                                    </div>
-                                </Link>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Group 2: "Besok" */}
-                    {tomorrowVessels.length > 0 && (
-                        <div className="mt-4 space-y-2.5">
-                            {/* Section Header */}
-                            <div className="flex items-center justify-between pt-1 pb-1">
-                                <h2 className="text-sm font-bold text-[#082870] dark:text-[#F1F5F9]">
-                                    Besok
-                                </h2>
-                                <span className="text-xs text-[#52658E] dark:text-[#94A3B8] font-medium">
-                                    {formatGroupDate(tomorrow)}
-                                </span>
-                            </div>
-
-                            {/* Cards in Besok */}
-                            {tomorrowVessels.map((vessel) => (
-                                <Link
-                                    key={vessel.visit_id}
-                                    href={`/vessels/${vessel.id}?visit=${vessel.visit_id}`}
-                                    aria-label={`Buka detail ${vessel.name}, ${vessel.job_number}`}
-                                    className="block group"
-                                >
-                                    <div
-                                        className={
-                                            'bg-white dark:bg-[#0C1D36] p-2.5 rounded-2xl border ' +
-                                            'border-[#E2EEF9] dark:border-[#1E3A5F] shadow-2xs ' +
-                                            'hover:border-[#0060F4]/40 transition-all flex ' +
-                                            'items-center gap-3'
-                                        }
-                                    >
-                                        {/* Left: Thumbnail image */}
-                                        <ShipImage
-                                            src={vessel.image}
-                                            alt={vessel.name}
-                                            className={
-                                                'min-h-24 w-24 self-stretch rounded-xl object-cover ' +
-                                                'flex-shrink-0 border sm:w-28 ' +
-                                                'border-[#DCEAF8]/60 dark:border-[#1E3A5F]'
-                                            }
-                                        />
-
-                                        {/* Middle: Details */}
-                                        <div className="flex-1 min-w-0 space-y-1">
-                                            {/* Row 1: Ship name */}
-                                            <h3
-                                                className={
-                                                    'wrap-anywhere text-balance font-bold text-[13.5px] ' +
-                                                    'leading-5 text-[#082870] ' +
-                                                    'transition-colors group-hover:text-[#0060F4] ' +
-                                                    'dark:text-[#F1F5F9]'
-                                                }
-                                            >
-                                                {vessel.name}
-                                            </h3>
-
-                                            {/* Row 2: Status */}
-                                            <div className="flex items-center">
-                                                {renderStatusBadge(vessel.status)}
-                                            </div>
-
-                                            {/* Row 3: Full job number */}
-                                            <p
-                                                translate="no"
-                                                className={
-                                                    'wrap-anywhere text-[10px] font-bold leading-4 ' +
-                                                    'text-[#52658E] dark:text-[#94A3B8]'
-                                                }
-                                            >
-                                                {vessel.job_number}
-                                            </p>
-
-                                            {/* Row 4: Date + Location */}
-                                            <div
-                                                className={
-                                                    'flex items-center gap-2 text-[11px] ' +
-                                                    'text-[#52658E] dark:text-[#94A3B8] flex-wrap'
-                                                }
-                                            >
-                                                <div className="flex items-center gap-1 font-medium whitespace-nowrap">
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#52658E] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <rect
-                                                            x="3"
-                                                            y="4"
-                                                            width="18"
-                                                            height="18"
-                                                            rx="2"
-                                                            ry="2"
-                                                        />
-                                                        <line x1="16" y1="2" x2="16" y2="6" />
-                                                        <line x1="8" y1="2" x2="8" y2="6" />
-                                                        <line x1="3" y1="10" x2="21" y2="10" />
-                                                    </svg>
-                                                    <span>{formatEtaDateTime(vessel.eta)}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 min-w-0">
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#52658E] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                                                        />
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                                                        />
-                                                    </svg>
-                                                    <span className="wrap-anywhere text-pretty">
-                                                        {vessel.port_name || 'Pelabuhan belum diisi'}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {/* Row 5: Kebutuhan + Pengajuan */}
-                                            <div
-                                                className={
-                                                    'flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] ' +
-                                                    'text-[#52658E] dark:text-[#94A3B8] ' +
-                                                    'whitespace-nowrap'
-                                                }
-                                            >
-                                                <div
-                                                    className={
-                                                        'inline-flex items-center gap-1 ' +
-                                                        'whitespace-nowrap shrink-0'
-                                                    }
-                                                >
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#0060F4] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                                                        />
-                                                    </svg>
-                                                    <span>Kebutuhan:</span>
-                                                    <span
-                                                        className={`whitespace-nowrap ${vessel.needs_count && vessel.needs_count > 0 ? 'text-[#0060F4] font-bold' : 'font-medium'}`}
-                                                    >
-                                                        {vessel.needs_count &&
-                                                            vessel.needs_count > 0
-                                                            ? `${vessel.needs_count}\u00A0item`
-                                                            : '-'}
-                                                    </span>
-                                                </div>
-                                                <div
-                                                    className={
-                                                        'inline-flex items-center gap-1 ' +
-                                                        'whitespace-nowrap shrink-0'
-                                                    }
-                                                >
-                                                    <svg
-                                                        className="w-3.5 h-3.5 text-[#52658E] shrink-0"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                        viewBox="0 0 24 24"
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d={
-                                                                'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-' +
-                                                                '2V5a2 2 0 012-2h5.586a1 1 0 01.7' +
-                                                                '07.293l5.414 5.414a1 1 0 01.293.' +
-                                                                '707V19a2 2 0 01-2 2z'
-                                                            }
-                                                        />
-                                                    </svg>
-                                                    <span>Pengajuan:</span>
-                                                    <span
-                                                        className={`whitespace-nowrap ${vessel.requests_count && vessel.requests_count > 0 ? 'text-[#082870] dark:text-white font-bold' : 'font-medium'}`}
-                                                    >
-                                                        {vessel.requests_count &&
-                                                            vessel.requests_count > 0
-                                                            ? `${vessel.requests_count}`
-                                                            : '-'}
-                                                    </span>
-                                                </div>
-                                                <div className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
-                                                    <span>Margin:</span>
-                                                    <span className={`truncate font-bold ${vessel.margin_available ? (vessel.margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]') : 'text-[#52658E] dark:text-[#94A3B8]'}`}>
-                                                        {vessel.margin_available ? formatRupiah(vessel.margin) : 'Menunggu invoice'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Right: Blue Chevron */}
-                                        <div className="flex-shrink-0 text-[#0060F4] pr-1">
-                                            <svg
-                                                className="w-5 h-5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth={2.5}
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <polyline points="9 18 15 12 9 6" />
-                                            </svg>
-                                        </div>
-                                    </div>
-                                </Link>
-                            ))}
+                            {sortedVessels.map(renderMobileVesselCard)}
                         </div>
                     )}
 
@@ -1242,43 +1083,9 @@ export default function VesselsIndex({
                         <span>
                             Menampilkan {sortedVessels.length} dari {counts.semua} kapal
                         </span>
-                        <div
-                            className={
-                                'relative inline-flex items-center gap-1 font-semibold ' +
-                                'text-[#082870] dark:text-[#38BDF8]'
-                            }
-                        >
-                            <label htmlFor="mobile-vessel-sort">⇅ Urutkan:</label>
-                            <select
-                                id="mobile-vessel-sort"
-                                value={sortBy}
-                                onChange={(e) => setSortBy(e.target.value as any)}
-                                className={
-                                    'bg-transparent border-none rounded-md text-xs ' +
-                                    'font-semibold text-[#082870] dark:text-[#38BDF8] pr-4 ' +
-                                    'py-1 pl-0.5 focus-visible:outline-2 ' +
-                                    'focus-visible:outline-offset-2 ' +
-                                    'focus-visible:outline-[#0060F4] appearance-none ' +
-                                    'cursor-pointer'
-                                }
-                            >
-                                <option value="terdekat">Tanggal (Terdekat)</option>
-                                <option value="nama">Nama (A-Z)</option>
-                            </select>
-                            <svg
-                                className={
-                                    'w-3 h-3 text-[#082870] dark:text-[#38BDF8] ' +
-                                    'pointer-events-none absolute right-0 top-1/2 ' +
-                                    '-translate-y-1/2'
-                                }
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
-                                viewBox="0 0 24 24"
-                            >
-                                <polyline points="6 9 12 15 18 9" />
-                            </svg>
-                        </div>
+                        <span className="font-semibold text-[#082870] dark:text-[#38BDF8]">
+                            Urutan: {sortLabels[sortBy]}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -1462,35 +1269,6 @@ export default function VesselsIndex({
                                     </p>
                                 </div>
 
-                                {companyFilter && (
-                                    <div
-                                        className={
-                                            'inline-flex items-center gap-2 px-3 py-1.5 rounded-xl ' +
-                                            'bg-[#E0F0FF] dark:bg-[#0C1D36] border ' +
-                                            'border-[#0060F4]/30 dark:border-[#1E3A5F] text-xs ' +
-                                            'text-[#082870] dark:text-[#F1F5F9]'
-                                        }
-                                    >
-                                        <span className="text-[#52658E] dark:text-[#94A3B8]">
-                                            Filter Perusahaan:
-                                        </span>
-                                        <span className="font-bold">
-                                            {companies.find((c) => c.id === companyFilter)?.name ||
-                                                'Perusahaan Terpilih'}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCompanyFilterChange('')}
-                                            className={
-                                                'text-[#C62840] dark:text-[#F87171] ' +
-                                                'hover:underline font-bold ml-1 cursor-pointer'
-                                            }
-                                        >
-                                            ✕ Reset
-                                        </button>
-                                    </div>
-                                )}
-
                                 {/* {canCreateShip && (
                                     <button
                                         type="button"
@@ -1584,22 +1362,20 @@ export default function VesselsIndex({
                                 </Card>
                             </div>
 
-                            {/* Modern Filter Toolbar using SelectSearch */}
                             <Card padding="md">
-                                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-12 items-center">
-                                    {/* Search */}
-                                    <div className="lg:col-span-3">
-                                        <form onSubmit={handleSearch} className="relative">
-                                            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]" />
+                                <div className="space-y-3">
+                                    <div className="flex flex-col items-stretch gap-2.5 sm:flex-row sm:items-center">
+                                        <form onSubmit={handleSearch} className="relative min-w-0 flex-1">
+                                            <Search aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]" />
                                             <input
                                                 type="search"
                                                 name="search"
                                                 autoComplete="off"
                                                 value={searchTerm}
-                                                onChange={(e) => setSearchTerm(e.target.value)}
-                                                placeholder="Cari kapal, IMO, agen..."
+                                                onChange={(event) => setSearchTerm(event.target.value)}
+                                                placeholder="Cari kapal, IMO, agen, atau nomor job…"
                                                 aria-label="Cari kapal"
-                                                className="w-full h-11 pl-9 pr-8 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                                className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] pl-10 pr-11 text-base font-semibold text-[#0B1F63] placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/30 sm:text-sm dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
                                             />
                                             {searchTerm && (
                                                 <button
@@ -1608,85 +1384,47 @@ export default function VesselsIndex({
                                                         setSearchTerm('');
                                                         applyVesselsFilter({ search: '' });
                                                     }}
-                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                                    className="absolute inset-y-0 right-0 flex min-w-11 items-center justify-center rounded-r-xl text-[#8C9BB9] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-[#0060F4]"
                                                     aria-label="Hapus pencarian"
                                                 >
-                                                    <X aria-hidden="true" className="size-3.5" />
+                                                    <X aria-hidden="true" className="size-4" />
                                                 </button>
                                             )}
                                         </form>
-                                    </div>
 
-                                    {/* Filter Perusahaan */}
-                                    <div className="lg:col-span-3">
-                                        <SelectSearch
-                                            placeholder="Semua Perusahaan"
-                                            value={companyFilter}
-                                            onChange={(val) => {
-                                                const newVal = String(val || '');
-                                                setCompanyFilter(newVal);
-                                                setShipFilter('');
-                                                applyVesselsFilter({ company_id: newVal, ship_id: '' });
-                                            }}
-                                            options={companyOptions}
-                                        />
-                                    </div>
-
-                                    {/* Filter Kapal */}
-                                    <div className="lg:col-span-2">
-                                        <SelectSearch
-                                            placeholder="Semua Kapal"
-                                            value={shipFilter}
-                                            onChange={(val) => {
-                                                const newVal = String(val || '');
-                                                setShipFilter(newVal);
-                                                applyVesselsFilter({ ship_id: newVal });
-                                            }}
-                                            options={shipOptions}
-                                        />
-                                    </div>
-
-                                    {/* Filter Job */}
-                                    <div className="lg:col-span-2">
-                                        <SelectSearch
-                                            placeholder="Semua Job"
-                                            value={jobFilter}
-                                            onChange={(val) => {
-                                                const newVal = String(val || '');
-                                                setJobFilter(newVal);
-                                                applyVesselsFilter({ job: newVal });
-                                            }}
-                                            options={jobOptions}
-                                        />
-                                    </div>
-
-                                    {/* Sort */}
-                                    <div className="lg:col-span-1">
-                                        <select
-                                            aria-label="Urutkan kapal"
-                                            value={sortBy}
-                                            onChange={(e) => setSortBy(e.target.value as any)}
-                                            className="w-full h-11 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl px-2 text-xs font-semibold text-[#0B1F63] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white cursor-pointer"
-                                        >
-                                            <option value="terdekat">ETA</option>
-                                            <option value="nama">A-Z</option>
-                                        </select>
-                                    </div>
-
-                                    {/* Reset button */}
-                                    <div className="lg:col-span-1 flex justify-end">
-                                        {hasActiveFilters && (
-                                            <button
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            <Button
                                                 type="button"
-                                                onClick={handleResetFilters}
-                                                title="Reset semua filter"
-                                                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 cursor-pointer"
+                                                variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                                                onClick={openFilterModal}
+                                                leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                                                className="h-11 flex-1 px-4 text-xs font-bold sm:flex-none"
+                                                aria-haspopup="dialog"
+                                                aria-expanded={isFilterModalOpen}
                                             >
-                                                <RotateCcw className="size-4" />
-                                                <span className="lg:hidden text-xs font-bold">Reset</span>
-                                            </button>
-                                        )}
+                                                <span>Filter</span>
+                                                {activeFilterCount > 0 && (
+                                                    <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                                        {activeFilterCount}
+                                                    </span>
+                                                )}
+                                            </Button>
+
+                                            {hasActiveFilters && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={handleResetFilters}
+                                                    className="h-11 border-rose-200 px-3 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                                                >
+                                                    <RotateCcw aria-hidden="true" className="mr-1 size-3.5" />
+                                                    Reset
+                                                </Button>
+                                            )}
+                                        </div>
                                     </div>
+
+                                    {renderActiveFilterChips()}
                                 </div>
                             </Card>
 
@@ -2116,6 +1854,82 @@ export default function VesselsIndex({
             {/* ═══════════════════════════════════════════════════════════════
                 MODALS: TAMBAH KAPAL & TAMBAH PERUSAHAAN
                ═══════════════════════════════════════════════════════════════ */}
+            <Modal
+                isOpen={isFilterModalOpen}
+                onClose={() => setIsFilterModalOpen(false)}
+                title="Filter Daftar Kapal"
+                subtitle="Saring kunjungan berdasarkan perusahaan, kapal, nomor job, atau urutan data"
+                size="lg"
+                asBottomSheetOnMobile
+                footer={(
+                    <div className="flex w-full items-center justify-between gap-3">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setModalCompanyFilter('');
+                                setModalShipFilter('');
+                                setModalJobFilter('');
+                                setModalSortBy('terbaru');
+                            }}
+                            className="border-rose-200 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
+                        >
+                            <RotateCcw aria-hidden="true" className="mr-1.5 size-3.5" />
+                            Reset Pilihan
+                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button type="button" variant="secondary" onClick={() => setIsFilterModalOpen(false)}>
+                                Batal
+                            </Button>
+                            <Button type="button" variant="primary" onClick={applyModalFilters}>
+                                Terapkan Filter
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            >
+                <div className="grid grid-cols-1 gap-4 py-1 sm:grid-cols-2">
+                    <SelectSearch
+                        label="Perusahaan Pelayaran"
+                        value={modalCompanyFilter}
+                        onChange={(value) => {
+                            setModalCompanyFilter(String(value || ''));
+                            setModalShipFilter('');
+                        }}
+                        options={companyOptions}
+                        placeholder="Pilih Perusahaan"
+                        searchPlaceholder="Cari perusahaan…"
+                    />
+                    <SelectSearch
+                        label="Armada Kapal"
+                        value={modalShipFilter}
+                        onChange={(value) => setModalShipFilter(String(value || ''))}
+                        options={modalShipOptions}
+                        placeholder="Pilih Kapal"
+                        searchPlaceholder="Cari kapal…"
+                    />
+                    <SelectSearch
+                        label="Nomor Job / Port Call"
+                        value={modalJobFilter}
+                        onChange={(value) => setModalJobFilter(String(value || ''))}
+                        options={jobOptions}
+                        placeholder="Pilih Job"
+                        searchPlaceholder="Cari nomor job…"
+                    />
+                    <Select
+                        id="vessel-filter-sort"
+                        label="Urutkan Data"
+                        value={modalSortBy}
+                        onChange={(event) => setModalSortBy(event.target.value as 'terbaru' | 'terdekat' | 'nama')}
+                        options={[
+                            { value: 'terbaru', label: 'Data terbaru' },
+                            { value: 'terdekat', label: 'ETA terdekat' },
+                            { value: 'nama', label: 'Nama kapal A–Z' },
+                        ]}
+                    />
+                </div>
+            </Modal>
+
             <Modal
                 isOpen={showAddModal}
                 onClose={() => { setArrivalErrors({}); setShowAddModal(false); }}

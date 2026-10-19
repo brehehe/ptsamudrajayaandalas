@@ -55,7 +55,7 @@ class CreateVendorInvoiceFromApprovedItem
             'vendor_id' => $requestItem->vendor_id,
             'document_type' => 'vendor_invoice',
             'document_number' => $requestItem->supplier_invoice_number,
-            'issuer_name' => $requestItem->vendor->name,
+            'issuer_name' => $requestItem->vendor?->name ?? 'Tanpa vendor/supplier',
             'document_date' => $requestItem->supplier_invoice_date,
             'received_date' => $requestItem->supplier_invoice_received_date,
             'due_date' => $requestItem->supplier_invoice_due_date,

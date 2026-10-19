@@ -37,14 +37,38 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         md: 'px-2.5 py-1 text-xs',
         lg: 'px-3 py-1.5 text-sm',
     }[size];
-    const normalized = (status || '').toLowerCase().replace(/\s+/g, '_');
+    const normalizeStatus = (value?: string) => (value || '').toLowerCase().replace(/[\s-]+/g, '_');
+    const normalized = normalizeStatus(status);
+    const semanticStatus = `${normalized} ${normalizeStatus(label)}`;
+    const isRejected = ['tolak', 'reject', 'declin', 'deni', 'tidak_disetujui']
+        .some((marker) => semanticStatus.includes(marker));
 
     let bg = 'bg-[#E0F0FF] dark:bg-[#0060F4]/20 border border-transparent dark:border-[#0060F4]/30';
     let text = 'text-[#0057D9] dark:text-[#60A5FA]';
     let dot = 'bg-[#0057D9] dark:bg-[#60A5FA]';
     let displayLabel = label;
 
-    if (normalized.includes('akan_datang') || normalized === 'info') {
+    if (
+        isRejected ||
+        normalized.includes('perlu') ||
+        normalized.includes('bahaya') ||
+        normalized.includes('terlambat') ||
+        normalized === 'danger'
+    ) {
+        bg = 'bg-[#FFE7EC] dark:bg-[#EF4444]/20 border border-transparent dark:border-[#EF4444]/30';
+        text = 'text-[#C62840] dark:text-[#F87171]';
+        dot = 'bg-[#C62840] dark:bg-[#F87171]';
+        displayLabel = displayLabel || (isRejected ? 'Ditolak' : 'Perlu Tindakan');
+    } else if (
+        normalized.includes('batal') ||
+        normalized.includes('nonaktif') ||
+        normalized === 'inactive'
+    ) {
+        bg = 'bg-[#EDF2F7] dark:bg-[#64748B]/20 border border-transparent dark:border-[#64748B]/30';
+        text = 'text-[#526580] dark:text-[#94A3B8]';
+        dot = 'bg-[#526580] dark:bg-[#94A3B8]';
+        displayLabel = displayLabel || 'Nonaktif';
+    } else if (normalized.includes('akan_datang') || normalized === 'info') {
         bg = 'bg-[#E0F0FF] dark:bg-[#0060F4]/20 border border-transparent dark:border-[#0060F4]/30';
         text = 'text-[#0057D9] dark:text-[#60A5FA]';
         dot = 'bg-[#0057D9] dark:bg-[#60A5FA]';
@@ -80,32 +104,13 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         dot = 'bg-[#6840BB] dark:bg-[#C084FC]';
         displayLabel =
             displayLabel || (normalized.includes('berangkat') ? 'Berangkat' : 'Dalam Proses');
-    } else if (
-        normalized.includes('tolak') ||
-        normalized.includes('perlu') ||
-        normalized.includes('bahaya') ||
-        normalized === 'danger'
-    ) {
-        bg = 'bg-[#FFE7EC] dark:bg-[#EF4444]/20 border border-transparent dark:border-[#EF4444]/30';
-        text = 'text-[#C62840] dark:text-[#F87171]';
-        dot = 'bg-[#C62840] dark:bg-[#F87171]';
-        displayLabel = displayLabel || 'Perlu Tindakan';
-    } else if (
-        normalized.includes('batal') ||
-        normalized.includes('nonaktif') ||
-        normalized === 'inactive'
-    ) {
-        bg = 'bg-[#EDF2F7] dark:bg-[#64748B]/20 border border-transparent dark:border-[#64748B]/30';
-        text = 'text-[#526580] dark:text-[#94A3B8]';
-        dot = 'bg-[#526580] dark:bg-[#94A3B8]';
-        displayLabel = displayLabel || 'Nonaktif';
     }
 
     return (
         <span
-            className={`inline-flex items-center gap-1.5 ${sizeClasses} rounded-full font-semibold tracking-wide ${bg} ${text} ${className}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap ${sizeClasses} rounded-full font-semibold tracking-wide ${bg} ${text} ${className}`}
         >
-            {showDot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
+            {showDot && <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} />}
             {displayLabel || status}
         </span>
     );

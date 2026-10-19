@@ -361,8 +361,8 @@ class SjaMasterSeeder extends Seeder
                 'price_sandar' => 0.00,
                 'price_labuh' => 0.00,
                 'tax_rate' => 2.00,
-                'vendor_code' => 'VND-PELINDO',
-                'description' => 'Biaya taktis Pelindo untuk persiapan dan pelaksanaan penyandaran kapal. Hanya digunakan pada pengajuan Clearance In dengan target Sandar.',
+                'vendor_code' => null,
+                'description' => 'Biaya taktis internal untuk persiapan dan pelaksanaan penyandaran kapal. Vendor dapat dikosongkan. Hanya digunakan pada pengajuan Clearance In dengan target Sandar.',
             ],
             [
                 'code' => 'PRD-PLD-EPB',

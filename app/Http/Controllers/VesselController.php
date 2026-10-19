@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\VesselIndexRequest;
 use App\Models\CompletionNote;
 use App\Models\Port;
 use App\Models\PortCall;
@@ -22,13 +23,15 @@ use Inertia\Response;
 
 class VesselController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(VesselIndexRequest $request): Response
     {
-        $status = $request->query('status', 'Semua');
-        $search = $request->query('search');
-        $companyId = $request->query('company_id');
-        $shipId = $request->query('ship_id');
-        $job = $request->query('job');
+        $validated = $request->validated();
+        $status = $validated['status'] ?? 'Semua';
+        $search = $validated['search'] ?? null;
+        $companyId = $validated['company_id'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $job = $validated['job'] ?? null;
+        $sort = $validated['sort'] ?? 'terbaru';
 
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
@@ -63,8 +66,11 @@ class VesselController extends Controller
         }
 
         if ($job) {
-            $query->where(function ($q) use ($job, $like) {
-                $q->where('job_number', $like, "%{$job}%")->orWhere('id', $job);
+            $query->where(function ($q) use ($job, $like): void {
+                $q->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $q->orWhere('id', $job);
+                }
             });
         }
 
@@ -86,7 +92,24 @@ class VesselController extends Controller
             });
         }
 
-        $vessels = $query->orderBy('eta_at')->orderBy('id')->get()->map(function (PortCall $portCall) {
+        match ($sort) {
+            'terdekat' => $query
+                ->orderByRaw('CASE WHEN eta_at IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('eta_at')
+                ->orderByDesc('id'),
+            'nama' => $query
+                ->orderBy(
+                    Ship::query()
+                        ->select('name')
+                        ->whereColumn('ships.id', 'port_calls.ship_id')
+                        ->limit(1)
+                )
+                ->orderByDesc('created_at')
+                ->orderByDesc('id'),
+            default => $query->orderByDesc('created_at')->orderByDesc('id'),
+        };
+
+        $vessels = $query->get()->map(function (PortCall $portCall) {
             $ship = $portCall->ship;
             $needsCount = $portCall->requests->flatMap->items->count();
             $requestsCount = $portCall->requests->count();
@@ -172,6 +195,7 @@ class VesselController extends Controller
             'selectedCompanyId' => $companyId ?? '',
             'selectedShipId' => $shipId ?? '',
             'selectedJob' => $job ?? '',
+            'selectedSort' => $sort,
             'search' => $search ?? '',
         ]);
     }
@@ -187,7 +211,7 @@ class VesselController extends Controller
         ])->findOrFail($id);
 
         $products = Product::where('is_active', true)
-            ->select('id', 'name', 'code', 'category', 'unit', 'item_type')
+            ->select('id', 'name', 'code', 'category', 'unit', 'item_type', 'hpp_default')
             ->orderBy('name')
             ->get();
 

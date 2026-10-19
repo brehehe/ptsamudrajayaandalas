@@ -1,9 +1,10 @@
+import React, { useState, useEffect } from 'react';
 import { useForm } from '@inertiajs/react';
 import ConfirmDialog from '../overlays/ConfirmDialog';
 import RadioGroup from '../forms/Radio';
 import Input from '../forms/Input';
 import type { AlertToastMessage } from '../feedback/AlertToast';
-import type { ClearancePortCall } from './types';
+import type { ClearancePortCall, MasterProduct } from './types';
 import FormErrorSummary from '../forms/FormErrorSummary';
 
 interface VesselClearanceDialogProps {
@@ -11,15 +12,26 @@ interface VesselClearanceDialogProps {
     vesselName: string;
     portCalls: ClearancePortCall[];
     selectedPortCallId?: string | null;
+    products?: MasterProduct[];
     onClose: () => void;
     onFeedback: (message: AlertToastMessage) => void;
 }
+
+interface ClearanceItemForm {
+    product_id?: string;
+    item_name: string;
+    unit: string;
+    hpp_price: number;
+}
+
+
 
 export default function VesselClearanceDialog({
     direction,
     vesselName,
     portCalls,
     selectedPortCallId,
+    products = [],
     onClose,
     onFeedback,
 }: VesselClearanceDialogProps) {
@@ -39,6 +51,56 @@ export default function VesselClearanceDialog({
         occurred_at: localDate,
         expected_status: selected?.status ?? '',
     });
+
+    const [clearanceItems, setClearanceItems] = useState<ClearanceItemForm[]>([]);
+
+    useEffect(() => {
+        if (isArrival) {
+            if (form.data.status === 'berthed') {
+                const prodTaktis = products.find((p) => p.code === 'PRD-PLD-TAKTIS');
+                const prodEpb = products.find((p) => p.code === 'PRD-PLD-EPB');
+                setClearanceItems([
+                    {
+                        product_id: prodTaktis?.id,
+                        item_name: 'Taktis Penyandaran',
+                        unit: prodTaktis?.unit || 'Kegiatan',
+                        hpp_price: prodTaktis?.hpp_default ? Number(prodTaktis.hpp_default) : 0,
+                    },
+                    {
+                        product_id: prodEpb?.id,
+                        item_name: 'Pembayaran EPB (Pandu Tunda)',
+                        unit: prodEpb?.unit || 'Kegiatan',
+                        hpp_price: prodEpb?.hpp_default ? Number(prodEpb.hpp_default) : 100000,
+                    },
+                ]);
+            } else if (form.data.status === 'anchored') {
+                const prodClr = products.find((p) => p.code === 'PRD-CLR');
+                setClearanceItems([
+                    {
+                        product_id: prodClr?.id,
+                        item_name: 'Clearance In (Syahbandar & Karantina)',
+                        unit: prodClr?.unit || 'Dokumen',
+                        hpp_price: prodClr?.hpp_default ? Number(prodClr.hpp_default) : 2500000,
+                    },
+                ]);
+            } else {
+                setClearanceItems([]);
+            }
+        } else {
+            const prodClr = products.find((p) => p.code === 'PRD-CLR');
+            setClearanceItems([
+                {
+                    product_id: prodClr?.id,
+                    item_name: 'Clearance Out (Syahbandar & Karantina)',
+                    unit: prodClr?.unit || 'Dokumen',
+                    hpp_price: prodClr?.hpp_default ? Number(prodClr.hpp_default) : 2500000,
+                },
+            ]);
+        }
+    }, [isArrival, form.data.status, products]);
+
+
+
     const blockReason = !portCalls.length
         ? 'Tidak ada kunjungan aktif yang dapat Anda kelola. Hubungi admin untuk memeriksa job dan penugasan kapal.'
         : !selected
@@ -54,6 +116,11 @@ export default function VesselClearanceDialog({
         form.transform((data) => ({
             ...data,
             expected_status: selected.status,
+            items: clearanceItems.map((it) => ({
+                product_id: it.product_id,
+                item_name: it.item_name,
+                hpp_price: it.hpp_price,
+            })),
         }));
         form.patch(selected.update_url, {
             preserveScroll: true,
@@ -61,14 +128,9 @@ export default function VesselClearanceDialog({
                 const flash = page.props.flash as { success?: string; error?: string } | undefined;
                 if (flash?.error) {
                     form.setError('status', flash.error);
-                    onFeedback({ variant: 'error', message: flash.error });
                     return;
                 }
                 onClose();
-                onFeedback({
-                    variant: 'success',
-                    message: flash?.success ?? 'Pengajuan clearance berhasil dibuat.',
-                });
             },
             onError: (errors) =>
                 onFeedback({

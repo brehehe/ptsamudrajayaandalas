@@ -117,6 +117,7 @@ export interface MasterProduct {
     category: string;
     unit: string;
     item_type?: string;
+    hpp_default?: number | string;
 }
 
 export interface VesselShowProps {

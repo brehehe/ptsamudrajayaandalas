@@ -51,6 +51,7 @@ interface ShipRequest {
     status: string;
     request_date: string;
     created_at: string;
+    admin_forward_notes?: string | null;
     company?: { name: string };
     port?: { name: string };
     ship?: { name: string; image?: string | null; company?: { name: string } };
@@ -141,6 +142,10 @@ interface ApprovalsIndexProps {
         total_hpp: number;
         approved_hpp: number;
     };
+    all_requests_total_hpp?: number;
+    waiting_requests_total_hpp?: number;
+    approved_requests_total_hpp?: number;
+    rejected_requests_total_hpp?: number;
     capabilities?: {
         can_decide_items: boolean;
         can_view_hpp: boolean;
@@ -176,9 +181,13 @@ const formatDate = (value?: string): string => {
 
 const normalized = (value?: string): string => (value || '').trim().toLowerCase();
 
-const isPendingDirectorItem = (item: RequestItem): boolean =>
-    normalized(item.status) === 'diajukan_ke_direktur' &&
-    (!item.director_status || item.director_status === 'pending');
+const isPendingDirectorItem = (item: RequestItem): boolean => {
+    const s = normalized(item.status);
+    return (
+        (s === 'diajukan_ke_direktur' || s === 'pending' || s === 'menunggu' || s.includes('menunggu')) &&
+        (!item.director_status || item.director_status === 'pending')
+    );
+};
 
 const itemHppTotal = (item: RequestItem): number =>
     Number(item.hpp_price || 0) * Number(item.quantity || 0);
@@ -192,6 +201,10 @@ export default function ApprovalsIndex({
     search: initialSearch,
     date,
     dailySummary,
+    all_requests_total_hpp,
+    waiting_requests_total_hpp,
+    approved_requests_total_hpp,
+    rejected_requests_total_hpp,
     capabilities = DEFAULT_CAPABILITIES,
 }: ApprovalsIndexProps) {
     const [search, setSearch] = useState(initialSearch);
@@ -292,7 +305,7 @@ export default function ApprovalsIndex({
         });
 
         return activeTab === 'menunggu'
-            ? sortedRows.filter((row) => row.pendingCount > 0)
+            ? sortedRows.filter((row) => row.pendingCount > 0 || normalized(row.status).includes('menunggu'))
             : sortedRows;
     }, [requests, capabilities, activeTab]);
 
@@ -504,9 +517,14 @@ export default function ApprovalsIndex({
                             Diajukan: <span className="font-medium text-[#0B1F63] dark:text-[#F1F5F9]">{item.creator?.name || 'Staff'}</span>
                         </p>
                         {item.notes && (
-                            <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8] line-clamp-1 italic" title={item.notes}>
+                            <div className={`mt-1.5 p-1.5 rounded-lg text-xs ${
+                                item.status === 'rejected'
+                                    ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-medium'
+                                    : 'text-[#52658E] dark:text-[#94A3B8] italic'
+                            }`}>
+                                {item.status === 'rejected' && <span className="font-bold block text-[11px] uppercase tracking-wide text-rose-700 dark:text-rose-300">Catatan Ditolak:</span>}
                                 "{item.notes}"
-                            </p>
+                            </div>
                         )}
                     </div>
                 ),
@@ -530,13 +548,13 @@ export default function ApprovalsIndex({
                         )}
                         {item.supporting_document_path && (
                             <a
-                                href={`/storage/${item.supporting_document_path}`}
+                                href={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-[#0060F4] hover:underline mt-1"
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0060F4] hover:underline mt-1 bg-[#E0F0FF] dark:bg-[#132847] px-2 py-0.5 rounded-md"
                             >
-                                <Files aria-hidden="true" className="size-3" />
-                                Bukti / Lampiran
+                                <Files aria-hidden="true" className="size-3.5" />
+                                Lihat Bukti / Lampiran
                             </a>
                         )}
                     </div>
@@ -774,20 +792,49 @@ export default function ApprovalsIndex({
     };
 
     const queueSummary = useMemo(() => {
-        const pendingRows = approvalRows.filter((row) => row.pendingCount > 0);
+        const rowsToCount = activeTab === 'menunggu'
+            ? approvalRows.filter((row) => row.pendingCount > 0 || normalized(row.status).includes('menunggu'))
+            : approvalRows;
+
+        const totalHppPending = rowsToCount.reduce((total, row) => total + (row.pendingHpp || 0), 0);
+        const totalHppRows = rowsToCount.reduce((total, row) => total + (row.totalHpp || 0), 0);
+
+        let activeHpp = totalHppRows;
+        let activeHppLabel = 'Total HPP Selesai / Disetujui';
+        let itemHeaderLabel = 'Item Terbuka';
+
+        if (activeTab === 'menunggu') {
+            activeHpp = totalHppPending > 0 ? totalHppPending : (waiting_requests_total_hpp ?? totalHppRows);
+            activeHppLabel = 'HPP Perlu Diputuskan';
+            itemHeaderLabel = 'Item Ditinjau';
+        } else if (activeTab === 'disetujui') {
+            activeHpp = approved_requests_total_hpp ?? totalHppRows;
+            activeHppLabel = 'Total HPP Disetujui';
+            itemHeaderLabel = 'Item Disetujui';
+        } else if (activeTab === 'ditolak') {
+            activeHpp = rejected_requests_total_hpp ?? totalHppRows;
+            activeHppLabel = 'Total HPP Ditolak';
+            itemHeaderLabel = 'Item Ditolak';
+        }
 
         return {
-            jobCount: pendingRows.length,
-            requestCount: pendingRows.reduce(
-                (total, row) => total + row.requests.filter((request) =>
-                    (request.items || []).some(isPendingDirectorItem)
-                ).length,
+            jobCount: rowsToCount.length,
+            requestCount: rowsToCount.reduce(
+                (total, row) => total + row.requests.length,
                 0
             ),
-            itemCount: pendingRows.reduce((total, row) => total + row.pendingCount, 0),
-            totalHpp: pendingRows.reduce((total, row) => total + row.pendingHpp, 0),
+            itemCount: rowsToCount.reduce(
+                (total, row) => total + (row.pendingCount > 0 ? row.pendingCount : row.itemCount),
+                0
+            ),
+            totalHppAll: all_requests_total_hpp ?? totalHppRows,
+            totalHppDaftar: totalHppRows,
+            totalHpp: totalHppPending > 0 ? totalHppPending : totalHppRows,
+            activeHpp,
+            activeHppLabel,
+            itemHeaderLabel,
         };
-    }, [approvalRows]);
+    }, [approvalRows, activeTab, all_requests_total_hpp, waiting_requests_total_hpp, approved_requests_total_hpp, rejected_requests_total_hpp]);
 
     const renderApprovalCard = (row: ApprovalRow) => {
         const isWaitingView = activeTab === 'menunggu';
@@ -922,6 +969,12 @@ export default function ApprovalsIndex({
                                             <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                                 {requestItemCount} item {isWaitingView ? 'menunggu keputusan' : 'dalam pengajuan'}
                                             </p>
+                                            {shipRequest.admin_forward_notes && (
+                                                <p className="mt-1.5 rounded-lg bg-[#E0F0FF] px-2 py-1.5 text-[11px] leading-4 text-[#0B1F63] dark:bg-[#132847] dark:text-[#D8E7F6]">
+                                                    <strong>Catatan Admin:</strong>{' '}
+                                                    <span className="break-words">{shipRequest.admin_forward_notes}</span>
+                                                </p>
+                                            )}
                                         </div>
                                         <p className="shrink-0 font-mono text-xs font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
                                             {formatCurrency(requestHpp)}
@@ -937,11 +990,16 @@ export default function ApprovalsIndex({
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                {isWaitingView ? 'HPP yang perlu diputuskan' : 'Total HPP'}
+                                Total HPP Pengajuan
                             </p>
                             <p className="mt-0.5 font-mono text-base sm:text-lg font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                {formatCurrency(displayedHpp)}
+                                {formatCurrency(row.totalHpp)}
                             </p>
+                            {isWaitingView && row.pendingHpp > 0 && row.pendingHpp !== row.totalHpp && (
+                                <p className="mt-0.5 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                    Perlu diputuskan: {formatCurrency(row.pendingHpp)}
+                                </p>
+                            )}
                             <p className="mt-1 flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                 <Clock3 aria-hidden="true" className="size-3 shrink-0" /> Diperbarui {formatDate(row.updatedAt)}
                             </p>
@@ -1006,7 +1064,7 @@ export default function ApprovalsIndex({
                     className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
                 />
 
-                {section === 'requests' && activeTab === 'menunggu' && (
+                {section === 'requests' && (
                     <section
                         className="overflow-hidden rounded-2xl border border-[#0060F4]/30 bg-linear-to-br from-[#E0F0FF] via-white to-[#F0F8FF] shadow-[0_10px_30px_rgba(0,96,244,0.08)] dark:border-[#285585] dark:from-[#102B4A] dark:via-[#0C1D36] dark:to-[#071322]"
                         aria-labelledby="approval-queue-heading"
@@ -1015,22 +1073,32 @@ export default function ApprovalsIndex({
                             <div>
                                 <div className="flex flex-wrap items-center gap-2">
                                     <h2 id="approval-queue-heading" className="text-sm sm:text-base font-extrabold text-[#0B1F63] dark:text-white">
-                                        Antrean Keputusan Direktur
+                                        {activeTab === 'menunggu'
+                                            ? 'Antrean Keputusan Direktur'
+                                            : activeTab === 'disetujui'
+                                                ? 'Rekap Pengajuan Disetujui Direktur'
+                                                : activeTab === 'ditolak'
+                                                    ? 'Rekap Pengajuan Ditolak Direktur'
+                                                    : 'Rekap Seluruh Pengajuan Kapal'}
                                     </h2>
                                     <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                        {queueSummary.jobCount} Job
+                                        {queueSummary.jobCount} Job {activeTab === 'disetujui' ? 'Disetujui' : activeTab === 'ditolak' ? 'Ditolak' : 'Aktif'}
                                     </span>
                                 </div>
                                 <p className="mt-1 hidden max-w-3xl text-xs leading-relaxed text-[#52658E] dark:text-[#B5C8DC] sm:block">
-                                    Pengajuan yang dikirim bersamaan dikelompokkan per job. Rincian setiap REQ tetap dipisahkan agar keputusan mudah diperiksa.
+                                    {activeTab === 'menunggu'
+                                        ? 'Pengajuan yang dikirim bersamaan dikelompokkan per job. Rincian setiap REQ tetap dipisahkan agar keputusan mudah diperiksa.'
+                                        : activeTab === 'disetujui'
+                                            ? 'Daftar job dan pengajuan yang telah disetujui Direktur dan siap diproses ke operasional/vendor invoice.'
+                                            : 'Rincian pengajuan dan HPP per job untuk pengawasan Direktur.'}
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <div className="flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-[#BCE0FD] bg-white px-2.5 py-1 text-xs font-bold text-[#0060F4] dark:border-[#285585] dark:bg-[#071322] dark:text-[#60A5FA]">
                                     <Layers3 aria-hidden="true" className="size-3.5" />
-                                    {queueSummary.itemCount} item menunggu
+                                    {queueSummary.itemCount} item {activeTab === 'menunggu' ? 'menunggu' : activeTab === 'disetujui' ? 'disetujui' : ''}
                                 </div>
-                                {capabilities.can_decide_items && queueSummary.jobCount > 1 && (
+                                {activeTab === 'menunggu' && capabilities.can_decide_items && queueSummary.jobCount > 1 && (
                                     <Button
                                         type="button"
                                         size="sm"
@@ -1045,22 +1113,47 @@ export default function ApprovalsIndex({
                             </div>
                         </div>
 
-                        <dl className="grid grid-cols-2 gap-px bg-[#BCE0FD] dark:bg-[#285585] sm:grid-cols-4">
-                            {[
-                                ['Job Aktif', queueSummary.jobCount],
-                                ['Surat Pengajuan', queueSummary.requestCount],
-                                ['Item Ditinjau', queueSummary.itemCount],
-                                ['Total HPP Ditinjau', formatCurrency(queueSummary.totalHpp)],
-                            ].map(([label, value]) => (
-                                <div key={String(label)} className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
-                                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                        {label}
-                                    </dt>
-                                    <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                        {value}
-                                    </dd>
-                                </div>
-                            ))}
+                        <dl className="grid grid-cols-2 gap-px bg-[#BCE0FD] dark:bg-[#285585] sm:grid-cols-3 lg:grid-cols-5">
+                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                    {activeTab === 'disetujui' ? 'Job Disetujui' : activeTab === 'ditolak' ? 'Job Ditolak' : 'Job Aktif'}
+                                </dt>
+                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                    {queueSummary.jobCount}
+                                </dd>
+                            </div>
+                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                    Surat Pengajuan
+                                </dt>
+                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                    {queueSummary.requestCount}
+                                </dd>
+                            </div>
+                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                    {queueSummary.itemHeaderLabel}
+                                </dt>
+                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                    {queueSummary.itemCount}
+                                </dd>
+                            </div>
+                            <div className="bg-[#EAF5FF] p-2.5 sm:p-3.5 dark:bg-[#102B4A]/95 col-span-2 sm:col-span-1 border-t sm:border-t-0 border-[#BCE0FD] dark:border-[#285585]">
+                                <dt className="text-[10px] font-bold uppercase tracking-wide text-[#0060F4] dark:text-[#60A5FA]">
+                                    Total HPP Semua Pengajuan
+                                </dt>
+                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-black tabular-nums text-[#082870] dark:text-white">
+                                    {formatCurrency(queueSummary.totalHppAll)}
+                                </dd>
+                            </div>
+                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95 col-span-2 sm:col-span-1">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                    {queueSummary.activeHppLabel}
+                                </dt>
+                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                    {formatCurrency(queueSummary.activeHpp)}
+                                </dd>
+                            </div>
                         </dl>
                     </section>
                 )}
@@ -1343,7 +1436,41 @@ export default function ApprovalsIndex({
                                                 </span>
                                             ),
                                         },
-                                        { label: 'Catatan', fullWidth: true, render: (item) => item.notes || '-' },
+                                        {
+                                            label: 'Lampiran',
+                                            fullWidth: true,
+                                            render: (item) =>
+                                                item.supporting_document_path ? (
+                                                    <a
+                                                        href={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#E0F0FF] px-2.5 py-1 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                    >
+                                                        <Files aria-hidden="true" className="size-3.5" />
+                                                        Buka File Lampiran
+                                                    </a>
+                                                ) : (
+                                                    <span className="text-xs text-[#8C9BB9]">—</span>
+                                                ),
+                                        },
+                                        {
+                                            label: 'Catatan / Alasan',
+                                            fullWidth: true,
+                                            render: (item) =>
+                                                item.notes ? (
+                                                    <div className={`p-2 rounded-xl text-xs ${
+                                                        item.status === 'rejected'
+                                                            ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-semibold'
+                                                            : 'text-[#52658E] dark:text-[#94A3B8]'
+                                                    }`}>
+                                                        {item.status === 'rejected' && <span className="block font-bold text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-0.5">Alasan Penolakan:</span>}
+                                                        "{item.notes}"
+                                                    </div>
+                                                ) : (
+                                                    '-'
+                                                ),
+                                        },
                                         {
                                             label: 'Pemeriksa',
                                             fullWidth: true,
@@ -1474,6 +1601,34 @@ export default function ApprovalsIndex({
                 </p>
             </div>
 
+            {/* Floating approval bar on mobile positioned above the bottom navigation */}
+            {activeTab === 'menunggu' && capabilities.can_decide_items && queueSummary.itemCount > 0 && (
+                <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-4 right-4 z-40 sm:hidden">
+                    <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#BCE0FD] bg-white/95 p-2.5 shadow-[0_8px_24px_rgba(0,96,244,0.18)] backdrop-blur-md dark:border-[#285585] dark:bg-[#0C1D36]/95">
+                        <div className="flex min-w-0 items-center gap-2 pl-2 text-xs font-extrabold text-[#0060F4] dark:text-[#60A5FA]">
+                            <Layers3 aria-hidden="true" className="size-4 shrink-0" />
+                            <span className="truncate">{queueSummary.itemCount} item menunggu</span>
+                        </div>
+                        <Button
+                            type="button"
+                            size="sm"
+                            leftIcon={<CheckCircle2 aria-hidden="true" className="size-4" />}
+                            disabled={approvingJobKey !== null}
+                            onClick={() => {
+                                if (queueSummary.jobCount > 1) {
+                                    openBatchApprovalSelection();
+                                } else if (approvalRows.length > 0) {
+                                    openApprovalSelection(approvalRows[0]);
+                                }
+                            }}
+                            className="shrink-0 bg-[#0060F4] px-3.5 py-2 text-xs font-extrabold text-white shadow-sm hover:bg-[#0050D0]"
+                        >
+                            Setujui Pengajuan
+                        </Button>
+                    </div>
+                </div>
+            )}
+
             <ConfirmDialog
                 isOpen={isApprovalSelectionOpen}
                 title={isBatchApprovalOpen ? 'Pilih Item dari Beberapa Job' : 'Pilih Item yang Disetujui'}
@@ -1481,8 +1636,8 @@ export default function ApprovalsIndex({
                     ? 'Pilih item secara kondisional dari beberapa kapal. Job tanpa item terpilih tetap menunggu keputusan Direktur.'
                     : 'Setiap item diputuskan terpisah. Item yang tidak dipilih otomatis kembali ke Admin untuk ditinjau dan diajukan ulang.'}
                 confirmLabel={isBatchApprovalOpen
-                    ? `Setujui ${selectedApprovalItems.length} Item (${selectedApprovalJobKeys.size} Job)`
-                    : `Setujui ${selectedApprovalItems.length} Item`}
+                    ? `Setujui Pengajuan (${selectedApprovalItems.length} Item · ${selectedApprovalJobKeys.size} Job)`
+                    : `Setujui Pengajuan (${selectedApprovalItems.length} Item)`}
                 onConfirm={approveSelectedItems}
                 onClose={() => {
                     if (approvingJobKey === null) {
@@ -1633,7 +1788,7 @@ export default function ApprovalsIndex({
                                                                     {requestNumber}
                                                                 </span>
                                                                 <span className="mt-1 block break-words text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                                    {item.vendor?.name || 'Vendor belum ditentukan'} · Qty {item.quantity}
+                                                                    {item.vendor?.name || 'Tanpa vendor/supplier'} · Qty {item.quantity}
                                                                     {item.supplier_invoice_number
                                                                         ? ` · ${item.supplier_invoice_number}`
                                                                         : ''}

@@ -5,6 +5,8 @@ import {
     CheckCircle2,
     CircleCheckBig,
     Clock3,
+    Download,
+    Eye,
     FileCheck2,
     FileText,
     Plus,
@@ -24,6 +26,8 @@ import SelectSearch, { type SelectSearchOption } from '../../Components/selects/
 import Pagination from '../../Components/pagination/Pagination';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
+import VendorInvoicePaymentModal, { type PayableVendorInvoice } from '../../Components/finance/VendorInvoicePaymentModal';
+import ActionMenu, { type ActionMenuGroup } from '../../Components/ui/ActionMenu';
 import DocumentActions from '../../Components/ui/DocumentActions';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Textarea from '../../Components/forms/Textarea';
@@ -56,6 +60,7 @@ interface Invoice {
     status: string;
     payment_status: string;
     document_path?: string | null;
+    issuer_name?: string | null;
     vendor?: { name: string };
     port_call?: { job_number?: string; ship?: { name: string }; port?: { name: string } };
     payment_allocations?: PaymentAllocation[];
@@ -95,7 +100,7 @@ interface Props {
         start_date?: string;
         end_date?: string;
     };
-    abilities: { create: boolean; verify: boolean };
+    abilities: { create: boolean; verify: boolean; pay?: boolean };
 }
 
 const money = (value: number | string) =>
@@ -147,6 +152,7 @@ export default function VendorInvoiceIndex({
     const [modalStatus, setModalStatus] = useState(filters.status || 'all');
 
     const [reviewInvoice, setReviewInvoice] = useState<Invoice | null>(null);
+    const [invoiceToPay, setInvoiceToPay] = useState<Invoice | null>(null);
     const [paymentToVerify, setPaymentToVerify] = useState<{ invoice: Invoice; payment: VendorPayment } | null>(null);
     const reviewForm = useForm({ decision: 'verify', verified_total: '', notes: '' });
     const paymentVerificationForm = useForm({ action: 'verify_usage' });
@@ -265,30 +271,111 @@ export default function VendorInvoiceIndex({
             .map((allocation) => allocation.payment)
             .filter((payment): payment is VendorPayment => payment?.verification_status === 'pending');
 
-    const invoiceActions = (invoice: Invoice) => (
-        <div className="flex flex-wrap justify-end gap-1.5">
-            {invoice.document_path && (
-                <DocumentActions
-                    viewHref={`/vendor-invoices/${invoice.id}/document?view=1`}
-                    downloadHref={`/vendor-invoices/${invoice.id}/document`}
-                />
-            )}
-            {abilities.verify && pendingPayments(invoice).length > 0 && (
-                <Button
-                    size="sm"
-                    onClick={() => openPaymentVerification(invoice, pendingPayments(invoice)[0])}
-                    leftIcon={<CircleCheckBig aria-hidden="true" className="size-4" />}
-                >
-                    Verifikasi Bayar{pendingPayments(invoice).length > 1 ? ` (${pendingPayments(invoice).length})` : ''}
-                </Button>
-            )}
-            {abilities.verify && invoice.status === 'received' && (
-                <Button size="sm" onClick={() => openReview(invoice)} leftIcon={<FileCheck2 aria-hidden="true" className="size-4" />}>
-                    Periksa
-                </Button>
-            )}
-        </div>
+    const activeAllocatedAmount = (invoice: Invoice) =>
+        (invoice.payment_allocations || []).reduce((total, allocation) => {
+            if (!allocation.payment || !['pending', 'waiting_admin_verification', 'verified'].includes(allocation.payment.verification_status)) {
+                return total;
+            }
+
+            return total + Number(allocation.amount || 0);
+        }, 0);
+
+    const outstandingAmount = (invoice: Invoice) => Math.max(
+        0,
+        Number(invoice.verified_total || 0) - activeAllocatedAmount(invoice),
     );
+
+    const hasPendingPayment = (invoice: Invoice) =>
+        (invoice.payment_allocations || []).some((allocation) =>
+            allocation.payment && ['pending', 'waiting_admin_verification'].includes(allocation.payment.verification_status),
+        );
+
+    const canPayInvoice = (invoice: Invoice) => (abilities.pay ?? abilities.verify)
+        && invoice.status === 'verified'
+        && ['unpaid', 'partially_paid'].includes(invoice.payment_status)
+        && outstandingAmount(invoice) > 0
+        && !hasPendingPayment(invoice);
+
+    const toPayableInvoice = (invoice: Invoice): PayableVendorInvoice => ({
+        id: invoice.id,
+        document_number: invoice.document_number,
+        vendor_name: invoice.vendor?.name || invoice.issuer_name || 'Tanpa vendor/supplier',
+        verified_total: Number(invoice.verified_total || 0),
+        paid_amount: Number(invoice.paid_amount || 0),
+        outstanding_amount: outstandingAmount(invoice),
+        payable_amount: outstandingAmount(invoice),
+        due_date: invoice.due_date,
+        port_call: {
+            job_number: invoice.port_call?.job_number,
+            ship_name: invoice.port_call?.ship?.name,
+            port_name: invoice.port_call?.port?.name,
+        },
+    });
+
+    const invoiceActions = (invoice: Invoice) => {
+        const workflowItems: ActionMenuGroup['items'] = [];
+        const documentItems: ActionMenuGroup['items'] = [];
+        const invoicePendingPayments = pendingPayments(invoice);
+
+        if (abilities.verify && invoicePendingPayments.length > 0) {
+            workflowItems.push({
+                id: 'verify-payment',
+                label: `Verifikasi Bayar${invoicePendingPayments.length > 1 ? ` (${invoicePendingPayments.length})` : ''}`,
+                icon: <CircleCheckBig aria-hidden="true" className="size-4" />,
+                onSelect: () => openPaymentVerification(invoice, invoicePendingPayments[0]),
+                tone: 'success',
+            });
+        }
+
+        if (canPayInvoice(invoice)) {
+            workflowItems.push({
+                id: 'pay-invoice',
+                label: 'Bayar Invoice',
+                icon: <Banknote aria-hidden="true" className="size-4" />,
+                onSelect: () => setInvoiceToPay(invoice),
+                tone: 'primary',
+            });
+        }
+
+        if (abilities.verify && invoice.status === 'received') {
+            workflowItems.push({
+                id: 'review-invoice',
+                label: 'Periksa Invoice',
+                icon: <FileCheck2 aria-hidden="true" className="size-4" />,
+                onSelect: () => openReview(invoice),
+                tone: 'warning',
+            });
+        }
+
+        if (invoice.document_path) {
+            documentItems.push(
+                {
+                    id: 'view-document',
+                    label: 'Lihat Invoice',
+                    icon: <Eye aria-hidden="true" className="size-4" />,
+                    href: `/vendor-invoices/${invoice.id}/document?view=1`,
+                    target: '_blank',
+                    tone: 'primary',
+                },
+                {
+                    id: 'download-document',
+                    label: 'Unduh Invoice',
+                    icon: <Download aria-hidden="true" className="size-4" />,
+                    href: `/vendor-invoices/${invoice.id}/document`,
+                },
+            );
+        }
+
+        return (
+            <ActionMenu
+                label={`Buka aksi invoice vendor ${invoice.document_number}`}
+                groups={[
+                    { id: 'workflow', items: workflowItems },
+                    { id: 'documents', items: documentItems },
+                ]}
+            />
+        );
+    };
 
     const columns: Column<Invoice>[] = [
         {
@@ -304,7 +391,7 @@ export default function VendorInvoiceIndex({
                 </div>
             ),
         },
-        { key: 'vendor', header: 'Vendor', wrap: 'normal', render: (invoice) => invoice.vendor?.name || 'Vendor' },
+        { key: 'vendor', header: 'Vendor', wrap: 'normal', render: (invoice) => invoice.vendor?.name || invoice.issuer_name || 'Tanpa vendor/supplier' },
         {
             key: 'port_call',
             header: 'Job / Kapal',
@@ -352,7 +439,7 @@ export default function VendorInvoiceIndex({
                             Invoice Vendor
                         </h1>
                         <p className="mt-1 max-w-2xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">
-                            Buat invoice langsung dari item pengajuan yang disetujui, verifikasi dokumen, lalu proses pembayarannya melalui menu Pengeluaran.
+                            Buat invoice dari item yang disetujui, verifikasi dokumen, lalu catat pembayaran langsung dari halaman ini. Transaksi otomatis masuk ke Pengeluaran.
                         </p>
                     </div>
                     {abilities.create && (
@@ -593,7 +680,7 @@ export default function VendorInvoiceIndex({
                     desktop={{ columns, compact: true, minWidth: '1040px' }}
                     mobile={{
                         titleRender: (invoice) => invoice.document_number,
-                        subtitleRender: (invoice) => `${invoice.vendor?.name || 'Vendor'} · ${invoice.port_call?.ship?.name || 'Kapal'}`,
+                        subtitleRender: (invoice) => `${invoice.vendor?.name || invoice.issuer_name || 'Tanpa vendor/supplier'} · ${invoice.port_call?.ship?.name || 'Kapal'}`,
                         statusRender: (invoice) => (
                             <div className="flex flex-col items-end gap-1">
                                 <StatusBadge status={invoice.status} label={labels[invoice.status] || invoice.status} showDot />
@@ -634,7 +721,7 @@ export default function VendorInvoiceIndex({
                     }
                 }}
                 title="Verifikasi Invoice Vendor"
-                subtitle={reviewInvoice ? `${reviewInvoice.document_number} · ${reviewInvoice.vendor?.name || 'Vendor'}` : undefined}
+                subtitle={reviewInvoice ? `${reviewInvoice.document_number} · ${reviewInvoice.vendor?.name || reviewInvoice.issuer_name || 'Tanpa vendor/supplier'}` : undefined}
                 footer={(
                     <>
                         <Button
@@ -698,6 +785,14 @@ export default function VendorInvoiceIndex({
                 </form>
             </Modal>
 
+            <VendorInvoicePaymentModal
+                invoices={invoiceToPay ? [toPayableInvoice(invoiceToPay)] : []}
+                isOpen={Boolean(invoiceToPay)}
+                onClose={() => setInvoiceToPay(null)}
+                initialInvoiceId={invoiceToPay?.id}
+                allowInvoiceSelection={false}
+            />
+
             <Modal
                 isOpen={Boolean(paymentToVerify)}
                 onClose={() => {
@@ -707,7 +802,7 @@ export default function VendorInvoiceIndex({
                     }
                 }}
                 title="Verifikasi Pembayaran Vendor"
-                subtitle={paymentToVerify ? `${paymentToVerify.invoice.document_number} · ${paymentToVerify.invoice.vendor?.name || 'Vendor'}` : undefined}
+                subtitle={paymentToVerify ? `${paymentToVerify.invoice.document_number} · ${paymentToVerify.invoice.vendor?.name || paymentToVerify.invoice.issuer_name || 'Tanpa vendor/supplier'}` : undefined}
                 size="md"
                 footer={(
                     <>
