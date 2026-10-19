@@ -12,7 +12,7 @@ class DashboardIndexRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return $this->user() !== null;
     }
 
     /**
@@ -23,7 +23,13 @@ class DashboardIndexRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'search' => ['nullable', 'string', 'max:100'],
+            'ship_id' => ['nullable', 'uuid'],
+            'company_id' => ['nullable', 'uuid'],
+            'port_id' => ['nullable', 'uuid'],
+            'period' => ['nullable', 'string', 'in:semua,hari_ini,7_hari,bulan_ini,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d'],
         ];
     }
 }

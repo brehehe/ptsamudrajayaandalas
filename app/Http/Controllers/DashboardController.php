@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DashboardIndexRequest;
 use App\Models\CompletionNote;
 use App\Models\CostDocument;
 use App\Models\DailyReport;
@@ -17,80 +18,22 @@ use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\WorkOrder;
-use Illuminate\Http\Request;
+use App\Support\DashboardQueryFilters;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(DashboardIndexRequest $request): Response
     {
         $user = $request->user();
         $today = today();
-
-        $validated = $request->validate([
-            'search' => ['nullable', 'string', 'max:100'],
-            'ship_id' => ['nullable', 'uuid'],
-            'company_id' => ['nullable', 'uuid'],
-            'port_id' => ['nullable', 'uuid'],
-            'period' => ['nullable', 'string', 'in:semua,hari_ini,7_hari,bulan_ini,custom'],
-            'start_date' => ['nullable', 'date_format:Y-m-d'],
-            'end_date' => ['nullable', 'date_format:Y-m-d'],
-        ]);
-
-        $search = $validated['search'] ?? null;
-        $shipId = $validated['ship_id'] ?? null;
-        $companyId = $validated['company_id'] ?? null;
-        $portId = $validated['port_id'] ?? null;
-        $period = $validated['period'] ?? null;
-        $startDateStr = $validated['start_date'] ?? null;
-        $endDateStr = $validated['end_date'] ?? null;
-
-        $startDate = null;
-        $endDate = null;
-
-        if ($period === 'hari_ini') {
-            $startDate = today()->startOfDay();
-            $endDate = today()->endOfDay();
-        } elseif ($period === '7_hari') {
-            $startDate = today()->subDays(6)->startOfDay();
-            $endDate = today()->endOfDay();
-        } elseif ($period === 'bulan_ini') {
-            $startDate = today()->startOfMonth()->startOfDay();
-            $endDate = today()->endOfMonth()->endOfDay();
-        } elseif ($period === 'custom' || ($startDateStr && $endDateStr)) {
-            $startDate = $startDateStr ? Carbon::parse($startDateStr)->startOfDay() : null;
-            $endDate = $endDateStr ? Carbon::parse($endDateStr)->endOfDay() : null;
-        }
-
-        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $filters = DashboardQueryFilters::fromRequest($request);
 
         $portCallsQuery = PortCall::query()->with(['ship.company', 'port']);
-
-        if ($shipId) {
-            $portCallsQuery->where('ship_id', $shipId);
-        }
-        if ($companyId) {
-            $portCallsQuery->whereHas('ship', fn ($q) => $q->where('ship_company_id', $companyId));
-        }
-        if ($portId) {
-            $portCallsQuery->where('port_id', $portId);
-        }
-        if ($search) {
-            $portCallsQuery->where(function ($q) use ($search, $like) {
-                $q->where('job_number', $like, "%{$search}%")
-                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"));
-            });
-        }
-        if ($startDate && $endDate && $period !== 'semua') {
-            $portCallsQuery->where(function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('eta_at', [$startDate, $endDate])
-                    ->orWhereBetween('berthed_at', [$startDate, $endDate]);
-            });
-        }
+        $filters->applyToPortCalls($portCallsQuery);
 
         $activePortCalls = (clone $portCallsQuery)
             ->whereIn('status', ['scheduled', 'anchored', 'berthed'])
@@ -109,29 +52,7 @@ class DashboardController extends Controller
         ];
 
         $requestsQuery = ShipRequest::query();
-
-        if ($shipId) {
-            $requestsQuery->where('ship_id', $shipId);
-        }
-        if ($companyId) {
-            $requestsQuery->where(function ($q) use ($companyId) {
-                $q->where('company_id', $companyId)
-                    ->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
-            });
-        }
-        if ($portId) {
-            $requestsQuery->where('port_id', $portId);
-        }
-        if ($search) {
-            $requestsQuery->where(function ($q) use ($search, $like) {
-                $q->where('request_number', $like, "%{$search}%")
-                    ->orWhere('notes', $like, "%{$search}%")
-                    ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"));
-            });
-        }
-        if ($startDate && $endDate && $period !== 'semua') {
-            $requestsQuery->whereBetween('request_date', [$startDate, $endDate]);
-        }
+        $filters->applyToRequests($requestsQuery);
 
         $totalRequests = (clone $requestsQuery)->count();
         $requestsByStatus = [
@@ -168,8 +89,8 @@ class DashboardController extends Controller
             ->values();
 
         $needsQuery = (clone $requestsQuery)->with(['ship', 'items']);
-        if ($startDate && $endDate && $period !== 'semua' && $period !== 'hari_ini') {
-            $needsQuery->whereBetween('request_date', [$startDate, $endDate]);
+        if ($filters->startDate && $filters->endDate && $filters->period !== 'semua' && $filters->period !== 'hari_ini') {
+            $needsQuery->whereBetween('request_date', [$filters->startDate, $filters->endDate]);
         } else {
             $needsQuery->whereDate('request_date', $today);
         }
@@ -190,25 +111,7 @@ class DashboardController extends Controller
 
         $invoicesQuery = Invoice::query()
             ->with(['company', 'portCall.ship.company', 'request.ship']);
-
-        if ($companyId) {
-            $invoicesQuery->where('company_id', $companyId);
-        }
-        if ($shipId) {
-            $invoicesQuery->where(function ($q) use ($shipId) {
-                $q->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $shipId))
-                    ->orWhereHas('request', fn ($rq) => $rq->where('ship_id', $shipId));
-            });
-        }
-        if ($search) {
-            $invoicesQuery->where(function ($q) use ($search, $like) {
-                $q->where('invoice_number', $like, "%{$search}%")
-                    ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"));
-            });
-        }
-        if ($startDate && $endDate && $period !== 'semua') {
-            $invoicesQuery->whereBetween('invoice_date', [$startDate, $endDate]);
-        }
+        $filters->applyToInvoices($invoicesQuery);
 
         $rawInvoices = $invoicesQuery
             ->latest('invoice_date')
@@ -452,15 +355,7 @@ class DashboardController extends Controller
             'current_role' => $user->getPrimaryRoleName(),
             'pending_approvals' => $canViewApprovals ? $pendingApprovals : [],
             'financial_overview' => $canViewFinancials ? $financialOverview : null,
-            'filters' => [
-                'search' => $search ?? '',
-                'ship_id' => $shipId ?? '',
-                'company_id' => $companyId ?? '',
-                'port_id' => $portId ?? '',
-                'period' => $period ?? 'semua',
-                'start_date' => $startDateStr ?? '',
-                'end_date' => $endDateStr ?? '',
-            ],
+            'filters' => $filters->toFilterProps(),
             'role_dashboard' => $this->roleDashboard(
                 $user,
                 $activePortCalls,
@@ -468,11 +363,11 @@ class DashboardController extends Controller
                 $financialOverview,
                 $shipsByStatus,
                 $totalRequests,
-                $shipId,
-                $companyId,
-                $startDate,
-                $endDate,
-                $period,
+                $filters->shipId,
+                $filters->companyId,
+                $filters->startDate,
+                $filters->endDate,
+                $filters->period,
             ),
         ]);
     }

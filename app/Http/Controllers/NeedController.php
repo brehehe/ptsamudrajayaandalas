@@ -14,11 +14,14 @@ use App\Models\WorkOrder;
 use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class NeedController extends Controller
 {
@@ -161,116 +164,130 @@ class NeedController extends Controller
                 'items.*.attachment.max' => 'Ukuran dokumen item maksimal 10 MB.',
             ]);
 
-            return DB::transaction(function () use ($request, $validated): RedirectResponse {
-                $dateSlug = date('Ymd');
-                $countToday = ShipRequest::withTrashed()->whereDate('created_at', now()->toDateString())->count() + 1;
-                $reqNumber = sprintf('REQ-%s-%03d', $dateSlug, $countToday);
+            $storedFiles = [];
 
-                $section = $validated['section'];
-                $orderedBy = $validated['ordered_by_name'];
-                $phone = $validated['ordered_by_phone'];
-                $status = $validated['status'] ?? 'Menunggu Approval';
+            try {
+                return DB::transaction(function () use ($request, $validated, &$storedFiles): RedirectResponse {
+                    $dateSlug = date('Ymd');
+                    $countToday = ShipRequest::withTrashed()->whereDate('created_at', now()->toDateString())->count() + 1;
+                    $reqNumber = sprintf('REQ-%s-%03d', $dateSlug, $countToday);
 
-                $portCall = PortCall::query()
-                    ->whereKey($validated['port_call_id'])
-                    ->where('ship_id', $validated['ship_id'])
-                    ->lockForUpdate()
-                    ->first();
+                    $section = $validated['section'];
+                    $orderedBy = $validated['ordered_by_name'];
+                    $phone = $validated['ordered_by_phone'];
+                    $status = $validated['status'] ?? 'Menunggu Approval';
 
-                if (! $portCall) {
-                    throw ValidationException::withMessages([
-                        'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
-                    ]);
-                }
-
-                if (! $portCall->acceptsNewRequests()) {
-                    throw ValidationException::withMessages([
-                        'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
-                    ]);
-                }
-
-                $photoPath = null;
-                if ($request->hasFile('photo')) {
-                    $photoPath = $request->file('photo')->store('form_kapal', 'public');
-                }
-
-                if ($portCall->work_order_id) {
-                    WorkOrder::query()
+                    $portCall = PortCall::query()
+                        ->whereKey($validated['port_call_id'])
+                        ->where('ship_id', $validated['ship_id'])
                         ->lockForUpdate()
-                        ->find($portCall->work_order_id)
-                        ?->fillMissingClientPic($orderedBy, $phone);
-                }
+                        ->first();
 
-                $notesText = "Bagian: {$section} | Pemesan: {$orderedBy} ({$phone})";
-                if (! empty($validated['required_at'])) {
-                    $notesText .= " | Dibutuhkan: {$validated['required_at']}";
-                }
-                if (! empty($validated['notes'])) {
-                    $notesText .= " | Catatan: {$validated['notes']}";
-                }
+                    if (! $portCall) {
+                        throw ValidationException::withMessages([
+                            'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                        ]);
+                    }
 
-                $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
-                    ? $validated['created_by']
-                    : $request->user()?->id;
+                    if (! $portCall->acceptsNewRequests()) {
+                        throw ValidationException::withMessages([
+                            'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+                        ]);
+                    }
 
-                $shipRequest = ShipRequest::create([
-                    'request_number' => $reqNumber,
-                    'ship_id' => $validated['ship_id'],
-                    'port_call_id' => $validated['port_call_id'],
-                    'created_by' => $createdBy,
-                    'status' => $status,
-                    'request_date' => $validated['request_date'],
-                    'notes' => $notesText,
-                ]);
+                    $photoPath = null;
+                    if ($request->hasFile('photo')) {
+                        $photoPath = $request->file('photo')->store('form_kapal', 'public');
+                        $storedFiles[] = ['disk' => 'public', 'path' => $photoPath];
+                    }
 
-                $products = Product::query()
-                    ->whereIn(
-                        'id',
-                        collect($validated['items'])
-                            ->pluck('product_id')
-                            ->filter()
-                            ->unique()
-                            ->values(),
-                    )
-                    ->get(['id', 'item_type', 'vendor_id', 'hpp_default'])
-                    ->keyBy('id');
+                    if ($portCall->work_order_id) {
+                        WorkOrder::query()
+                            ->lockForUpdate()
+                            ->find($portCall->work_order_id)
+                            ?->fillMissingClientPic($orderedBy, $phone);
+                    }
 
-                foreach ($validated['items'] as $item) {
-                    $product = ! empty($item['product_id'])
-                        ? $products->get($item['product_id'])
-                        : null;
-                    $attachmentPath = isset($item['attachment'])
-                        ? $item['attachment']->store('sja/request-items', 'local')
-                        : $photoPath;
+                    $notesText = "Bagian: {$section} | Pemesan: {$orderedBy} ({$phone})";
+                    if (! empty($validated['required_at'])) {
+                        $notesText .= " | Dibutuhkan: {$validated['required_at']}";
+                    }
+                    if (! empty($validated['notes'])) {
+                        $notesText .= " | Catatan: {$validated['notes']}";
+                    }
 
-                    RequestItem::create([
-                        'request_id' => $shipRequest->id,
-                        'product_id' => $product?->id,
-                        'vendor_id' => $product?->vendor_id,
-                        'item_type' => $product?->item_type ?? 'non_jasa',
-                        'item_name' => $item['item_name'],
-                        'quantity' => $item['quantity'],
-                        'unit' => $item['unit'],
-                        'notes' => $item['notes'] ?? null,
-                        'is_urgent' => $item['is_urgent'],
-                        'required_date' => ! empty($item['required_date']) ? $item['required_date'] : null,
-                        'required_time' => ! empty($item['required_time']) ? $item['required_time'] : null,
-                        'hpp_price' => isset($item['hpp_price']) && is_numeric($item['hpp_price'])
-                            ? (float) $item['hpp_price']
-                            : ($product?->hpp_default ?? 0),
-                        'selling_price' => 0,
-                        'attachment_path' => $attachmentPath,
-                        'status' => 'Pending',
+                    $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                        ? $validated['created_by']
+                        : $request->user()?->id;
+
+                    $shipRequest = ShipRequest::create([
+                        'request_number' => $reqNumber,
+                        'ship_id' => $validated['ship_id'],
+                        'port_call_id' => $validated['port_call_id'],
+                        'created_by' => $createdBy,
+                        'status' => $status,
+                        'request_date' => $validated['request_date'],
+                        'notes' => $notesText,
                     ]);
+
+                    $products = Product::query()
+                        ->whereIn(
+                            'id',
+                            collect($validated['items'])
+                                ->pluck('product_id')
+                                ->filter()
+                                ->unique()
+                                ->values(),
+                        )
+                        ->get(['id', 'item_type', 'vendor_id', 'hpp_default'])
+                        ->keyBy('id');
+
+                    foreach ($validated['items'] as $item) {
+                        $product = ! empty($item['product_id'])
+                            ? $products->get($item['product_id'])
+                            : null;
+                        $attachmentPath = null;
+                        if (isset($item['attachment']) && $item['attachment'] instanceof UploadedFile) {
+                            $attachmentPath = $item['attachment']->store('sja/request-items', 'local');
+                            $storedFiles[] = ['disk' => 'local', 'path' => $attachmentPath];
+                        } else {
+                            $attachmentPath = $photoPath;
+                        }
+
+                        RequestItem::create([
+                            'request_id' => $shipRequest->id,
+                            'product_id' => $product?->id,
+                            'vendor_id' => $product?->vendor_id,
+                            'item_type' => $product?->item_type ?? 'non_jasa',
+                            'item_name' => $item['item_name'],
+                            'quantity' => $item['quantity'],
+                            'unit' => $item['unit'],
+                            'notes' => $item['notes'] ?? null,
+                            'is_urgent' => $item['is_urgent'],
+                            'required_date' => ! empty($item['required_date']) ? $item['required_date'] : null,
+                            'required_time' => ! empty($item['required_time']) ? $item['required_time'] : null,
+                            'hpp_price' => isset($item['hpp_price']) && is_numeric($item['hpp_price'])
+                                ? (float) $item['hpp_price']
+                                : ($product?->hpp_default ?? 0),
+                            'selling_price' => 0,
+                            'attachment_path' => $attachmentPath,
+                            'status' => 'Pending',
+                        ]);
+                    }
+
+                    $this->workflowNotifier->notifySubmission($shipRequest, $request->user());
+
+                    return redirect()->back()
+                        ->with('success', "Kebutuhan {$reqNumber} berhasil diajukan dan disimpan.")
+                        ->with('submitted_request_number', $reqNumber)
+                        ->with('submitted_request_id', $shipRequest->id);
+                });
+            } catch (Throwable $exception) {
+                foreach ($storedFiles as $file) {
+                    Storage::disk($file['disk'])->delete($file['path']);
                 }
-
-                $this->workflowNotifier->notifySubmission($shipRequest, $request->user());
-
-                return redirect()->back()
-                    ->with('success', "Kebutuhan {$reqNumber} berhasil diajukan dan disimpan.")
-                    ->with('submitted_request_number', $reqNumber)
-                    ->with('submitted_request_id', $shipRequest->id);
-            });
+                throw $exception;
+            }
         }
 
         $validated = $request->validate([
@@ -300,26 +317,28 @@ class NeedController extends Controller
             ]);
         }
 
-        $lastReq = ShipRequest::withTrashed()->orderByDesc('created_at')->first();
-        $nextNum = 260;
-        if ($lastReq && preg_match('/REQ-(?:SJA-26-)?(\d+)/', $lastReq->request_number, $matches)) {
-            $nextNum = (int) $matches[1] + 1;
-        }
-        $reqNumber = sprintf('REQ-SJA-26-%04d', $nextNum);
+        return DB::transaction(function () use ($validated, $request): RedirectResponse {
+            $lastReq = ShipRequest::withTrashed()->orderByDesc('created_at')->lockForUpdate()->first();
+            $nextNum = 260;
+            if ($lastReq && preg_match('/REQ-(?:SJA-26-)?(\d+)/', $lastReq->request_number, $matches)) {
+                $nextNum = (int) $matches[1] + 1;
+            }
+            $reqNumber = sprintf('REQ-SJA-26-%04d', $nextNum);
 
-        $newRequest = ShipRequest::create([
-            'request_number' => $reqNumber,
-            'ship_id' => $validated['ship_id'],
-            'port_call_id' => $validated['port_call_id'],
-            'created_by' => $request->user()->id,
-            'status' => 'Menunggu Approval',
-            'request_date' => now()->toDateString(),
-            'notes' => "{$validated['need_type']} {$validated['quantity']} {$validated['unit']} - Dibutuhkan: {$validated['required_at']}. Catatan: ".($validated['notes'] ?? '-'),
-        ]);
+            $newRequest = ShipRequest::create([
+                'request_number' => $reqNumber,
+                'ship_id' => $validated['ship_id'],
+                'port_call_id' => $validated['port_call_id'],
+                'created_by' => $request->user()->id,
+                'status' => 'Menunggu Approval',
+                'request_date' => now()->toDateString(),
+                'notes' => "{$validated['need_type']} {$validated['quantity']} {$validated['unit']} - Dibutuhkan: {$validated['required_at']}. Catatan: ".($validated['notes'] ?? '-'),
+            ]);
 
-        $this->workflowNotifier->notifySubmission($newRequest, $request->user());
+            $this->workflowNotifier->notifySubmission($newRequest, $request->user());
 
-        return redirect()->back()->with('success', "Kebutuhan {$reqNumber} berhasil dicatat dan siap ditinjau.");
+            return redirect()->back()->with('success', "Kebutuhan {$reqNumber} berhasil dicatat dan siap ditinjau.");
+        });
     }
 
     public function updateStatus(UpdateShipRequestStatusRequest $request, string $id): RedirectResponse

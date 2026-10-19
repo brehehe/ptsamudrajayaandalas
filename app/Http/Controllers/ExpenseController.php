@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\DecideCompanyExpenseAction;
 use App\Http\Requests\StoreCompanyExpenseRequest;
 use App\Http\Requests\StoreOutgoingPaymentRequest;
 use App\Models\CostDocument;
@@ -378,7 +379,7 @@ class ExpenseController extends Controller
         return redirect()->back()->with('success', "Pengajuan {$expenseRequest->request_number} berhasil dikirim ke Direktur.");
     }
 
-    public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest): RedirectResponse
+    public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest, DecideCompanyExpenseAction $action): RedirectResponse
     {
         abort_unless($request->user()?->isDirector(), 403);
         $validated = $request->validate([
@@ -386,29 +387,13 @@ class ExpenseController extends Controller
             'notes' => ['nullable', 'required_if:decision,reject', 'string', 'max:1000'],
         ]);
 
-        $decidedExpense = DB::transaction(function () use ($request, $expenseRequest, $validated): ExpenseRequest {
-            $lockedExpense = ExpenseRequest::query()->lockForUpdate()->findOrFail($expenseRequest->id);
-            if ($lockedExpense->scope !== 'company' || $lockedExpense->status !== 'waiting_director') {
-                throw ValidationException::withMessages(['decision' => 'Pengajuan ini sudah diputuskan atau tidak lagi tersedia.']);
-            }
-
-            $lockedExpense->update([
-                'status' => $validated['decision'] === 'approve' ? 'approved' : 'rejected',
-                'notes' => $validated['notes'] ?? $lockedExpense->notes,
-                'reviewed_by' => $request->user()->id,
-                'reviewed_at' => now(),
-            ]);
-
-            activity('company-expense')
-                ->performedOn($lockedExpense)
-                ->causedBy($request->user())
-                ->withProperties(['decision' => $validated['decision'], 'notes' => $validated['notes'] ?? null])
-                ->log($validated['decision'] === 'approve' ? 'Biaya nonkapal disetujui Direktur' : 'Biaya nonkapal ditolak Direktur');
-
-            return $lockedExpense;
-        }, attempts: 3);
-
-        $this->workflowNotifier->notifyCompanyExpenseDecision($decidedExpense, $request->user());
+        $action->execute(
+            $request->user(),
+            $expenseRequest,
+            $validated['decision'],
+            $validated['notes'] ?? null,
+            'expense'
+        );
 
         return redirect()->back()->with('success', 'Keputusan pengajuan biaya perusahaan berhasil disimpan.');
     }

@@ -19,6 +19,7 @@ use App\Models\WorkOrder;
 use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,7 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class RequestController extends Controller
 {
@@ -473,150 +475,161 @@ class RequestController extends Controller
             'created_by' => ['nullable', 'exists:users,id'],
         ]);
 
-        return DB::transaction(function () use ($validated, $request) {
-            // 1. Resolve Company
-            $companyId = $validated['company_id'] ?? null;
-            if (! empty($validated['is_new_company']) && ! empty($validated['new_company_name'])) {
-                $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $validated['new_company_name']), 0, 3));
-                $newComp = ShipCompany::create([
-                    'name' => trim($validated['new_company_name']),
-                    'code' => $code,
-                    'is_active' => true,
-                ]);
-                $companyId = $newComp->id;
-            }
+        $uploadedPaths = [];
 
-            // 2. Resolve Ship
-            $shipId = $validated['ship_id'] ?? null;
-            if (! empty($validated['is_new_ship']) && ! empty($validated['new_ship_name'])) {
-                $newShip = Ship::create([
-                    'name' => trim($validated['new_ship_name']),
-                    'imo_number' => $validated['new_ship_imo'] ?? null,
-                    'ship_type' => null,
-                    'status' => $validated['service_type'] === 'Labuh' ? 'Labuh' : 'Akan Datang',
-                    'ship_company_id' => $companyId,
-                    'is_active' => true,
-                ]);
-                $shipId = $newShip->id;
-            }
-
-            if (! $shipId) {
-                return redirect()->back()->with('error', 'Silakan pilih atau tambahkan data kapal.');
-            }
-
-            // If company is not selected, get it from ship
-            if (! $companyId) {
-                $ship = Ship::find($shipId);
-                $companyId = $ship?->ship_company_id;
-            }
-
-            // 3. Generate Request Number
-            $lastReq = ShipRequest::orderByDesc('created_at')->first();
-            $nextNum = 250;
-            if ($lastReq && preg_match('/REQ-(\d+)/', $lastReq->request_number, $matches)) {
-                $nextNum = (int) $matches[1] + 1;
-            }
-            $reqNumber = sprintf('REQ-%05d', $nextNum);
-
-            // 4. Create ShipRequest
-            $portCall = ! empty($validated['port_call_id'])
-                ? PortCall::whereKey($validated['port_call_id'])->where('ship_id', $shipId)->lockForUpdate()->first()
-                : PortCall::where('ship_id', $shipId)->latest()->lockForUpdate()->first();
-
-            if (! empty($validated['port_call_id']) && ! $portCall) {
-                throw ValidationException::withMessages([
-                    'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
-                ]);
-            }
-
-            if ($portCall && ! $portCall->acceptsNewRequests()) {
-                throw ValidationException::withMessages([
-                    'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
-                ]);
-            }
-            $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
-                ? $validated['created_by']
-                : $request->user()->id;
-
-            $newRequest = ShipRequest::create([
-                'request_number' => $reqNumber,
-                'ship_id' => $shipId,
-                'company_id' => $companyId,
-                'port_id' => $validated['port_id'],
-                'port_call_id' => $portCall?->id,
-                'service_type' => $validated['service_type'],
-                'created_by' => $createdBy,
-                'status' => 'Menunggu Approval',
-                'request_date' => now()->toDateString(),
-                'notes' => $validated['notes'] ?? null,
-            ]);
-
-            // 5. Create RequestItems
-            foreach ($validated['items'] as $item) {
-                $productId = $item['product_id'] ?? null;
-                $hppPrice = 0.00;
-                $vendorId = null;
-                $itemType = 'non_jasa';
-
-                if ($productId) {
-                    $prod = Product::find($productId);
-                    if ($prod) {
-                        $itemType = $prod->item_type;
-                        $hppPrice = (float) $prod->hpp_default;
-                        $vendorId = $prod->vendor_id;
-
-                        // Check port price matrix
-                        $portPrice = ProductPortPrice::where('product_id', $productId)
-                            ->where('port_id', $validated['port_id'])
-                            ->where('service_type', $validated['service_type'])
-                            ->first();
-
-                    }
-                } elseif (! empty($item['item_name'])) {
-                    $prod = Product::where('name', $item['item_name'])->first();
-                    if ($prod) {
-                        $productId = $prod->id;
-                        $itemType = $prod->item_type;
-                        $hppPrice = (float) $prod->hpp_default;
-                        $vendorId = $prod->vendor_id;
-                    }
+        try {
+            return DB::transaction(function () use ($validated, $request, &$uploadedPaths) {
+                // 1. Resolve Company
+                $companyId = $validated['company_id'] ?? null;
+                if (! empty($validated['is_new_company']) && ! empty($validated['new_company_name'])) {
+                    $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $validated['new_company_name']), 0, 3));
+                    $newComp = ShipCompany::create([
+                        'name' => trim($validated['new_company_name']),
+                        'code' => $code,
+                        'is_active' => true,
+                    ]);
+                    $companyId = $newComp->id;
                 }
 
-                $attachmentPath = isset($item['attachment'])
-                    ? $item['attachment']->store('sja/request-items', 'local')
-                    : null;
+                // 2. Resolve Ship
+                $shipId = $validated['ship_id'] ?? null;
+                if (! empty($validated['is_new_ship']) && ! empty($validated['new_ship_name'])) {
+                    $newShip = Ship::create([
+                        'name' => trim($validated['new_ship_name']),
+                        'imo_number' => $validated['new_ship_imo'] ?? null,
+                        'ship_type' => null,
+                        'status' => $validated['service_type'] === 'Labuh' ? 'Labuh' : 'Akan Datang',
+                        'ship_company_id' => $companyId,
+                        'is_active' => true,
+                    ]);
+                    $shipId = $newShip->id;
+                }
 
-                RequestItem::create([
-                    'request_id' => $newRequest->id,
-                    'product_id' => $productId,
-                    'vendor_id' => $vendorId,
-                    'item_type' => $itemType,
-                    'item_name' => $item['item_name'],
-                    'unit' => $item['unit'],
-                    'quantity' => $item['quantity'],
-                    'required_date' => $item['required_date'] ?? now()->toDateString(),
-                    'required_time' => $item['required_time'] ?? null,
-                    'hpp_price' => $hppPrice,
-                    'selling_price' => 0,
-                    'attachment_path' => $attachmentPath,
-                    'status' => 'pending',
-                    'director_status' => 'pending',
-                    'is_urgent' => ! empty($item['is_urgent']),
-                    'notes' => $item['notes'] ?? null,
+                if (! $shipId) {
+                    return redirect()->back()->with('error', 'Silakan pilih atau tambahkan data kapal.');
+                }
+
+                // If company is not selected, get it from ship
+                if (! $companyId) {
+                    $ship = Ship::find($shipId);
+                    $companyId = $ship?->ship_company_id;
+                }
+
+                // 3. Generate Request Number
+                $lastReq = ShipRequest::orderByDesc('created_at')->lockForUpdate()->first();
+                $nextNum = 250;
+                if ($lastReq && preg_match('/REQ-(\d+)/', $lastReq->request_number, $matches)) {
+                    $nextNum = (int) $matches[1] + 1;
+                }
+                $reqNumber = sprintf('REQ-%05d', $nextNum);
+
+                // 4. Create ShipRequest
+                $portCall = ! empty($validated['port_call_id'])
+                    ? PortCall::whereKey($validated['port_call_id'])->where('ship_id', $shipId)->lockForUpdate()->first()
+                    : PortCall::where('ship_id', $shipId)->latest()->lockForUpdate()->first();
+
+                if (! empty($validated['port_call_id']) && ! $portCall) {
+                    throw ValidationException::withMessages([
+                        'port_call_id' => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
+                    ]);
+                }
+
+                if ($portCall && ! $portCall->acceptsNewRequests()) {
+                    throw ValidationException::withMessages([
+                        'port_call_id' => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
+                    ]);
+                }
+                $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                    ? $validated['created_by']
+                    : $request->user()->id;
+
+                $newRequest = ShipRequest::create([
+                    'request_number' => $reqNumber,
+                    'ship_id' => $shipId,
+                    'company_id' => $companyId,
+                    'port_id' => $validated['port_id'],
+                    'port_call_id' => $portCall?->id,
+                    'service_type' => $validated['service_type'],
+                    'created_by' => $createdBy,
+                    'status' => 'Menunggu Approval',
+                    'request_date' => now()->toDateString(),
+                    'notes' => $validated['notes'] ?? null,
                 ]);
+
+                // 5. Create RequestItems
+                foreach ($validated['items'] as $item) {
+                    $productId = $item['product_id'] ?? null;
+                    $hppPrice = 0.00;
+                    $vendorId = null;
+                    $itemType = 'non_jasa';
+
+                    if ($productId) {
+                        $prod = Product::find($productId);
+                        if ($prod) {
+                            $itemType = $prod->item_type;
+                            $hppPrice = (float) $prod->hpp_default;
+                            $vendorId = $prod->vendor_id;
+
+                            // Check port price matrix
+                            $portPrice = ProductPortPrice::where('product_id', $productId)
+                                ->where('port_id', $validated['port_id'])
+                                ->where('service_type', $validated['service_type'])
+                                ->first();
+
+                        }
+                    } elseif (! empty($item['item_name'])) {
+                        $prod = Product::where('name', $item['item_name'])->first();
+                        if ($prod) {
+                            $productId = $prod->id;
+                            $itemType = $prod->item_type;
+                            $hppPrice = (float) $prod->hpp_default;
+                            $vendorId = $prod->vendor_id;
+                        }
+                    }
+
+                    $attachmentPath = null;
+                    if (isset($item['attachment']) && $item['attachment'] instanceof UploadedFile) {
+                        $attachmentPath = $item['attachment']->store('sja/request-items', 'local');
+                        $uploadedPaths[] = $attachmentPath;
+                    }
+
+                    RequestItem::create([
+                        'request_id' => $newRequest->id,
+                        'product_id' => $productId,
+                        'vendor_id' => $vendorId,
+                        'item_type' => $itemType,
+                        'item_name' => $item['item_name'],
+                        'unit' => $item['unit'],
+                        'quantity' => $item['quantity'],
+                        'required_date' => $item['required_date'] ?? now()->toDateString(),
+                        'required_time' => $item['required_time'] ?? null,
+                        'hpp_price' => $hppPrice,
+                        'selling_price' => 0,
+                        'attachment_path' => $attachmentPath,
+                        'status' => 'pending',
+                        'director_status' => 'pending',
+                        'is_urgent' => ! empty($item['is_urgent']),
+                        'notes' => $item['notes'] ?? null,
+                    ]);
+                }
+
+                if (function_exists('activity')) {
+                    activity('request')
+                        ->performedOn($newRequest)
+                        ->causedBy($request->user())
+                        ->log("Operasional mengajukan form kebutuhan {$reqNumber} (".count($validated['items']).' item)');
+                }
+
+                $this->workflowNotifier->notifySubmission($newRequest, $request->user());
+
+                return redirect()->route('requests.index')->with('success', "Pengajuan {$reqNumber} berhasil diajukan.");
+            });
+        } catch (Throwable $exception) {
+            foreach ($uploadedPaths as $path) {
+                Storage::disk('local')->delete($path);
             }
-
-            if (function_exists('activity')) {
-                activity('request')
-                    ->performedOn($newRequest)
-                    ->causedBy($request->user())
-                    ->log("Operasional mengajukan form kebutuhan {$reqNumber} (".count($validated['items']).' item)');
-            }
-
-            $this->workflowNotifier->notifySubmission($newRequest, $request->user());
-
-            return redirect()->route('requests.index')->with('success', "Pengajuan {$reqNumber} berhasil diajukan.");
-        });
+            throw $exception;
+        }
     }
 
     /**
@@ -665,357 +678,368 @@ class RequestController extends Controller
             'created_by' => ['nullable', 'exists:users,id'],
         ]);
 
-        return DB::transaction(function () use ($validated, $request) {
-            $year = now()->format('Y');
-            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-            $lastReq = ShipRequest::where('request_number', $like, "PGJ-{$year}-%")->orderByDesc('created_at')->first();
-            $nextNum = 15;
-            if ($lastReq && preg_match('/PGJ-\d{4}-(\d+)/i', $lastReq->request_number, $matches)) {
-                $nextNum = (int) $matches[1] + 1;
-            }
-            $batchCode = sprintf('PGJ-%s-%04d', $year, $nextNum);
+        $uploadedPaths = [];
 
-            $masterProducts = Product::query()
-                ->where('is_active', true)
-                ->get();
-            $products = $masterProducts->keyBy('id');
-            $productsByCode = $masterProducts->keyBy('code');
-
-            $createdRequests = [];
-
-            foreach ($validated['ships'] as $shipIndex => $shipData) {
-                $portCall = PortCall::query()
-                    ->with([
-                        'ship.company',
-                        'port',
-                        'clearanceInRequests:id,port_call_id',
-                    ])
-                    ->lockForUpdate()
-                    ->whereKey($shipData['port_call_id'])
-                    ->where('ship_id', $shipData['ship_id'])
-                    ->first();
-
-                if (! $portCall) {
-                    throw ValidationException::withMessages([
-                        "ships.{$shipIndex}.port_call_id" => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
-                    ]);
+        try {
+            return DB::transaction(function () use ($validated, $request, &$uploadedPaths) {
+                $year = now()->format('Y');
+                $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                $lastReq = ShipRequest::where('request_number', $like, "PGJ-{$year}-%")->orderByDesc('created_at')->lockForUpdate()->first();
+                $nextNum = 15;
+                if ($lastReq && preg_match('/PGJ-\d{4}-(\d+)/i', $lastReq->request_number, $matches)) {
+                    $nextNum = (int) $matches[1] + 1;
                 }
+                $batchCode = sprintf('PGJ-%s-%04d', $year, $nextNum);
 
-                if (! $portCall->acceptsNewRequests()) {
-                    throw ValidationException::withMessages([
-                        "ships.{$shipIndex}.port_call_id" => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
-                    ]);
-                }
+                $masterProducts = Product::query()
+                    ->where('is_active', true)
+                    ->get();
+                $products = $masterProducts->keyBy('id');
+                $productsByCode = $masterProducts->keyBy('code');
 
-                if ($portCall->work_order_id) {
-                    WorkOrder::query()
+                $createdRequests = [];
+
+                foreach ($validated['ships'] as $shipIndex => $shipData) {
+                    $portCall = PortCall::query()
+                        ->with([
+                            'ship.company',
+                            'port',
+                            'clearanceInRequests:id,port_call_id',
+                        ])
                         ->lockForUpdate()
-                        ->find($portCall->work_order_id)
-                        ?->fillMissingClientPic(
-                            $shipData['requester_name'] ?? null,
-                            $shipData['requester_phone'] ?? null,
-                        );
-                }
+                        ->whereKey($shipData['port_call_id'])
+                        ->where('ship_id', $shipData['ship_id'])
+                        ->first();
 
-                $ship = $portCall->ship;
-                $requestType = $shipData['request_type'];
-                $requestTypeLower = strtolower($requestType);
-                $isClearanceIn = str_contains($requestTypeLower, 'clearance in') || str_contains($requestTypeLower, 'kedatangan');
-                $isClearanceOut = str_contains($requestTypeLower, 'clearance out') || str_contains($requestTypeLower, 'keberangkatan');
-
-                if ($isClearanceIn && ($blockReason = $portCall->clearanceInBlockReason())) {
-                    throw ValidationException::withMessages([
-                        "ships.{$shipIndex}.request_type" => $blockReason,
-                    ]);
-                }
-
-                if ($isClearanceOut && ! in_array($portCall->status, ['anchored', 'berthed'], true)) {
-                    throw ValidationException::withMessages([
-                        "ships.{$shipIndex}.request_type" => 'Clearance Out hanya dapat diajukan ketika kapal berstatus Labuh atau Sandar.',
-                    ]);
-                }
-
-                if (($isClearanceIn || $isClearanceOut) && empty($shipData['operational_occurred_at'])) {
-                    throw ValidationException::withMessages([
-                        "ships.{$shipIndex}.operational_occurred_at" => $isClearanceIn
-                            ? 'Tanggal kedatangan aktual wajib diisi.'
-                            : 'Tanggal keberangkatan aktual wajib diisi.',
-                    ]);
-                }
-
-                if ($isClearanceIn && ! in_array($shipData['requested_port_call_status'] ?? null, ['anchored', 'berthed'], true)) {
-                    throw ValidationException::withMessages([
-                        "ships.{$shipIndex}.requested_port_call_status" => 'Pilih target status Labuh atau Sandar.',
-                    ]);
-                }
-
-                if ($isClearanceOut) {
-                    $hasActiveClearanceOut = ShipRequest::query()
-                        ->where('port_call_id', $portCall->id)
-                        ->whereIn('service_type', ['clearance_out', 'Keberangkatan (Clearance Out)'])
-                        ->whereNotIn('status', ['Ditolak', 'Dibatalkan'])
-                        ->exists();
-
-                    if ($hasActiveClearanceOut) {
+                    if (! $portCall) {
                         throw ValidationException::withMessages([
-                            "ships.{$shipIndex}.request_type" => 'Pengajuan Clearance Out untuk kunjungan ini sudah ada dan masih diproses.',
+                            "ships.{$shipIndex}.port_call_id" => 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.',
                         ]);
                     }
-                }
 
-                $requestedPortCallStatus = $isClearanceIn
-                    ? $shipData['requested_port_call_status']
-                    : ($isClearanceOut ? 'departed' : null);
-                $operationalOccurredAt = ($isClearanceIn || $isClearanceOut)
-                    ? Carbon::parse($shipData['operational_occurred_at'], config('app.timezone'))->startOfDay()
-                    : null;
-
-                // In multi-ship submissions, all ships share the same PGJ batch number
-                // while maintaining their own individual request record per vessel
-                $reqNumber = $batchCode;
-
-                $serviceType = 'Sandar';
-                if ($isClearanceIn) {
-                    $serviceType = 'clearance_in';
-                } elseif ($isClearanceOut) {
-                    $serviceType = 'clearance_out';
-                } elseif (str_contains($requestTypeLower, 'perpanjangan') || str_contains($requestTypeLower, 'endors')) {
-                    $serviceType = 'Perpanjangan Surat / Endors Surat Laut';
-                } elseif (str_contains($requestTypeLower, 'kebutuhan')) {
-                    $serviceType = 'Kebutuhan Kapal';
-                }
-
-                $notesPrefix = "Pengajuan {$shipData['request_type']}";
-                if (! empty($shipData['department'])) {
-                    $notesPrefix .= " (Bagian: {$shipData['department']})";
-                }
-                if (! empty($shipData['requester_name'])) {
-                    $notesPrefix .= " Pemesan: {$shipData['requester_name']}";
-                }
-                $combinedNotes = trim($notesPrefix.(! empty($validated['notes']) ? ' — Catatan Bu Titik: '.$validated['notes'] : ''));
-
-                $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
-                    ? $validated['created_by']
-                    : $request->user()->id;
-
-                $newRequest = ShipRequest::create([
-                    'request_number' => $reqNumber,
-                    'batch_number' => $batchCode,
-                    'ship_id' => $ship->id,
-                    'company_id' => $ship->ship_company_id,
-                    'port_id' => $portCall->port_id,
-                    'port_call_id' => $portCall->id,
-                    'service_type' => $serviceType,
-                    'requested_port_call_status' => $requestedPortCallStatus,
-                    'operational_occurred_at' => $operationalOccurredAt,
-                    'created_by' => $createdBy,
-                    'status' => 'Menunggu Approval',
-                    'request_date' => $shipData['required_date'] ?? now()->toDateString(),
-                    'notes' => $combinedNotes,
-                ]);
-
-                if ($isClearanceIn || $isClearanceOut) {
-                    $shipData['items'] = $this->clearanceItemsForTarget(
-                        $isClearanceOut ? 'clearance_out' : 'clearance_in',
-                        $requestedPortCallStatus,
-                        $shipData,
-                        $productsByCode,
-                    );
-                }
-
-                // Create items if provided
-                if (! empty($shipData['items']) && is_array($shipData['items'])) {
-                    foreach ($shipData['items'] as $item) {
-                        $productId = $item['product_id'] ?? null;
-                        $prod = null;
-
-                        if ($productId && $products->has($productId)) {
-                            $prod = $products->get($productId);
-                        } else {
-                            $nameLower = strtolower(trim($item['item_name'] ?? ''));
-                            if (str_contains($nameLower, 'clearance in') || str_contains($nameLower, 'kedatangan')) {
-                                $prod = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_in');
-                            } elseif (str_contains($nameLower, 'taktis')) {
-                                $prod = $productsByCode->get('PRD-PLD-TAKTIS');
-                            } elseif (str_contains($nameLower, 'epb') || str_contains($nameLower, 'pandu tunda')) {
-                                $prod = $productsByCode->get('PRD-PLD-EPB');
-                            } elseif (str_contains($nameLower, 'clearance out') || str_contains($nameLower, 'keberangkatan')) {
-                                $prod = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_out');
-                            }
-
-                            if (! $prod) {
-                                $prod = $masterProducts->first(fn ($p) => strtolower($p->name) === $nameLower)
-                                    ?? $masterProducts->first(fn ($p) => str_contains(strtolower($p->name), $nameLower) || str_contains($nameLower, strtolower($p->name)));
-                            }
-                        }
-
-                        if ($prod) {
-                            $productId = $prod->id;
-                            $itemType = $prod->item_type ?? 'jasa';
-                            $vendorId = array_key_exists('vendor_id', $item)
-                                ? $item['vendor_id']
-                                : $prod->vendor_id;
-                        } else {
-                            $itemType = $item['item_type'] ?? 'non_jasa';
-                            $vendorId = null;
-                        }
-
-                        // Automatically take price from master products (/master/products) if not custom-specified
-                        if (isset($item['hpp_price']) && is_numeric($item['hpp_price']) && (float) $item['hpp_price'] > 0) {
-                            $hppPrice = (float) $item['hpp_price'];
-                        } elseif ($prod) {
-                            $hppPrice = (float) $prod->hpp_default;
-                        } else {
-                            $hppPrice = (isset($item['hpp_price']) && is_numeric($item['hpp_price'])) ? (float) $item['hpp_price'] : 0.00;
-                        }
-
-                        $attachmentPath = isset($item['attachment'])
-                            ? $item['attachment']->store('sja/request-items', 'local')
-                            : null;
-
-                        RequestItem::create([
-                            'request_id' => $newRequest->id,
-                            'product_id' => $productId,
-                            'vendor_id' => $vendorId,
-                            'item_type' => $itemType,
-                            'item_name' => $item['item_name'],
-                            'quantity' => $item['quantity'],
-                            'unit' => $item['unit'] ?? ($prod?->unit ?? 'Unit'),
-                            'required_date' => $item['required_date'] ?? ($shipData['required_date'] ?? now()->toDateString()),
-                            'required_time' => $item['required_time'] ?? ($shipData['required_time'] ?? null),
-                            'hpp_price' => $hppPrice,
-                            'selling_price' => 0,
-                            'attachment_path' => $attachmentPath,
-                            'status' => 'pending',
-                            'director_status' => 'pending',
-                            'is_urgent' => ! empty($item['is_urgent']),
-                            'notes' => $item['notes'] ?? null,
+                    if (! $portCall->acceptsNewRequests()) {
+                        throw ValidationException::withMessages([
+                            "ships.{$shipIndex}.port_call_id" => 'Pengajuan baru tidak dapat dibuat karena kunjungan / job sudah berstatus Selesai.',
                         ]);
                     }
-                } else {
-                    // Create primary service items directly from master products (/master/products)
+
+                    if ($portCall->work_order_id) {
+                        WorkOrder::query()
+                            ->lockForUpdate()
+                            ->find($portCall->work_order_id)
+                            ?->fillMissingClientPic(
+                                $shipData['requester_name'] ?? null,
+                                $shipData['requester_phone'] ?? null,
+                            );
+                    }
+
+                    $ship = $portCall->ship;
+                    $requestType = $shipData['request_type'];
+                    $requestTypeLower = strtolower($requestType);
+                    $isClearanceIn = str_contains($requestTypeLower, 'clearance in') || str_contains($requestTypeLower, 'kedatangan');
+                    $isClearanceOut = str_contains($requestTypeLower, 'clearance out') || str_contains($requestTypeLower, 'keberangkatan');
+
+                    if ($isClearanceIn && ($blockReason = $portCall->clearanceInBlockReason())) {
+                        throw ValidationException::withMessages([
+                            "ships.{$shipIndex}.request_type" => $blockReason,
+                        ]);
+                    }
+
+                    if ($isClearanceOut && ! in_array($portCall->status, ['anchored', 'berthed'], true)) {
+                        throw ValidationException::withMessages([
+                            "ships.{$shipIndex}.request_type" => 'Clearance Out hanya dapat diajukan ketika kapal berstatus Labuh atau Sandar.',
+                        ]);
+                    }
+
+                    if (($isClearanceIn || $isClearanceOut) && empty($shipData['operational_occurred_at'])) {
+                        throw ValidationException::withMessages([
+                            "ships.{$shipIndex}.operational_occurred_at" => $isClearanceIn
+                                ? 'Tanggal kedatangan aktual wajib diisi.'
+                                : 'Tanggal keberangkatan aktual wajib diisi.',
+                        ]);
+                    }
+
+                    if ($isClearanceIn && ! in_array($shipData['requested_port_call_status'] ?? null, ['anchored', 'berthed'], true)) {
+                        throw ValidationException::withMessages([
+                            "ships.{$shipIndex}.requested_port_call_status" => 'Pilih target status Labuh atau Sandar.',
+                        ]);
+                    }
+
+                    if ($isClearanceOut) {
+                        $hasActiveClearanceOut = ShipRequest::query()
+                            ->where('port_call_id', $portCall->id)
+                            ->whereIn('service_type', ['clearance_out', 'Keberangkatan (Clearance Out)'])
+                            ->whereNotIn('status', ['Ditolak', 'Dibatalkan'])
+                            ->exists();
+
+                        if ($hasActiveClearanceOut) {
+                            throw ValidationException::withMessages([
+                                "ships.{$shipIndex}.request_type" => 'Pengajuan Clearance Out untuk kunjungan ini sudah ada dan masih diproses.',
+                            ]);
+                        }
+                    }
+
+                    $requestedPortCallStatus = $isClearanceIn
+                        ? $shipData['requested_port_call_status']
+                        : ($isClearanceOut ? 'departed' : null);
+                    $operationalOccurredAt = ($isClearanceIn || $isClearanceOut)
+                        ? Carbon::parse($shipData['operational_occurred_at'], config('app.timezone'))->startOfDay()
+                        : null;
+
+                    // In multi-ship submissions, all ships share the same PGJ batch number
+                    // while maintaining their own individual request record per vessel
+                    $reqNumber = $batchCode;
+
+                    $serviceType = 'Sandar';
                     if ($isClearanceIn) {
-                        $prodClr = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_in');
-                        RequestItem::create([
-                            'request_id' => $newRequest->id,
-                            'product_id' => $prodClr?->id,
-                            'vendor_id' => $prodClr?->vendor_id,
-                            'item_type' => $prodClr?->item_type ?? 'jasa',
-                            'item_name' => 'Clearance In (Syahbandar & Karantina)',
-                            'quantity' => 1,
-                            'unit' => $prodClr?->unit ?? 'Dokumen',
-                            'required_date' => $shipData['required_date'] ?? now()->toDateString(),
-                            'required_time' => $shipData['required_time'] ?? null,
-                            'hpp_price' => (float) ($prodClr?->hpp_default ?? 2500000),
-                            'selling_price' => 0.00,
-                            'status' => 'pending',
-                            'director_status' => 'pending',
-                            'is_urgent' => true,
-                            'notes' => "Layanan Clearance In armada {$ship->name}",
-                        ]);
+                        $serviceType = 'clearance_in';
+                    } elseif ($isClearanceOut) {
+                        $serviceType = 'clearance_out';
+                    } elseif (str_contains($requestTypeLower, 'perpanjangan') || str_contains($requestTypeLower, 'endors')) {
+                        $serviceType = 'Perpanjangan Surat / Endors Surat Laut';
+                    } elseif (str_contains($requestTypeLower, 'kebutuhan')) {
+                        $serviceType = 'Kebutuhan Kapal';
+                    }
 
-                        if ($requestedPortCallStatus === 'berthed') {
-                            $prodTaktis = $productsByCode->get('PRD-PLD-TAKTIS');
-                            $prodEpb = $productsByCode->get('PRD-PLD-EPB');
+                    $notesPrefix = "Pengajuan {$shipData['request_type']}";
+                    if (! empty($shipData['department'])) {
+                        $notesPrefix .= " (Bagian: {$shipData['department']})";
+                    }
+                    if (! empty($shipData['requester_name'])) {
+                        $notesPrefix .= " Pemesan: {$shipData['requester_name']}";
+                    }
+                    $combinedNotes = trim($notesPrefix.(! empty($validated['notes']) ? ' — Catatan Bu Titik: '.$validated['notes'] : ''));
+
+                    $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                        ? $validated['created_by']
+                        : $request->user()->id;
+
+                    $newRequest = ShipRequest::create([
+                        'request_number' => $reqNumber,
+                        'batch_number' => $batchCode,
+                        'ship_id' => $ship->id,
+                        'company_id' => $ship->ship_company_id,
+                        'port_id' => $portCall->port_id,
+                        'port_call_id' => $portCall->id,
+                        'service_type' => $serviceType,
+                        'requested_port_call_status' => $requestedPortCallStatus,
+                        'operational_occurred_at' => $operationalOccurredAt,
+                        'created_by' => $createdBy,
+                        'status' => 'Menunggu Approval',
+                        'request_date' => $shipData['required_date'] ?? now()->toDateString(),
+                        'notes' => $combinedNotes,
+                    ]);
+
+                    if ($isClearanceIn || $isClearanceOut) {
+                        $shipData['items'] = $this->clearanceItemsForTarget(
+                            $isClearanceOut ? 'clearance_out' : 'clearance_in',
+                            $requestedPortCallStatus,
+                            $shipData,
+                            $productsByCode,
+                        );
+                    }
+
+                    // Create items if provided
+                    if (! empty($shipData['items']) && is_array($shipData['items'])) {
+                        foreach ($shipData['items'] as $item) {
+                            $productId = $item['product_id'] ?? null;
+                            $prod = null;
+
+                            if ($productId && $products->has($productId)) {
+                                $prod = $products->get($productId);
+                            } else {
+                                $nameLower = strtolower(trim($item['item_name'] ?? ''));
+                                if (str_contains($nameLower, 'clearance in') || str_contains($nameLower, 'kedatangan')) {
+                                    $prod = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_in');
+                                } elseif (str_contains($nameLower, 'taktis')) {
+                                    $prod = $productsByCode->get('PRD-PLD-TAKTIS');
+                                } elseif (str_contains($nameLower, 'epb') || str_contains($nameLower, 'pandu tunda')) {
+                                    $prod = $productsByCode->get('PRD-PLD-EPB');
+                                } elseif (str_contains($nameLower, 'clearance out') || str_contains($nameLower, 'keberangkatan')) {
+                                    $prod = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_out');
+                                }
+
+                                if (! $prod) {
+                                    $prod = $masterProducts->first(fn ($p) => strtolower($p->name) === $nameLower)
+                                        ?? $masterProducts->first(fn ($p) => str_contains(strtolower($p->name), $nameLower) || str_contains($nameLower, strtolower($p->name)));
+                                }
+                            }
+
+                            if ($prod) {
+                                $productId = $prod->id;
+                                $itemType = $prod->item_type ?? 'jasa';
+                                $vendorId = array_key_exists('vendor_id', $item)
+                                    ? $item['vendor_id']
+                                    : $prod->vendor_id;
+                            } else {
+                                $itemType = $item['item_type'] ?? 'non_jasa';
+                                $vendorId = null;
+                            }
+
+                            // Automatically take price from master products (/master/products) if not custom-specified
+                            if (isset($item['hpp_price']) && is_numeric($item['hpp_price']) && (float) $item['hpp_price'] > 0) {
+                                $hppPrice = (float) $item['hpp_price'];
+                            } elseif ($prod) {
+                                $hppPrice = (float) $prod->hpp_default;
+                            } else {
+                                $hppPrice = (isset($item['hpp_price']) && is_numeric($item['hpp_price'])) ? (float) $item['hpp_price'] : 0.00;
+                            }
+
+                            $attachmentPath = null;
+                            if (isset($item['attachment']) && $item['attachment'] instanceof UploadedFile) {
+                                $attachmentPath = $item['attachment']->store('sja/request-items', 'local');
+                                $uploadedPaths[] = $attachmentPath;
+                            }
 
                             RequestItem::create([
                                 'request_id' => $newRequest->id,
-                                'product_id' => $prodTaktis?->id,
-                                'vendor_id' => null,
-                                'item_type' => $prodTaktis?->item_type ?? 'jasa',
-                                'item_name' => 'Taktis Penyandaran',
-                                'quantity' => 1,
-                                'unit' => $prodTaktis?->unit ?? 'Kegiatan',
-                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
-                                'required_time' => $shipData['required_time'] ?? null,
-                                'hpp_price' => (float) ($prodTaktis?->hpp_default ?? 0),
-                                'selling_price' => 0.00,
+                                'product_id' => $productId,
+                                'vendor_id' => $vendorId,
+                                'item_type' => $itemType,
+                                'item_name' => $item['item_name'],
+                                'quantity' => $item['quantity'],
+                                'unit' => $item['unit'] ?? ($prod?->unit ?? 'Unit'),
+                                'required_date' => $item['required_date'] ?? ($shipData['required_date'] ?? now()->toDateString()),
+                                'required_time' => $item['required_time'] ?? ($shipData['required_time'] ?? null),
+                                'hpp_price' => $hppPrice,
+                                'selling_price' => 0,
+                                'attachment_path' => $attachmentPath,
                                 'status' => 'pending',
                                 'director_status' => 'pending',
-                                'is_urgent' => true,
-                                'notes' => "Taktis Penyandaran armada {$ship->name}",
-                            ]);
-
-                            RequestItem::create([
-                                'request_id' => $newRequest->id,
-                                'product_id' => $prodEpb?->id,
-                                'vendor_id' => $prodEpb?->vendor_id,
-                                'item_type' => $prodEpb?->item_type ?? 'jasa',
-                                'item_name' => 'Pembayaran EPB (Pandu Tunda)',
-                                'quantity' => 1,
-                                'unit' => $prodEpb?->unit ?? 'Kegiatan',
-                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
-                                'required_time' => $shipData['required_time'] ?? null,
-                                'hpp_price' => (float) ($prodEpb?->hpp_default ?? 100000),
-                                'selling_price' => 0.00,
-                                'status' => 'pending',
-                                'director_status' => 'pending',
-                                'is_urgent' => true,
-                                'notes' => "Pembayaran EPB armada {$ship->name}",
+                                'is_urgent' => ! empty($item['is_urgent']),
+                                'notes' => $item['notes'] ?? null,
                             ]);
                         }
-                    } elseif ($isClearanceOut) {
-                        $prodClr = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_out');
-                        RequestItem::create([
-                            'request_id' => $newRequest->id,
-                            'product_id' => $prodClr?->id,
-                            'vendor_id' => $prodClr?->vendor_id,
-                            'item_type' => $prodClr?->item_type ?? 'jasa',
-                            'item_name' => 'Clearance Out (Syahbandar & Karantina)',
-                            'quantity' => 1,
-                            'unit' => $prodClr?->unit ?? 'Dokumen',
-                            'required_date' => $shipData['required_date'] ?? now()->toDateString(),
-                            'required_time' => $shipData['required_time'] ?? null,
-                            'hpp_price' => (float) ($prodClr?->hpp_default ?? 2500000),
-                            'selling_price' => 0.00,
-                            'status' => 'pending',
-                            'director_status' => 'pending',
-                            'is_urgent' => true,
-                            'notes' => "Layanan Clearance Out armada {$ship->name}",
-                        ]);
                     } else {
-                        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-                        $product = Product::query()->where('is_active', true)->where('name', $like, "%{$shipData['request_type']}%")->first();
+                        // Create primary service items directly from master products (/master/products)
+                        if ($isClearanceIn) {
+                            $prodClr = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_in');
+                            RequestItem::create([
+                                'request_id' => $newRequest->id,
+                                'product_id' => $prodClr?->id,
+                                'vendor_id' => $prodClr?->vendor_id,
+                                'item_type' => $prodClr?->item_type ?? 'jasa',
+                                'item_name' => 'Clearance In (Syahbandar & Karantina)',
+                                'quantity' => 1,
+                                'unit' => $prodClr?->unit ?? 'Dokumen',
+                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                'required_time' => $shipData['required_time'] ?? null,
+                                'hpp_price' => (float) ($prodClr?->hpp_default ?? 2500000),
+                                'selling_price' => 0.00,
+                                'status' => 'pending',
+                                'director_status' => 'pending',
+                                'is_urgent' => true,
+                                'notes' => "Layanan Clearance In armada {$ship->name}",
+                            ]);
 
-                        RequestItem::create([
-                            'request_id' => $newRequest->id,
-                            'product_id' => $product?->id,
-                            'vendor_id' => $product?->vendor_id,
-                            'item_type' => $product?->item_type ?? 'jasa',
-                            'item_name' => $shipData['request_type'],
-                            'quantity' => 1,
-                            'unit' => $product?->unit ?? 'Paket',
-                            'required_date' => $shipData['required_date'] ?? now()->toDateString(),
-                            'required_time' => $shipData['required_time'] ?? null,
-                            'hpp_price' => (float) ($product?->hpp_default ?? 0),
-                            'selling_price' => 0.00,
-                            'status' => 'pending',
-                            'director_status' => 'pending',
-                            'is_urgent' => false,
-                            'notes' => "Layanan {$shipData['request_type']} armada {$ship->name}",
-                        ]);
+                            if ($requestedPortCallStatus === 'berthed') {
+                                $prodTaktis = $productsByCode->get('PRD-PLD-TAKTIS');
+                                $prodEpb = $productsByCode->get('PRD-PLD-EPB');
+
+                                RequestItem::create([
+                                    'request_id' => $newRequest->id,
+                                    'product_id' => $prodTaktis?->id,
+                                    'vendor_id' => null,
+                                    'item_type' => $prodTaktis?->item_type ?? 'jasa',
+                                    'item_name' => 'Taktis Penyandaran',
+                                    'quantity' => 1,
+                                    'unit' => $prodTaktis?->unit ?? 'Kegiatan',
+                                    'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                    'required_time' => $shipData['required_time'] ?? null,
+                                    'hpp_price' => (float) ($prodTaktis?->hpp_default ?? 0),
+                                    'selling_price' => 0.00,
+                                    'status' => 'pending',
+                                    'director_status' => 'pending',
+                                    'is_urgent' => true,
+                                    'notes' => "Taktis Penyandaran armada {$ship->name}",
+                                ]);
+
+                                RequestItem::create([
+                                    'request_id' => $newRequest->id,
+                                    'product_id' => $prodEpb?->id,
+                                    'vendor_id' => $prodEpb?->vendor_id,
+                                    'item_type' => $prodEpb?->item_type ?? 'jasa',
+                                    'item_name' => 'Pembayaran EPB (Pandu Tunda)',
+                                    'quantity' => 1,
+                                    'unit' => $prodEpb?->unit ?? 'Kegiatan',
+                                    'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                    'required_time' => $shipData['required_time'] ?? null,
+                                    'hpp_price' => (float) ($prodEpb?->hpp_default ?? 100000),
+                                    'selling_price' => 0.00,
+                                    'status' => 'pending',
+                                    'director_status' => 'pending',
+                                    'is_urgent' => true,
+                                    'notes' => "Pembayaran EPB armada {$ship->name}",
+                                ]);
+                            }
+                        } elseif ($isClearanceOut) {
+                            $prodClr = $productsByCode->get('PRD-CLR') ?? $this->resolveClearanceProduct->handle('clearance_out');
+                            RequestItem::create([
+                                'request_id' => $newRequest->id,
+                                'product_id' => $prodClr?->id,
+                                'vendor_id' => $prodClr?->vendor_id,
+                                'item_type' => $prodClr?->item_type ?? 'jasa',
+                                'item_name' => 'Clearance Out (Syahbandar & Karantina)',
+                                'quantity' => 1,
+                                'unit' => $prodClr?->unit ?? 'Dokumen',
+                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                'required_time' => $shipData['required_time'] ?? null,
+                                'hpp_price' => (float) ($prodClr?->hpp_default ?? 2500000),
+                                'selling_price' => 0.00,
+                                'status' => 'pending',
+                                'director_status' => 'pending',
+                                'is_urgent' => true,
+                                'notes' => "Layanan Clearance Out armada {$ship->name}",
+                            ]);
+                        } else {
+                            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                            $product = Product::query()->where('is_active', true)->where('name', $like, "%{$shipData['request_type']}%")->first();
+
+                            RequestItem::create([
+                                'request_id' => $newRequest->id,
+                                'product_id' => $product?->id,
+                                'vendor_id' => $product?->vendor_id,
+                                'item_type' => $product?->item_type ?? 'jasa',
+                                'item_name' => $shipData['request_type'],
+                                'quantity' => 1,
+                                'unit' => $product?->unit ?? 'Paket',
+                                'required_date' => $shipData['required_date'] ?? now()->toDateString(),
+                                'required_time' => $shipData['required_time'] ?? null,
+                                'hpp_price' => (float) ($product?->hpp_default ?? 0),
+                                'selling_price' => 0.00,
+                                'status' => 'pending',
+                                'director_status' => 'pending',
+                                'is_urgent' => false,
+                                'notes' => "Layanan {$shipData['request_type']} armada {$ship->name}",
+                            ]);
+                        }
                     }
+
+                    $createdRequests[] = $newRequest;
                 }
 
-                $createdRequests[] = $newRequest;
-            }
+                if (! empty($createdRequests)) {
+                    $this->workflowNotifier->notifyBatchSubmission($createdRequests, $request->user(), $batchCode);
+                }
 
-            if (! empty($createdRequests)) {
-                $this->workflowNotifier->notifyBatchSubmission($createdRequests, $request->user(), $batchCode);
-            }
+                if (function_exists('activity')) {
+                    activity('request')
+                        ->causedBy($request->user())
+                        ->log("Staf lapangan mengajukan pengajuan multi kapal {$batchCode} (".count($createdRequests).' kapal)');
+                }
 
-            if (function_exists('activity')) {
-                activity('request')
-                    ->causedBy($request->user())
-                    ->log("Staf lapangan mengajukan pengajuan multi kapal {$batchCode} (".count($createdRequests).' kapal)');
+                return redirect()->route('requests.index')->with([
+                    'success' => "Pengajuan {$batchCode} (".count($createdRequests).' Kapal) berhasil diajukan ke Bu Titik.',
+                    'submitted_request_number' => $batchCode,
+                    'submitted_request_id' => $createdRequests[0]->id ?? null,
+                ]);
+            });
+        } catch (Throwable $exception) {
+            foreach ($uploadedPaths as $path) {
+                Storage::disk('local')->delete($path);
             }
-
-            return redirect()->route('requests.index')->with([
-                'success' => "Pengajuan {$batchCode} (".count($createdRequests).' Kapal) berhasil diajukan ke Bu Titik.',
-                'submitted_request_number' => $batchCode,
-                'submitted_request_id' => $createdRequests[0]->id ?? null,
-            ]);
-        });
+            throw $exception;
+        }
     }
 
     /**

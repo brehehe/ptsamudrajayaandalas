@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Actions\CreateVendorInvoiceFromApprovedItem;
+use App\Actions\DecideCompanyExpenseAction;
 use App\Models\ExpenseRequest;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
@@ -337,11 +338,19 @@ class ApprovalController extends Controller
                 return redirect()->back()->with('error', 'Pengajuan ini belum dikirim Admin atau sudah selesai ditinjau.');
             }
 
+            $itemIds = collect($validated['decisions'])->pluck('item_id');
+            $items = RequestItem::lockForUpdate()
+                ->where('request_id', $shipRequest->id)
+                ->whereIn('id', $itemIds)
+                ->get()
+                ->keyBy('id');
+
             foreach ($validated['decisions'] as $dec) {
-                $item = RequestItem::lockForUpdate()
-                    ->where('request_id', $shipRequest->id)
-                    ->where('id', $dec['item_id'])
-                    ->firstOrFail();
+                /** @var RequestItem|null $item */
+                $item = $items->get($dec['item_id']);
+                if (! $item) {
+                    abort(404);
+                }
 
                 if ($item->status !== 'diajukan_ke_direktur') {
                     continue;
@@ -802,7 +811,7 @@ class ApprovalController extends Controller
         return redirect()->back()->with('success', $result['message']);
     }
 
-    public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest): RedirectResponse
+    public function decideCompanyExpense(Request $request, ExpenseRequest $expenseRequest, DecideCompanyExpenseAction $action): RedirectResponse
     {
         abort_unless($request->user()?->isDirector(), 403);
         $validated = $request->validate([
@@ -810,29 +819,13 @@ class ApprovalController extends Controller
             'notes' => ['nullable', 'required_if:decision,reject', 'string', 'max:1000'],
         ]);
 
-        $decidedExpense = DB::transaction(function () use ($request, $expenseRequest, $validated): ExpenseRequest {
-            $lockedExpense = ExpenseRequest::query()->lockForUpdate()->findOrFail($expenseRequest->id);
-            if ($lockedExpense->scope !== 'company' || $lockedExpense->status !== 'waiting_director') {
-                throw ValidationException::withMessages(['decision' => 'Pengajuan ini sudah diputuskan atau tidak lagi tersedia.']);
-            }
-
-            $lockedExpense->update([
-                'status' => $validated['decision'] === 'approve' ? 'approved' : 'rejected',
-                'notes' => $validated['notes'] ?? $lockedExpense->notes,
-                'reviewed_by' => $request->user()->id,
-                'reviewed_at' => now(),
-            ]);
-
-            activity('company-expense')
-                ->performedOn($lockedExpense)
-                ->causedBy($request->user())
-                ->withProperties(['decision' => $validated['decision'], 'notes' => $validated['notes'] ?? null])
-                ->log($validated['decision'] === 'approve' ? 'Biaya nonkapal disetujui Direktur dari menu Approval' : 'Biaya nonkapal ditolak Direktur dari menu Approval');
-
-            return $lockedExpense;
-        }, attempts: 3);
-
-        $this->workflowNotifier->notifyCompanyExpenseDecision($decidedExpense, $request->user());
+        $action->execute(
+            $request->user(),
+            $expenseRequest,
+            $validated['decision'],
+            $validated['notes'] ?? null,
+            'approval'
+        );
 
         return redirect()->back()->with('success', 'Keputusan pengajuan biaya perusahaan berhasil disimpan.');
     }
