@@ -52,6 +52,10 @@ final class ReportExportPdfBuilder
      */
     public function build(array $data): string
     {
+        if (! empty($data['sections'])) {
+            return $this->buildGroupedSections($data);
+        }
+
         $orientation = $data['orientation'] ?? 'landscape';
         $isLandscape = $orientation === 'landscape';
 
@@ -323,6 +327,398 @@ final class ReportExportPdfBuilder
             );
             $commands[] = $this->rightAlignedTextCommand(
                 'Halaman '.($pageIndex + 1).' dari '.$pageCount,
+                $rightMargin,
+                $bottomMargin - 10,
+                6.5
+            );
+
+            $pageContents[] = implode("\n", $commands);
+        }
+
+        return $this->assemblePdf($pageContents, $pageWidth, $pageHeight);
+    }
+
+    /**
+     * Build grouped sections PDF with separate cards per vessel/job.
+     *
+     * @param array{
+     *     title: string,
+     *     meta_lines?: list<string>,
+     *     section_columns?: list<array{header: string, width?: int, align?: string, type?: string}>,
+     *     sections?: list<array{
+     *         job_number: string,
+     *         ship_name: string,
+     *         company_name: string,
+     *         port_name: string,
+     *         client_spk: string,
+     *         status_label: string,
+     *         stay_info: string,
+     *         total_expense: float|int,
+     *         item_count: int,
+     *         rows: list<list<mixed>>
+     *     }>,
+     *     summary_boxes?: list<array{label: string, value: string}>,
+     *     signatories?: array{left_label?: string, left_name?: string, right_label?: string, right_name?: string}
+     * } $data
+     */
+    private function buildGroupedSections(array $data): string
+    {
+        $pageWidth = 842;
+        $pageHeight = 595;
+        $leftMargin = 36;
+        $rightMargin = 806;
+        $topMargin = 559;
+        $bottomMargin = 36;
+        $usableWidth = 770;
+
+        $columns = [
+            ['header' => 'No.', 'width' => 26, 'align' => 'center', 'type' => 'number'],
+            ['header' => 'Tanggal', 'width' => 54, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'No. Pengajuan', 'width' => 74, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Item Kebutuhan & Catatan', 'width' => 226, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Qty', 'width' => 30, 'align' => 'right', 'type' => 'number'],
+            ['header' => 'Satuan', 'width' => 44, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'HPP Satuan', 'width' => 76, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Biaya Item', 'width' => 80, 'align' => 'right', 'type' => 'currency'],
+            ['header' => "Akumulatif\ns/d Hari Ini", 'width' => 95, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Status', 'width' => 65, 'align' => 'center', 'type' => 'text'],
+        ];
+
+        $runningX = $leftMargin;
+        foreach ($columns as &$col) {
+            $col['x'] = $runningX;
+            $runningX += $col['width'];
+        }
+        unset($col);
+
+        $sections = $data['sections'] ?? [];
+        $contentTopY = $topMargin - 48;
+        $contentBottomY = $bottomMargin + 25;
+
+        $pages = [[]];
+        $currentPage = 0;
+        $currentY = $contentTopY;
+
+        $startNewPage = function () use (&$pages, &$currentPage, &$currentY, $contentTopY): void {
+            $currentPage++;
+            $pages[$currentPage] = [];
+            $currentY = $contentTopY;
+        };
+
+        if (empty($sections)) {
+            $pages[0][] = '0.4 0.4 0.4 rg';
+            $pages[0][] = $this->textCommand('Tidak ada data laporan untuk kriteria filter ini.', $leftMargin + 10, $contentTopY - 20, 9);
+        } else {
+            foreach ($sections as $section) {
+                // Section Header Card Height: 32 pt, Table Header: 18 pt, Min 1 row: 16 pt = 66 pt
+                if ($currentY - 66 < $contentBottomY) {
+                    $startNewPage();
+                }
+
+                $cardTop = $currentY;
+                $cardBottom = $cardTop - 32;
+
+                // Section Card Background and Border
+                $pages[$currentPage][] = "0.941 0.973 1.0 rg {$leftMargin} {$cardBottom} {$usableWidth} 32 re f";
+                $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.8 w {$leftMargin} {$cardBottom} {$usableWidth} 32 re S";
+
+                // Line 1: Job Number (Blue), Ship Name (Navy Bold), Status Badge
+                $pages[$currentPage][] = '0.0 0.376 0.957 rg';
+                $pages[$currentPage][] = $this->textCommand($section['job_number'], $leftMargin + 8, $cardTop - 11, 8, true);
+
+                $jobWidth = (int) $this->textWidth($section['job_number'], 8, true);
+                $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+                $pages[$currentPage][] = $this->textCommand($section['ship_name'], $leftMargin + 8 + $jobWidth + 8, $cardTop - 11, 8.5, true);
+
+                $shipWidth = (int) $this->textWidth($section['ship_name'], 8.5, true);
+                $pages[$currentPage][] = '0.25 0.45 0.65 rg';
+                $pages[$currentPage][] = $this->textCommand('['.$section['status_label'].']', $leftMargin + 8 + $jobWidth + 8 + $shipWidth + 6, $cardTop - 11, 7.5);
+
+                // Line 1 Right: Total Pengeluaran Kapal, Nilai, Item Count
+                $totalExpenseText = 'Rp '.number_format((float) $section['total_expense'], 0, ',', '.');
+                $itemCountText = $section['item_count'].' Item';
+
+                $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+                $pages[$currentPage][] = $this->rightAlignedTextCommand($itemCountText, $rightMargin - 8, $cardTop - 11, 8, true);
+
+                $itemTextWidth = (int) $this->textWidth($itemCountText, 8, true);
+                $pages[$currentPage][] = '0.0 0.376 0.957 rg';
+                $pages[$currentPage][] = $this->rightAlignedTextCommand($totalExpenseText, $rightMargin - 8 - $itemTextWidth - 14, $cardTop - 11, 9, true);
+
+                $expenseTextWidth = (int) $this->textWidth($totalExpenseText, 9, true);
+                $pages[$currentPage][] = '0.35 0.42 0.55 rg';
+                $pages[$currentPage][] = $this->rightAlignedTextCommand('TOTAL PENGELUARAN KAPAL: ', $rightMargin - 8 - $itemTextWidth - 14 - $expenseTextWidth - 4, $cardTop - 11, 7, true);
+
+                // Line 2: Perusahaan, Pelabuhan, SPK Klien, Stay
+                $clientSpkPart = $section['client_spk'] && $section['client_spk'] !== '-' ? '   |   SPK Klien: '.$section['client_spk'] : '';
+                $sectionMetaText = "Perusahaan: {$section['company_name']}   |   Pelabuhan: {$section['port_name']}{$clientSpkPart}   |   {$section['stay_info']}";
+                $pages[$currentPage][] = '0.3 0.38 0.5 rg';
+                $pages[$currentPage][] = $this->textCommand($sectionMetaText, $leftMargin + 8, $cardTop - 23, 7);
+
+                $currentY = $cardBottom;
+
+                // Table Header Row for this section
+                $thTop = $currentY;
+                $thBottom = $thTop - 18;
+                $pages[$currentPage][] = "0.875 0.922 0.973 rg {$leftMargin} {$thBottom} {$usableWidth} 18 re f";
+                $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.6 w {$leftMargin} {$thBottom} m {$rightMargin} {$thBottom} l S";
+
+                $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+                foreach ($columns as $col) {
+                    $align = $col['align'];
+                    $hLines = explode("\n", $col['header']);
+                    $lineY = $thBottom + 5;
+                    if (count($hLines) > 1) {
+                        $lineY = $thBottom + 9;
+                    }
+                    foreach ($hLines as $hlIdx => $hlText) {
+                        $actualY = $lineY - ($hlIdx * 8);
+                        if ($align === 'right') {
+                            $pages[$currentPage][] = $this->rightAlignedTextCommand($hlText, $col['x'] + $col['width'] - 3, $actualY, 7, true);
+                        } elseif ($align === 'center') {
+                            $pages[$currentPage][] = $this->centeredTextCommandWithin($hlText, $col['x'], $col['x'] + $col['width'], $actualY, 7, true);
+                        } else {
+                            $pages[$currentPage][] = $this->textCommand($hlText, $col['x'] + 3, $actualY, 7, true);
+                        }
+                    }
+                }
+
+                $currentY = $thBottom;
+
+                // Table Item Rows
+                $rowY = $currentY - 11;
+                foreach ($section['rows'] as $rIdx => $rowValues) {
+                    // Prepare cell strings
+                    $cellStrings = [
+                        0 => (string) ($rowValues[0] ?? '-'),
+                        1 => (string) ($rowValues[1] ?? '-'),
+                        2 => (string) ($rowValues[2] ?? '-'),
+                        3 => (string) ($rowValues[3] ?? '-'),
+                        4 => is_numeric($rowValues[4] ?? null) ? (string) ($rowValues[4] + 0) : (string) ($rowValues[4] ?? '-'),
+                        5 => (string) ($rowValues[5] ?? '-'),
+                        6 => is_numeric($rowValues[6] ?? null) ? number_format((float) $rowValues[6], 0, ',', '.') : '-',
+                        7 => is_numeric($rowValues[7] ?? null) ? number_format((float) $rowValues[7], 0, ',', '.') : '-',
+                        8 => is_numeric($rowValues[8] ?? null) ? number_format((float) $rowValues[8], 0, ',', '.') : '-',
+                        9 => (string) ($rowValues[9] ?? '-'),
+                    ];
+
+                    $cellLines = [];
+                    $maxLines = 1;
+                    foreach ($columns as $cIdx => $col) {
+                        $availW = max(14.0, (float) ($col['width'] - 6));
+                        $lines = $this->wrapCellText($cellStrings[$cIdx], $availW, 7.5);
+                        $cellLines[$cIdx] = $lines;
+                        $maxLines = max($maxLines, count($lines));
+                    }
+
+                    $rowHeight = max(16, ($maxLines * 10) + 6);
+
+                    if ($currentY - $rowHeight < $contentBottomY) {
+                        $startNewPage();
+
+                        // Continuation header
+                        $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+                        $pages[$currentPage][] = $this->textCommand("{$section['job_number']} — {$section['ship_name']} (Lanjutan)", $leftMargin + 6, $contentTopY - 10, 8, true);
+
+                        $thTop = $contentTopY - 16;
+                        $thBottom = $thTop - 18;
+                        $pages[$currentPage][] = "0.875 0.922 0.973 rg {$leftMargin} {$thBottom} {$usableWidth} 18 re f";
+                        $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.6 w {$leftMargin} {$thBottom} m {$rightMargin} {$thBottom} l S";
+
+                        $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+                        foreach ($columns as $col) {
+                            $align = $col['align'];
+                            $hLines = explode("\n", $col['header']);
+                            $lineY = $thBottom + (count($hLines) > 1 ? 9 : 5);
+                            foreach ($hLines as $hlIdx => $hlText) {
+                                $actualY = $lineY - ($hlIdx * 8);
+                                if ($align === 'right') {
+                                    $pages[$currentPage][] = $this->rightAlignedTextCommand($hlText, $col['x'] + $col['width'] - 3, $actualY, 7, true);
+                                } elseif ($align === 'center') {
+                                    $pages[$currentPage][] = $this->centeredTextCommandWithin($hlText, $col['x'], $col['x'] + $col['width'], $actualY, 7, true);
+                                } else {
+                                    $pages[$currentPage][] = $this->textCommand($hlText, $col['x'] + 3, $actualY, 7, true);
+                                }
+                            }
+                        }
+
+                        $currentY = $thBottom;
+                        $rowY = $currentY - 11;
+                    }
+
+                    // Zebra background for odd rows
+                    if ($rIdx % 2 === 1) {
+                        $pages[$currentPage][] = "0.976 0.988 1 rg {$leftMargin} ".($rowY - $rowHeight + 9)." {$usableWidth} {$rowHeight} re f";
+                    }
+
+                    // Border line below row
+                    $pages[$currentPage][] = "0.89 0.93 0.98 RG 0.4 w {$leftMargin} ".($rowY - $rowHeight + 9)." m {$rightMargin} ".($rowY - $rowHeight + 9).' l S';
+
+                    $pages[$currentPage][] = '0.05 0.1 0.25 rg';
+                    foreach ($columns as $cIdx => $col) {
+                        $lines = $cellLines[$cIdx];
+                        $align = $col['align'];
+                        foreach ($lines as $lIdx => $line) {
+                            $lineY = $rowY - ($lIdx * 10);
+                            if ($align === 'right') {
+                                $pages[$currentPage][] = $this->rightAlignedTextCommand($line, $col['x'] + $col['width'] - 3, $lineY, 7.5);
+                            } elseif ($align === 'center') {
+                                $pages[$currentPage][] = $this->centeredTextCommandWithin($line, $col['x'], $col['x'] + $col['width'], $lineY, 7.5);
+                            } else {
+                                $pages[$currentPage][] = $this->textCommand($line, $col['x'] + 3, $lineY, 7.5);
+                            }
+                        }
+                    }
+
+                    $rowY -= $rowHeight;
+                    $currentY -= $rowHeight;
+                }
+
+                // Subtotal Row for this Section
+                if ($currentY - 20 < $contentBottomY) {
+                    $startNewPage();
+                }
+
+                $subTop = $currentY;
+                $subBottom = $subTop - 20;
+
+                $pages[$currentPage][] = "0.918 0.957 1.0 rg {$leftMargin} {$subBottom} {$usableWidth} 20 re f";
+                $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.8 w {$leftMargin} {$subTop} m {$rightMargin} {$subTop} l S";
+                $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.6 w {$leftMargin} {$subBottom} m {$rightMargin} {$subBottom} l S";
+
+                $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+                $pages[$currentPage][] = $this->textCommand("Total Pengeluaran Kapal ({$section['ship_name']}):", $leftMargin + 8, $subBottom + 6, 7.5, true);
+
+                $pages[$currentPage][] = '0.0 0.376 0.957 rg';
+                $pages[$currentPage][] = $this->rightAlignedTextCommand('Rp '.number_format((float) $section['total_expense'], 0, ',', '.'), $columns[8]['x'] + $columns[8]['width'] - 3, $subBottom + 6, 8.5, true);
+
+                $pages[$currentPage][] = '0.3 0.4 0.55 rg';
+                $pages[$currentPage][] = $this->centeredTextCommandWithin("{$section['item_count']} Item", $columns[9]['x'], $columns[9]['x'] + $columns[9]['width'], $subBottom + 6, 7.5, true);
+
+                $currentY = $subBottom - 14;
+            }
+
+            // Summary Boxes & Signatures Block (Requires ~130 pt)
+            if ($currentY - 130 < $contentBottomY) {
+                $startNewPage();
+            }
+
+            $boxCount = 3;
+            $boxGap = 16;
+            $boxWidth = (int) (($usableWidth - (($boxCount - 1) * $boxGap)) / $boxCount); // ~246 pt
+            $boxHeight = 36;
+            $boxTop = $currentY;
+            $boxBottom = $boxTop - $boxHeight;
+
+            $totalVessels = count($sections);
+            $totalItems = (int) array_sum(array_column($sections, 'item_count'));
+            $grandTotal = (float) array_sum(array_column($sections, 'total_expense'));
+
+            // Box 1 (Left): Total Kapal Terdata
+            $bx0 = $leftMargin;
+            $pages[$currentPage][] = "0.94 0.97 1 rg {$bx0} {$boxBottom} {$boxWidth} {$boxHeight} re f";
+            $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.8 w {$bx0} {$boxBottom} {$boxWidth} {$boxHeight} re S";
+            $pages[$currentPage][] = '0.3 0.4 0.55 rg';
+            $pages[$currentPage][] = $this->textCommand('Total Kapal Terdata', $bx0 + 10, $boxTop - 13, 7.5, true);
+            $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+            $pages[$currentPage][] = $this->textCommand((string) $totalVessels, $bx0 + 10, $boxTop - 27, 11, true);
+
+            // Box 2 (Center): Total Item Kebutuhan
+            $bx1 = $bx0 + $boxWidth + $boxGap;
+            $pages[$currentPage][] = "0.94 0.97 1 rg {$bx1} {$boxBottom} {$boxWidth} {$boxHeight} re f";
+            $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.8 w {$bx1} {$boxBottom} {$boxWidth} {$boxHeight} re S";
+            $pages[$currentPage][] = '0.3 0.4 0.55 rg';
+            $pages[$currentPage][] = $this->textCommand('Total Item Kebutuhan', $bx1 + 10, $boxTop - 13, 7.5, true);
+            $pages[$currentPage][] = '0.043 0.122 0.388 rg';
+            $pages[$currentPage][] = $this->textCommand((string) $totalItems, $bx1 + 10, $boxTop - 27, 11, true);
+
+            // Box 3 (Right): Total Pengeluaran (HPP)
+            $bx2 = $bx1 + $boxWidth + $boxGap;
+            $bx2Width = $rightMargin - $bx2;
+            $pages[$currentPage][] = "0.94 0.97 1 rg {$bx2} {$boxBottom} {$bx2Width} {$boxHeight} re f";
+            $pages[$currentPage][] = "0.741 0.839 0.992 RG 0.8 w {$bx2} {$boxBottom} {$bx2Width} {$boxHeight} re S";
+            $pages[$currentPage][] = '0.3 0.4 0.55 rg';
+            $pages[$currentPage][] = $this->textCommand('Total Pengeluaran (HPP)', $bx2 + 10, $boxTop - 13, 7.5, true);
+            $pages[$currentPage][] = '0.0 0.376 0.957 rg';
+            $pages[$currentPage][] = $this->textCommand('Rp '.number_format($grandTotal, 0, ',', '.'), $bx2 + 10, $boxTop - 27, 11, true);
+
+            $currentY = $boxBottom - 20;
+
+            // Signatories Block
+            $sig = $data['signatories'] ?? [];
+            $sigLeftLabel = $sig['left_label'] ?? 'Dibuat Oleh (Admin/Finance),';
+            $sigLeftName = $sig['left_name'] ?? 'Staff Operasional & Finance';
+            $sigRightLabel = $sig['right_label'] ?? 'Mengetahui (Direktur Operasional),';
+            $sigRightName = $sig['right_name'] ?? $this->documentSettings->get('signatory_title');
+
+            $sigY = max($bottomMargin + 45, $currentY - 12);
+            $pages[$currentPage][] = '0.2 0.25 0.35 rg';
+            $pages[$currentPage][] = $this->textCommand($sigLeftLabel, $leftMargin + 20, $sigY, 7.5);
+            $pages[$currentPage][] = $this->rightAlignedTextCommand($sigRightLabel, $rightMargin - 20, $sigY, 7.5);
+
+            $pages[$currentPage][] = '0 0 0 RG 0.5 w '.($leftMargin + 10).' '.($sigY - 35).' m '.($leftMargin + 160).' '.($sigY - 35).' l S';
+            $pages[$currentPage][] = '0 0 0 RG 0.5 w '.($rightMargin - 160).' '.($sigY - 35).' m '.($rightMargin - 10).' '.($sigY - 35).' l S';
+
+            $pages[$currentPage][] = '0.05 0.1 0.25 rg';
+            $pages[$currentPage][] = $this->textCommand($sigLeftName, $leftMargin + 10, $sigY - 46, 7.5, true);
+            $pages[$currentPage][] = $this->rightAlignedTextCommand($sigRightName, $rightMargin - 10, $sigY - 46, 7.5, true);
+        }
+
+        // Assemble Final Pages with Common Header and Footer
+        $pageCount = count($pages);
+        $pageContents = [];
+
+        foreach ($pages as $pIdx => $pCommands) {
+            $commands = [];
+
+            // 1. Company Letterhead Header
+            $companyName = $this->documentSettings->get('company_name') ?: 'PT. SAMUDRA JAYA ANDALAS';
+            $commands[] = '0.043 0.122 0.388 rg'; // Navy
+            $commands[] = $this->textCommand(strtoupper($companyName), $leftMargin, $topMargin - 4, 11, true);
+
+            $commands[] = '0.322 0.396 0.557 rg'; // Slate
+            $commands[] = $this->textCommand($this->documentSettings->get('business_label') ?: 'Shipping Agency & Logistics Services', $leftMargin, $topMargin - 16, 7);
+
+            // Document Title on Right
+            $titleText = strtoupper($data['title']);
+            $titleSize = 11.0;
+            $maxTitleWidth = max(220.0, $usableWidth - 220.0);
+            while ($titleSize > 8.0 && $this->textWidth($titleText, $titleSize, true) > $maxTitleWidth) {
+                $titleSize -= 0.5;
+            }
+            $commands[] = '0.043 0.122 0.388 rg';
+            $commands[] = $this->rightAlignedTextCommand($titleText, $rightMargin, $topMargin - 4, $titleSize, true);
+
+            // Meta lines
+            $metaY = $topMargin - 30;
+            $metaLines = $data['meta_lines'] ?? [];
+            if (! empty($metaLines)) {
+                $metaText = implode('   |   ', $metaLines);
+                $commands[] = '0.2 0.25 0.35 rg';
+                $commands[] = $this->textCommand($metaText, $leftMargin, $metaY, 7.5, true);
+            }
+            $commands[] = '0.4 0.45 0.55 rg';
+            $commands[] = $this->rightAlignedTextCommand('Waktu Cetak: '.now()->timezone('Asia/Jakarta')->format('d/m/Y H:i').' WIB', $rightMargin, $metaY, 7);
+
+            // Top divider line
+            $commands[] = "0.741 0.839 0.992 RG 0.8 w {$leftMargin} ".($topMargin - 38)." m {$rightMargin} ".($topMargin - 38).' l S';
+
+            // 2. Page body commands
+            foreach ($pCommands as $cmd) {
+                $commands[] = $cmd;
+            }
+
+            // 3. Footer
+            $commands[] = "0.85 0.88 0.92 RG 0.5 w {$leftMargin} {$bottomMargin} m {$rightMargin} {$bottomMargin} l S";
+            $commands[] = '0.5 0.55 0.65 rg';
+            $commands[] = $this->textCommand(
+                'Dokumen resmi dihasilkan secara elektronik oleh Sistem PT Samudra Jaya Andalas',
+                $leftMargin,
+                $bottomMargin - 10,
+                6.5
+            );
+            $commands[] = $this->rightAlignedTextCommand(
+                'Halaman '.($pIdx + 1).' dari '.$pageCount,
                 $rightMargin,
                 $bottomMargin - 10,
                 6.5

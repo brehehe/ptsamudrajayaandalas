@@ -20,6 +20,10 @@ class HandleInertiaRequests extends Middleware
      */
     public function version(Request $request): ?string
     {
+        if (app()->environment('local')) {
+            return null;
+        }
+
         return parent::version($request);
     }
 

@@ -1,15 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Sidebar from '../Components/navigation/Sidebar';
-import Topbar from '../Components/navigation/Topbar';
-import { RoleMobileBottomNavigation } from '../Components/navigation/RoleMobileBottomNavigation';
-import PageLoadingSkeleton from '../Components/feedback/PageLoadingSkeleton';
 import Logo from '../Components/ui/Logo';
-import { usePage, Link, router } from '@inertiajs/react';
+import { usePage, Link } from '@inertiajs/react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Bell, Menu, X } from 'lucide-react';
 import { PageProps } from '@/types';
 import NotificationCenter, { openNotificationCenter } from '@/Components/notifications/NotificationCenter';
 import WorkflowFlashToast from '@/Components/feedback/WorkflowFlashToast';
+import { RoleMobileBottomNavigation } from '@/Components/navigation/RoleMobileBottomNavigation';
+import Topbar from '@/Components/navigation/Topbar';
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -37,58 +36,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     const url = page.url;
     const user = auth?.user;
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [isNavigating, setIsNavigating] = useState(false);
     const menuButtonRef = useRef<HTMLButtonElement>(null);
     const drawerRef = useRef<HTMLDivElement>(null);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
-    const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const prefersReducedMotion = useReducedMotion();
     const showMobileMenu = Boolean(user);
     const mobileBackgroundClass = mobileBackground === 'background'
         ? 'bg-[#F0F8FF] dark:bg-[#071322] md:bg-transparent'
         : 'bg-white dark:bg-[#0C1D36] md:bg-transparent';
-    const currentPath = url.split('?')[0].replace(/\/$/, '') || '/';
-    const loadingSkeletonVariant = currentPath === '/dashboard'
-        ? 'dashboard'
-        : currentPath.endsWith('/create') || currentPath.endsWith('/edit') || currentPath === '/profile'
-            ? 'form'
-            : /^\/(requests|vessels)\/[^/]+$/.test(currentPath)
-                ? 'detail'
-                : 'list';
 
     useEffect(() => {
         setMobileMenuOpen(false);
     }, [url]);
-
-    useEffect(() => {
-        const stopStartListener = router.on('start', (event) => {
-            if (event.detail.visit.method !== 'get') {
-                return;
-            }
-
-            if (loadingTimerRef.current) {
-                clearTimeout(loadingTimerRef.current);
-            }
-
-            loadingTimerRef.current = setTimeout(() => setIsNavigating(true), 220);
-        });
-        const stopFinishListener = router.on('finish', () => {
-            if (loadingTimerRef.current) {
-                clearTimeout(loadingTimerRef.current);
-                loadingTimerRef.current = null;
-            }
-
-            setIsNavigating(false);
-        });
-
-        return () => {
-            stopStartListener();
-            stopFinishListener();
-            if (loadingTimerRef.current) {
-                clearTimeout(loadingTimerRef.current);
-            }
-        };
-    }, []);
 
     useEffect(() => {
         if (!mobileMenuOpen) {
@@ -264,24 +223,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 </AnimatePresence>
 
                 {/* Content Container with Framer Motion Page Transition */}
-                <main id="main-content" tabIndex={-1} aria-busy={isNavigating} className={`min-w-0 flex-1 wrap-anywhere ${mobileBackgroundClass}`}>
+                <main id="main-content" tabIndex={-1} className={`min-w-0 flex-1 wrap-anywhere ${mobileBackgroundClass}`}>
                     <div
                         className={`${noPaddingMobile || transparentMobileHeader || hideMobileHeader
                             ? 'p-0 md:p-6 lg:p-7'
                             : 'p-4 pb-0 md:p-6 lg:p-7'
                             }`}
                     >
-                        <AnimatePresence mode="wait" initial={false}>
-                            <motion.div
-                                key={isNavigating ? 'page-loading' : url.split('?')[0]}
-                                initial={prefersReducedMotion ? false : { opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: prefersReducedMotion ? 0 : 0.15 }}
-                            >
-                                {isNavigating ? <PageLoadingSkeleton variant={loadingSkeletonVariant} /> : children}
-                            </motion.div>
-                        </AnimatePresence>
+                        {children}
                     </div>
                 </main>
 

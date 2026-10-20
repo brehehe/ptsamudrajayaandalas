@@ -39,7 +39,7 @@ export default function Dashboard({
     const [currentTime, setCurrentTime] = useState(() => new Date());
 
     useEffect(() => {
-        const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
+        const timer = window.setInterval(() => setCurrentTime(new Date()), 30000);
 
         return () => window.clearInterval(timer);
     }, []);

@@ -91,6 +91,7 @@ final class ReportExportManager
             ->orderByDesc('created_at')
             ->get();
 
+        $sections = [];
         $rows = [];
         $seq = 1;
         $grandTotal = 0;
@@ -102,14 +103,18 @@ final class ReportExportManager
             $companyName = $call->ship?->company?->name ?? $call->workOrder?->company?->name ?? '-';
             $portName = $call->port?->name ?? '-';
 
-            $stayDays = '-';
+            $stayInfo = '-';
             if ($call->eta_at) {
                 $end = $call->departed_at ?? $call->etd_at ?? now();
                 $stayDays = max(1, round($call->eta_at->diffInHours($end) / 24, 1)).' hari';
+                $sandar = $call->eta_at->format('d/m/Y');
+                $keluar = $call->departed_at ? 'Keluar: '.$call->departed_at->format('d/m/Y') : ($call->etd_at ? 'Rencana: '.$call->etd_at->format('d/m/Y') : '-');
+                $stayInfo = "Sandar: {$sandar} · {$keluar} ({$stayDays})";
             }
 
             $callTotal = 0;
-            $hasItems = false;
+            $sectionRows = [];
+            $itemSeq = 1;
 
             foreach ($call->requests as $req) {
                 foreach ($req->items as $item) {
@@ -125,7 +130,6 @@ final class ReportExportManager
                     $callTotal += $itemCost;
                     $grandTotal += $itemCost;
                     $totalItems++;
-                    $hasItems = true;
 
                     $statusLabel = match ($item->director_status) {
                         'approved' => 'Disetujui',
@@ -135,6 +139,21 @@ final class ReportExportManager
 
                     $itemDateFormatted = $itemDate ? CarbonImmutable::parse($itemDate)->format('d/m/Y') : '-';
 
+                    // Grouped section row (10 columns, no redundant ship/job/company)
+                    $sectionRows[] = [
+                        $itemSeq++,
+                        $itemDateFormatted,
+                        $req->request_number,
+                        $item->item_name.($item->notes ? " ({$item->notes})" : ''),
+                        (float) $item->quantity,
+                        $item->unit ?: 'Unit',
+                        (float) $item->hpp_price,
+                        $itemCost,
+                        $callTotal,
+                        $statusLabel,
+                    ];
+
+                    // Flat row (for fallback or general flat table view)
                     $rows[] = [
                         $seq++,
                         $itemDateFormatted,
@@ -153,8 +172,28 @@ final class ReportExportManager
                 }
             }
 
-            if ($hasItems || $job !== null) {
+            if (! empty($sectionRows) || $job !== null) {
                 $vesselsCount++;
+                $statusText = match ($call->status) {
+                    'berthed' => 'Sandar',
+                    'anchored' => 'Labuh',
+                    'departed' => 'Berangkat',
+                    'completed' => 'Selesai',
+                    default => ucfirst($call->status ?? 'Draft'),
+                };
+
+                $sections[] = [
+                    'job_number' => $call->job_number,
+                    'ship_name' => $shipName,
+                    'company_name' => $companyName,
+                    'port_name' => $portName,
+                    'client_spk' => $call->workOrder?->client_number ?? '-',
+                    'status_label' => $statusText,
+                    'stay_info' => $stayInfo,
+                    'total_expense' => $callTotal,
+                    'item_count' => count($sectionRows),
+                    'rows' => $sectionRows,
+                ];
             }
         }
 
@@ -170,6 +209,7 @@ final class ReportExportManager
                 : "Total Kapal: {$vesselsCount} | Total Item: {$totalItems}",
         ];
 
+        // Flat table columns
         $columns = [
             ['header' => 'No.', 'width' => 5, 'align' => 'center', 'type' => 'number'],
             ['header' => 'Tanggal', 'width' => 14, 'align' => 'center', 'type' => 'text'],
@@ -186,14 +226,29 @@ final class ReportExportManager
             ['header' => 'Status', 'width' => 12, 'align' => 'center', 'type' => 'text'],
         ];
 
+        // Section table columns (10 columns per vessel card)
+        $sectionColumns = [
+            ['header' => 'No.', 'width' => 4, 'align' => 'center', 'type' => 'number'],
+            ['header' => 'Tanggal', 'width' => 11, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'No. Pengajuan', 'width' => 15, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Item Kebutuhan & Catatan', 'width' => 30, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Qty', 'width' => 6, 'align' => 'right', 'type' => 'number'],
+            ['header' => 'Satuan', 'width' => 8, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'HPP Satuan', 'width' => 14, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Biaya Item', 'width' => 15, 'align' => 'right', 'type' => 'currency'],
+            ['header' => "Akumulatif\ns/d Hari Ini", 'width' => 17, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Status', 'width' => 11, 'align' => 'center', 'type' => 'text'],
+        ];
+
         $filename = $isSingleJob
             ? 'laporan-pengeluaran-kapal-'.Str::slug($job).".{$format}"
             : "laporan-pengeluaran-kapal-{$from->toDateString()}-sd-{$to->toDateString()}.{$format}";
 
+        // Summary boxes: Total Kapal Terdata (kiri), Total Item Kebutuhan (tengah), Total Pengeluaran HPP (kanan)
         $summaryBoxes = [
-            ['label' => 'Total Pengeluaran (HPP)', 'value' => 'Rp '.number_format($grandTotal, 0, ',', '.')],
-            ['label' => 'Total Item Kebutuhan', 'value' => (string) $totalItems],
             ['label' => 'Total Kapal Terdata', 'value' => (string) $vesselsCount],
+            ['label' => 'Total Item Kebutuhan', 'value' => (string) $totalItems],
+            ['label' => 'Total Pengeluaran (HPP)', 'value' => 'Rp '.number_format($grandTotal, 0, ',', '.')],
         ];
 
         $summaryRow = [
@@ -208,7 +263,10 @@ final class ReportExportManager
                 'sheet_name' => 'Pengeluaran Kapal',
                 'meta_lines' => $metaLines,
                 'columns' => $columns,
+                'section_columns' => $sectionColumns,
+                'sections' => $sections,
                 'rows' => $rows,
+                'summary_boxes' => $summaryBoxes,
                 'summary_row' => $summaryRow,
             ]);
             $savedPath = $this->saveToExportsStorage($tmpPath, $filename);
@@ -222,6 +280,8 @@ final class ReportExportManager
             'orientation' => 'landscape',
             'meta_lines' => $metaLines,
             'columns' => $columns,
+            'section_columns' => $sectionColumns,
+            'sections' => $sections,
             'rows' => $rows,
             'summary_boxes' => $summaryBoxes,
             'signatories' => [

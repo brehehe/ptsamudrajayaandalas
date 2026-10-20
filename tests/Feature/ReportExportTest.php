@@ -138,6 +138,9 @@ test('authorized users can queue and auto-download vessel daily expenses in both
     $archive->close();
     expect($sheetXml)->toContain('LAPORAN PENGELUARAN HARIAN KAPAL');
     expect($sheetXml)->toContain($data['jobNumber']);
+    expect($sheetXml)->toContain('Total Kapal Terdata:');
+    expect($sheetXml)->toContain('Total Item Kebutuhan:');
+    expect($sheetXml)->toContain('Total Pengeluaran (HPP):');
 
     // 2. Per-Job Vessel Daily Expenses in PDF
     $pdfJobResponse = $this->actingAs($admin)->postJson(route('reports.exports.store'), [
@@ -164,7 +167,10 @@ test('authorized users can queue and auto-download vessel daily expenses in both
     expect($pdfContent)
         ->toStartWith('%PDF-1.4')
         ->toContain('PENGELUARAN HARIAN KAPAL')
-        ->toContain($data['jobNumber']);
+        ->toContain($data['jobNumber'])
+        ->toContain('Total Kapal Terdata')
+        ->toContain('Total Item Kebutuhan')
+        ->toContain('Total Pengeluaran');
 });
 
 test('authorized users can queue and download margin and invoice reports in pdf and excel', function () {

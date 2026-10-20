@@ -1475,19 +1475,19 @@ export default function ReportsIndex({
                                     icon={<Ship aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
                                 <MetricCard
-                                    label="Total Pengeluaran (HPP)"
-                                    value={vesselDailyExpenseSummary?.total_expenses || 0}
-                                    detail={`${vesselDailyExpenseSummary?.total_items || 0} item kebutuhan kapal`}
-                                    tone="blue"
-                                    icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />}
-                                />
-                                <MetricCard
                                     label="Total Item Kebutuhan"
                                     value={vesselDailyExpenseSummary?.total_items || 0}
                                     detail="Seluruh kebutuhan operasional &amp; sertifikat"
                                     format="number"
                                     tone="green"
                                     icon={<ClipboardList aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                                <MetricCard
+                                    label="Total Pengeluaran (HPP)"
+                                    value={vesselDailyExpenseSummary?.total_expenses || 0}
+                                    detail={`${vesselDailyExpenseSummary?.total_items || 0} item kebutuhan kapal`}
+                                    tone="blue"
+                                    icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
                                 <MetricCard
                                     label="Rata-rata Pengeluaran / Kapal"
