@@ -16,6 +16,7 @@ import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
 import Input from '../../../Components/forms/Input';
 import MoneyInput from '../../../Components/forms/MoneyInput';
 import Textarea from '../../../Components/forms/Textarea';
+import ImportExportActions from '../../../Components/ui/ImportExportActions';
 
 interface Vendor {
     id: string;
@@ -402,6 +403,11 @@ export default function MasterProductsIndex({
                             <Settings2 aria-hidden="true" className="size-4" />
                             <span>Tipe Kegiatan</span>
                         </Link>
+                        <ImportExportActions
+                            resource="products"
+                            resourceTitle="Barang & Jasa"
+                            canManage={true}
+                        />
                         <Button
                             variant="primary"
                             onClick={openAddModal}
@@ -417,14 +423,22 @@ export default function MasterProductsIndex({
                     </div>
                 </div>
 
-                <Button
-                    type="button"
-                    className="w-full md:hidden"
-                    onClick={openAddModal}
-                    leftIcon={<Plus aria-hidden="true" className="size-4" />}
-                >
-                    Tambah Produk
-                </Button>
+                <div className="space-y-2 md:hidden">
+                    <ImportExportActions
+                        resource="products"
+                        resourceTitle="Barang & Jasa"
+                        canManage={true}
+                        className="w-full justify-between"
+                    />
+                    <Button
+                        type="button"
+                        className="w-full"
+                        onClick={openAddModal}
+                        leftIcon={<Plus aria-hidden="true" className="size-4" />}
+                    >
+                        Tambah Produk
+                    </Button>
+                </div>
 
                 {/* KPI Metrics */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

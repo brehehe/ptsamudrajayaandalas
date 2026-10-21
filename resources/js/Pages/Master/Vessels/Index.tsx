@@ -12,6 +12,7 @@ import ShipImage from '../../../Components/vessels/ShipImage';
 import MobilePageHero from '../../../Components/navigation/MobilePageHero';
 import { ResponsiveTable, type Column } from '../../../Components/tables/Table';
 import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
+import ImportExportActions from '../../../Components/ui/ImportExportActions';
 
 interface VesselCompany {
     id: string;
@@ -211,6 +212,11 @@ export default function MasterVesselsIndex({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                        <ImportExportActions
+                            resource="vessels"
+                            resourceTitle="Kapal"
+                            canManage={canManage}
+                        />
                         {canManage && (
                             <Button
                                 type="button"
@@ -325,7 +331,15 @@ export default function MasterVesselsIndex({
                     </div>
                 </Card>
 
-                {canManage && <Button className="w-full md:hidden" onClick={openCreateForm} leftIcon={<Plus aria-hidden="true" className="size-4" />}>Tambah Kapal</Button>}
+                <div className="space-y-2 md:hidden">
+                    <ImportExportActions
+                        resource="vessels"
+                        resourceTitle="Kapal"
+                        canManage={canManage}
+                        className="w-full justify-between"
+                    />
+                    {canManage && <Button className="w-full" onClick={openCreateForm} leftIcon={<Plus aria-hidden="true" className="size-4" />}>Tambah Kapal</Button>}
+                </div>
 
                 <ResponsiveTable<MasterVessel>
                     data={vessels}

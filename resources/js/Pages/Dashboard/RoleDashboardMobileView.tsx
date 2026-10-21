@@ -21,6 +21,7 @@ import {
     ReceiptText,
     Ship,
     TrendingUp,
+    Banknote,
     type LucideIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -124,6 +125,14 @@ const metricPresentation: Record<string, MetricPresentation> = {
     receivables: {
         href: '/receivables',
         icon: HandCoins,
+    },
+    margin: {
+        href: '/reports/margin',
+        icon: TrendingUp,
+    },
+    expenses: {
+        href: '/reports/expenses',
+        icon: Banknote,
     },
 };
 

@@ -14,6 +14,7 @@ import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import Button from '../../Components/ui/Button';
 import ActionMenu, { type ActionMenuGroup } from '../../Components/ui/ActionMenu';
 import DocumentActions from '../../Components/ui/DocumentActions';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Tabs from '../../Components/ui/Tabs';
 
@@ -349,11 +350,18 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                         <h1 className="text-3xl font-extrabold tracking-tight text-[#0B1F63] dark:text-[#F1F5F9]">Invoice & Tagihan Klien</h1>
                         <p className="mt-1 max-w-3xl whitespace-normal text-sm text-[#52658E] [overflow-wrap:anywhere] dark:text-[#94A3B8]">Invoice Jasa Keagenan dan Reimbursement berdasarkan item pengajuan yang disetujui.</p>
                     </div>
-                    {abilities.manage && (
-                        <Link href="/invoices/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35">
-                            <Plus aria-hidden="true" className="size-4" /> Buat Invoice
-                        </Link>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <ImportExportActions
+                            resource="invoices"
+                            resourceTitle="Invoice & Tagihan Klien"
+                            canManage={abilities.manage}
+                        />
+                        {abilities.manage && (
+                            <Link href="/invoices/create" className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35">
+                                <Plus aria-hidden="true" className="size-4" /> Buat Invoice
+                            </Link>
+                        )}
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">

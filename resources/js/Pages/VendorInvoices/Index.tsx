@@ -18,6 +18,7 @@ import {
 import AppLayout from '../../Layouts/AppLayout';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Modal from '../../Components/overlays/Modal';
 import MoneyInput from '../../Components/forms/MoneyInput';
@@ -442,15 +443,22 @@ export default function VendorInvoiceIndex({
                             Buat invoice dari item yang disetujui, verifikasi dokumen, lalu catat pembayaran langsung dari halaman ini. Transaksi otomatis masuk ke Pengeluaran.
                         </p>
                     </div>
-                    {abilities.create && (
-                        <Link
-                            href="/vendor-invoices/create"
-                            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
-                        >
-                            <Plus aria-hidden="true" className="size-4" />
-                            Buat Invoice dari Pengajuan
-                        </Link>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <ImportExportActions
+                            resource="vendor-invoices"
+                            resourceTitle="Invoice Vendor"
+                            canManage={abilities.create}
+                        />
+                        {abilities.create && (
+                            <Link
+                                href="/vendor-invoices/create"
+                                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
+                            >
+                                <Plus aria-hidden="true" className="size-4" />
+                                Buat Invoice dari Pengajuan
+                            </Link>
+                        )}
+                    </div>
                 </div>
 
                 {/* ── KPI Stat Cards ── */}

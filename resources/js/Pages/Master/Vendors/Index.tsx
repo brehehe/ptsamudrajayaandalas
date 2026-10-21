@@ -12,6 +12,7 @@ import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
 import Input from '../../../Components/forms/Input';
 import Textarea from '../../../Components/forms/Textarea';
 import Select from '../../../Components/selects/Select';
+import ImportExportActions from '../../../Components/ui/ImportExportActions';
 
 interface Vendor {
     id: string;
@@ -139,23 +140,30 @@ export default function MasterVendorsIndex({
                         </div>
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={() => {
-                            clearErrors();
-                            reset();
-                            setIsCreateModalOpen(true);
-                        }}
-                        className={
-                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
-                            'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
-                            'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
-                            'flex-shrink-0 cursor-pointer self-start sm:self-auto'
-                        }
-                    >
-                        <span className="text-base leading-none font-bold">+</span>
-                        <span>Tambah Vendor Baru</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ImportExportActions
+                            resource="vendors"
+                            resourceTitle="Vendor"
+                            canManage={true}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                clearErrors();
+                                reset();
+                                setIsCreateModalOpen(true);
+                            }}
+                            className={
+                                'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
+                                'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
+                                'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
+                                'flex-shrink-0 cursor-pointer self-start sm:self-auto'
+                            }
+                        >
+                            <span className="text-base leading-none font-bold">+</span>
+                            <span>Tambah Vendor Baru</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* ── Title Header ── */}
@@ -171,9 +179,17 @@ export default function MasterVendorsIndex({
                     </div>
                 </div>
 
-                <Button type="button" className="w-full md:hidden" onClick={() => { clearErrors(); reset(); setIsCreateModalOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>
-                    Tambah Vendor
-                </Button>
+                <div className="space-y-2 md:hidden">
+                    <ImportExportActions
+                        resource="vendors"
+                        resourceTitle="Vendor"
+                        canManage={true}
+                        className="w-full justify-between"
+                    />
+                    <Button type="button" className="w-full" onClick={() => { clearErrors(); reset(); setIsCreateModalOpen(true); }} leftIcon={<Plus aria-hidden="true" className="size-4" />}>
+                        Tambah Vendor
+                    </Button>
+                </div>
 
                 <FilterBar
                     searchValue={search}

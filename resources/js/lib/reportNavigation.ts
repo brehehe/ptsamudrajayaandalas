@@ -33,11 +33,11 @@ export const REPORT_SECTIONS = [
     },
     {
         key: 'pengeluaran',
-        label: 'Pengeluaran',
-        shortLabel: 'Keluar',
+        label: 'Pengeluaran (Kapal & Kantor)',
+        shortLabel: 'Pengeluaran',
         routeName: 'reports.expenses',
         href: '/reports/expenses',
-        description: 'Realisasi pengeluaran dan status verifikasi pembayaran.',
+        description: 'Laporan terpadu realisasi pengeluaran kebutuhan kapal (HPP) dan operasional kantor perusahaan.',
     },
     {
         key: 'pengeluaran_kapal',

@@ -21,6 +21,7 @@ use App\Models\WorkOrder;
 use App\Support\DashboardQueryFilters;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -467,11 +468,33 @@ class DashboardController extends Controller
         $myOpenRequests = $myOpenQuery->count();
         $activeUsers = User::query()->where('is_active', true)->count();
 
+        $hppQuery = RequestItem::query()
+            ->where('director_status', 'approved');
+        if ($shipId) {
+            $hppQuery->whereHas('request', fn ($q) => $q->where('ship_id', $shipId));
+        }
+        if ($companyId) {
+            $hppQuery->whereHas('request', fn ($q) => $q->where('company_id', $companyId)->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId)));
+        }
+        if ($startDate && $endDate && $period !== 'semua') {
+            $hppQuery->whereHas('request', fn ($q) => $q->whereBetween('request_date', [$startDate, $endDate]));
+        }
+        $calculatedHpp = (float) $hppQuery->sum(DB::raw('COALESCE(hpp_price, 0) * COALESCE(quantity, 0)'));
+
+        $companyExpenseQuery = ExpenseRequest::query()->where('status', 'realized');
+        if ($startDate && $endDate && $period !== 'semua') {
+            $companyExpenseQuery->whereBetween('realized_date', [$startDate, $endDate]);
+        }
+        $calculatedCompanyExpense = (float) $companyExpenseQuery->sum('realized_amount');
+
+        $calculatedExpenses = $calculatedHpp + $calculatedCompanyExpense;
+        $calculatedMargin = max(0, (float) ($financialOverview['total_invoiced'] ?? 0) - $calculatedHpp);
+
         $commonPipeline = [
             ['label' => 'SPK Aktif', 'value' => $activeWorkOrders, 'href' => '/work-orders'],
             ['label' => 'Kapal Aktif', 'value' => $activePortCalls->count(), 'href' => '/vessels'],
             ['label' => 'Kebutuhan Belum Berinvoice', 'value' => $pendingNeeds, 'href' => '/needs'],
-            ['label' => 'Pendanaan Berjalan', 'value' => $fundingInProgress, 'href' => '/funding'],
+            ['label' => 'Pengajuan Biaya Perusahaan', 'value' => $fundingInProgress, 'href' => '/funding'],
             ['label' => 'Nota Rampung Tertunda', 'value' => $completionNotesPending, 'href' => '/completion-notes'],
             ['label' => 'Invoice Klien Belum Lunas', 'value' => $unpaidClientInvoices, 'href' => '/receivables'],
         ];
@@ -534,6 +557,8 @@ class DashboardController extends Controller
                 'metrics' => [
                     ['key' => 'approvals', 'label' => 'Menunggu Keputusan', 'value' => $pendingApprovals->count() + $directorFundingReviews, 'format' => 'number', 'hint' => 'Pengajuan dan pendanaan'],
                     ['key' => 'requests', 'label' => 'Total Pengajuan', 'value' => $totalRequests, 'format' => 'number', 'hint' => 'Seluruh pengajuan tercatat'],
+                    ['key' => 'margin', 'label' => 'Total Margin', 'value' => $calculatedMargin, 'format' => 'currency', 'hint' => 'Margin kotor seluruh job'],
+                    ['key' => 'expenses', 'label' => 'Total Pengeluaran', 'value' => $calculatedExpenses, 'format' => 'currency', 'hint' => 'HPP kapal & biaya operasional'],
                     ['key' => 'collected', 'label' => 'Kas Diterima', 'value' => $financialOverview['total_collected'], 'format' => 'currency', 'hint' => 'Pembayaran klien tercatat'],
                     ['key' => 'receivables', 'label' => 'Total Piutang', 'value' => $financialOverview['total_outstanding'], 'format' => 'currency', 'hint' => $financialOverview['collection_rate'].'% kolektibilitas'],
                 ],
@@ -566,6 +591,9 @@ class DashboardController extends Controller
                 'subtitle' => 'Pantau performa operasional, arus kas, piutang, dan tata kelola perusahaan dalam mode lihat saja.',
                 'primary_action' => ['label' => 'Lihat Laporan', 'href' => '/reports/margin'],
                 'metrics' => [
+                    ['key' => 'margin', 'label' => 'Total Margin', 'value' => $calculatedMargin, 'format' => 'currency', 'hint' => 'Margin kotor seluruh job'],
+                    ['key' => 'expenses', 'label' => 'Total Pengeluaran', 'value' => $calculatedExpenses, 'format' => 'currency', 'hint' => 'HPP kapal & biaya operasional'],
+                    ['key' => 'requests', 'label' => 'Total Pengajuan', 'value' => $totalRequests, 'format' => 'number', 'hint' => 'Seluruh pengajuan tercatat'],
                     ['key' => 'work_orders', 'label' => 'SPK Aktif', 'value' => $activeWorkOrders, 'format' => 'number', 'hint' => 'Kegiatan belum ditutup'],
                     ['key' => 'invoiced', 'label' => 'Nilai Tagihan', 'value' => $financialOverview['total_invoiced'], 'format' => 'currency', 'hint' => 'Total invoice klien'],
                     ['key' => 'collected', 'label' => 'Kas Diterima', 'value' => $financialOverview['total_collected'], 'format' => 'currency', 'hint' => $financialOverview['collection_rate'].'% kolektibilitas'],
@@ -610,6 +638,9 @@ class DashboardController extends Controller
             'subtitle' => 'Kelola SPK, invoice vendor, pendanaan, Nota Rampung, dan penagihan dari satu alur kerja.',
             'primary_action' => ['label' => 'Buat SPK Baru', 'href' => '/work-orders/create'],
             'metrics' => [
+                ['key' => 'margin', 'label' => 'Estimasi Margin', 'value' => $calculatedMargin, 'format' => 'currency', 'hint' => 'Margin kotor pekerjaan berjalan'],
+                ['key' => 'expenses', 'label' => 'Total Pengeluaran', 'value' => $calculatedExpenses, 'format' => 'currency', 'hint' => 'HPP kapal & biaya operasional'],
+                ['key' => 'requests', 'label' => 'Total Pengajuan', 'value' => $totalRequests, 'format' => 'number', 'hint' => 'Pengajuan kebutuhan & biaya'],
                 ['key' => 'work_orders', 'label' => 'SPK Aktif', 'value' => $activeWorkOrders, 'format' => 'number', 'hint' => 'Kegiatan belum ditutup'],
                 ['key' => 'needs', 'label' => 'Menunggu Invoice', 'value' => $pendingNeeds, 'format' => 'number', 'hint' => 'Kebutuhan belum berinvoice'],
                 ['key' => 'vendor_invoices', 'label' => 'Invoice Perlu Diproses', 'value' => $vendorInvoicesToVerify + $vendorInvoicesReadyForPayment, 'format' => 'number', 'hint' => 'Verifikasi atau lanjutkan pembayaran'],

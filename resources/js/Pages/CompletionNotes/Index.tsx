@@ -21,6 +21,7 @@ import Modal from '../../Components/overlays/Modal';
 import Pagination from '../../Components/pagination/Pagination';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import ActionMenu from '../../Components/ui/ActionMenu';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import { formatDate } from '../../lib/formatDate';
@@ -305,15 +306,22 @@ export default function CompletionNotesIndex({
                             Nota resmi, pembayaran awal, dan selisih biaya tetap terhubung ke Job kapal.
                         </p>
                     </div>
-                    {abilities.create && (
-                        <Link
-                            href="/completion-notes/create"
-                            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
-                        >
-                            <FilePlus2 aria-hidden="true" className="size-4" />
-                            Unggah Nota Rampung
-                        </Link>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <ImportExportActions
+                            resource="completion-notes"
+                            resourceTitle="Nota Rampung"
+                            canManage={abilities.create}
+                        />
+                        {abilities.create && (
+                            <Link
+                                href="/completion-notes/create"
+                                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
+                            >
+                                <FilePlus2 aria-hidden="true" className="size-4" />
+                                Unggah Nota Rampung
+                            </Link>
+                        )}
+                    </div>
                 </div>
 
                 {/* ── KPI Stat Cards ── */}

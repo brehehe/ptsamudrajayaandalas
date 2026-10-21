@@ -21,6 +21,7 @@ import { PageProps } from '@/types';
 import { ListChecks, MapPin, RotateCcw, Search, Send, SlidersHorizontal, X } from 'lucide-react';
 import Table from '../../Components/tables/Table';
 import Tabs from '../../Components/ui/Tabs';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 
 /* ─── Domain Interfaces ─────────────────────────────────────────── */
@@ -1176,21 +1177,29 @@ export default function OperationsIndex({
             <div className="hidden md:block space-y-4 max-w-7xl mx-auto pb-10">
 
                 {/* ── Title Header ── */}
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] dark:text-[#E7F0FA] tracking-tight">
-                        {tab === 'aktivitas'
-                            ? 'Aktifitas Lapangan & Dermaga'
-                            : tab === 'kunjungan'
-                                ? 'Operasional Port Calls Kapal'
-                                : 'Laporan Harian Lapangan'}
-                    </h1>
-                    <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
-                        {tab === 'aktivitas'
-                            ? 'Pencatatan kegiatan armada kapal, logistik, dan kendala operasional dermaga langsung secara terpadu'
-                            : tab === 'kunjungan'
-                                ? 'Pemantauan pergerakan kapal (ETA/ETD, labuh, sandar) serta status operasi per armada di pelabuhan'
-                                : 'Rekapitulasi catatan & laporan harian tim perwira operasional dermaga'}
-                    </p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] dark:text-[#E7F0FA] tracking-tight">
+                            {tab === 'aktivitas'
+                                ? 'Aktifitas Lapangan & Dermaga'
+                                : tab === 'kunjungan'
+                                    ? 'Operasional Port Calls Kapal'
+                                    : 'Laporan Harian Lapangan'}
+                        </h1>
+                        <p className="text-xs sm:text-sm text-[#52658E] dark:text-[#94A3B8] mt-0.5">
+                            {tab === 'aktivitas'
+                                ? 'Pencatatan kegiatan armada kapal, logistik, dan kendala operasional dermaga langsung secara terpadu'
+                                : tab === 'kunjungan'
+                                    ? 'Pemantauan pergerakan kapal (ETA/ETD, labuh, sandar) serta status operasi per armada di pelabuhan'
+                                    : 'Rekapitulasi catatan & laporan harian tim perwira operasional dermaga'}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <ImportExportActions
+                            resource="operations"
+                            resourceTitle="Aktivitas Lapangan & Operasional"
+                        />
+                    </div>
                 </div>
 
                 {/* ── Stat Badges ── */}

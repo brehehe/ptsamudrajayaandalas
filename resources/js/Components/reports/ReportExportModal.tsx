@@ -35,10 +35,16 @@ export function useReportExport() {
         return cleanup;
     }, []);
 
-    const triggerDownload = (url: string) => {
+    const triggerDownload = (url: string, suggestedFilename?: string) => {
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', '');
+        if (suggestedFilename) {
+            link.setAttribute('download', suggestedFilename);
+        } else {
+            link.setAttribute('download', '');
+        }
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -61,14 +67,15 @@ export function useReportExport() {
             const data = await res.json();
 
             if (data.status === 'completed' && data.download_url) {
+                const targetFilename = data.filename || 'dokumen-laporan';
                 setStatus('completed');
                 setIsProcessing(false);
                 setDownloadUrl(data.download_url);
-                setFilename(data.filename || 'dokumen-laporan');
+                setFilename(targetFilename);
                 cleanup();
 
                 // Trigger automatic download
-                triggerDownload(data.download_url);
+                triggerDownload(data.download_url, targetFilename);
             } else if (data.status === 'failed') {
                 setStatus('failed');
                 setIsProcessing(false);
@@ -196,7 +203,7 @@ export default function ReportExportModal({ exportState }: ReportExportModalProp
                         <Button
                             type="button"
                             variant="primary"
-                            onClick={() => triggerDownload(downloadUrl)}
+                            onClick={() => triggerDownload(downloadUrl, filename)}
                             leftIcon={<Download aria-hidden="true" className="size-4" />}
                         >
                             Unduh Ulang

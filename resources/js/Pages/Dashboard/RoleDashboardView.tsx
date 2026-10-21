@@ -114,6 +114,8 @@ const metricIcons: Record<string, LucideIcon> = {
     invoiced: ReceiptText,
     collected: TrendingUp,
     receivables: HandCoins,
+    margin: TrendingUp,
+    expenses: Banknote,
 };
 
 const actionIcons: Record<string, LucideIcon> = {
@@ -364,43 +366,56 @@ function QuickActions({ actions }: { actions: QuickAction[] }) {
 }
 
 function ProcessPipeline({ items }: { items: PipelineItem[] }) {
-    const columns: Column<PipelineItem>[] = [
-        {
-            key: 'label',
-            header: 'Tahap proses',
-            wrap: 'normal',
-            render: (item) => (
-                <Link
-                    href={item.href}
-                    prefetch
-                    className="font-extrabold text-[#0B1F63] hover:text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-white"
-                >
-                    {item.label}
-                </Link>
-            ),
-        },
-        {
-            key: 'value',
-            header: 'Terbuka',
-            align: 'right',
-            width: '96px',
-            render: (item) => (
-                <span className="inline-flex min-w-9 justify-center rounded-lg bg-[#E0F0FF] px-2.5 py-1.5 text-xs font-black tabular-nums text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                    {new Intl.NumberFormat('id-ID').format(item.value)}
-                </span>
-            ),
-        },
-    ];
+    if (!items || items.length === 0) {
+        return (
+            <div className="py-8 text-center text-xs text-[#52658E] dark:text-[#94A3B8]">
+                Tidak ada proses yang perlu dipantau
+            </div>
+        );
+    }
+
+    const maxValue = Math.max(...items.map((it) => it.value), 1);
 
     return (
-        <Table
-            columns={columns}
-            data={items}
-            keyExtractor={(item) => item.label}
-            compact
-            tableLayout="fixed"
-            emptyMessage="Tidak ada proses yang perlu dipantau"
-        />
+        <div className="space-y-2">
+            {items.map((item, index) => {
+                const stepNum = String(index + 1).padStart(2, '0');
+                const progressPercent = Math.min(100, Math.round((item.value / maxValue) * 100));
+
+                return (
+                    <Link
+                        key={item.label}
+                        href={item.href}
+                        prefetch
+                        className="group flex items-center justify-between gap-3 rounded-xl border border-[#DCEAF8] bg-white p-2.5 transition-all hover:border-[#0060F4] hover:bg-[#F0F8FF] hover:shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:border-[#60A5FA] dark:hover:bg-[#102B4A]"
+                    >
+                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#E0F0FF] text-[11px] font-black text-[#0060F4] group-hover:bg-[#0060F4] group-hover:text-white dark:bg-[#132847] dark:text-[#60A5FA]">
+                                {stepNum}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-bold text-[#0B1F63] group-hover:text-[#0060F4] dark:text-white dark:group-hover:text-[#60A5FA]">
+                                    {item.label}
+                                </p>
+                                <div className="mt-1 h-1 w-full max-w-[140px] overflow-hidden rounded-full bg-[#E0F0FF] dark:bg-[#1E3A5F]">
+                                    <div
+                                        className="h-full rounded-full bg-[#0060F4] transition-all group-hover:bg-[#004dc4] dark:bg-[#60A5FA]"
+                                        style={{ width: `${item.value > 0 ? Math.max(progressPercent, 15) : 0}%` }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                            <span className="inline-flex min-w-6 justify-center text-sm font-black tabular-nums text-[#0B1F63] dark:text-white">
+                                {new Intl.NumberFormat('id-ID').format(item.value)}
+                            </span>
+                            <ArrowRight aria-hidden="true" className="size-3.5 text-[#8C9BB9] transition-transform group-hover:translate-x-0.5 group-hover:text-[#0060F4] dark:text-[#52658E] dark:group-hover:text-[#60A5FA]" />
+                        </div>
+                    </Link>
+                );
+            })}
+        </div>
     );
 }
 
@@ -431,8 +446,8 @@ export default function RoleDashboardView({
         : null;
     const processPanel = {
         admin: {
-            title: 'Kontrol alur dokumen',
-            subtitle: 'Posisi pekerjaan dari SPK sampai penagihan',
+            title: 'Pengajuan Biaya Perusahaan',
+            subtitle: 'Alur pekerjaan dan pengajuan biaya operasional',
         },
         direktur: {
             title: 'Status alur pengawasan',
@@ -503,7 +518,7 @@ export default function RoleDashboardView({
                     role={dashboard.role}
                 />
 
-                <section aria-label="Ringkasan utama" className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
+                <section aria-label="Ringkasan utama" className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 xl:gap-3">
                     {dashboard.metrics.map((metric) => {
                         const Icon = metricIcons[metric.key] ?? Gauge;
 

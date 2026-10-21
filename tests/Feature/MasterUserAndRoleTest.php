@@ -49,7 +49,7 @@ test('can authenticate and load dashboard with correct Spatie primary_role for a
     }
 });
 
-test('dashboard provides a distinct role workspace with role-specific reports', function (string $role, string $workspace, string $primaryAction, array $chartKeys) {
+test('dashboard provides a distinct role workspace with role-specific reports', function (string $role, string $workspace, string $primaryAction, array $chartKeys, int $metricCount) {
     $user = User::factory()->create();
     $user->syncRoles([$role]);
 
@@ -62,7 +62,7 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
         ->where('role_dashboard.role', $workspace)
         ->where('role_dashboard.is_read_only', $role === 'Owner')
         ->where('role_dashboard.primary_action.href', $primaryAction)
-        ->has('role_dashboard.metrics', 4)
+        ->has('role_dashboard.metrics', $metricCount)
         ->has('role_dashboard.priorities', 3)
         ->has('role_dashboard.quick_actions', 4)
         ->has('role_dashboard.pipeline')
@@ -79,10 +79,10 @@ test('dashboard provides a distinct role workspace with role-specific reports', 
         );
     }
 })->with([
-    'operasional' => ['Lapangan', 'operasional', '/operations', ['vessel_status', 'field_activity', 'request_status']],
-    'admin' => ['Admin', 'admin', '/work-orders/create', ['workflow_pipeline', 'vendor_invoices', 'request_status']],
-    'direktur' => ['Direktur', 'direktur', '/approvals', ['request_status', 'financial_trend', 'director_pipeline']],
-    'owner' => ['Owner', 'owner', '/reports/margin', ['financial_trend', 'collection_mix', 'business_pipeline']],
+    'operasional' => ['Lapangan', 'operasional', '/operations', ['vessel_status', 'field_activity', 'request_status'], 4],
+    'admin' => ['Admin', 'admin', '/work-orders/create', ['workflow_pipeline', 'vendor_invoices', 'request_status'], 7],
+    'direktur' => ['Direktur', 'direktur', '/approvals', ['request_status', 'financial_trend', 'director_pipeline'], 6],
+    'owner' => ['Owner', 'owner', '/reports/margin', ['financial_trend', 'collection_mix', 'business_pipeline'], 7],
 ]);
 
 test('director dashboard shows total requests instead of Kopra approval', function () {

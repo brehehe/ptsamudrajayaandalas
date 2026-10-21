@@ -16,6 +16,7 @@ import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Button from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import DocumentActions from '../../Components/ui/DocumentActions';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Input from '../../Components/forms/Input';
@@ -396,7 +397,12 @@ export default function ExpensesIndex({
                                 Kelola pembayaran invoice vendor dan pengajuan biaya operasional perusahaan dalam satu modul terintegrasi.
                             </p>
                         </div>
-                        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                            <ImportExportActions
+                                resource="expenses"
+                                resourceTitle="Pengeluaran & Pembayaran"
+                                canManage={abilities.manage}
+                            />
                             {currentTab === 'vendor_invoices' && abilities.manage && (
                                 <Button className="w-full sm:w-auto" onClick={openPaymentModal} disabled={payableVendorInvoices.length === 0} leftIcon={<Plus aria-hidden="true" className="size-4" />}>
                                     Bayar Invoice Vendor

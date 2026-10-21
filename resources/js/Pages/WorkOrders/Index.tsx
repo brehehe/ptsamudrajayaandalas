@@ -30,6 +30,7 @@ import StatusBadge from '../../Components/ui/StatusBadge';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Table from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import AppLayout from '../../Layouts/AppLayout';
 import type { PageProps } from '../../types';
 
@@ -320,26 +321,41 @@ export default function WorkOrdersIndex({ workOrders, stats, companies = [], shi
                         </p>
                     </div>
 
+                    <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                        <ImportExportActions
+                            resource="work-orders"
+                            resourceTitle="SPK"
+                            canManage={canCreate}
+                        />
+                        {canCreate && (
+                            <Link
+                                href="/work-orders/create"
+                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2"
+                            >
+                                <Plus aria-hidden="true" className="size-4" />
+                                Tambah SPK
+                            </Link>
+                        )}
+                    </div>
+                </header>
+
+                <div className="flex flex-wrap items-center gap-2 md:hidden">
+                    <ImportExportActions
+                        resource="work-orders"
+                        resourceTitle="SPK"
+                        canManage={canCreate}
+                        className="w-full justify-between"
+                    />
                     {canCreate && (
                         <Link
                             href="/work-orders/create"
-                            className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2 sm:self-auto"
+                            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
                         >
                             <Plus aria-hidden="true" className="size-4" />
-                            Tambah SPK
+                            Buat SPK Baru
                         </Link>
                     )}
-                </header>
-
-                {canCreate && (
-                    <Link
-                        href="/work-orders/create"
-                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] md:hidden"
-                    >
-                        <Plus aria-hidden="true" className="size-4" />
-                        Buat SPK Baru
-                    </Link>
-                )}
+                </div>
 
                 <section aria-label="Ringkasan SPK" className="hidden grid-cols-2 gap-3 md:grid lg:grid-cols-4">
                     <Card className="p-4">

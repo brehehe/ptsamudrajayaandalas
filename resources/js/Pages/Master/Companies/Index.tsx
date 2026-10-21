@@ -10,6 +10,7 @@ import { ResponsiveTable, type Column } from '../../../Components/tables/Table';
 import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
 import Input from '../../../Components/forms/Input';
 import Textarea from '../../../Components/forms/Textarea';
+import ImportExportActions from '../../../Components/ui/ImportExportActions';
 
 interface ShipSummary {
     id: string;
@@ -163,30 +164,37 @@ export default function MasterCompaniesIndex({
                         </p>
                     </div>
 
-                    <Button
-                        variant="primary"
-                        onClick={openAddModal}
-                        className={
-                            'bg-[#0060F4] hover:bg-[#082870] text-white px-4 py-2.5 ' +
-                            'rounded-[12px] shadow-sm flex items-center gap-2 text-sm ' +
-                            'font-semibold'
-                        }
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ImportExportActions
+                            resource="companies"
+                            resourceTitle="Perusahaan"
+                            canManage={true}
+                        />
+                        <Button
+                            variant="primary"
+                            onClick={openAddModal}
+                            className={
+                                'bg-[#0060F4] hover:bg-[#082870] text-white px-4 py-2.5 ' +
+                                'rounded-[12px] shadow-sm flex items-center gap-2 text-sm ' +
+                                'font-semibold'
+                            }
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2.5}
-                                d="M12 4v16m8-8H4"
-                            />
-                        </svg>
-                        Tambah Perusahaan Baru
-                    </Button>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2.5}
+                                    d="M12 4v16m8-8H4"
+                                />
+                            </svg>
+                            Tambah Perusahaan Baru
+                        </Button>
+                    </div>
                 </div>
 
                 {/* Filter & Search */}
@@ -206,7 +214,15 @@ export default function MasterCompaniesIndex({
                     </form>
                 </Card>
 
-                <Button className="w-full md:hidden" onClick={openAddModal}>+ Tambah Perusahaan</Button>
+                <div className="space-y-2 md:hidden">
+                    <ImportExportActions
+                        resource="companies"
+                        resourceTitle="Perusahaan"
+                        canManage={true}
+                        className="w-full justify-between"
+                    />
+                    <Button className="w-full" onClick={openAddModal}>+ Tambah Perusahaan</Button>
+                </div>
 
                 <ResponsiveTable<Company>
                     data={companies}

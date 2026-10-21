@@ -18,6 +18,7 @@ import Modal from '../../Components/overlays/Modal';
 import Select from '../../Components/selects/Select';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import DateRangePicker, { DateRange } from '../../Components/forms/DateRangePicker';
+import ImportExportActions from '../../Components/ui/ImportExportActions';
 import { toDateInputValue } from '../../lib/formatDate';
 
 interface RequestItem {
@@ -981,16 +982,24 @@ export default function RequestsIndex({
                 <div className="relative z-10 -mt-5 rounded-t-[28px] bg-sja-surface px-3.5 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#071322]">
                     {renderFilterToolbar()}
 
-                    {capabilities.can_create_requests && (
-                        <Link
-                            href={route('requests.create')}
-                            prefetch
-                            className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
-                        >
-                            <FilePlus2 aria-hidden="true" className="size-4" />
-                            Buat Pengajuan
-                        </Link>
-                    )}
+                    <div className="mt-3 flex flex-col gap-2">
+                        <ImportExportActions
+                            resource="requests"
+                            resourceTitle="Pengajuan"
+                            canManage={capabilities.can_create_requests}
+                            className="w-full justify-between"
+                        />
+                        {capabilities.can_create_requests && (
+                            <Link
+                                href={route('requests.create')}
+                                prefetch
+                                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-3.5 text-sm font-medium text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35"
+                            >
+                                <FilePlus2 aria-hidden="true" className="size-4" />
+                                Buat Pengajuan
+                            </Link>
+                        )}
+                    </div>
 
                     <Tabs
                         className="mt-3 py-1"
@@ -1141,15 +1150,22 @@ export default function RequestsIndex({
                             Antrean kebutuhan per kegiatan kapal.
                         </p>
                     </div>
-                    {capabilities.can_create_requests && (
-                        <Link
-                            href={route('requests.create')}
-                            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
-                        >
-                            <FilePlus2 aria-hidden="true" className="size-4" />
-                            Buat Pengajuan
-                        </Link>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ImportExportActions
+                            resource="requests"
+                            resourceTitle="Pengajuan"
+                            canManage={capabilities.can_create_requests}
+                        />
+                        {capabilities.can_create_requests && (
+                            <Link
+                                href={route('requests.create')}
+                                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                            >
+                                <FilePlus2 aria-hidden="true" className="size-4" />
+                                Buat Pengajuan
+                            </Link>
+                        )}
+                    </div>
                 </header>
 
                 {/* KPI Summary Cards */}

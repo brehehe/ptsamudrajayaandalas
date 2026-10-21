@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\GenerateReportExportJob;
 use App\Models\ReportExport;
+use App\Support\ReportExportManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -68,29 +69,63 @@ class ReportExportController extends Controller
             }
         }
 
+        $downloadUrl = null;
+        if ($reportExport->isCompleted()) {
+            $downloadUrl = route('reports.exports.download', [
+                'reportExport' => $reportExport,
+                'filename' => $reportExport->filename,
+            ], false);
+        }
+
         return response()->json([
             'id' => $reportExport->id,
             'status' => $reportExport->status,
             'filename' => $reportExport->filename,
-            'download_url' => $reportExport->isCompleted() ? route('reports.exports.download', $reportExport) : null,
+            'download_url' => $downloadUrl,
             'error' => $reportExport->error_message,
         ]);
     }
 
-    public function download(ReportExport $reportExport): BinaryFileResponse
+    public function download(ReportExport $reportExport, ?string $filename = null): BinaryFileResponse
     {
-        abort_unless($reportExport->isCompleted(), 400, 'Dokumen belum selesai diproses.');
-        abort_unless($reportExport->file_path && Storage::disk('local')->exists($reportExport->file_path), 404, 'Berkas ekspor tidak ditemukan.');
+        $storage = Storage::disk('local');
+        $needsGeneration = ! $reportExport->file_path || ! $storage->exists($reportExport->file_path);
+
+        if ($needsGeneration) {
+            try {
+                $manager = app(ReportExportManager::class);
+                $result = $manager->generate(
+                    $reportExport->report_type,
+                    $reportExport->format,
+                    $reportExport->parameters ?? [],
+                    $reportExport->job_number
+                );
+
+                $reportExport->update([
+                    'status' => 'completed',
+                    'filename' => $result['filename'],
+                    'file_path' => $result['file_path'],
+                    'completed_at' => now(),
+                ]);
+                $reportExport->refresh();
+            } catch (\Throwable $e) {
+                abort(500, 'Gagal membuat berkas laporan: '.$e->getMessage());
+            }
+        }
+
+        $fullPath = $storage->path($reportExport->file_path);
+        $downloadFilename = $reportExport->filename ?: ($filename ?: "laporan-{$reportExport->report_type}.{$reportExport->format}");
 
         $mime = $reportExport->format === 'pdf'
             ? 'application/pdf'
             : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-        $fullPath = Storage::disk('local')->path($reportExport->file_path);
-
-        return response()->download($fullPath, $reportExport->filename, [
+        return response()->download($fullPath, $downloadFilename, [
             'Content-Type' => $mime,
-            'Cache-Control' => 'max-age=0, no-store, private',
+            'Content-Disposition' => 'attachment; filename="'.$downloadFilename.'"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
         ]);
     }
 

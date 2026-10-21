@@ -367,6 +367,11 @@ class ReportController extends Controller
         $ships = Ship::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
         $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
 
+        $vesselDailyExpenseSummary = $this->vesselDailyExpenseSummary($from, $to, $shipId, $companyId, $job, $search);
+        $totalVesselExpense = (float) ($vesselDailyExpenseSummary['total_expenses'] ?? 0);
+        $totalCompanyRecorded = (float) $paymentRecords->sum('amount');
+        $totalCombinedExpenses = $totalVesselExpense + $totalCompanyRecorded;
+
         return Inertia::render('Reports/Index', [
             'summary' => $summary,
             'financialTrend' => $this->financialTrend(
@@ -407,7 +412,11 @@ class ReportController extends Controller
             'expenseReport' => [
                 'summary' => [
                     'total_documents' => $paymentRecords->count(),
-                    'total_recorded' => (float) $paymentRecords->sum('amount'),
+                    'total_recorded' => $totalCompanyRecorded,
+                    'total_vessel_expense' => $totalVesselExpense,
+                    'total_combined_expense' => $totalCombinedExpenses,
+                    'vessel_count' => (int) ($vesselDailyExpenseSummary['total_vessels'] ?? 0),
+                    'vessel_item_count' => (int) ($vesselDailyExpenseSummary['total_items'] ?? 0),
                     'verified_amount' => (float) $paymentRecords->where('verification_status', 'verified')->sum('amount'),
                     'pending_amount' => (float) $paymentRecords->whereIn('verification_status', ['pending', 'waiting_usage_proof', 'waiting_admin_verification'])->sum('amount'),
                     'rejected_amount' => (float) $paymentRecords->where('verification_status', 'rejected')->sum('amount'),
@@ -426,7 +435,7 @@ class ReportController extends Controller
                 'chart' => $this->activityTrend($from, $to, $activities, $dailyReports),
                 'rows' => $activityPage,
             ],
-            'vesselDailyExpenseSummary' => $this->vesselDailyExpenseSummary($from, $to, $shipId, $companyId, $job, $search),
+            'vesselDailyExpenseSummary' => $vesselDailyExpenseSummary,
             'companies' => $companies,
             'ships' => $ships,
             'jobs' => $jobs,

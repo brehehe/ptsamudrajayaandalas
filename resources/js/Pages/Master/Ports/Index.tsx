@@ -11,6 +11,7 @@ import FilterBar from '../../../Components/filters/FilterBar';
 import FormErrorSummary from '../../../Components/forms/FormErrorSummary';
 import Input from '../../../Components/forms/Input';
 import Select from '../../../Components/selects/Select';
+import ImportExportActions from '../../../Components/ui/ImportExportActions';
 
 interface Port {
     id: string;
@@ -137,23 +138,30 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                         </div>
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={() => {
-                            clearErrors();
-                            reset();
-                            setIsCreateModalOpen(true);
-                        }}
-                        className={
-                            'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
-                            'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
-                            'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
-                            'flex-shrink-0 cursor-pointer self-start sm:self-auto'
-                        }
-                    >
-                        <span className="text-base leading-none font-bold">+</span>
-                        <span>Tambah Pelabuhan Baru</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ImportExportActions
+                            resource="ports"
+                            resourceTitle="Pelabuhan"
+                            canManage={true}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                clearErrors();
+                                reset();
+                                setIsCreateModalOpen(true);
+                            }}
+                            className={
+                                'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
+                                'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
+                                'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
+                                'flex-shrink-0 cursor-pointer self-start sm:self-auto'
+                            }
+                        >
+                            <span className="text-base leading-none font-bold">+</span>
+                            <span>Tambah Pelabuhan Baru</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* ── Title Header ── */}
@@ -169,18 +177,26 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                     </div>
                 </div>
 
-                <Button
-                    type="button"
-                    className="w-full md:hidden"
-                    onClick={() => {
-                        clearErrors();
-                        reset();
-                        setIsCreateModalOpen(true);
-                    }}
-                    leftIcon={<Plus aria-hidden="true" className="size-4" />}
-                >
-                    Tambah Pelabuhan
-                </Button>
+                <div className="space-y-2 md:hidden">
+                    <ImportExportActions
+                        resource="ports"
+                        resourceTitle="Pelabuhan"
+                        canManage={true}
+                        className="w-full justify-between"
+                    />
+                    <Button
+                        type="button"
+                        className="w-full"
+                        onClick={() => {
+                            clearErrors();
+                            reset();
+                            setIsCreateModalOpen(true);
+                        }}
+                        leftIcon={<Plus aria-hidden="true" className="size-4" />}
+                    >
+                        Tambah Pelabuhan
+                    </Button>
+                </div>
 
                 {/* ── Search Bar ── */}
                 <FilterBar

@@ -3,6 +3,7 @@
 use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\CompletionNoteController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DataImportExportController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FundingWorkflowController;
 use App\Http\Controllers\InvoiceController;
@@ -203,7 +204,12 @@ Route::middleware(['auth'])->group(function () {
     // Queued Reports Export (PDF & Excel)
     Route::post('/reports/exports', [ReportExportController::class, 'store'])->name('reports.exports.store');
     Route::get('/reports/exports/{reportExport}/status', [ReportExportController::class, 'status'])->name('reports.exports.status');
-    Route::get('/reports/exports/{reportExport}/download', [ReportExportController::class, 'download'])->name('reports.exports.download');
+    Route::get('/reports/exports/{reportExport}/download/{filename?}', [ReportExportController::class, 'download'])->name('reports.exports.download');
+
+    // Generic Data Export, Template Download, and Import for Modules
+    Route::get('/import-export/{resource}/template', [DataImportExportController::class, 'template'])->name('import-export.template');
+    Route::get('/import-export/{resource}/export', [DataImportExportController::class, 'export'])->name('import-export.export');
+    Route::post('/import-export/{resource}/import', [DataImportExportController::class, 'import'])->name('import-export.import');
 
     // Master Data 1-8:
     // 1. Kapal (/master/vessels)

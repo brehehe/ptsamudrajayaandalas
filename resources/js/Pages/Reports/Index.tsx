@@ -186,6 +186,10 @@ interface ReportsIndexProps {
         summary: {
             total_documents: number;
             total_recorded: number;
+            total_vessel_expense?: number;
+            total_combined_expense?: number;
+            vessel_count?: number;
+            vessel_item_count?: number;
             verified_amount: number;
             pending_amount: number;
             rejected_amount: number;
@@ -418,6 +422,9 @@ export default function ReportsIndex({
         startDate: filters.from || '',
         endDate: filters.to || '',
     });
+    const [expenseSubView, setExpenseSubView] = useState<'all' | 'kapal' | 'kantor'>(
+        activeTab === 'pengeluaran_kapal' ? 'kapal' : 'all'
+    );
 
     // Modal state for filters
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -467,8 +474,15 @@ export default function ReportsIndex({
         }
     };
 
-    const handleExport = (format: 'pdf' | 'xlsx', customJob?: string) => {
-        const reportType = getReportType(activeTab);
+    const handleExport = (format: 'pdf' | 'xlsx', customJob?: string, customType?: string) => {
+        let reportType = customType;
+        if (!reportType) {
+            if (activeTab === 'pengeluaran' && expenseSubView === 'kapal') {
+                reportType = 'vessel_daily_expenses';
+            } else {
+                reportType = getReportType(activeTab);
+            }
+        }
         exportState.startExport({
             report_type: reportType,
             format,
@@ -483,7 +497,7 @@ export default function ReportsIndex({
             },
             job_number: customJob,
             label: customJob
-                ? `Laporan ${activeReportSection.label} — Job ${customJob}`
+                ? `Laporan Pengeluaran Kapal — Job ${customJob}`
                 : `Laporan ${activeReportSection.label} (${format.toUpperCase()})`,
         });
     };
@@ -1368,69 +1382,16 @@ export default function ReportsIndex({
                     </div>
                 )}
 
-                {activeTab === 'pengeluaran' && (
+                {(activeTab === 'pengeluaran' || activeTab === 'pengeluaran_kapal') && (
                     <div id="report-panel-pengeluaran" className="space-y-5">
                         <section aria-labelledby="expense-report-title">
-                            <div className="mb-3">
-                                <h2 id="expense-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">Laporan Pengeluaran</h2>
-                                <p className="mt-0.5 text-pretty text-[11px] text-[#52658E] sm:text-xs dark:text-[#9FB0C6]">Pembayaran keluar tercatat, dipisahkan menurut status verifikasi.</p>
-                            </div>
-                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
-                                <MetricCard label="Total Tercatat" value={expenseReport.summary.total_recorded} detail={`${expenseReport.summary.total_documents} transaksi pembayaran`} icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />} />
-                                <MetricCard label="Terverifikasi" value={expenseReport.summary.verified_amount} detail="Diakui sebagai kas keluar" tone="green" icon={<CheckCircle2 aria-hidden="true" className="size-4 sm:size-5" />} />
-                                <MetricCard label="Menunggu" value={expenseReport.summary.pending_amount} detail="Belum selesai diverifikasi" tone="amber" icon={<Clock aria-hidden="true" className="size-4 sm:size-5" />} />
-                                <MetricCard label="Ditolak" value={expenseReport.summary.rejected_amount} detail="Tidak masuk kas keluar terverifikasi" tone="red" icon={<X aria-hidden="true" className="size-4 sm:size-5" />} />
-                            </div>
-                        </section>
-
-                        <DashboardAnalytics charts={[expenseReport.chart]} />
-
-                        <section className="space-y-3" aria-labelledby="expense-table-title">
-                            <div className="flex items-center justify-between gap-3">
-                                <h2 id="expense-table-title" className="text-base font-extrabold text-[#0B1F63] dark:text-white">Daftar Pembayaran Keluar</h2>
-                                <span className="text-xs font-semibold text-[#52658E]">{expenseReport.rows.total} transaksi</span>
-                            </div>
-                            <ResponsiveTable<ExpenseReportItem>
-                                data={expenseReport.rows.data}
-                                keyExtractor={(expense) => expense.id}
-                                desktop={{
-                                    columns: expenseColumns,
-                                    compact: true,
-                                    minWidth: '1060px',
-                                    sortColumn: filters.sort,
-                                    sortDirection: filters.direction,
-                                    onSort: sortReport,
-                                    emptyMessage: 'Belum ada pembayaran keluar pada periode ini.',
-                                }}
-                                mobile={{
-                                    titleRender: (expense) => expense.recipient || 'Penerima tidak dicatat',
-                                    subtitleRender: (expense) => expense.reference_number || expense.payment_type,
-                                    statusRender: (expense) => <StatusBadge status={paymentStatusTone(expense.verification_status)} label={paymentStatusLabel(expense.verification_status)} size="sm" />,
-                                    emptyMessage: 'Belum ada pembayaran keluar pada periode ini.',
-                                    fields: [
-                                        { label: 'Jenis', render: (expense) => expense.payment_type },
-                                        { label: 'Tanggal', render: (expense) => formatDate(expense.payment_date) },
-                                        { label: 'Kapal / Job', render: (expense) => `${expense.ship_name} · ${expense.job_number}` },
-                                        { label: 'Dicatat Oleh', render: (expense) => expense.recorded_by },
-                                        { label: 'Nilai', fullWidth: true, render: (expense) => <MoneyValue value={expense.amount} className="font-black" /> },
-                                    ],
-                                }}
-                            />
-                            <Pagination links={expenseReport.rows.links} currentPage={expenseReport.rows.current_page} lastPage={expenseReport.rows.last_page} total={expenseReport.rows.total} from={expenseReport.rows.from ?? undefined} to={expenseReport.rows.to ?? undefined} perPage={expenseReport.rows.per_page} />
-                        </section>
-                    </div>
-                )}
-
-                {activeTab === 'pengeluaran_kapal' && (
-                    <div id="report-panel-pengeluaran_kapal" className="space-y-5">
-                        <section aria-labelledby="vessel-daily-report-title">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
                                 <div>
-                                    <h2 id="vessel-daily-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">
-                                        Laporan Monitoring Pengeluaran Kapal (Harian &amp; Per Item)
+                                    <h2 id="expense-report-title" className="text-balance text-base font-extrabold text-[#0B1F63] sm:text-lg dark:text-white">
+                                        Laporan Pengeluaran Terpadu (Kapal &amp; Kantor)
                                     </h2>
                                     <p className="mt-0.5 text-pretty text-[11px] text-[#52658E] sm:text-xs dark:text-[#9FB0C6]">
-                                        Rekap pengeluaran kapal per item sejak awal sandar/masuk hingga kapal keluar atau rentang hari tertentu untuk pengawasan Direktur, Admin, dan Owner.
+                                        Rekapitulasi lengkap pengeluaran operasional kebutuhan kapal (HPP) dan pengeluaran kas operasional kantor perusahaan.
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
@@ -1466,290 +1427,389 @@ export default function ReportsIndex({
                                     </Button>
                                 </div>
                             </div>
+
+                            {/* 4 KPI Cards */}
                             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard
-                                    label="Total Kapal Dimonitor"
-                                    value={vesselDailyExpenseSummary?.total_vessels || 0}
-                                    detail="Kapal dengan catatan pengeluaran"
-                                    format="number"
-                                    icon={<Ship aria-hidden="true" className="size-4 sm:size-5" />}
-                                />
-                                <MetricCard
-                                    label="Total Item Kebutuhan"
-                                    value={vesselDailyExpenseSummary?.total_items || 0}
-                                    detail="Seluruh kebutuhan operasional &amp; sertifikat"
-                                    format="number"
-                                    tone="green"
-                                    icon={<ClipboardList aria-hidden="true" className="size-4 sm:size-5" />}
-                                />
-                                <MetricCard
-                                    label="Total Pengeluaran (HPP)"
-                                    value={vesselDailyExpenseSummary?.total_expenses || 0}
-                                    detail={`${vesselDailyExpenseSummary?.total_items || 0} item kebutuhan kapal`}
+                                    label="Total Pengeluaran Terpadu"
+                                    value={expenseReport.summary.total_combined_expense ?? ((expenseReport.summary.total_recorded || 0) + (vesselDailyExpenseSummary?.total_expenses || 0))}
+                                    detail="Total gabungan kapal & kantor"
                                     tone="blue"
                                     icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
                                 <MetricCard
-                                    label="Rata-rata Pengeluaran / Kapal"
-                                    value={
-                                        (vesselDailyExpenseSummary?.total_vessels || 0) > 0
-                                            ? Math.round((vesselDailyExpenseSummary?.total_expenses || 0) / (vesselDailyExpenseSummary?.total_vessels || 1))
-                                            : 0
-                                    }
-                                    detail={`Periode: ${formatDate(filters.from)} - ${formatDate(filters.to)}`}
+                                    label="Pengeluaran Kapal (HPP)"
+                                    value={vesselDailyExpenseSummary?.total_expenses || expenseReport.summary.total_vessel_expense || 0}
+                                    detail={`${vesselDailyExpenseSummary?.total_vessels || 0} kapal · ${vesselDailyExpenseSummary?.total_items || 0} item kebutuhan`}
                                     tone="slate"
-                                    icon={<Anchor aria-hidden="true" className="size-4 sm:size-5" />}
+                                    icon={<Ship aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                                <MetricCard
+                                    label="Biaya Operasional Kantor"
+                                    value={expenseReport.summary.total_recorded}
+                                    detail={`${expenseReport.summary.total_documents} transaksi kas keluar`}
+                                    tone="amber"
+                                    icon={<Building2 aria-hidden="true" className="size-4 sm:size-5" />}
+                                />
+                                <MetricCard
+                                    label="Kas Terverifikasi"
+                                    value={expenseReport.summary.verified_amount}
+                                    detail={`Menunggu: ${formatRupiah(expenseReport.summary.pending_amount)}`}
+                                    tone="green"
+                                    icon={<CheckCircle2 aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
                             </div>
                         </section>
 
-                        <div className="space-y-4">
-                            {(!vesselDailyExpenseSummary?.vessels || vesselDailyExpenseSummary.vessels.length === 0) ? (
-                                <Card padding="lg" className="text-center py-12">
-                                    <Ship className="mx-auto size-10 text-[#8C9BB9] dark:text-[#52658E] mb-2" />
-                                    <p className="font-extrabold text-[#0B1F63] dark:text-white text-base">Tidak Ada Data Pengeluaran Kapal</p>
-                                    <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1">
-                                        Tidak ditemukan catatan pengeluaran kebutuhan kapal untuk filter periode atau kapal yang dipilih.
-                                    </p>
-                                </Card>
-                            ) : (
-                                vesselDailyExpenseSummary.vessels.map((vessel, vIndex) => (
-                                    <Card key={vessel.port_call_id || vIndex} padding="none" className="overflow-hidden border border-[#BCE0FD] dark:border-[#285585]">
-                                        <div className="bg-[#F0F8FF] dark:bg-[#102B4A] p-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <span className="font-mono text-xs font-black text-[#0060F4] bg-[#E0F0FF] dark:bg-[#071322] px-2.5 py-0.5 rounded-md">
-                                                            {vessel.job_number}
-                                                        </span>
-                                                        <h3 className="font-black text-base text-[#0B1F63] dark:text-white">
-                                                            {vessel.ship_name}
-                                                        </h3>
-                                                        <StatusBadge
-                                                            status={vessel.status === 'berthed' ? 'success' : vessel.status === 'departed' || vessel.status === 'completed' ? 'neutral' : 'info'}
-                                                            label={statusLabel(vessel.status)}
-                                                            size="sm"
-                                                        />
-                                                    </div>
-                                                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                                        <span>Perusahaan: <strong className="text-[#0B1F63] dark:text-white">{vessel.company_name}</strong></span>
-                                                        <span>Pelabuhan: <strong className="text-[#0B1F63] dark:text-white">{vessel.port_name}</strong></span>
-                                                        {vessel.client_spk && <span>SPK Klien: <strong className="font-mono">{vessel.client_spk}</strong></span>}
-                                                        <span>
-                                                            Sandar: {formatDate(vessel.eta)}
-                                                            {vessel.departed_at ? ` · Keluar: ${formatDate(vessel.departed_at)}` : vessel.etd ? ` · Rencana Keluar: ${formatDate(vessel.etd)}` : ''}
-                                                            {` (${vessel.stay_duration})`}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <div className="flex flex-wrap items-center gap-3 shrink-0 self-start lg:self-center">
-                                                    <div className="text-right">
-                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Total Pengeluaran Kapal</p>
-                                                        <p className="font-mono text-lg font-black text-[#0060F4] dark:text-[#60A5FA]">
-                                                            {formatRupiah(vessel.total_expense)}
-                                                        </p>
-                                                    </div>
-                                                    <div className="rounded-xl bg-white dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] px-3 py-1.5 text-center">
-                                                        <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">Item</p>
-                                                        <p className="font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">{vessel.item_count}</p>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 border-l border-[#DCEAF8] pl-3 dark:border-[#1E3A5F]">
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => handleExport('pdf', vessel.job_number)}
-                                                            leftIcon={<FileText aria-hidden="true" className="size-3.5 text-[#0060F4]" />}
-                                                            className="bg-white text-xs font-bold dark:bg-[#071322]"
-                                                            title={`Unduh PDF Pengeluaran Job ${vessel.job_number}`}
-                                                        >
-                                                            PDF Job
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => handleExport('xlsx', vessel.job_number)}
-                                                            leftIcon={<FileSpreadsheet aria-hidden="true" className="size-3.5 text-[#087443]" />}
-                                                            className="bg-white text-xs font-bold dark:bg-[#071322]"
-                                                            title={`Unduh Excel Pengeluaran Job ${vessel.job_number}`}
-                                                        >
-                                                            Excel Job
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
+                        {/* Subview Segmented Filter */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-1.5 bg-[#F0F5FD] dark:bg-[#071322] rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F]">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setExpenseSubView('all')}
+                                    className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all ${
+                                        expenseSubView === 'all'
+                                            ? 'bg-[#0060F4] text-white shadow-sm'
+                                            : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/80 dark:text-[#94A3B8] dark:hover:text-white dark:hover:bg-[#102B4A]'
+                                    }`}
+                                >
+                                    Semua (Ringkasan Terpadu)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setExpenseSubView('kapal')}
+                                    className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all flex items-center gap-1.5 ${
+                                        expenseSubView === 'kapal'
+                                            ? 'bg-[#0060F4] text-white shadow-sm'
+                                            : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/80 dark:text-[#94A3B8] dark:hover:text-white dark:hover:bg-[#102B4A]'
+                                    }`}
+                                >
+                                    <Ship className="size-3.5" />
+                                    Pengeluaran Kapal ({vesselDailyExpenseSummary?.total_vessels || 0})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setExpenseSubView('kantor')}
+                                    className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all flex items-center gap-1.5 ${
+                                        expenseSubView === 'kantor'
+                                            ? 'bg-[#0060F4] text-white shadow-sm'
+                                            : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/80 dark:text-[#94A3B8] dark:hover:text-white dark:hover:bg-[#102B4A]'
+                                    }`}
+                                >
+                                    <Building2 className="size-3.5" />
+                                    Biaya Kantor / Kas Keluar ({expenseReport.rows.total})
+                                </button>
+                            </div>
+                            <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8] px-2 hidden sm:inline">
+                                {expenseSubView === 'all' && 'Menampilkan pengeluaran kapal dan operasional kantor'}
+                                {expenseSubView === 'kapal' && 'Fokus rincian pengeluaran per kapal dan per item'}
+                                {expenseSubView === 'kantor' && 'Fokus daftar kas keluar & biaya kantor'}
+                            </span>
+                        </div>
 
-                                        {/* Desktop Table: Visible on md and up */}
-                                        <div className="hidden md:block overflow-x-auto">
-                                            <table className="w-full text-left border-collapse text-xs">
-                                                <thead>
-                                                    <tr className="border-b border-[#DCEAF8] bg-slate-50 dark:border-[#1E3A5F] dark:bg-[#0C1D36]/80 text-[#52658E] dark:text-[#94A3B8]">
-                                                        <th className="py-2.5 px-3 font-bold w-10 text-center">No</th>
-                                                        <th className="py-2.5 px-3 font-bold w-28">Tanggal</th>
-                                                        <th className="py-2.5 px-3 font-bold w-36">No. Pengajuan</th>
-                                                        <th className="py-2.5 px-3 font-bold">Item Kebutuhan &amp; Catatan</th>
-                                                        <th className="py-2.5 px-3 font-bold w-24 text-right">Qty</th>
-                                                        <th className="py-2.5 px-3 font-bold w-28 text-right">HPP Satuan</th>
-                                                        <th className="py-2.5 px-3 font-bold w-32 text-right">Biaya Item</th>
-                                                        <th className="py-2.5 px-3 font-bold w-36 text-right bg-[#EAF4FF] dark:bg-[#102B4A]/80 text-[#0060F4] dark:text-[#60A5FA]">
-                                                            Akumulatif s/d Hari Ini
-                                                        </th>
-                                                        <th className="py-2.5 px-3 font-bold w-28 text-center">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
+                        {/* SECTION A: Vessel Expenses (Shown when expenseSubView === 'all' or 'kapal') */}
+                        {(expenseSubView === 'all' || expenseSubView === 'kapal') && (
+                            <section className="space-y-3" aria-labelledby="vessel-expense-subheading">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <Ship className="size-4 text-[#0060F4]" />
+                                        <h3 id="vessel-expense-subheading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                            Pengeluaran Kebutuhan Kapal (HPP &amp; Harian)
+                                        </h3>
+                                    </div>
+                                    <span className="text-xs font-semibold text-[#52658E]">
+                                        {vesselDailyExpenseSummary?.total_vessels || 0} kapal · {vesselDailyExpenseSummary?.total_items || 0} item
+                                    </span>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {(!vesselDailyExpenseSummary?.vessels || vesselDailyExpenseSummary.vessels.length === 0) ? (
+                                        <Card padding="lg" className="text-center py-10">
+                                            <Ship className="mx-auto size-9 text-[#8C9BB9] dark:text-[#52658E] mb-2" />
+                                            <p className="font-extrabold text-[#0B1F63] dark:text-white text-sm">Tidak Ada Data Pengeluaran Kapal</p>
+                                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1">
+                                                Tidak ditemukan catatan pengeluaran kebutuhan kapal untuk filter periode atau kapal yang dipilih.
+                                            </p>
+                                        </Card>
+                                    ) : (
+                                        vesselDailyExpenseSummary.vessels.map((vessel, vIndex) => (
+                                            <Card key={vessel.port_call_id || vIndex} padding="none" className="overflow-hidden border border-[#BCE0FD] dark:border-[#285585]">
+                                                <div className="bg-[#F0F8FF] dark:bg-[#102B4A] p-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className="font-mono text-xs font-black text-[#0060F4] bg-[#E0F0FF] dark:bg-[#071322] px-2.5 py-0.5 rounded-md">
+                                                                    {vessel.job_number}
+                                                                </span>
+                                                                <h4 className="font-black text-base text-[#0B1F63] dark:text-white">
+                                                                    {vessel.ship_name}
+                                                                </h4>
+                                                                <StatusBadge
+                                                                    status={vessel.status === 'berthed' ? 'success' : vessel.status === 'departed' || vessel.status === 'completed' ? 'neutral' : 'info'}
+                                                                    label={statusLabel(vessel.status)}
+                                                                    size="sm"
+                                                                />
+                                                            </div>
+                                                            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                                <span>Perusahaan: <strong className="text-[#0B1F63] dark:text-white">{vessel.company_name}</strong></span>
+                                                                <span>Pelabuhan: <strong className="text-[#0B1F63] dark:text-white">{vessel.port_name}</strong></span>
+                                                                {vessel.client_spk && <span>SPK Klien: <strong className="font-mono">{vessel.client_spk}</strong></span>}
+                                                                <span>
+                                                                    Sandar: {formatDate(vessel.eta)}
+                                                                    {vessel.departed_at ? ` · Keluar: ${formatDate(vessel.departed_at)}` : vessel.etd ? ` · Rencana Keluar: ${formatDate(vessel.etd)}` : ''}
+                                                                    {` (${vessel.stay_duration})`}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-3 shrink-0 self-start lg:self-center">
+                                                            <div className="text-right">
+                                                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Total Pengeluaran Kapal</p>
+                                                                <p className="font-mono text-lg font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    {formatRupiah(vessel.total_expense)}
+                                                                </p>
+                                                            </div>
+                                                            <div className="rounded-xl bg-white dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] px-3 py-1.5 text-center">
+                                                                <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">Item</p>
+                                                                <p className="font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">{vessel.item_count}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 border-l border-[#DCEAF8] pl-3 dark:border-[#1E3A5F]">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => handleExport('pdf', vessel.job_number)}
+                                                                    leftIcon={<FileText aria-hidden="true" className="size-3.5 text-[#0060F4]" />}
+                                                                    className="bg-white text-xs font-bold dark:bg-[#071322]"
+                                                                    title={`Unduh PDF Pengeluaran Job ${vessel.job_number}`}
+                                                                >
+                                                                    PDF Job
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => handleExport('xlsx', vessel.job_number)}
+                                                                    leftIcon={<FileSpreadsheet aria-hidden="true" className="size-3.5 text-[#087443]" />}
+                                                                    className="bg-white text-xs font-bold dark:bg-[#071322]"
+                                                                    title={`Unduh Excel Pengeluaran Job ${vessel.job_number}`}
+                                                                >
+                                                                    Excel Job
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Desktop Table: Visible on md and up */}
+                                                <div className="hidden md:block overflow-x-auto">
+                                                    <table className="w-full text-left border-collapse text-xs">
+                                                        <thead>
+                                                            <tr className="border-b border-[#DCEAF8] bg-slate-50 dark:border-[#1E3A5F] dark:bg-[#0C1D36]/80 text-[#52658E] dark:text-[#94A3B8]">
+                                                                <th className="py-2.5 px-3 font-bold w-10 text-center">No</th>
+                                                                <th className="py-2.5 px-3 font-bold w-28">Tanggal</th>
+                                                                <th className="py-2.5 px-3 font-bold w-36">No. Pengajuan</th>
+                                                                <th className="py-2.5 px-3 font-bold">Item Kebutuhan &amp; Catatan</th>
+                                                                <th className="py-2.5 px-3 font-bold w-24 text-right">Qty</th>
+                                                                <th className="py-2.5 px-3 font-bold w-28 text-right">HPP Satuan</th>
+                                                                <th className="py-2.5 px-3 font-bold w-32 text-right">Biaya Item</th>
+                                                                <th className="py-2.5 px-3 font-bold w-36 text-right bg-[#EAF4FF] dark:bg-[#102B4A]/80 text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    Akumulatif s/d Hari Ini
+                                                                </th>
+                                                                <th className="py-2.5 px-3 font-bold w-28 text-center">Status</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
+                                                            {vessel.items.map((it, itIdx) => (
+                                                                <tr key={it.id || itIdx} className="hover:bg-[#F8FBFF] dark:hover:bg-[#102B4A]/40 transition-colors">
+                                                                    <td className="py-2.5 px-3 text-center text-[#52658E] font-medium">{itIdx + 1}</td>
+                                                                    <td className="py-2.5 px-3 whitespace-nowrap font-medium text-[#0B1F63] dark:text-white">
+                                                                        {formatDate(it.date)}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] font-semibold text-[#0060F4]">
+                                                                        {it.request_number}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3">
+                                                                        <p className="font-bold text-[#0B1F63] dark:text-white">{it.item_name}</p>
+                                                                        {it.notes && (
+                                                                            <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-0.5 whitespace-pre-line">
+                                                                                {it.notes}
+                                                                            </p>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right font-medium whitespace-nowrap">
+                                                                        {it.quantity} {it.unit}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right font-mono text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
+                                                                        {formatRupiah(it.hpp_price)}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right font-mono font-bold text-[#0B1F63] dark:text-white whitespace-nowrap">
+                                                                        {formatRupiah(it.total_cost)}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right font-mono font-black text-[#0060F4] dark:text-[#60A5FA] bg-[#F4F9FF] dark:bg-[#102B4A]/50 whitespace-nowrap">
+                                                                        {formatRupiah(it.cumulative_cost)}
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                        <StatusBadge
+                                                                            status={it.director_status === 'approved' ? 'success' : it.director_status === 'rejected' ? 'danger' : 'amber'}
+                                                                            label={it.director_status === 'approved' ? 'Disetujui' : it.director_status === 'rejected' ? 'Ditolak' : 'Menunggu'}
+                                                                            size="sm"
+                                                                        />
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                        <tfoot>
+                                                            <tr className="border-t-2 border-[#BCE0FD] dark:border-[#285585] bg-[#EAF4FF] dark:bg-[#102B4A] font-extrabold text-[#0B1F63] dark:text-white">
+                                                                <td colSpan={6} className="py-3 px-3 text-right uppercase tracking-wider text-xs">
+                                                                    Total Pengeluaran Kapal ({vessel.ship_name}):
+                                                                </td>
+                                                                <td className="py-3 px-3 text-right font-mono text-sm font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    {formatRupiah(vessel.total_expense)}
+                                                                </td>
+                                                                <td colSpan={2} className="py-3 px-3 text-xs font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                                                    {vessel.item_count} Item Kebutuhan
+                                                                </td>
+                                                            </tr>
+                                                        </tfoot>
+                                                    </table>
+                                                </div>
+
+                                                {/* Mobile Cards: Visible below md */}
+                                                <div className="md:hidden divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
                                                     {vessel.items.map((it, itIdx) => (
-                                                        <tr key={it.id || itIdx} className="hover:bg-[#F8FBFF] dark:hover:bg-[#102B4A]/40 transition-colors">
-                                                            <td className="py-2.5 px-3 text-center text-[#52658E] font-medium">{itIdx + 1}</td>
-                                                            <td className="py-2.5 px-3 whitespace-nowrap font-medium text-[#0B1F63] dark:text-white">
-                                                                {formatDate(it.date)}
-                                                            </td>
-                                                            <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] font-semibold text-[#0060F4]">
-                                                                {it.request_number}
-                                                            </td>
-                                                            <td className="py-2.5 px-3">
-                                                                <p className="font-bold text-[#0B1F63] dark:text-white">{it.item_name}</p>
-                                                                {it.notes && (
-                                                                    <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mt-0.5 whitespace-pre-line">
-                                                                        {it.notes}
+                                                        <div key={it.id || itIdx} className="p-3.5 space-y-2 bg-white dark:bg-[#071322]">
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-1.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                                        <span className="font-bold text-[#0B1F63] dark:text-white">#{itIdx + 1}</span>
+                                                                        <span>·</span>
+                                                                        <span>{formatDate(it.date)}</span>
+                                                                    </div>
+                                                                    <p className="font-extrabold text-sm text-[#0B1F63] dark:text-white mt-0.5">
+                                                                        {it.item_name}
                                                                     </p>
-                                                                )}
-                                                            </td>
-                                                            <td className="py-2.5 px-3 text-right font-medium whitespace-nowrap">
-                                                                {it.quantity} {it.unit}
-                                                            </td>
-                                                            <td className="py-2.5 px-3 text-right font-mono text-[#52658E] dark:text-[#94A3B8] whitespace-nowrap">
-                                                                {formatRupiah(it.hpp_price)}
-                                                            </td>
-                                                            <td className="py-2.5 px-3 text-right font-mono font-bold text-[#0B1F63] dark:text-white whitespace-nowrap">
-                                                                {formatRupiah(it.total_cost)}
-                                                            </td>
-                                                            <td className="py-2.5 px-3 text-right font-mono font-black text-[#0060F4] dark:text-[#60A5FA] bg-[#F4F9FF] dark:bg-[#102B4A]/50 whitespace-nowrap">
-                                                                {formatRupiah(it.cumulative_cost)}
-                                                            </td>
-                                                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                    <p className="font-mono text-[11px] font-semibold text-[#0060F4]">
+                                                                        {it.request_number}
+                                                                    </p>
+                                                                </div>
                                                                 <StatusBadge
                                                                     status={it.director_status === 'approved' ? 'success' : it.director_status === 'rejected' ? 'danger' : 'amber'}
                                                                     label={it.director_status === 'approved' ? 'Disetujui' : it.director_status === 'rejected' ? 'Ditolak' : 'Menunggu'}
                                                                     size="sm"
                                                                 />
-                                                            </td>
-                                                        </tr>
+                                                            </div>
+
+                                                            {it.notes && (
+                                                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8] bg-slate-50 dark:bg-[#0C1D36] p-2 rounded-lg">
+                                                                    {it.notes}
+                                                                </p>
+                                                            )}
+
+                                                            <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                                                                <div>
+                                                                    <p className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">Volume / Qty</p>
+                                                                    <p className="font-bold text-[#0B1F63] dark:text-white">{it.quantity} {it.unit}</p>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">HPP Satuan</p>
+                                                                    <p className="font-mono font-medium text-[#0B1F63] dark:text-white">{formatRupiah(it.hpp_price)}</p>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center justify-between rounded-lg bg-[#F8FAFC] dark:bg-[#0C1D36] px-3 py-2 border border-[#E2E8F0] dark:border-[#1E3A5F]">
+                                                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                                                    Biaya Item Ini
+                                                                </span>
+                                                                <span className="font-mono text-xs font-black text-[#0B1F63] dark:text-white">
+                                                                    {formatRupiah(it.total_cost)}
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="flex items-center justify-between rounded-lg bg-[#F0F8FF] dark:bg-[#102B4A]/60 px-3 py-2 border border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                                                <span className="text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    Akumulatif s/d Hari Ini
+                                                                </span>
+                                                                <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    {formatRupiah(it.cumulative_cost)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
                                                     ))}
-                                                </tbody>
-                                                <tfoot>
-                                                    <tr className="border-t-2 border-[#BCE0FD] dark:border-[#285585] bg-[#EAF4FF] dark:bg-[#102B4A] font-bold text-xs">
-                                                        <td colSpan={6} className="py-3 px-3 text-right text-[#0B1F63] dark:text-white">
-                                                            Total Pengeluaran Kapal ({vessel.ship_name}):
-                                                        </td>
-                                                        <td colSpan={2} className="py-3 px-3 text-right font-mono font-black text-sm text-[#0060F4] dark:text-[#60A5FA]">
-                                                            {formatRupiah(vessel.total_expense)}
-                                                        </td>
-                                                        <td className="py-3 px-3 text-center text-[#52658E] dark:text-[#94A3B8]">
-                                                            {vessel.item_count} Item
-                                                        </td>
-                                                    </tr>
-                                                </tfoot>
-                                            </table>
-                                        </div>
 
-                                        {/* Mobile Card Stream: No horizontal scrolling */}
-                                        <div className="block md:hidden divide-y divide-[#DCEAF8] dark:divide-[#1E3A5F]">
-                                            {vessel.items.map((it, itIdx) => (
-                                                <div key={it.id || itIdx} className="p-3.5 space-y-2.5 bg-white dark:bg-[#0C1D36]/60">
-                                                    {/* Top Row: Number, Date, Status */}
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#E0F0FF] text-[10px] font-black text-[#0060F4] dark:bg-[#071322] dark:text-[#60A5FA]">
-                                                                {itIdx + 1}
-                                                            </span>
-                                                            <span className="text-xs font-bold text-[#0B1F63] dark:text-white">
-                                                                {formatDate(it.date)}
-                                                            </span>
+                                                    {/* Mobile Total Footer Card */}
+                                                    <div className="p-3.5 bg-[#EAF4FF] dark:bg-[#102B4A] border-t-2 border-[#BCE0FD] dark:border-[#285585]">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div className="min-w-0">
+                                                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                                                    Total Pengeluaran Kapal
+                                                                </p>
+                                                                <p className="text-xs font-bold text-[#0B1F63] dark:text-white truncate">
+                                                                    {vessel.ship_name}
+                                                                </p>
+                                                            </div>
+                                                            <div className="text-right shrink-0">
+                                                                <p className="font-mono text-base font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                                    {formatRupiah(vessel.total_expense)}
+                                                                </p>
+                                                                <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">
+                                                                    {vessel.item_count} Item Kebutuhan
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                        <StatusBadge
-                                                            status={it.director_status === 'approved' ? 'success' : it.director_status === 'rejected' ? 'danger' : 'amber'}
-                                                            label={it.director_status === 'approved' ? 'Disetujui' : it.director_status === 'rejected' ? 'Ditolak' : 'Menunggu'}
-                                                            size="sm"
-                                                        />
-                                                    </div>
-
-                                                    {/* Item Name & Notes */}
-                                                    <div className="min-w-0">
-                                                        <h4 className="text-sm font-bold text-[#0B1F63] dark:text-white leading-snug">
-                                                            {it.item_name}
-                                                        </h4>
-                                                        {it.notes && (
-                                                            <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8] whitespace-pre-line leading-relaxed">
-                                                                {it.notes}
-                                                            </p>
-                                                        )}
-                                                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                                                            <span className="inline-flex items-center font-mono text-[10px] font-bold text-[#0060F4] bg-[#EAF4FF] dark:bg-[#102B4A] px-2 py-0.5 rounded border border-[#BCE0FD]/70 dark:border-[#1E3A5F]">
-                                                                {it.request_number}
-                                                            </span>
-                                                            <span className="text-[#52658E] dark:text-[#94A3B8]">
-                                                                Qty: <strong className="text-[#0B1F63] dark:text-white">{it.quantity} {it.unit}</strong>
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Financial Info Grid (2 Columns) */}
-                                                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#DCEAF8]/70 dark:border-[#1E3A5F]/70 text-xs">
-                                                        <div className="rounded-lg bg-slate-50 dark:bg-[#071322] p-2">
-                                                            <span className="text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8] block">HPP Satuan</span>
-                                                            <span className="font-mono text-xs font-semibold text-[#0B1F63] dark:text-white">
-                                                                {formatRupiah(it.hpp_price)}
-                                                            </span>
-                                                        </div>
-                                                        <div className="rounded-lg bg-slate-50 dark:bg-[#071322] p-2">
-                                                            <span className="text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8] block">Biaya Item</span>
-                                                            <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-white">
-                                                                {formatRupiah(it.total_cost)}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Cumulative Cost Highlight Box */}
-                                                    <div className="flex items-center justify-between rounded-lg bg-[#F0F8FF] dark:bg-[#102B4A]/60 px-3 py-2 border border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                                        <span className="text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
-                                                            Akumulatif s/d Hari Ini
-                                                        </span>
-                                                        <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#60A5FA]">
-                                                            {formatRupiah(it.cumulative_cost)}
-                                                        </span>
                                                     </div>
                                                 </div>
-                                            ))}
+                                            </Card>
+                                        ))
+                                    )}
+                                </div>
+                            </section>
+                        )}
 
-                                            {/* Mobile Total Footer Card */}
-                                            <div className="p-3.5 bg-[#EAF4FF] dark:bg-[#102B4A] border-t-2 border-[#BCE0FD] dark:border-[#285585]">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                                            Total Pengeluaran Kapal
-                                                        </p>
-                                                        <p className="text-xs font-bold text-[#0B1F63] dark:text-white truncate">
-                                                            {vessel.ship_name}
-                                                        </p>
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <p className="font-mono text-base font-black text-[#0060F4] dark:text-[#60A5FA]">
-                                                            {formatRupiah(vessel.total_expense)}
-                                                        </p>
-                                                        <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                                            {vessel.item_count} Item Kebutuhan
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
+                        {/* SECTION B: Company Outgoing Payments & Expenses (Shown when expenseSubView === 'all' or 'kantor') */}
+                        {(expenseSubView === 'all' || expenseSubView === 'kantor') && (
+                            <div className="space-y-4 pt-2">
+                                <DashboardAnalytics charts={[expenseReport.chart]} />
+
+                                <section className="space-y-3" aria-labelledby="expense-table-title">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Building2 className="size-4 text-[#0060F4]" />
+                                            <h3 id="expense-table-title" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                                Daftar Kas Keluar &amp; Biaya Kantor Perusahaan
+                                            </h3>
                                         </div>
-                                    </Card>
-                                ))
-                            )}
-                        </div>
+                                        <span className="text-xs font-semibold text-[#52658E]">{expenseReport.rows.total} transaksi</span>
+                                    </div>
+                                    <ResponsiveTable<ExpenseReportItem>
+                                        data={expenseReport.rows.data}
+                                        keyExtractor={(expense) => expense.id}
+                                        desktop={{
+                                            columns: expenseColumns,
+                                            compact: true,
+                                            minWidth: '1060px',
+                                            sortColumn: filters.sort,
+                                            sortDirection: filters.direction,
+                                            onSort: sortReport,
+                                            emptyMessage: 'Belum ada pembayaran keluar pada periode ini.',
+                                        }}
+                                        mobile={{
+                                            titleRender: (expense) => expense.recipient || 'Penerima tidak dicatat',
+                                            subtitleRender: (expense) => expense.reference_number || expense.payment_type,
+                                            statusRender: (expense) => <StatusBadge status={paymentStatusTone(expense.verification_status)} label={paymentStatusLabel(expense.verification_status)} size="sm" />,
+                                            emptyMessage: 'Belum ada pembayaran keluar pada periode ini.',
+                                            fields: [
+                                                { label: 'Jenis', render: (expense) => expense.payment_type },
+                                                { label: 'Tanggal', render: (expense) => formatDate(expense.payment_date) },
+                                                { label: 'Kapal / Job', render: (expense) => `${expense.ship_name} · ${expense.job_number}` },
+                                                { label: 'Dicatat Oleh', render: (expense) => expense.recorded_by },
+                                                { label: 'Nilai', fullWidth: true, render: (expense) => <MoneyValue value={expense.amount} className="font-black" /> },
+                                            ],
+                                        }}
+                                    />
+                                    <Pagination links={expenseReport.rows.links} currentPage={expenseReport.rows.current_page} lastPage={expenseReport.rows.last_page} total={expenseReport.rows.total} from={expenseReport.rows.from ?? undefined} to={expenseReport.rows.to ?? undefined} perPage={expenseReport.rows.per_page} />
+                                </section>
+                            </div>
+                        )}
                     </div>
                 )}
 
