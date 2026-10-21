@@ -33,6 +33,7 @@ import DocumentActions from '../../Components/ui/DocumentActions';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Textarea from '../../Components/forms/Textarea';
 import { formatDate } from '../../lib/formatDate';
+import FileViewer from '../../Components/ui/FileViewer';
 
 interface VendorPayment {
     id: string;
@@ -155,6 +156,7 @@ export default function VendorInvoiceIndex({
     const [reviewInvoice, setReviewInvoice] = useState<Invoice | null>(null);
     const [invoiceToPay, setInvoiceToPay] = useState<Invoice | null>(null);
     const [paymentToVerify, setPaymentToVerify] = useState<{ invoice: Invoice; payment: VendorPayment } | null>(null);
+    const [viewingFile, setViewingFile] = useState<{ url: string; title: string; downloadUrl?: string } | null>(null);
     const reviewForm = useForm({ decision: 'verify', verified_total: '', notes: '' });
     const paymentVerificationForm = useForm({ action: 'verify_usage' });
     const reviewErrorRef = useRef<HTMLDivElement>(null);
@@ -354,8 +356,11 @@ export default function VendorInvoiceIndex({
                     id: 'view-document',
                     label: 'Lihat Invoice',
                     icon: <Eye aria-hidden="true" className="size-4" />,
-                    href: `/vendor-invoices/${invoice.id}/document?view=1`,
-                    target: '_blank',
+                    onSelect: () => setViewingFile({
+                        url: `/vendor-invoices/${invoice.id}/document?view=1`,
+                        downloadUrl: `/vendor-invoices/${invoice.id}/document`,
+                        title: `Invoice Vendor: ${invoice.document_number}`,
+                    }),
                     tone: 'primary',
                 },
                 {
@@ -973,6 +978,15 @@ export default function VendorInvoiceIndex({
                     </div>
                 </div>
             </Modal>
+
+            <FileViewer
+                isOpen={viewingFile !== null}
+                onClose={() => setViewingFile(null)}
+                url={viewingFile?.url || ''}
+                downloadUrl={viewingFile?.downloadUrl}
+                title={viewingFile?.title || 'Dokumen Invoice Vendor'}
+                fileType="pdf"
+            />
         </AppLayout>
     );
 }

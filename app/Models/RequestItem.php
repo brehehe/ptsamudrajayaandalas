@@ -26,6 +26,9 @@ class RequestItem extends Model
         'required_date',
         'required_time',
         'hpp_price',
+        'original_hpp_price',
+        'surplus_source_item_id',
+        'surplus_amount',
         'selling_price',
         'status',
         'is_urgent',
@@ -48,7 +51,8 @@ class RequestItem extends Model
         return [
             'quantity' => 'decimal:2',
             'hpp_price' => 'decimal:2',
-            'selling_price' => 'decimal:2',
+            'original_hpp_price' => 'decimal:2',
+            'surplus_amount' => 'decimal:2',
             'is_urgent' => 'boolean',
             'is_invoiced' => 'boolean',
             'required_date' => 'date',
@@ -71,6 +75,11 @@ class RequestItem extends Model
     public function vendor(): BelongsTo
     {
         return $this->belongsTo(Vendor::class, 'vendor_id');
+    }
+
+    public function surplusSourceItem(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'surplus_source_item_id');
     }
 
     public function supplierInvoiceUploader(): BelongsTo

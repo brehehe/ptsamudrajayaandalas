@@ -41,6 +41,10 @@ interface RequestItem {
         id: string;
         name: string;
     };
+    surplus_source_item_id?: string | null;
+    surplus_source_item_name?: string | null;
+    surplus_amount?: number | string | null;
+    original_hpp_price?: number | string | null;
 }
 
 interface VendorOption {
@@ -178,6 +182,12 @@ const formatCurrency = (value: number): string =>
         maximumFractionDigits: 0,
     }).format(value);
 
+const parseRupiah = (value?: number | string | null): number => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const digits = String(value ?? '').replace(/\D/g, '');
+    return digits ? parseInt(digits, 10) : 0;
+};
+
 const formatDate = (value?: string): string => {
     if (!value) return '-';
     const date = new Date(value);
@@ -274,6 +284,8 @@ export default function RequestsIndex({
     const supplierInvoiceForm = useForm({
         vendor_id: '',
         hpp_price: '',
+        surplus_source_item_id: '',
+        surplus_amount: '',
         supplier_invoice_number: '',
         supplier_invoice_date: toDateInputValue(),
         supplier_invoice_received_date: toDateInputValue(),
@@ -662,15 +674,27 @@ export default function RequestsIndex({
         );
     };
 
+    const availableSurplusItemsForModal = useMemo(() => {
+        if (!supplierInvoiceTarget) return [];
+        const job = rows.find((r) => r.key === supplierInvoiceTarget.jobKey);
+        if (!job) return [];
+        return job.requests
+            .flatMap((req) => req.items || [])
+            .filter((it) => it.id !== supplierInvoiceTarget.item.id);
+    }, [supplierInvoiceTarget, rows]);
+
     const openSupplierInvoiceModal = (item: ForwardableItem, jobKey: string): void => {
         const requestItem = item.requestItem;
         const currentDate = toDateInputValue();
+        const grossHpp = requestItem.original_hpp_price ?? requestItem.hpp_price ?? 0;
 
         setItemPickerJobKey(null);
         setSupplierInvoiceTarget({ item, jobKey });
         supplierInvoiceForm.setData({
             vendor_id: requestItem.vendor?.id ?? '',
-            hpp_price: normalizeRupiahInput(requestItem.hpp_price ?? 0),
+            hpp_price: normalizeRupiahInput(grossHpp),
+            surplus_source_item_id: requestItem.surplus_source_item_id ?? '',
+            surplus_amount: requestItem.surplus_amount ? normalizeRupiahInput(requestItem.surplus_amount) : '',
             supplier_invoice_number: requestItem.supplier_invoice_number ?? '',
             supplier_invoice_date: requestItem.supplier_invoice_date?.slice(0, 10) || currentDate,
             supplier_invoice_received_date: requestItem.supplier_invoice_received_date?.slice(0, 10) || currentDate,
@@ -1391,6 +1415,16 @@ export default function RequestsIndex({
                                         description={`${item.requestNumber} · ${item.quantity} ${item.unit || ''} · HPP ${formatCurrency(item.hppPrice)}`}
                                         onChange={(event) => toggleItemSelection(item.id, event.target.checked)}
                                     />
+                                    {item.requestItem.surplus_amount && Number(item.requestItem.surplus_amount) > 0 && (
+                                        <div className="mt-1 ml-7 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                            🔄 Dialihkan <strong>{formatCurrency(Number(item.requestItem.surplus_amount))}</strong> dari {item.requestItem.surplus_source_item_name || 'item lain'}
+                                            {item.requestItem.original_hpp_price && Number(item.requestItem.original_hpp_price) > Number(item.requestItem.hpp_price) && (
+                                                <span className="ml-1 text-amber-700 dark:text-amber-400">
+                                                    (Nota: {formatCurrency(Number(item.requestItem.original_hpp_price))})
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
                                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 pl-7">
                                         <p className={`text-[11px] font-bold ${
                                             item.isReady
@@ -1488,6 +1522,77 @@ export default function RequestsIndex({
                         />
                     </div>
 
+                    {/* Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional */}
+                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                            Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional
+                        </p>
+                        <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mb-2.5">
+                            Jika terdapat item lain pada kapal yang sama memiliki kelebihan/sisa dana, sisa biaya tersebut dapat dialihkan untuk menutup kekurangan ini.
+                        </p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                    Item Sumber Kelebihan Biaya
+                                </label>
+                                <select
+                                    value={supplierInvoiceForm.data.surplus_source_item_id}
+                                    onChange={(e) => supplierInvoiceForm.setData('surplus_source_item_id', e.target.value)}
+                                    className="w-full h-10 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] px-2.5 text-xs text-[#0B1F63] dark:text-[#F1F5F9]"
+                                >
+                                    <option value="">Tanpa pengalihan (langsung ajukan riil)</option>
+                                    {availableSurplusItemsForModal.map((it) => (
+                                        <option key={it.id} value={it.id}>
+                                            {it.item_name} ({formatCurrency(Number(it.hpp_price || 0))})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {supplierInvoiceForm.data.surplus_source_item_id && (
+                                <div>
+                                    <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                        Nominal Kelebihan yang Dialihkan (Rp)
+                                    </label>
+                                    <MoneyInput
+                                        id="supplier_index_surplus_amount"
+                                        name="surplus_amount"
+                                        value={supplierInvoiceForm.data.surplus_amount}
+                                        onChange={(val) => supplierInvoiceForm.setData('surplus_amount', val)}
+                                        placeholder="Contoh: 500.000"
+                                        error={supplierInvoiceForm.errors.surplus_amount}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {supplierInvoiceForm.data.surplus_source_item_id && (
+                            <div className="mt-3 rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] p-2.5 text-[11px] text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
+                                <div className="flex justify-between font-semibold">
+                                    <span>Total HPP Nota Supplier:</span>
+                                    <span>{formatCurrency(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0)}</span>
+                                </div>
+                                <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                                    <span>Pengalihan dari Item Lain:</span>
+                                    <span>- {formatCurrency(parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)}</span>
+                                </div>
+                                <div className="mt-1 pt-1 border-t border-[#BCE0FD] dark:border-[#1E3A5F] flex justify-between font-bold text-xs text-[#0060F4] dark:text-[#60A5FA]">
+                                    <span>HPP Real yang Diajukan ke Direktur:</span>
+                                    <span>
+                                        {formatCurrency(
+                                            Math.max(
+                                                0,
+                                                (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0) -
+                                                    (parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)
+                                            )
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <Input
                         required
                         name="supplier_invoice_number"
@@ -1533,6 +1638,7 @@ export default function RequestsIndex({
                         label={supplierInvoiceTarget?.item.requestItem.supplier_invoice_url
                             ? 'Ganti Dokumen Nota (Opsional)'
                             : 'Dokumen Nota Invoice Supplier'}
+                        previewUrl={supplierInvoiceTarget?.item.requestItem.supplier_invoice_url ? `${supplierInvoiceTarget.item.requestItem.supplier_invoice_url}?view=1` : undefined}
                         value={supplierInvoiceForm.data.supplier_invoice_document}
                         onChange={(file) => supplierInvoiceForm.setData('supplier_invoice_document', file)}
                         mode="gallery"

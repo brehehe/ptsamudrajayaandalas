@@ -55,6 +55,7 @@ interface InvoiceLine {
     quantity: string;
     unit: string;
     unit_price: string;
+    total_price?: string;
     allocated_hpp?: string;
     source_item_ids: string[];
     is_custom: boolean;
@@ -94,8 +95,12 @@ const money = (value: number | string) => new Intl.NumberFormat('id-ID', {
 }).format(Number(value || 0));
 const lineKey = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const defaultSectionTitle = (type: 'agency' | 'reimburse'): string => type === 'agency' ? 'Biaya Keagenan' : 'Rincian Reimbursement';
-const invoiceLineTotal = (line: Pick<InvoiceLine, 'quantity' | 'unit_price'>): number =>
-    Math.max(0, Math.round(Number(line.quantity || 0) * Number(line.unit_price || 0)));
+const invoiceLineTotal = (line: Pick<InvoiceLine, 'quantity' | 'unit_price'> & { total_price?: string }): number => {
+    if (line.total_price !== undefined && line.total_price !== '') {
+        return Math.max(0, Math.round(Number(line.total_price || 0)));
+    }
+    return Math.max(0, Math.round(Number(line.quantity || 0) * Number(line.unit_price || 0)));
+};
 const allocateWholeRupiah = (total: number, weights: number[]): number[] => {
     const roundedTotal = Math.max(0, Math.round(total));
     const normalizedWeights = weights.map((weight) => Number.isFinite(weight) && weight > 0 ? weight : 0);
@@ -120,13 +125,23 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
     const initialJob = portCalls.find((portCall) => portCall.id === (invoice?.port_call_id || initialPortCallId));
     const [companyId, setCompanyId] = useState(invoice?.company_id || initialJob?.company_id || '');
     const [shipId, setShipId] = useState(initialJob?.ship?.id || '');
-    const initialLines: InvoiceLine[] = (invoice?.lines || []).map((line) => ({
-        ...line,
-        section_title: line.section_title || defaultSectionTitle(invoice?.invoice_type || 'agency'),
-        key: lineKey(),
-        is_custom: line.source_item_ids.length === 0,
-        allocated_hpp: line.allocated_hpp !== undefined && line.allocated_hpp !== null ? String(line.allocated_hpp) : undefined,
-    }));
+    const initialLines: InvoiceLine[] = (invoice?.lines || []).map((line) => {
+        const lineTotal = line.total_price !== undefined && line.total_price !== ''
+            ? line.total_price
+            : (line.quantity && line.unit_price ? String(Math.round(Number(line.quantity) * Number(line.unit_price))) : '');
+        const qty = Number(line.quantity || 0);
+        const unitPrice = line.unit_price || (qty > 0 && lineTotal ? String(Math.round((Number(lineTotal) / qty) * 100) / 100) : '');
+
+        return {
+            ...line,
+            section_title: line.section_title || defaultSectionTitle(invoice?.invoice_type || 'agency'),
+            key: lineKey(),
+            is_custom: line.source_item_ids.length === 0,
+            total_price: lineTotal,
+            unit_price: unitPrice,
+            allocated_hpp: line.allocated_hpp !== undefined && line.allocated_hpp !== null ? String(line.allocated_hpp) : undefined,
+        };
+    });
     const form = useForm({
         port_call_id: invoice?.port_call_id || initialPortCallId || '',
         company_id: invoice?.company_id || initialJob?.company_id || '',
@@ -168,7 +183,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
     };
     const availableItems = jobItems.filter((item) => !itemUnavailableReason(item));
     const selectedSourceIds = useMemo(() => new Set(form.data.lines.flatMap((line) => line.source_item_ids)), [form.data.lines]);
-    const subtotal = form.data.lines.reduce((total, line) => total + Number(line.unit_price || 0) * Number(line.quantity || 0), 0);
+    const subtotal = form.data.lines.reduce((total, line) => total + invoiceLineTotal(line), 0);
     const grandTotal = subtotal + Number(form.data.addon_total || 0) + Number(form.data.tax || 0);
     const sourceUsageCounts = useMemo(() => form.data.lines
         .flatMap((line) => Array.from(new Set(line.source_item_ids)))
@@ -339,13 +354,17 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
     const toggleSource = (item: SourceItem, selected: boolean) => {
         if (selected) {
             if (selectedSourceIds.has(item.id)) return;
+            const initTotal = item.hpp_total || item.default_price || '';
+            const qtyNum = Number(item.quantity || 0);
+            const initUnit = qtyNum > 0 && initTotal ? String(Math.round((Number(initTotal) / qtyNum) * 100) / 100) : (item.default_price || '');
             form.setData('lines', [...form.data.lines, {
                 key: lineKey(),
                 section_title: defaultSectionTitle(form.data.invoice_type),
                 description: item.item_name,
                 quantity: item.quantity,
                 unit: item.unit || 'Paket',
-                unit_price: item.default_price || '',
+                total_price: String(initTotal),
+                unit_price: initUnit,
                 allocated_hpp: String(item.hpp_total || '0'),
                 source_item_ids: [item.id],
                 is_custom: false,
@@ -362,26 +381,68 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
             form.setData('lines', form.data.lines.filter((line) => line.is_custom));
             return;
         }
-        const additions = availableItems.filter((item) => !selectedSourceIds.has(item.id)).map((item): InvoiceLine => ({
-            key: lineKey(),
-            section_title: defaultSectionTitle(form.data.invoice_type),
-            description: item.item_name,
-            quantity: item.quantity,
-            unit: item.unit || 'Paket',
-            unit_price: item.default_price || '',
-            allocated_hpp: String(item.hpp_total || '0'),
-            source_item_ids: [item.id],
-            is_custom: false,
-        }));
+        const additions = availableItems.filter((item) => !selectedSourceIds.has(item.id)).map((item): InvoiceLine => {
+            const initTotal = item.hpp_total || item.default_price || '';
+            const qtyNum = Number(item.quantity || 0);
+            const initUnit = qtyNum > 0 && initTotal ? String(Math.round((Number(initTotal) / qtyNum) * 100) / 100) : (item.default_price || '');
+            return {
+                key: lineKey(),
+                section_title: defaultSectionTitle(form.data.invoice_type),
+                description: item.item_name,
+                quantity: item.quantity,
+                unit: item.unit || 'Paket',
+                total_price: String(initTotal),
+                unit_price: initUnit,
+                allocated_hpp: String(item.hpp_total || '0'),
+                source_item_ids: [item.id],
+                is_custom: false,
+            };
+        });
         form.setData('lines', [...form.data.lines, ...additions]);
     };
 
-    const updateLine = (index: number, field: keyof Pick<InvoiceLine, 'section_title' | 'description' | 'quantity' | 'unit' | 'unit_price' | 'allocated_hpp'>, value: string) => {
+    const updateLine = (index: number, field: keyof Pick<InvoiceLine, 'section_title' | 'description' | 'unit' | 'allocated_hpp'>, value: string) => {
         form.setData('lines', form.data.lines.map((line, lineIndex) => lineIndex === index ? { ...line, [field]: value } : line));
+    };
+    const updateLineTotalPrice = (index: number, value: string) => {
+        form.setData('lines', form.data.lines.map((line, lineIndex) => {
+            if (lineIndex !== index) return line;
+            const qty = Number(line.quantity || 0);
+            const totalNum = Number(value || 0);
+            const derivedUnitPrice = qty > 0 ? (Math.round((totalNum / qty) * 100) / 100).toString() : value;
+            return {
+                ...line,
+                total_price: value,
+                unit_price: derivedUnitPrice,
+            };
+        }));
+    };
+    const updateLineQuantity = (index: number, value: string) => {
+        form.setData('lines', form.data.lines.map((line, lineIndex) => {
+            if (lineIndex !== index) return line;
+            const qtyNum = Number(value || 0);
+            let derivedUnitPrice = line.unit_price;
+            if (line.total_price !== undefined && line.total_price !== '') {
+                derivedUnitPrice = qtyNum > 0 ? (Math.round((Number(line.total_price) / qtyNum) * 100) / 100).toString() : line.total_price;
+            }
+            return {
+                ...line,
+                quantity: value,
+                unit_price: derivedUnitPrice,
+            };
+        }));
     };
     const removeLine = (index: number) => form.setData('lines', form.data.lines.filter((_, lineIndex) => lineIndex !== index));
     const addCustomLine = () => form.setData('lines', [...form.data.lines, {
-        key: lineKey(), section_title: defaultSectionTitle(form.data.invoice_type), description: '', quantity: '1', unit: 'Paket', unit_price: '', source_item_ids: [], is_custom: true,
+        key: lineKey(),
+        section_title: defaultSectionTitle(form.data.invoice_type),
+        description: '',
+        quantity: '1',
+        unit: 'Paket',
+        total_price: '',
+        unit_price: '',
+        source_item_ids: [],
+        is_custom: true,
     }]);
     const splitLine = (index: number) => {
         const line = form.data.lines[index];
@@ -395,6 +456,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                 description: `${line.description} (Bagian 1)`,
                 quantity: '1',
                 unit: 'Paket',
+                total_price: String(firstTotal),
                 unit_price: String(firstTotal),
                 allocated_hpp: String(firstHpp),
             },
@@ -404,6 +466,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                 description: `${line.description} (Bagian 2)`,
                 quantity: '1',
                 unit: 'Paket',
+                total_price: String(secondTotal),
                 unit_price: String(secondTotal),
                 allocated_hpp: String(secondHpp),
             },
@@ -417,12 +480,14 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
         const current = form.data.lines[index];
         const prevHpp = lineHpp(previous);
         const currHpp = lineHpp(current);
+        const combinedTotal = invoiceLineTotal(previous) + invoiceLineTotal(current);
         const merged: InvoiceLine = {
             ...previous,
             description: `${previous.description} & ${current.description}`,
             quantity: '1',
             unit: 'Paket',
-            unit_price: String(invoiceLineTotal(previous) + invoiceLineTotal(current)),
+            total_price: String(combinedTotal),
+            unit_price: String(combinedTotal),
             allocated_hpp: String(prevHpp + currHpp),
             source_item_ids: Array.from(new Set([...previous.source_item_ids, ...current.source_item_ids])),
             is_custom: previous.is_custom && current.is_custom,
@@ -448,6 +513,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
             description: `${title}\n${sourceItems.map((item) => `- ${item.item_name}`).join('\n')}`,
             quantity: '1',
             unit: 'Paket',
+            total_price: String(combinedTotal || ''),
             unit_price: String(combinedTotal || ''),
             allocated_hpp: String(combinedHpp),
             source_item_ids: sourceIds,
@@ -474,6 +540,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
             description: source.item_name,
             quantity: '1',
             unit: 'Paket',
+            total_price: String(allocations[sourceIndex]),
             unit_price: String(allocations[sourceIndex]),
             allocated_hpp: String(hppAllocations[sourceIndex]),
             source_item_ids: [source.id],
@@ -655,7 +722,8 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
 
                             {form.data.lines.map((line, index) => {
                                 const sourceNames = line.source_item_ids.map((sourceId) => jobItems.find((item) => item.id === sourceId)?.item_name).filter(Boolean);
-                                const lineTotal = Number(line.quantity || 0) * Number(line.unit_price || 0);
+                                const lineTotal = invoiceLineTotal(line);
+                                const unitPrice = Number(line.quantity || 0) > 0 ? (lineTotal / Number(line.quantity)) : lineTotal;
                                 const hpp = lineHpp(line);
                                 const margin = lineTotal - hpp;
                                 return <section key={line.key} className="rounded-2xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:p-4">
@@ -683,12 +751,29 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                                     </div>
                                     <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_8rem_9rem_minmax(14rem,1.2fr)]">
                                         <Textarea required name={`lines[${index}][description]`} autoComplete="off" label="Nama / deskripsi item invoice" value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} rows={3} maxLength={255} error={errors[`lines.${index}.description`]} />
-                                        <Input required name={`lines[${index}][quantity]`} autoComplete="off" label="Qty" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} error={errors[`lines.${index}.quantity`]} />
+                                        <Input required name={`lines[${index}][quantity]`} autoComplete="off" label="Qty" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLineQuantity(index, event.target.value)} error={errors[`lines.${index}.quantity`]} />
                                         <Input required name={`lines[${index}][unit]`} autoComplete="off" label="Satuan" value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} error={errors[`lines.${index}.unit`]} />
                                         <div>
-                                            <MoneyInput required name={`lines[${index}][unit_price]`} autoComplete="off" label="Harga Satuan (Rp)" value={line.unit_price} onChange={(value) => updateLine(index, 'unit_price', value)} error={errors[`lines.${index}.unit_price`]} />
+                                            <MoneyInput
+                                                required
+                                                name={`lines[${index}][total_price]`}
+                                                autoComplete="off"
+                                                label="Harga Jual (Rp)"
+                                                value={line.total_price !== undefined && line.total_price !== '' ? line.total_price : (lineTotal ? String(lineTotal) : '')}
+                                                onChange={(value) => updateLineTotalPrice(index, value)}
+                                                error={errors[`lines.${index}.total_price`] || errors[`lines.${index}.unit_price`]}
+                                            />
                                             <p className="mt-1.5 rounded-lg bg-[#EBF3FB] px-2.5 py-1 text-[11px] font-semibold text-[#0B1F63] dark:bg-[#102B4A] dark:text-[#E0F0FF]">
-                                                Subtotal: {line.quantity || 0} {line.unit} × {money(line.unit_price)} = <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
+                                                {Number(line.quantity || 0) > 1 ? (
+                                                    <span>
+                                                        Total: <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
+                                                        {' '}<span className="text-[#52658E] dark:text-[#94A3B8]">(setara {money(unitPrice)} / {line.unit || 'Satuan'})</span>
+                                                    </span>
+                                                ) : (
+                                                    <span>
+                                                        Total Harga Jual: <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
+                                                    </span>
+                                                )}
                                             </p>
                                         </div>
                                     </div>
@@ -713,7 +798,9 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                                         <div>
                                             <p className="text-[10px] font-semibold text-[#52658E]">Total Jual Baris</p>
                                             <p className="text-sm font-extrabold tabular-nums text-[#0060F4] mt-1">{money(lineTotal)}</p>
-                                            <p className="text-[10px] text-[#52658E]">{line.quantity || 0} {line.unit} × {money(line.unit_price)}</p>
+                                            <p className="text-[10px] text-[#52658E]">
+                                                {Number(line.quantity || 0) > 1 ? `${line.quantity || 0} ${line.unit} (setara ${money(unitPrice)}/${line.unit})` : `${line.unit || 'Paket'}`}
+                                            </p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-semibold text-[#52658E]">Estimasi Margin Baris</p>

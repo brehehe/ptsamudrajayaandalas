@@ -23,6 +23,7 @@ import AlertToast, { type AlertToastMessage } from '../../Components/feedback/Al
 import type { VesselShowProps } from '../../Components/vessels/types';
 import { formatEtaDateTime } from '../../Components/vessels/format';
 import ShipImage from '../../Components/vessels/ShipImage';
+import { FileViewerTrigger } from '../../Components/ui/FileViewer';
 export { formatEtaDateTime } from '../../Components/vessels/format';
 
 const mobileTabs = [
@@ -296,13 +297,17 @@ export default function VesselShow({
 
         if (selectedVisit.completion_note) {
             return (
-                <a
-                    href={route('completion-notes.document', {
+                <FileViewerTrigger
+                    url={route('completion-notes.document', {
                         completionNote: selectedVisit.completion_note.id,
                         view: 1,
                     })}
-                    target="_blank"
-                    rel="noreferrer"
+                    downloadUrl={route('completion-notes.document', {
+                        completionNote: selectedVisit.completion_note.id,
+                        download: 1,
+                    })}
+                    title={`Nota Rampung: ${selectedVisit.completion_note.document_number || 'Dokumen'}`}
+                    fileType="pdf"
                     aria-label={`Lihat Nota Rampung ${selectedVisit.completion_note.document_number}`}
                     className={getButtonClassName({
                         variant: 'outline',
@@ -312,7 +317,7 @@ export default function VesselShow({
                     <FileCheck2 aria-hidden="true" className="size-4" />
                     Lihat Nota Rampung
                     <ExternalLink aria-hidden="true" className="size-3.5" />
-                </a>
+                </FileViewerTrigger>
             );
         }
 

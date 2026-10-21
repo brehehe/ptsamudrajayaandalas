@@ -17,6 +17,7 @@ import DocumentActions from '../../Components/ui/DocumentActions';
 import ImportExportActions from '../../Components/ui/ImportExportActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import Tabs from '../../Components/ui/Tabs';
+import FileViewer from '../../Components/ui/FileViewer';
 
 interface Invoice {
     id: string;
@@ -101,6 +102,7 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
     const [modalStatus, setModalStatus] = useState(filters.status || 'all');
     const [modalType, setModalType] = useState(filters.type || 'all');
+    const [viewingFile, setViewingFile] = useState<{ url: string; title: string; downloadUrl?: string } | null>(null);
 
     const statusOptions: SelectSearchOption[] = [
         { value: 'all', label: 'Semua Status' },
@@ -171,8 +173,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     id: 'preview-draft',
                     label: 'Pratinjau draft',
                     icon: <Eye aria-hidden="true" className="size-4" />,
-                    href: `/invoices/${invoice.id}/generated-document?view=1`,
-                    target: '_blank',
+                    onSelect: () => setViewingFile({
+                        url: `/invoices/${invoice.id}/generated-document?view=1`,
+                        downloadUrl: `/invoices/${invoice.id}/generated-document`,
+                        title: `Draft Invoice: ${invoice.invoice_number}`,
+                    }),
                     tone: 'primary',
                 },
                 {
@@ -191,8 +196,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     id: 'view-signed',
                     label: 'Lihat invoice',
                     icon: <Eye aria-hidden="true" className="size-4" />,
-                    href: `/invoices/${invoice.id}/documents/signed?view=1`,
-                    target: '_blank',
+                    onSelect: () => setViewingFile({
+                        url: `/invoices/${invoice.id}/documents/signed?view=1`,
+                        downloadUrl: `/invoices/${invoice.id}/documents/signed`,
+                        title: `Invoice: ${invoice.invoice_number}`,
+                    }),
                     tone: 'primary',
                 },
                 {
@@ -211,8 +219,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     id: 'view-delivery-proof',
                     label: 'Lihat bukti pengiriman',
                     icon: <Eye aria-hidden="true" className="size-4" />,
-                    href: `/invoices/${invoice.id}/documents/delivery?view=1`,
-                    target: '_blank',
+                    onSelect: () => setViewingFile({
+                        url: `/invoices/${invoice.id}/documents/delivery?view=1`,
+                        downloadUrl: `/invoices/${invoice.id}/documents/delivery`,
+                        title: `Bukti Pengiriman: ${invoice.invoice_number}`,
+                    }),
                     tone: 'primary',
                 },
                 {
@@ -231,8 +242,11 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     id: 'view-supporting',
                     label: 'Lihat dokumen pendukung',
                     icon: <FileText aria-hidden="true" className="size-4" />,
-                    href: `/invoices/${invoice.id}/documents/supporting?view=1`,
-                    target: '_blank',
+                    onSelect: () => setViewingFile({
+                        url: `/invoices/${invoice.id}/documents/supporting?view=1`,
+                        downloadUrl: `/invoices/${invoice.id}/documents/supporting`,
+                        title: `Dokumen Pendukung: ${invoice.invoice_number}`,
+                    }),
                     tone: 'primary',
                 },
                 {
@@ -625,6 +639,15 @@ export default function InvoicesIndex({ invoices, stats, filters, abilities }: P
                     />
                 </div>
             </Modal>
+
+            <FileViewer
+                isOpen={viewingFile !== null}
+                onClose={() => setViewingFile(null)}
+                url={viewingFile?.url || ''}
+                downloadUrl={viewingFile?.downloadUrl}
+                title={viewingFile?.title || 'Dokumen Invoice'}
+                fileType="pdf"
+            />
         </AppLayout>
     );
 }

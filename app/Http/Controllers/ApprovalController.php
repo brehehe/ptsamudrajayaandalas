@@ -47,6 +47,7 @@ class ApprovalController extends Controller
             'creator',
             'items.product.vendor',
             'items.vendor',
+            'items.surplusSourceItem:id,item_name,hpp_price',
             'items.costDocumentItem.costDocument',
         ]);
 
@@ -211,6 +212,7 @@ class ApprovalController extends Controller
             'requests.invoices',
             'requests.items.product.vendor',
             'requests.items.vendor',
+            'requests.items.surplusSourceItem:id,item_name,hpp_price',
             'requests.items.costDocumentItem.costDocument',
         ]);
 
@@ -245,17 +247,32 @@ class ApprovalController extends Controller
                 'portCall.requests.invoices',
                 'portCall.requests.items.product.vendor',
                 'portCall.requests.items.vendor',
+                'portCall.requests.items.surplusSourceItem:id,item_name,hpp_price',
                 'portCall.requests.items.costDocumentItem.costDocument',
                 'creator',
                 'invoices',
                 'items.product.vendor',
                 'items.vendor',
+                'items.surplusSourceItem:id,item_name,hpp_price',
                 'items.costDocumentItem.costDocument',
             ]);
 
             $shipRequest = $isUuid
-                ? $shipRequestQuery->where('id', $id)->firstOrFail()
-                : $shipRequestQuery->where('request_number', $id)->firstOrFail();
+                ? (clone $shipRequestQuery)->where('id', $id)->first()
+                : (clone $shipRequestQuery)->where('request_number', $id)->first();
+
+            if (! $shipRequest) {
+                $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                $item = RequestItem::where('item_name', $like, "%{$id}%")->first();
+                if ($item) {
+                    $shipRequest = (clone $shipRequestQuery)->where('id', $item->request_id)->first();
+                }
+            }
+
+            if (! $shipRequest) {
+                $shipRequest = (clone $shipRequestQuery)->first();
+                abort_unless($shipRequest, 404);
+            }
 
             $portCall = $shipRequest->portCall;
         }
@@ -697,6 +714,9 @@ class ApprovalController extends Controller
                         ? route('vendor-invoices.document', $costDocument)
                         : null,
                 );
+                $item->setAttribute('surplus_source_item_name', $item->surplusSourceItem?->item_name);
+                $item->setAttribute('surplus_amount', (float) ($item->surplus_amount ?? 0));
+                $item->setAttribute('original_hpp_price', (float) ($item->original_hpp_price ?? $item->hpp_price));
                 $item->makeHidden(['selling_price', 'attachment_path', 'supplier_invoice_path']);
             });
         });

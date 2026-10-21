@@ -29,6 +29,7 @@ import Table from '../../Components/tables/Table';
 import ShipImage from '../../Components/vessels/ShipImage';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import RequirementDate from '../../Components/ui/RequirementDate';
+import { FileViewerTrigger } from '../../Components/ui/FileViewer';
 
 interface RequestItem {
     id: string;
@@ -57,6 +58,10 @@ interface RequestItem {
     supplier_invoice_is_image?: boolean;
     supplier_invoice_complete?: boolean;
     vendor_invoice_url?: string | null;
+    surplus_source_item_id?: string | null;
+    surplus_source_item_name?: string | null;
+    surplus_amount?: number | string | null;
+    original_hpp_price?: number | string | null;
 }
 
 interface JobInfo {
@@ -218,27 +223,29 @@ const ItemEvidenceLinks = ({ item }: { item: RequestItem }) => {
     return (
         <div className="flex flex-wrap items-start gap-2 pt-2">
             {item.attachment_url && (
-                <a
-                    href={`${item.attachment_url}?view=1`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group overflow-hidden rounded-lg border border-[#DCEAF8] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                <FileViewerTrigger
+                    url={`${item.attachment_url}?view=1`}
+                    downloadUrl={`${item.attachment_url}?download=1`}
+                    title={`Bukti item: ${item.item_name}`}
+                    fileType={item.attachment_is_image ? 'image' : undefined}
                     aria-label={`Buka bukti item ${item.item_name}`}
+                    className="group overflow-hidden rounded-lg border border-[#DCEAF8] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
                 >
                     {item.attachment_is_image ? (
                         <img src={`${item.attachment_url}?view=1`} alt={`Bukti item ${item.item_name}`} className="h-16 w-20 object-cover transition-transform group-hover:scale-105" loading="lazy" />
                     ) : (
                         <span className="inline-flex min-h-8 items-center gap-1 px-2 text-[11px] font-bold hover:underline"><ExternalLink aria-hidden="true" className="size-3" /> Bukti item</span>
                     )}
-                </a>
+                </FileViewerTrigger>
             )}
             {item.supplier_invoice_url && (
-                <a
-                    href={`${item.supplier_invoice_url}?view=1`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group overflow-hidden rounded-lg border border-[#BCE0FD] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                <FileViewerTrigger
+                    url={`${item.supplier_invoice_url}?view=1`}
+                    downloadUrl={`${item.supplier_invoice_url}?download=1`}
+                    title={`Nota supplier: ${item.item_name}${item.supplier_invoice_number ? ` (${item.supplier_invoice_number})` : ''}`}
+                    fileType={item.supplier_invoice_is_image ? 'image' : undefined}
                     aria-label={`Buka nota supplier ${item.item_name}`}
+                    className="group overflow-hidden rounded-lg border border-[#BCE0FD] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
                 >
                     {item.supplier_invoice_is_image ? (
                         <span className="block">
@@ -248,10 +255,17 @@ const ItemEvidenceLinks = ({ item }: { item: RequestItem }) => {
                     ) : (
                         <span className="inline-flex min-h-8 items-center gap-1 px-2 text-[11px] font-bold hover:underline"><FileText aria-hidden="true" className="size-3" /> Nota supplier</span>
                     )}
-                </a>
+                </FileViewerTrigger>
             )}
             {item.vendor_invoice_url && (
-                <a href={`${item.vendor_invoice_url}?view=1`} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-[#087443] hover:border-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"><FileText aria-hidden="true" className="size-3" /> Siap dibayar</a>
+                <FileViewerTrigger
+                    url={`${item.vendor_invoice_url}?view=1`}
+                    downloadUrl={`${item.vendor_invoice_url}?download=1`}
+                    title={`Faktur vendor: ${item.item_name}`}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-[#087443] hover:border-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                >
+                    <FileText aria-hidden="true" className="size-3" /> Siap dibayar
+                </FileViewerTrigger>
             )}
         </div>
     );
@@ -878,6 +892,21 @@ export default function ApprovalShow({
                                         </p>
                                         <RequirementDate value={item.required_date} />
                                         <ItemEvidenceLinks item={item} />
+                                        {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                    🔄 Pengalihan Kelebihan Dana
+                                                </div>
+                                                <div className="mt-1">
+                                                    Dialihkan <strong className="font-mono">{formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
+                                                </div>
+                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                    <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 pt-1 border-t border-amber-200/60 dark:border-amber-800/60">
+                                                        Total Nota: {formatRupiah(item.original_hpp_price)} → Real Diajukan: {formatRupiah(item.hpp_price)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                         {item.is_urgent && (
                                             <span className="inline-flex rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                 Urgent
@@ -913,9 +942,16 @@ export default function ApprovalShow({
                                 align: 'right',
                                 width: '145px',
                                 render: ({ item }) => (
-                                    <span className="whitespace-nowrap font-mono font-bold tabular-nums">
-                                        {formatRupiah(item.hpp_price)}
-                                    </span>
+                                    <div className="text-right">
+                                        <span className="whitespace-nowrap font-mono font-bold tabular-nums">
+                                            {formatRupiah(item.hpp_price)}
+                                        </span>
+                                        {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                            <span className="block text-[10px] line-through text-[#8A9EB5]">
+                                                {formatRupiah(item.original_hpp_price)}
+                                            </span>
+                                        )}
+                                    </div>
                                 ),
                             },
                             {
@@ -1200,6 +1236,21 @@ export default function ApprovalShow({
                                                         </p>
                                                         <RequirementDate value={item.required_date} />
                                                         <ItemEvidenceLinks item={item} />
+                                                        {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                                            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                                <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                                    🔄 Pengalihan Kelebihan Dana
+                                                                </div>
+                                                                <div className="mt-1">
+                                                                    Dialihkan <strong className="font-mono">{formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
+                                                                </div>
+                                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                                    <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 pt-1 border-t border-amber-200/60 dark:border-amber-800/60">
+                                                                        Total Nota: {formatRupiah(item.original_hpp_price)} → Real Diajukan: {formatRupiah(item.hpp_price)}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                         {item.notes && (
                                                             <p className="mt-1 break-words text-xs italic leading-5 text-[#52658E] dark:text-[#94A3B8]">
                                                                 “{item.notes}”
@@ -1231,7 +1282,14 @@ export default function ApprovalShow({
                                                     </div>
                                                     <div className="text-right">
                                                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP</dt>
-                                                        <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{formatRupiah(item.hpp_price)}</dd>
+                                                        <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                            {formatRupiah(item.hpp_price)}
+                                                            {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                                <span className="block text-[10px] font-normal line-through text-[#8A9EB5]">
+                                                                    {formatRupiah(item.original_hpp_price)}
+                                                                </span>
+                                                            )}
+                                                        </dd>
                                                     </div>
                                                     <div className="text-right">
                                                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Total HPP</dt>

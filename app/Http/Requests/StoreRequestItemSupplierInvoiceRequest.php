@@ -24,6 +24,8 @@ class StoreRequestItemSupplierInvoiceRequest extends FormRequest
         return [
             'vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'hpp_price' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
+            'surplus_source_item_id' => ['nullable', 'uuid', 'exists:request_items,id'],
+            'surplus_amount' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'supplier_invoice_number' => ['required', 'string', 'max:100'],
             'supplier_invoice_date' => ['required', 'date'],
             'supplier_invoice_received_date' => ['required', 'date', 'after_or_equal:supplier_invoice_date'],

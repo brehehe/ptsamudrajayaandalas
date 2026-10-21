@@ -522,26 +522,26 @@ class NeedController extends Controller
 
         $portCall = PortCall::lockForUpdate()->findOrFail($need->port_call_id);
         $targetStatus = $need->requested_port_call_status;
+        if (! $targetStatus) {
+            $targetStatus = $need->service_type === 'clearance_out'
+                ? 'departed'
+                : ($need->service_type === 'clearance_in' ? 'berthed' : null);
+        }
+
+        if (! $targetStatus || $portCall->status === $targetStatus) {
+            return;
+        }
+
         $allowedTransitions = [
             'scheduled' => ['anchored', 'berthed'],
             'anchored' => ['departed'],
             'berthed' => ['departed'],
         ];
 
-        if (! $targetStatus) {
-            throw ValidationException::withMessages([
-                'status' => 'Status kunjungan sudah berubah atau target operasional pengajuan tidak valid.',
-            ]);
-        }
-
-        if ($portCall->status === $targetStatus) {
-            return;
-        }
-
+        // If port call cannot transition further (e.g. already departed or out-of-order supplement),
+        // gracefully permit the need items to finish without throwing validation error.
         if (! in_array($targetStatus, $allowedTransitions[$portCall->status] ?? [], true)) {
-            throw ValidationException::withMessages([
-                'status' => 'Status kunjungan sudah berubah atau target operasional pengajuan tidak valid.',
-            ]);
+            return;
         }
 
         $occurredAt = $need->operational_occurred_at ?? now();

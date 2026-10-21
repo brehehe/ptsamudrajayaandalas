@@ -31,6 +31,7 @@ import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import AppLayout from '../../Layouts/AppLayout';
 import { formatDate } from '../../lib/formatDate';
+import FileViewer from '../../Components/ui/FileViewer';
 
 interface RequestReportRow {
     id: string;
@@ -174,6 +175,7 @@ export default function RequestReports({
         startDate: filters.from || '',
         endDate: filters.to || '',
     });
+    const [viewingReport, setViewingReport] = useState<{ url: string; title: string; downloadUrl?: string } | null>(null);
 
     useEffect(() => {
         setSearch(filters.search || '');
@@ -356,8 +358,11 @@ export default function RequestReports({
                     {
                         id: 'preview',
                         label: 'Lihat laporan PDF',
-                        href: row.document_url,
-                        target: '_blank',
+                        onSelect: () => setViewingReport({
+                            url: row.document_url,
+                            downloadUrl: `${row.document_url}?download=1`,
+                            title: `Laporan Pengajuan ${row.request_number}`,
+                        }),
                         tone: 'primary',
                         icon: <FileText aria-hidden="true" className="size-4" />,
                     },
@@ -862,6 +867,15 @@ export default function RequestReports({
                 </div>
             </Modal>
             <ReportExportModal exportState={exportState} />
+
+            <FileViewer
+                isOpen={viewingReport !== null}
+                onClose={() => setViewingReport(null)}
+                url={viewingReport?.url || ''}
+                downloadUrl={viewingReport?.downloadUrl}
+                title={viewingReport?.title || 'Laporan Pengajuan'}
+                fileType="pdf"
+            />
         </AppLayout>
     );
 }

@@ -273,6 +273,7 @@ class RequestController extends Controller
             'requests.invoices',
             'requests.items.product.vendor',
             'requests.items.vendor',
+            'requests.items.surplusSourceItem:id,item_name,hpp_price',
             'requests.items.costDocumentItem.costDocument',
         ]);
 
@@ -308,11 +309,13 @@ class RequestController extends Controller
                 'portCall.requests.invoices',
                 'portCall.requests.items.product.vendor',
                 'portCall.requests.items.vendor',
+                'portCall.requests.items.surplusSourceItem:id,item_name,hpp_price',
                 'portCall.requests.items.costDocumentItem.costDocument',
                 'creator',
                 'invoices',
                 'items.product.vendor',
                 'items.vendor',
+                'items.surplusSourceItem:id,item_name,hpp_price',
                 'items.costDocumentItem.costDocument',
             ]);
 
@@ -1529,6 +1532,8 @@ class RequestController extends Controller
                 'ship_id' => $parentRequest->ship_id ?? $parentRequest->portCall?->ship_id,
                 'port_call_id' => $parentRequest->port_call_id,
                 'service_type' => $parentRequest->service_type ?? 'clearance_in',
+                'requested_port_call_status' => $parentRequest->requested_port_call_status,
+                'operational_occurred_at' => $parentRequest->operational_occurred_at,
                 'status' => $reqStatus,
                 'request_date' => now(),
                 'created_by' => $request->user()->id,
@@ -1553,6 +1558,9 @@ class RequestController extends Controller
                 'unit' => $taktisProduct?->unit ?? 'Kegiatan',
                 'quantity' => 1,
                 'hpp_price' => (float) $validated['amount'],
+                'original_hpp_price' => (float) $validated['amount'],
+                'surplus_source_item_id' => $validated['surplus_source_item_id'] ?? null,
+                'surplus_amount' => ! empty($validated['surplus_source_item_id']) ? (float) ($validated['surplus_amount'] ?? 0) : 0,
                 'selling_price' => 0,
                 'vendor_id' => null,
                 'required_date' => $validated['required_date'] ?? now()->toDateString(),
@@ -1814,6 +1822,9 @@ class RequestController extends Controller
                         ? route('vendor-invoices.document', $costDocument)
                         : null,
                 );
+                $item->setAttribute('surplus_source_item_name', $item->surplusSourceItem?->item_name);
+                $item->setAttribute('surplus_amount', (float) ($item->surplus_amount ?? 0));
+                $item->setAttribute('original_hpp_price', (float) ($item->original_hpp_price ?? $item->hpp_price));
                 $item->makeHidden(['selling_price', 'attachment_path', 'supplier_invoice_path']);
             });
         });

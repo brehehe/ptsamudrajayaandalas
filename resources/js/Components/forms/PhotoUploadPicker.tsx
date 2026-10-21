@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import Modal from '../Modal';
 import { optimizeImageFile } from '../../lib/optimizeImageFile';
+import { FileViewerTrigger } from '../ui/FileViewer';
 
 export interface PhotoUploadPickerProps {
     value?: File | null;
@@ -372,16 +373,16 @@ export default function PhotoUploadPicker({
                         </div>
 
                         <div className="flex flex-wrap items-center justify-end gap-1">
-                            <a
-                                href={preview}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(event) => event.stopPropagation()}
+                            <FileViewerTrigger
+                                url={preview}
+                                title={fileName || 'Foto terpilih'}
+                                fileType={isImagePreview ? 'image' : undefined}
+                                onClick={(event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation()}
                                 className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#DCEAF8] bg-white px-2.5 text-xs font-bold text-[#0060F4] shadow-sm hover:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] focus-visible:ring-offset-2 dark:border-[#285585] dark:bg-[#173B5C] dark:text-[#E7F0FA]"
                             >
                                 <Eye aria-hidden="true" className="size-3.5" />
                                 <span>Lihat</span>
-                            </a>
+                            </FileViewerTrigger>
                             <button
                                 type="button"
                                 onClick={() => {

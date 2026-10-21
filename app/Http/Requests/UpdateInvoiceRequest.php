@@ -20,6 +20,34 @@ class UpdateInvoiceRequest extends FormRequest
     }
 
     /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('lines') && is_array($this->lines)) {
+            $lines = $this->lines;
+            foreach ($lines as $i => $line) {
+                if (! is_array($line)) {
+                    continue;
+                }
+                $qty = isset($line['quantity']) && is_numeric($line['quantity']) && (float) $line['quantity'] > 0
+                    ? (float) $line['quantity']
+                    : 1.0;
+
+                if (isset($line['total_price']) && is_numeric($line['total_price']) && (float) $line['total_price'] > 0) {
+                    $total = (float) $line['total_price'];
+                    $lines[$i]['unit_price'] = (string) round($total / $qty, 2);
+                } elseif (isset($line['unit_price']) && is_numeric($line['unit_price']) && (float) $line['unit_price'] > 0) {
+                    if (! isset($line['total_price']) || ! is_numeric($line['total_price']) || (float) $line['total_price'] <= 0) {
+                        $lines[$i]['total_price'] = (string) round((float) $line['unit_price'] * $qty, 2);
+                    }
+                }
+            }
+            $this->merge(['lines' => $lines]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
@@ -37,6 +65,7 @@ class UpdateInvoiceRequest extends FormRequest
             'lines.*.description' => ['required', 'string', 'max:255'],
             'lines.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999999999.99'],
             'lines.*.unit' => ['required', 'string', 'max:50'],
+            'lines.*.total_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999999.99'],
             'lines.*.unit_price' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
             'lines.*.allocated_hpp' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
             'lines.*.source_item_ids' => ['present', 'array', 'max:100'],

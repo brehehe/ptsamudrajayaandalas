@@ -21,6 +21,7 @@ export interface ClientInvoiceDocumentLine {
     quantity: string;
     unit: string;
     unit_price: string;
+    total_price?: string;
 }
 
 export interface ClientInvoiceDocumentJob {
@@ -207,8 +208,23 @@ export default function ClientInvoiceDocument({
                 <div className="mt-5 text-[9px] leading-relaxed sm:text-xs">
                     <div className="space-y-3">
                         {groupedLines.length > 0 ? groupedLines.map(([sectionTitle, sectionLines], sectionIndex) => {
+                            const getLineAmount = (line: ClientInvoiceDocumentLine): number => {
+                                if (line.total_price !== undefined && line.total_price !== '') {
+                                    return Math.max(0, Math.round(Number(line.total_price || 0)));
+                                }
+                                return Math.max(0, Math.round(Number(line.quantity || 0) * Number(line.unit_price || 0)));
+                            };
+
+                            const getEffectiveUnit = (line: ClientInvoiceDocumentLine): number => {
+                                if (line.unit_price && Number(line.unit_price) > 0) {
+                                    return Number(line.unit_price);
+                                }
+                                const qty = Number(line.quantity || 0);
+                                return qty > 0 ? getLineAmount(line) / qty : 0;
+                            };
+
                             const sectionSubtotal = sectionLines.reduce(
-                                (total, line) => total + (Number(line.quantity || 0) * Number(line.unit_price || 0)),
+                                (total, line) => total + getLineAmount(line),
                                 0,
                             );
 
@@ -218,6 +234,8 @@ export default function ClientInvoiceDocument({
                                     <div className="mt-1 space-y-1.5">
                                         {sectionLines.map((line) => {
                                             runningLineNumber += 1;
+                                            const lineTotalAmount = getLineAmount(line);
+                                            const effectiveUnitPrice = getEffectiveUnit(line);
 
                                             return (
                                                 <div key={line.key || `${line.description}-${runningLineNumber}`} className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-start gap-1.5">
@@ -225,13 +243,13 @@ export default function ClientInvoiceDocument({
                                                     <div className="min-w-0">
                                                         <p className="whitespace-pre-line font-semibold [overflow-wrap:anywhere]">{line.description || 'Deskripsi belum diisi'}</p>
                                                         <p className="text-[8px] text-slate-600 sm:text-[10px]">
-                                                            {formatQuantity(line.quantity)} {line.unit || 'Paket'} x Rp {formatNumber(line.unit_price)}
+                                                            {formatQuantity(line.quantity)} {line.unit || 'Paket'} x Rp {formatNumber(effectiveUnitPrice)}
                                                         </p>
                                                     </div>
                                                     <div className="grid grid-cols-[1.25rem_auto] gap-1 whitespace-nowrap tabular-nums">
                                                         <span>Rp</span>
                                                         <span className="min-w-[4.5rem] border-b border-slate-900 text-right font-semibold sm:min-w-[6rem]">
-                                                            {formatNumber(Number(line.quantity || 0) * Number(line.unit_price || 0))}
+                                                            {formatNumber(lineTotalAmount)}
                                                         </span>
                                                     </div>
                                                 </div>

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Download, Eye } from 'lucide-react';
+import FileViewer from './FileViewer';
 
 interface DocumentActionsProps {
     viewHref: string;
@@ -8,6 +9,8 @@ interface DocumentActionsProps {
     downloadLabel?: string;
     layout?: 'wrap' | 'paired';
     className?: string;
+    fileName?: string;
+    useModal?: boolean;
 }
 
 const actionClassName =
@@ -16,7 +19,7 @@ const actionClassName =
     'transition-colors hover:border-[#0060F4] hover:bg-[#F0F8FF] hover:text-[#0060F4] ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/35 ' +
     'focus-visible:ring-offset-2 dark:border-[#1E3A5F] dark:bg-[#0C1D36] ' +
-    'dark:text-[#F1F5F9] dark:hover:border-[#38BDF8] dark:hover:bg-[#132847]';
+    'dark:text-[#F1F5F9] dark:hover:border-[#38BDF8] dark:hover:bg-[#132847] cursor-pointer';
 
 export default function DocumentActions({
     viewHref,
@@ -25,27 +28,57 @@ export default function DocumentActions({
     downloadLabel = 'Unduh',
     layout = 'wrap',
     className = '',
+    fileName,
+    useModal = true,
 }: DocumentActionsProps) {
+    const [isViewerOpen, setIsViewerOpen] = useState(false);
+
     return (
-        <div
-            className={`${layout === 'paired' ? 'grid grid-cols-2' : 'flex flex-wrap items-center'} gap-1.5 ${className}`}
-        >
-            <a
-                href={viewHref}
-                target="_blank"
-                rel="noreferrer"
-                className={actionClassName}
+        <>
+            <div
+                className={`${layout === 'paired' ? 'grid grid-cols-2' : 'flex flex-wrap items-center'} gap-1.5 ${className}`}
             >
-                <Eye aria-hidden="true" className="size-3.5" />
-                {viewLabel}
-            </a>
-            <a
-                href={downloadHref}
-                className={actionClassName}
-            >
-                <Download aria-hidden="true" className="size-3.5" />
-                {downloadLabel}
-            </a>
-        </div>
+                {useModal ? (
+                    <button
+                        type="button"
+                        onClick={() => setIsViewerOpen(true)}
+                        className={actionClassName}
+                        title={`Pratinjau ${viewLabel}`}
+                    >
+                        <Eye aria-hidden="true" className="size-3.5" />
+                        {viewLabel}
+                    </button>
+                ) : (
+                    <a
+                        href={viewHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={actionClassName}
+                    >
+                        <Eye aria-hidden="true" className="size-3.5" />
+                        {viewLabel}
+                    </a>
+                )}
+                <a
+                    href={downloadHref}
+                    download={fileName || true}
+                    className={actionClassName}
+                >
+                    <Download aria-hidden="true" className="size-3.5" />
+                    {downloadLabel}
+                </a>
+            </div>
+
+            {useModal && (
+                <FileViewer
+                    isOpen={isViewerOpen}
+                    onClose={() => setIsViewerOpen(false)}
+                    url={viewHref}
+                    downloadUrl={downloadHref}
+                    title={viewLabel}
+                    fileName={fileName}
+                />
+            )}
+        </>
     );
 }

@@ -9,6 +9,7 @@ import SelectSearch from '../../Components/selects/SelectSearch';
 import Button, { getButtonClassName } from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import AppLayout from '../../Layouts/AppLayout';
+import { FileViewerTrigger } from '../../Components/ui/FileViewer';
 
 interface OptionItem {
     id: string | number;
@@ -104,9 +105,13 @@ export default function WorkOrderEdit({ workOrder, companies, ships, ports, assi
                         <p className="mt-1 text-sm text-[#52658E]">Koreksi data atau ganti dokumen {workOrder.system_number}. ETA dicatat sebagai tanggal tanpa jam.</p>
                     </div>
                     {workOrder.document_url && (
-                        <a href={workOrder.document_url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] bg-white px-4 py-2.5 text-sm font-semibold text-[#0B1F63] hover:border-[#0060F4]">
+                        <FileViewerTrigger
+                            url={workOrder.document_url}
+                            title={`Dokumen SPK: ${workOrder.system_number}`}
+                            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] bg-white px-4 py-2.5 text-sm font-semibold text-[#0B1F63] hover:border-[#0060F4]"
+                        >
                             <ExternalLink aria-hidden="true" className="size-4" /> Dokumen saat ini
-                        </a>
+                        </FileViewerTrigger>
                     )}
                 </header>
 

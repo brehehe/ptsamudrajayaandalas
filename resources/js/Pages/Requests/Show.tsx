@@ -56,6 +56,7 @@ import Checkbox from '../../Components/forms/Checkbox';
 import Select from '../../Components/selects/Select';
 import RequirementDate from '../../Components/ui/RequirementDate';
 import { toDateInputValue } from '../../lib/formatDate';
+import FileViewer, { FileViewerTrigger } from '../../Components/ui/FileViewer';
 
 interface ProductOption {
     id: string;
@@ -100,6 +101,10 @@ interface RequestItem {
         id: string;
         name: string;
     };
+    surplus_source_item_id?: string | null;
+    surplus_source_item_name?: string | null;
+    surplus_amount?: number | string | null;
+    original_hpp_price?: number | string | null;
 }
 
 interface JobInfo {
@@ -218,6 +223,12 @@ const formatRupiah = (value?: number | string): string => {
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
     }).format(Number.isFinite(amount) ? amount : 0);
+};
+
+const parseRupiah = (value?: number | string | null): number => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const digits = String(value ?? '').replace(/\D/g, '');
+    return digits ? parseInt(digits, 10) : 0;
 };
 
 const formatDateTime = (value?: string | null): string => {
@@ -416,11 +427,12 @@ function ItemEvidenceLinks({
     return (
         <div className="mt-2 flex flex-wrap items-start gap-2 text-[11px] font-semibold">
             {item.attachment_url && (
-                <a
-                    href={`${item.attachment_url}?view=1`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group overflow-hidden rounded-lg border border-[#DCEAF8] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                <FileViewerTrigger
+                    url={`${item.attachment_url}?view=1`}
+                    title={`Bukti item ${item.item_name}`}
+                    fileType={item.attachment_is_image ? 'image' : 'pdf'}
+                    downloadUrl={item.attachment_url}
+                    className="group overflow-hidden rounded-lg border border-[#DCEAF8] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322] cursor-pointer text-left"
                     aria-label={`Buka bukti item ${item.item_name}`}
                 >
                     {item.attachment_is_image ? (
@@ -435,14 +447,15 @@ function ItemEvidenceLinks({
                             <FileText aria-hidden="true" className="size-3" /> Bukti item
                         </span>
                     )}
-                </a>
+                </FileViewerTrigger>
             )}
             {item.supplier_invoice_url && (
-                <a
-                    href={`${item.supplier_invoice_url}?view=1`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group overflow-hidden rounded-lg border border-[#BCE0FD] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]"
+                <FileViewerTrigger
+                    url={`${item.supplier_invoice_url}?view=1`}
+                    title={`Nota supplier ${item.item_name}`}
+                    fileType={item.supplier_invoice_is_image ? 'image' : 'pdf'}
+                    downloadUrl={item.supplier_invoice_url}
+                    className="group overflow-hidden rounded-lg border border-[#BCE0FD] bg-white text-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322] cursor-pointer text-left"
                     aria-label={`Buka nota supplier ${item.item_name}`}
                 >
                     {item.supplier_invoice_is_image ? (
@@ -462,12 +475,18 @@ function ItemEvidenceLinks({
                             <FileCheck2 aria-hidden="true" className="size-3" /> Nota supplier
                         </span>
                     )}
-                </a>
+                </FileViewerTrigger>
             )}
             {item.vendor_invoice_url && (
-                <a href={item.vendor_invoice_url} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1 text-[#0060F4] hover:underline">
+                <FileViewerTrigger
+                    url={`${item.vendor_invoice_url}?view=1`}
+                    title={`Invoice Vendor ${item.item_name}`}
+                    fileType="pdf"
+                    downloadUrl={item.vendor_invoice_url}
+                    className="inline-flex min-h-8 items-center gap-1 text-[#0060F4] hover:underline cursor-pointer"
+                >
                     <ExternalLink aria-hidden="true" className="size-3" /> Siap dibayar
-                </a>
+                </FileViewerTrigger>
             )}
             {onEditSupplierInvoice && (
                 <button
@@ -499,7 +518,7 @@ function RequestEvidenceGallery({ request }: { request: ShipRequest }) {
             aria-labelledby={`request-evidence-${request.id}`}
             className="border-t border-[#DCEAF8] bg-[#F8FBFF]/80 px-4 py-3.5 dark:border-[#1E3A5F] dark:bg-[#071322]/60"
         >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-3">
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                         <h3
@@ -518,14 +537,15 @@ function RequestEvidenceGallery({ request }: { request: ShipRequest }) {
                     </p>
                 </div>
 
-                <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-3">
+                <div className="grid min-w-0 w-full gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                     {evidenceItems.map((item) => (
-                        <a
+                        <FileViewerTrigger
                             key={item.id}
-                            href={`${item.attachment_url}?view=1`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group flex min-h-16 min-w-0 items-center gap-2.5 rounded-xl border border-[#DCEAF8] bg-white p-2 text-left shadow-2xs transition hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]"
+                            url={`${item.attachment_url}?view=1`}
+                            title={`Bukti item ${item.item_name}`}
+                            fileType={item.attachment_is_image ? 'image' : 'pdf'}
+                            downloadUrl={item.attachment_url}
+                            className="group flex min-h-16 min-w-0 items-center gap-2.5 rounded-xl border border-[#DCEAF8] bg-white p-2 text-left shadow-2xs transition hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847] cursor-pointer"
                             aria-label={`Buka bukti upload REQ untuk ${item.item_name}`}
                         >
                             {item.attachment_is_image ? (
@@ -548,7 +568,7 @@ function RequestEvidenceGallery({ request }: { request: ShipRequest }) {
                                     Lihat bukti <ExternalLink aria-hidden="true" className="size-2.5" />
                                 </span>
                             </span>
-                        </a>
+                        </FileViewerTrigger>
                     ))}
                 </div>
             </div>
@@ -648,6 +668,7 @@ export default function RequestShow({
         request: ShipRequest;
         item?: RequestItem;
     } | null>(null);
+    const [viewingDocument, setViewingDocument] = useState<{ url: string; title: string; downloadUrl?: string } | null>(null);
 
     useEffect(() => {
         if (allRequests.length === 0) {
@@ -734,8 +755,11 @@ export default function RequestShow({
                 id: 'print-request-report',
                 label: 'Cetak Laporan Pengajuan',
                 icon: <Printer className="size-4" />,
-                href: route('reports.requests.document', activeRequest.id),
-                target: '_blank',
+                onSelect: () => setViewingDocument({
+                    url: route('reports.requests.document', activeRequest.id),
+                    downloadUrl: `${route('reports.requests.document', activeRequest.id)}?download=1`,
+                    title: `Laporan Pengajuan: ${activeRequest.request_number}`,
+                }),
             });
         }
 
@@ -749,13 +773,20 @@ export default function RequestShow({
             });
         }
 
-        if (currentJob?.completion_note) {
+        const currentCompletionNote = currentJob?.completion_note;
+        if (currentCompletionNote) {
             documentItems.push({
                 id: 'view-completion-note',
-                label: `Lihat Nota Rampung (${currentJob.completion_note.document_number})`,
+                label: `Lihat Nota Rampung (${currentCompletionNote.document_number})`,
                 icon: <FileCheck2 className="size-4" />,
-                href: `/completion-notes/${currentJob.completion_note.document_number}/preview`,
-                target: '_blank',
+                onSelect: () => setViewingDocument({
+                    url: `/completion-notes/${currentCompletionNote.document_number}/preview`,
+                    downloadUrl: route('completion-notes.document', {
+                        completionNote: currentCompletionNote.id,
+                        download: 1,
+                    }),
+                    title: `Nota Rampung: ${currentCompletionNote.document_number}`,
+                }),
             });
         } else if (capabilities.can_create_completion_notes && currentJob?.status === 'departed') {
             documentItems.push({
@@ -818,6 +849,8 @@ export default function RequestShow({
     const supplierInvoiceForm = useForm({
         vendor_id: '',
         hpp_price: '',
+        surplus_source_item_id: '',
+        surplus_amount: '',
         supplier_invoice_number: '',
         supplier_invoice_date: toDateInputValue(),
         supplier_invoice_received_date: toDateInputValue(),
@@ -904,11 +937,14 @@ export default function RequestShow({
 
     const openSupplierInvoiceModal = (item: RequestItem) => {
         const currentDate = toDateInputValue();
+        const grossHpp = item.original_hpp_price ?? item.hpp_price ?? 0;
 
         setSupplierInvoiceItem(item);
         supplierInvoiceForm.setData({
             vendor_id: item.vendor?.id ?? '',
-            hpp_price: normalizeRupiahInput(item.hpp_price ?? 0),
+            hpp_price: normalizeRupiahInput(grossHpp),
+            surplus_source_item_id: item.surplus_source_item_id ?? '',
+            surplus_amount: item.surplus_amount ? normalizeRupiahInput(item.surplus_amount) : '',
             supplier_invoice_number: item.supplier_invoice_number ?? '',
             supplier_invoice_date: item.supplier_invoice_date?.slice(0, 10) || currentDate,
             supplier_invoice_received_date: item.supplier_invoice_received_date?.slice(0, 10) || currentDate,
@@ -926,9 +962,14 @@ export default function RequestShow({
             forceFormData: true,
             preserveScroll: true,
             onSuccess: () => {
+                const gross = parseRupiah(supplierInvoiceForm.data.hpp_price) || 0;
+                const surplus = parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0;
+                const net = supplierInvoiceForm.data.surplus_source_item_id && surplus > 0
+                    ? Math.max(0, gross - surplus)
+                    : gross;
                 setPriceDrafts((current) => ({
                     ...current,
-                    [supplierInvoiceItem.id]: { hpp_price: supplierInvoiceForm.data.hpp_price },
+                    [supplierInvoiceItem.id]: { hpp_price: String(net) },
                 }));
                 closeSupplierInvoiceModal();
                 playSjaChime('success');
@@ -1324,23 +1365,27 @@ export default function RequestShow({
 
         if (currentJob.completion_note) {
             return (
-                <a
-                    href={route('completion-notes.document', {
+                <FileViewerTrigger
+                    url={route('completion-notes.document', {
                         completionNote: currentJob.completion_note.id,
                         view: 1,
                     })}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`Lihat Nota Rampung ${currentJob.completion_note.document_number}`}
+                    title={`Nota Rampung ${currentJob.completion_note.document_number}`}
+                    fileType="pdf"
+                    downloadUrl={route('completion-notes.document', {
+                        completionNote: currentJob.completion_note.id,
+                        download: 1,
+                    })}
                     className={getButtonClassName({
                         variant: 'outline',
                         className: fullWidth ? 'w-full' : 'shrink-0',
                     })}
+                    aria-label={`Lihat Nota Rampung ${currentJob.completion_note.document_number}`}
                 >
                     <FileCheck2 aria-hidden="true" className="size-4" />
                     Lihat Nota Rampung
                     <ExternalLink aria-hidden="true" className="size-3.5" />
-                </a>
+                </FileViewerTrigger>
             );
         }
 
@@ -1991,6 +2036,21 @@ export default function RequestShow({
                                             item={item}
                                             onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
                                         />
+                                        {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10.5px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                <span className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                    🔄 Pengalihan Kelebihan Dana
+                                                </span>
+                                                <span className="block mt-0.5">
+                                                    Dialihkan <strong className="font-mono">{formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
+                                                </span>
+                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                    <span className="block text-[10px] text-amber-700 dark:text-amber-400 mt-0.5">
+                                                        Total Nota: {formatRupiah(item.original_hpp_price)} → Real Diajukan: {formatRupiah(item.hpp_price)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                         {item.is_urgent && (
                                             <span className="inline-flex rounded-full bg-[#FFE7EC] px-2 py-0.5 text-[10px] font-bold text-[#C62840] dark:bg-rose-950/60 dark:text-rose-300">
                                                 Urgent
@@ -3138,11 +3198,85 @@ export default function RequestShow({
                         <MoneyInput
                             required
                             id="supplier_hpp_price"
-                            label="HPP per Satuan"
+                            label="HPP per Satuan (Nilai Total Nota)"
                             value={supplierInvoiceForm.data.hpp_price}
                             onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
                             error={supplierInvoiceForm.errors.hpp_price}
                         />
+                    </div>
+
+                    {/* Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional */}
+                    <div className="rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                            Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional
+                        </p>
+                        <p className="text-[11px] text-[#52658E] dark:text-[#94A3B8] mb-2.5">
+                            Jika terdapat item lain pada kapal yang sama memiliki kelebihan/sisa dana, sisa biaya tersebut dapat dialihkan untuk menutup kekurangan ini.
+                        </p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                    Item Sumber Kelebihan Biaya
+                                </label>
+                                <select
+                                    value={supplierInvoiceForm.data.surplus_source_item_id}
+                                    onChange={(e) => supplierInvoiceForm.setData('surplus_source_item_id', e.target.value)}
+                                    className="w-full h-10 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] px-2.5 text-xs text-[#0B1F63] dark:text-[#F1F5F9]"
+                                >
+                                    <option value="">Tanpa pengalihan (langsung ajukan riil)</option>
+                                    {allRequests
+                                        .flatMap((req) => req.items || [])
+                                        .filter((it) => it.id !== supplierInvoiceItem?.id)
+                                        .map((it) => (
+                                            <option key={it.id} value={it.id}>
+                                                {it.item_name} ({formatRupiah(it.hpp_price)})
+                                            </option>
+                                        ))}
+                                </select>
+                            </div>
+
+                            {supplierInvoiceForm.data.surplus_source_item_id && (
+                                <div>
+                                    <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                        Nominal Kelebihan yang Dialihkan (Rp)
+                                    </label>
+                                    <MoneyInput
+                                        id="supplier_surplus_amount"
+                                        name="surplus_amount"
+                                        value={supplierInvoiceForm.data.surplus_amount}
+                                        onChange={(val) => supplierInvoiceForm.setData('surplus_amount', val)}
+                                        placeholder="Contoh: 500.000"
+                                        error={supplierInvoiceForm.errors.surplus_amount}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {supplierInvoiceForm.data.surplus_source_item_id && (
+                            <div className="mt-3 rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] p-2.5 text-[11px] text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
+                                <div className="flex justify-between font-semibold">
+                                    <span>Total HPP Nota Supplier:</span>
+                                    <span>{formatRupiah(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0)}</span>
+                                </div>
+                                <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                                    <span>Pengalihan dari Item Lain:</span>
+                                    <span>- {formatRupiah(parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)}</span>
+                                </div>
+                                <div className="mt-1 pt-1 border-t border-[#BCE0FD] dark:border-[#1E3A5F] flex justify-between font-bold text-xs text-[#0060F4] dark:text-[#60A5FA]">
+                                    <span>Nilai Real Pengajuan ke Direktur:</span>
+                                    <span>
+                                        {formatRupiah(
+                                            Math.max(
+                                                0,
+                                                (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0) -
+                                                    (parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)
+                                            )
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <Input
@@ -3186,15 +3320,16 @@ export default function RequestShow({
                     </div>
 
                     {supplierInvoiceItem?.supplier_invoice_url && (
-                        <a
-                            href={`${supplierInvoiceItem.supplier_invoice_url}?view=1`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#DCEAF8] px-3 text-xs font-bold text-[#0060F4] hover:border-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F]"
+                        <FileViewerTrigger
+                            url={`${supplierInvoiceItem.supplier_invoice_url}?view=1`}
+                            title={`Nota Supplier ${supplierInvoiceItem.supplier_invoice_number || supplierInvoiceItem.item_name}`}
+                            fileType={supplierInvoiceItem.supplier_invoice_is_image ? 'image' : 'pdf'}
+                            downloadUrl={supplierInvoiceItem.supplier_invoice_url}
+                            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#DCEAF8] px-3 text-xs font-bold text-[#0060F4] hover:border-[#0060F4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#1E3A5F] cursor-pointer"
                         >
                             <ExternalLink aria-hidden="true" className="size-3.5" />
                             Lihat nota supplier tersimpan
-                        </a>
+                        </FileViewerTrigger>
                     )}
 
                     <PhotoUploadPicker
@@ -3411,7 +3546,7 @@ export default function RequestShow({
                             Jika terdapat item lain pada kapal yang sama memiliki kelebihan/sisa dana, sisa biaya tersebut dapat dialihkan untuk menutup kekurangan ini.
                         </p>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-3">
                             <div>
                                 <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
                                     Item Sumber Kelebihan Biaya
@@ -3479,6 +3614,14 @@ export default function RequestShow({
                 </form>
             </Modal>
 
+            <FileViewer
+                isOpen={viewingDocument !== null}
+                onClose={() => setViewingDocument(null)}
+                url={viewingDocument?.url || ''}
+                downloadUrl={viewingDocument?.downloadUrl}
+                title={viewingDocument?.title || 'Dokumen'}
+                fileType="pdf"
+            />
         </AppLayout>
     );
 }

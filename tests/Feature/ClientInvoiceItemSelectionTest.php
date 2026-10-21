@@ -487,3 +487,62 @@ test('backend rejects invoice when custom allocated hpp is more or less than sel
     $errorKurang = session('errors')->first('lines');
     expect($errorKurang)->toContain('tidak boleh lebih ataupun kurang');
 });
+
+test('admin can store and update invoice by supplying total_price directly', function () {
+    $admin = clientInvoiceAdmin();
+    $workflow = clientInvoiceWorkflow($admin);
+
+    $response = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal',
+                'quantity' => '2',
+                'unit' => 'Kegiatan',
+                'total_price' => '1000000',
+                'allocated_hpp' => '600000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $invoice = Invoice::query()->latest('id')->firstOrFail();
+
+    expect((float) $invoice->subtotal)->toBe(1000000.0)
+        ->and((float) $invoice->grand_total)->toBe(1000000.0);
+
+    $line = $invoice->items()->firstOrFail();
+    expect((float) $line->subtotal)->toBe(1000000.0)
+        ->and((float) $line->unit_price)->toBe(500000.0);
+
+    $updateResponse = $this->actingAs($admin)->patch(route('invoices.update', $invoice), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Kapal Diperbarui',
+                'quantity' => '2',
+                'unit' => 'Kegiatan',
+                'total_price' => '1500000',
+                'allocated_hpp' => '600000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $updateResponse->assertSessionHasNoErrors();
+    $invoice->refresh();
+
+    expect((float) $invoice->subtotal)->toBe(1500000.0);
+    $updatedLine = $invoice->items()->firstOrFail();
+    expect((float) $updatedLine->subtotal)->toBe(1500000.0)
+        ->and((float) $updatedLine->unit_price)->toBe(750000.0);
+});

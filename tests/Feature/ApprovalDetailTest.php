@@ -450,3 +450,57 @@ test('director batch decision returns unselected items and sends one consolidate
         },
     );
 });
+
+test('approval detail resolves by item name url and exposes surplus allocation props', function () {
+    $director = User::factory()->create();
+    $director->assignRole(Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']));
+
+    $ship = Ship::create([
+        'name' => 'KM Samudra Sejahtera',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+    $shipRequest = ShipRequest::create([
+        'request_number' => 'REQ-SJA-SURPLUS-TEST',
+        'ship_id' => $ship->id,
+        'created_by' => $director->id,
+        'status' => 'Menunggu Approval Direktur',
+        'request_date' => now()->toDateString(),
+    ]);
+
+    $sourceItem = RequestItem::create([
+        'request_id' => $shipRequest->id,
+        'item_type' => 'jasa',
+        'item_name' => 'Item Sumber Sisa Biaya',
+        'unit' => 'Kegiatan',
+        'quantity' => 1,
+        'hpp_price' => 1000000,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+
+    $targetItem = RequestItem::create([
+        'request_id' => $shipRequest->id,
+        'item_type' => 'jasa',
+        'item_name' => 'Pengurusan izin labuh tambat pelabuhan',
+        'unit' => 'Kegiatan',
+        'quantity' => 1,
+        'hpp_price' => 2000000,
+        'original_hpp_price' => 2500000,
+        'surplus_amount' => 500000,
+        'surplus_source_item_id' => $sourceItem->id,
+        'status' => 'diajukan_ke_direktur',
+        'director_status' => 'pending',
+    ]);
+
+    $response = $this->actingAs($director)->get('/approvals/Pengurusan%20izin%20labuh%20tambat%20pelabuhan/detail');
+
+    $response->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Show')
+            ->has('requests.0.items', 2)
+            ->where('requests.0.items.1.surplus_amount', '500000.00')
+            ->where('requests.0.items.1.original_hpp_price', '2500000.00')
+            ->where('requests.0.items.1.surplus_source_item_name', 'Item Sumber Sisa Biaya')
+        );
+});

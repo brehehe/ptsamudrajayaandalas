@@ -21,6 +21,7 @@ import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Table from '../../Components/tables/Table';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import AppLayout from '../../Layouts/AppLayout';
+import { FileViewerTrigger } from '../../Components/ui/FileViewer';
 
 interface NamedRecord {
     id?: string | number;
@@ -365,13 +366,15 @@ export default function WorkOrderShow({
                                 </Link>
                             )}
                             {workOrder.document_url && (
-                                <a
-                                    href={workOrder.document_url}
+                                <FileViewerTrigger
+                                    url={workOrder.document_url}
+                                    downloadUrl={workOrder.document_url}
+                                    title={`Dokumen SPK: ${workOrder.system_number}`}
                                     className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] px-3 text-sm font-semibold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:border-[#1E3A5F] dark:hover:bg-[#132847]"
                                 >
-                                    <Download aria-hidden="true" className="size-4" />
+                                    <FileText aria-hidden="true" className="size-4" />
                                     Dokumen SPK
-                                </a>
+                                </FileViewerTrigger>
                             )}
                         </div>
                     </div>

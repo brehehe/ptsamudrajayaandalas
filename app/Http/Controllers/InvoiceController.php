@@ -215,6 +215,7 @@ class InvoiceController extends Controller
                 'quantity' => (string) $item->quantity,
                 'unit' => $item->unit,
                 'unit_price' => (string) $item->unit_price,
+                'total_price' => (string) $item->subtotal,
                 'allocated_hpp' => (string) ((float) $item->sources->sum('source_cost')),
                 'source_item_ids' => $item->sources->pluck('request_item_id')
                     ->when(
@@ -470,9 +471,16 @@ class InvoiceController extends Controller
         }
 
         foreach ($lines as $lineIndex => $line) {
-            $unitPrice = BigDecimal::of((string) $line['unit_price'])->toScale(2, RoundingMode::HalfUp);
             $quantity = BigDecimal::of((string) $line['quantity'])->toScale(2, RoundingMode::HalfUp);
-            $lineSubtotal = $unitPrice->multipliedBy($quantity)->toScale(2, RoundingMode::HalfUp);
+            if (isset($line['total_price']) && is_numeric($line['total_price']) && (float) $line['total_price'] > 0) {
+                $lineSubtotal = BigDecimal::of((string) $line['total_price'])->toScale(2, RoundingMode::HalfUp);
+                $unitPrice = $quantity->isGreaterThan(BigDecimal::zero())
+                    ? $lineSubtotal->dividedBy($quantity, 2, RoundingMode::HalfUp)
+                    : $lineSubtotal;
+            } else {
+                $unitPrice = BigDecimal::of((string) $line['unit_price'])->toScale(2, RoundingMode::HalfUp);
+                $lineSubtotal = $unitPrice->multipliedBy($quantity)->toScale(2, RoundingMode::HalfUp);
+            }
             $subtotal = $subtotal->plus($lineSubtotal);
             $lineSnapshots[] = [
                 'section_title' => filled($line['section_title'] ?? null) ? trim($line['section_title']) : null,

@@ -5,6 +5,7 @@ use App\Models\Ship;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\Vendor;
+use Illuminate\Http\UploadedFile;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 
@@ -520,4 +521,32 @@ test('admin requires positive hpp but does not require or mutate selling price w
 
     $responseBatchZero->assertSessionHasErrors('selected_items');
     expect($pendingItem->fresh()->status)->toBe('pending');
+});
+
+test('supplier invoice can allocate surplus from another item and calculates real net hpp', function () {
+    $admin = createPricingUser('Admin');
+    [$shipRequest, $targetItem, $sourceItem] = createPricingRequest($admin);
+
+    $file = UploadedFile::fake()->create('nota-supplier.pdf', 100, 'application/pdf');
+
+    $response = $this->actingAs($admin)->post(route('request-items.supplier-invoice.store', $targetItem->id), [
+        'vendor_id' => $targetItem->vendor_id,
+        'hpp_price' => 2500000,
+        'supplier_invoice_number' => 'INV-SUP-SURPLUS-01',
+        'supplier_invoice_date' => now()->toDateString(),
+        'supplier_invoice_received_date' => now()->toDateString(),
+        'supplier_invoice_document' => $file,
+        'surplus_source_item_id' => $sourceItem->id,
+        'surplus_amount' => 500000,
+    ]);
+
+    $response->assertRedirect()->assertSessionHasNoErrors();
+
+    $targetItemFresh = $targetItem->fresh();
+    expect((float) $targetItemFresh->hpp_price)->toBe(2000000.0)
+        ->and((float) $targetItemFresh->original_hpp_price)->toBe(2500000.0)
+        ->and((float) $targetItemFresh->surplus_amount)->toBe(500000.0)
+        ->and($targetItemFresh->surplus_source_item_id)->toBe($sourceItem->id)
+        ->and($targetItemFresh->supplier_invoice_number)->toBe('INV-SUP-SURPLUS-01')
+        ->and($targetItemFresh->notes)->toContain('Diambil Rp 500.000');
 });

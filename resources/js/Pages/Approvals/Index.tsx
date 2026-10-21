@@ -29,6 +29,7 @@ import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Tabs from '../../Components/ui/Tabs';
 import Button from '../../Components/ui/Button';
 import ShipImage from '../../Components/vessels/ShipImage';
+import { FileViewerTrigger } from '../../Components/ui/FileViewer';
 
 interface RequestItem {
     id: string;
@@ -43,6 +44,10 @@ interface RequestItem {
     supplier_invoice_number?: string | null;
     supplier_invoice_url?: string | null;
     supplier_invoice_is_image?: boolean;
+    surplus_source_item_id?: string | null;
+    surplus_source_item_name?: string | null;
+    surplus_amount?: number | string | null;
+    original_hpp_price?: number | string | null;
 }
 
 interface ShipRequest {
@@ -547,15 +552,15 @@ export default function ApprovalsIndex({
                             </p>
                         )}
                         {item.supporting_document_path && (
-                            <a
-                                href={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
-                                target="_blank"
-                                rel="noreferrer"
+                            <FileViewerTrigger
+                                url={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
+                                downloadUrl={`/expenses/company-requests/${item.id}/documents/supporting?download=1`}
+                                title={`Bukti Lampiran: Pengajuan Perusahaan #${item.id}`}
                                 className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0060F4] hover:underline mt-1 bg-[#E0F0FF] dark:bg-[#132847] px-2 py-0.5 rounded-md"
                             >
                                 <Files aria-hidden="true" className="size-3.5" />
                                 Lihat Bukti / Lampiran
-                            </a>
+                            </FileViewerTrigger>
                         )}
                     </div>
                 ),
@@ -1441,15 +1446,15 @@ export default function ApprovalsIndex({
                                             fullWidth: true,
                                             render: (item) =>
                                                 item.supporting_document_path ? (
-                                                    <a
-                                                        href={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
-                                                        target="_blank"
-                                                        rel="noreferrer"
+                                                    <FileViewerTrigger
+                                                        url={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
+                                                        downloadUrl={`/expenses/company-requests/${item.id}/documents/supporting?download=1`}
+                                                        title={`File Lampiran: Pengajuan Perusahaan #${item.id}`}
                                                         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#E0F0FF] px-2.5 py-1 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] dark:bg-[#132847] dark:text-[#60A5FA]"
                                                     >
                                                         <Files aria-hidden="true" className="size-3.5" />
                                                         Buka File Lampiran
-                                                    </a>
+                                                    </FileViewerTrigger>
                                                 ) : (
                                                     <span className="text-xs text-[#8C9BB9]">—</span>
                                                 ),
@@ -1793,15 +1798,26 @@ export default function ApprovalsIndex({
                                                                         ? ` · ${item.supplier_invoice_number}`
                                                                         : ''}
                                                                 </span>
+                                                                {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                                                    <span className="mt-1.5 block rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                                        🔄 Dialihkan <strong>{formatCurrency(Number(item.surplus_amount))}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
+                                                                        {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                                            <span className="ml-1 text-[10px] text-amber-700 dark:text-amber-400">
+                                                                                (Total Nota: {formatCurrency(Number(item.original_hpp_price))})
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                )}
                                                             </span>
                                                         </label>
 
                                                         <div className="mt-2 border-t border-[#DCEAF8]/80 pt-2 dark:border-[#1E3A5F]/80 sm:pl-8">
                                                             {item.supplier_invoice_url ? (
-                                                                <a
-                                                                    href={`${item.supplier_invoice_url}?view=1`}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
+                                                                <FileViewerTrigger
+                                                                    url={`${item.supplier_invoice_url}?view=1`}
+                                                                    downloadUrl={`${item.supplier_invoice_url}?download=1`}
+                                                                    title={`Bukti Invoice Supplier: ${item.item_name || 'Item Pengajuan'}${item.supplier_invoice_number ? ` (${item.supplier_invoice_number})` : ''}`}
+                                                                    fileType={item.supplier_invoice_is_image ? 'image' : undefined}
                                                                     aria-label={`Buka bukti invoice supplier untuk ${item.item_name || 'item pengajuan'}`}
                                                                     className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#F0F8FF] px-2.5 text-[11px] font-bold text-[#0060F4] hover:border-[#0060F4] hover:bg-[#E0F0FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-[#285585] dark:bg-[#102B4A] dark:text-[#60A5FA] sm:w-auto"
                                                                 >
@@ -1817,19 +1833,20 @@ export default function ApprovalsIndex({
                                                                     )}
                                                                     <span>{item.supplier_invoice_number || 'Buka invoice'}</span>
                                                                     <ExternalLink aria-hidden="true" className="size-3" />
-                                                                </a>
+                                                                </FileViewerTrigger>
                                                             ) : item.attachment_url ? (
-                                                                <a
-                                                                    href={`${item.attachment_url}?view=1`}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
+                                                                <FileViewerTrigger
+                                                                    url={`${item.attachment_url}?view=1`}
+                                                                    downloadUrl={`${item.attachment_url}?download=1`}
+                                                                    title={`Bukti Upload: ${item.item_name || 'Item Pengajuan'}`}
+                                                                    fileType={item.attachment_is_image ? 'image' : undefined}
                                                                     aria-label={`Buka bukti upload untuk ${item.item_name || 'item pengajuan'}`}
                                                                     className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-bold text-amber-700 hover:border-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300 sm:w-auto"
                                                                 >
                                                                     <FileText aria-hidden="true" className="size-3.5" />
                                                                     Bukti upload
                                                                     <ExternalLink aria-hidden="true" className="size-3" />
-                                                                </a>
+                                                                </FileViewerTrigger>
                                                             ) : (
                                                                 <span className="inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-dashed border-[#D7A334] bg-amber-50 px-2.5 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300 sm:w-auto">
                                                                     Invoice belum tersedia

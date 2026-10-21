@@ -25,6 +25,7 @@ import ImportExportActions from '../../Components/ui/ImportExportActions';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import { formatDate } from '../../lib/formatDate';
+import FileViewer from '../../Components/ui/FileViewer';
 
 interface CompletionNote {
     id: string;
@@ -124,6 +125,7 @@ export default function CompletionNotesIndex({
     const [modalShipId, setModalShipId] = useState(filters.ship_id || '');
     const [modalJob, setModalJob] = useState(filters.job || '');
     const [modalStatus, setModalStatus] = useState(filters.status || 'all');
+    const [viewingFile, setViewingFile] = useState<{ url: string; title: string; downloadUrl?: string } | null>(null);
 
     const availableShips = useMemo(() => {
         if (!companyId) return ships;
@@ -207,8 +209,11 @@ export default function CompletionNotesIndex({
                         id: 'view-document',
                         label: 'Lihat Nota',
                         icon: <Eye aria-hidden="true" className="size-4" />,
-                        href: `/completion-notes/${note.id}/document?view=1`,
-                        target: '_blank',
+                        onSelect: () => setViewingFile({
+                            url: `/completion-notes/${note.id}/document?view=1`,
+                            downloadUrl: `/completion-notes/${note.id}/document`,
+                            title: `Nota Rampung: ${note.document_number}`,
+                        }),
                         tone: 'primary',
                     },
                     {
@@ -664,6 +669,15 @@ export default function CompletionNotesIndex({
                     </div>
                 </div>
             </Modal>
+
+            <FileViewer
+                isOpen={viewingFile !== null}
+                onClose={() => setViewingFile(null)}
+                url={viewingFile?.url || ''}
+                downloadUrl={viewingFile?.downloadUrl}
+                title={viewingFile?.title || 'Dokumen Nota Rampung'}
+                fileType="pdf"
+            />
         </AppLayout>
     );
 }
