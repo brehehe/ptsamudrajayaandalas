@@ -7,6 +7,7 @@ use App\Models\OperationalActivity;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
 use App\Models\RequestItem;
+use App\Models\Ship;
 use App\Models\ShipRequest;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,7 @@ final class ReportExportManager
 
         return match ($reportType) {
             'vessel_daily_expenses' => $this->generateVesselDailyExpenses($format, $from, $to, $shipId, $companyId, $job, $search),
+            'vessel_summary' => $this->generateVesselSummary($format, $from, $to, $companyId, $shipId, $status, $search),
             'margin' => $this->generateMarginReport($format, $from, $to, $companyId, $shipId, $job, $status, $search),
             'invoices' => $this->generateInvoiceReport($format, $from, $to, $companyId, $shipId, $job, $status, $search),
             'receivables' => $this->generateReceivableReport($format, $from, $to, $companyId, $shipId, $job, $search),
@@ -1055,6 +1057,188 @@ final class ReportExportManager
                 'left_label' => 'Dibuat Oleh (Admin),',
                 'left_name' => 'Admin Operasional',
                 'right_label' => 'Mengetahui (Direktur),',
+                'right_name' => $this->documentSettings->get('signatory_title'),
+            ],
+        ]);
+        $savedPath = $this->savePdfToExportsStorage($pdfData, $filename);
+
+        return ['filename' => $filename, 'file_path' => $savedPath];
+    }
+
+    /** @return array{filename: string, file_path: string} */
+    private function generateVesselSummary(
+        string $format,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        ?string $companyId,
+        ?string $shipId,
+        string $status,
+        ?string $search
+    ): array {
+        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        $ships = Ship::query()
+            ->with([
+                'company:id,name',
+                'port:id,name',
+                'portCalls' => fn ($pq) => $pq
+                    ->where(function ($sub) use ($from, $to) {
+                        $sub->whereBetween('created_at', [$from, $to])
+                            ->orWhereBetween('eta_at', [$from->toDateString(), $to->toDateString()]);
+                    })
+                    ->with([
+                        'port:id,name',
+                        'invoices' => fn ($iq) => $iq->whereIn('status', ['released', 'sent', 'paid']),
+                        'requests.items' => fn ($itq) => $itq->where('director_status', 'approved'),
+                    ])
+                    ->orderByDesc('created_at'),
+            ])
+            ->where('is_active', true)
+            ->when($shipId, fn ($q) => $q->where('id', $shipId))
+            ->when($companyId, fn ($q) => $q->where('ship_company_id', $companyId))
+            ->when($search, fn ($q) => $q->where(function ($sq) use ($like, $search): void {
+                $sq->where('name', $like, "%{$search}%")
+                    ->orWhere('call_sign', $like, "%{$search}%")
+                    ->orWhere('imo_number', $like, "%{$search}%")
+                    ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"));
+            }))
+            ->orderBy('name')
+            ->get();
+
+        $rows = [];
+        $seq = 1;
+        $totalFleetRevenue = 0.0;
+        $totalFleetExpense = 0.0;
+        $totalFleetMargin = 0.0;
+        $totalFleetOutstanding = 0.0;
+        $totalPortCalls = 0;
+
+        foreach ($ships as $ship) {
+            $portCalls = $ship->portCalls;
+            $callsCount = $portCalls->count();
+
+            if ($status !== 'all' && $status !== '') {
+                $latestStatus = $portCalls->first()?->status;
+                if ($status === 'active' && $callsCount === 0) {
+                    continue;
+                }
+                if ($status !== 'active' && $latestStatus !== $status) {
+                    continue;
+                }
+            }
+
+            $revenue = (float) $portCalls->flatMap->invoices->sum('grand_total');
+            $outstanding = (float) $portCalls->flatMap->invoices->sum('outstanding_amount');
+            $expense = (float) $portCalls->flatMap->requests->flatMap->items->sum(
+                fn ($i): float => (float) $i->hpp_price * (float) $i->quantity
+            );
+            $margin = $revenue - $expense;
+            $marginPercent = $revenue > 0 ? round(($margin / $revenue) * 100, 1) : 0.0;
+
+            $latestCall = $portCalls->first();
+            $statusText = match ($latestCall?->status) {
+                'berthed' => 'Sandar',
+                'anchored' => 'Labuh',
+                'departed' => 'Berangkat',
+                'completed' => 'Selesai',
+                'scheduled' => 'Akan Datang',
+                default => $callsCount > 0 ? ucfirst($latestCall?->status ?? '-') : 'Tidak Ada Kegiatan',
+            };
+
+            $totalFleetRevenue += $revenue;
+            $totalFleetExpense += $expense;
+            $totalFleetMargin += $margin;
+            $totalFleetOutstanding += $outstanding;
+            $totalPortCalls += $callsCount;
+
+            $rows[] = [
+                $seq++,
+                $ship->name,
+                $ship->company?->name ?? 'Milik Sendiri / -',
+                trim(($ship->ship_type ?? 'Kapal').($ship->gross_tonnage ? ' ('.$ship->gross_tonnage.' GT)' : '')),
+                $callsCount,
+                $statusText,
+                $revenue,
+                $expense,
+                $margin,
+                $marginPercent.'%'.($margin < 0 ? ' (Defisit)' : ''),
+                $outstanding,
+            ];
+        }
+
+        $title = 'RINGKASAN PERFORMA ARMADA KAPAL (VESSEL SUMMARY)';
+        $metaLines = [
+            sprintf('Periode Analisis: %s s.d. %s', $from->format('d/m/Y'), $to->format('d/m/Y')),
+            sprintf('Total Kapal Terdata: %d | Total Kegiatan/Job: %d', count($rows), $totalPortCalls),
+        ];
+
+        $columns = [
+            ['header' => 'No.', 'width' => 4, 'align' => 'center', 'type' => 'number'],
+            ['header' => 'Nama Kapal', 'width' => 20, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Perusahaan Pemilik', 'width' => 24, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Tipe / GT', 'width' => 15, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'Job/Trip', 'width' => 8, 'align' => 'center', 'type' => 'number'],
+            ['header' => 'Status Terkini', 'width' => 13, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'Pendapatan (Rp)', 'width' => 18, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Pengeluaran (Rp)', 'width' => 18, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Margin (Rp)', 'width' => 18, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Margin (%)', 'width' => 12, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'Sisa Piutang (Rp)', 'width' => 18, 'align' => 'right', 'type' => 'currency'],
+        ];
+
+        $filename = sprintf(
+            'summary-kapal-%s-sd-%s.%s',
+            $from->format('Y-m-d'),
+            $to->format('Y-m-d'),
+            $format
+        );
+
+        $marginAvgPercent = $totalFleetRevenue > 0 ? round(($totalFleetMargin / $totalFleetRevenue) * 100, 1) : 0.0;
+
+        $summaryBoxes = [
+            ['label' => 'Total Pendapatan Armada', 'value' => 'Rp '.number_format($totalFleetRevenue, 0, ',', '.')],
+            ['label' => 'Total Pengeluaran (HPP)', 'value' => 'Rp '.number_format($totalFleetExpense, 0, ',', '.')],
+            ['label' => 'Laba / Margin Bersih', 'value' => 'Rp '.number_format($totalFleetMargin, 0, ',', '.')],
+            ['label' => 'Rata-rata Margin', 'value' => $marginAvgPercent.'%'],
+        ];
+
+        $summaryRow = [
+            'label' => 'TOTAL KESELURUHAN ARMADA',
+            'label_span' => 6,
+            'totals' => [
+                6 => $totalFleetRevenue,
+                7 => $totalFleetExpense,
+                8 => $totalFleetMargin,
+                10 => $totalFleetOutstanding,
+            ],
+        ];
+
+        if ($format === 'xlsx') {
+            $tmpPath = $this->xlsxBuilder->build([
+                'title' => $title,
+                'sheet_name' => 'Summary Kapal',
+                'meta_lines' => $metaLines,
+                'columns' => $columns,
+                'rows' => $rows,
+                'summary_boxes' => $summaryBoxes,
+                'summary_row' => $summaryRow,
+            ]);
+            $savedPath = $this->saveToExportsStorage($tmpPath, $filename);
+
+            return ['filename' => $filename, 'file_path' => $savedPath];
+        }
+
+        $pdfData = $this->pdfBuilder->build([
+            'title' => $title,
+            'orientation' => 'landscape',
+            'meta_lines' => $metaLines,
+            'columns' => $columns,
+            'rows' => $rows,
+            'summary_boxes' => $summaryBoxes,
+            'signatories' => [
+                'left_label' => 'Dibuat Oleh (Finance & Operasional),',
+                'left_name' => 'Admin Operasional & Keuangan',
+                'right_label' => 'Mengetahui (Direktur Operasional),',
                 'right_name' => $this->documentSettings->get('signatory_title'),
             ],
         ]);

@@ -161,3 +161,22 @@ test('authenticated user can access Dashboard and receives SJA mobile and deskto
         ->has('prima_header')
     );
 });
+
+test('staff operasional (lapangan) can access master data routes', function (string $route, string $component) {
+    $user = User::where('email', 'prima@gmail.com')->first();
+    if (! $user) {
+        $user = User::factory()->create();
+        $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
+    }
+
+    $response = $this->actingAs($user)->get($route);
+
+    $response->assertStatus(200);
+    $response->assertInertia(fn ($page) => $page->component($component));
+})->with([
+    'data kapal' => ['/master/vessels', 'Master/Vessels/Index'],
+    'data produk & layanan' => ['/master/products', 'Master/Products/Index'],
+    'data perusahaan' => ['/master/companies', 'Master/Companies/Index'],
+    'data pelabuhan' => ['/master/ports', 'Master/Ports/Index'],
+    'data vendor' => ['/master/vendors', 'Master/Vendors/Index'],
+]);

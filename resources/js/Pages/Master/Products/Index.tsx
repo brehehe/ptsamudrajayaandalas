@@ -392,7 +392,7 @@ export default function MasterProductsIndex({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2.5">
-                        <Link
+                        {/* <Link
                             href="/master/service-types"
                             className={
                                 'inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-[12px] ' +
@@ -402,7 +402,7 @@ export default function MasterProductsIndex({
                         >
                             <Settings2 aria-hidden="true" className="size-4" />
                             <span>Tipe Kegiatan</span>
-                        </Link>
+                        </Link> */}
                         <ImportExportActions
                             resource="products"
                             resourceTitle="Barang & Jasa"
@@ -702,8 +702,8 @@ export default function MasterProductsIndex({
                             {processing
                                 ? 'Menyimpan...'
                                 : editingProduct
-                                  ? 'Perbarui Produk'
-                                  : 'Simpan Produk'}
+                                    ? 'Perbarui Produk'
+                                    : 'Simpan Produk'}
                         </Button>
                     </div>
                 </form>

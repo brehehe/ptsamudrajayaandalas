@@ -111,31 +111,34 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
             <MobilePageHero title="Pelabuhan" description="Kelola pelabuhan dan terminal operasional." />
 
             <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:dark:bg-transparent">
-                {/* ── Top Level Segment Switcher & CTA Button (matching Gambar 2) ── */}
-                <div
+                {/* ── Header Banner (Master Data di kiri, Tombol Aksi di kanan) ── */}
+                <section
                     className={
-                        'hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 ' +
-                        'border-b border-[#DCEAF8]'
+                        'hidden flex-col gap-5 rounded-2xl border border-[#DCEAF8] bg-white p-5 md:flex ' +
+                        'shadow-[0_2px_12px_rgba(8,40,112,0.04)] dark:border-[#1E3A5F] ' +
+                        'dark:bg-[#0C1D36] md:flex-row md:items-center md:justify-between md:p-6'
                     }
                 >
-                    <div
-                        className={
-                            'flex items-center gap-2 p-1 bg-[#E0F0FF]/60 rounded-2xl border ' +
-                            'border-[#DCEAF8] self-start'
-                        }
-                    >
-                        <div
-                            className={
-                                'px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex ' +
-                                'items-center gap-2 bg-[#0060F4] text-white shadow-sm'
-                            }
-                        >
-                            <span>⚓</span>
-                            <span>Master Pelabuhan</span>
-                            <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-white/20 text-white">
-                                {ports.length}
+                    <div className="max-w-3xl">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span
+                                className={
+                                    'inline-flex items-center rounded-full bg-[#0060F4]/10 px-2.5 ' +
+                                    'py-1 text-xs font-bold text-[#0060F4] dark:text-[#38BDF8]'
+                                }
+                            >
+                                Master Data
+                            </span>
+                            <span className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                Wilayah & Dermaga Keagenan
                             </span>
                         </div>
+                        <h1 className="text-wrap-balance text-2xl font-black tracking-tight text-[#0B1F63] dark:text-[#F1F5F9] md:text-3xl">
+                            Master Data Pelabuhan & Terminal
+                        </h1>
+                        <p className="mt-1 text-sm leading-6 text-[#52658E] dark:text-[#94A3B8]">
+                            Daftar pelabuhan operasional dan dermaga keagenan PT Samudra Jaya Andalas
+                        </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -144,38 +147,19 @@ export default function MasterPortsIndex({ ports, search: initialSearch }: Maste
                             resourceTitle="Pelabuhan"
                             canManage={true}
                         />
-                        <button
+                        <Button
                             type="button"
                             onClick={() => {
                                 clearErrors();
                                 reset();
                                 setIsCreateModalOpen(true);
                             }}
-                            className={
-                                'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl ' +
-                                'bg-[#0060F4] hover:bg-[#0052D4] active:bg-[#082870] text-white ' +
-                                'text-xs sm:text-sm font-bold shadow-sm transition-all ' +
-                                'flex-shrink-0 cursor-pointer self-start sm:self-auto'
-                            }
+                            leftIcon={<Plus aria-hidden="true" className="size-4" />}
                         >
-                            <span className="text-base leading-none font-bold">+</span>
-                            <span>Tambah Pelabuhan Baru</span>
-                        </button>
+                            Tambah Pelabuhan Baru
+                        </Button>
                     </div>
-                </div>
-
-                {/* ── Title Header ── */}
-                <div className="hidden flex-col gap-2 md:flex md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0B1F63] tracking-tight">
-                            Master Data Pelabuhan & Terminal
-                        </h1>
-                        <p className="text-xs sm:text-sm text-[#52658E] mt-0.5">
-                            Daftar pelabuhan operasional dan dermaga keagenan PT Samudra Jaya
-                            Andalas
-                        </p>
-                    </div>
-                </div>
+                </section>
 
                 <div className="space-y-2 md:hidden">
                     <ImportExportActions

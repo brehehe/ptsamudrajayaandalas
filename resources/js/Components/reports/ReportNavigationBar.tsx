@@ -18,6 +18,7 @@ const iconBySectionKey: Record<string, LucideIcon> = {
     invoice: FileText,
     piutang: HandCoins,
     pengeluaran: Banknote,
+    summary_vessel: Ship,
     pengeluaran_kapal: Ship,
     aktivitas: Activity,
 };

@@ -24,7 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
     const currentPath = url.split('?')[0];
     const legacyReportTab = new URLSearchParams(url.split('?')[1] ?? '').get('tab');
-    const isReportPage = url.startsWith('/reports');
+    const isReportPage = url.startsWith('/reports') || url.startsWith('/summary-vessel');
     const activeReportSection = REPORT_SECTIONS.find((section) => section.href === currentPath)
         ?? (legacyReportTab ? reportSectionByKey(legacyReportTab) : null)
         ?? reportSectionByKey(currentPath.replace('/reports/', ''));
@@ -247,7 +247,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const laporan = {
         label: 'Laporan',
         href: '/reports/margin',
-        active: url.startsWith('/reports'),
+        active: url.startsWith('/reports') || url.startsWith('/summary-vessel'),
         icon: (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -430,9 +430,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     let masterNav: Array<any> = [];
 
     if (role === 'Lapangan') {
-        // Staf Lapangan Pak Prima: Fokus aktivitas kapal, SPK, kebutuhan logistik, pengajuan, dan operasional lapangan (Pendanaan & Nota Rampung diproses oleh Admin)
+        // Staf Lapangan Pak Prima: Aktivitas kapal, SPK, kebutuhan logistik, pengajuan, operasional lapangan, dan master data operasional
         mainNav = [beranda, spk, kapal, kebutuhan, pengajuan, operasional];
-        masterNav = [];
+        masterNav = [
+            masterVessels,
+            masterProducts,
+            masterCompanies,
+            masterPorts,
+            masterVendors,
+        ];
     } else if (role === 'Direktur') {
         // Pak Ryan: Otorisasi & approval anggaran, monitoring pengajuan, pengeluaran kas, invoice, piutang, dan laporan eksekutif
         mainNav = [

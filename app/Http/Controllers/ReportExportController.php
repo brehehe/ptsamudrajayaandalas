@@ -23,6 +23,7 @@ class ReportExportController extends Controller
                 'string',
                 Rule::in([
                     'vessel_daily_expenses',
+                    'vessel_summary',
                     'margin',
                     'invoices',
                     'receivables',

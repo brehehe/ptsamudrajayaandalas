@@ -25,6 +25,7 @@ import Select from '../../Components/selects/Select';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import ActionMenu from '../../Components/ui/ActionMenu';
+import ReportActionMenu from '../../Components/reports/ReportActionMenu';
 import Button, { getButtonClassName } from '../../Components/ui/Button';
 import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
@@ -488,10 +489,21 @@ export default function RequestReports({
                             Setiap laporan memakai data pengajuan, item, nilai HPP, dan status approval yang tersimpan di sistem.
                         </p>
                     </div>
-                    <span className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] bg-white px-3.5 text-xs font-semibold text-[#52658E] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#B5C8DC]">
-                        <FileText aria-hidden="true" className="size-4 text-[#0060F4]" />
-                        PDF siap cetak A4
-                    </span>
+                    {canExport ? (
+                        <ReportActionMenu
+                            onExportPdf={() => handleExport('pdf')}
+                            onExportXlsx={() => handleExport('xlsx')}
+                            onPrint={() => window.print()}
+                            label="Aksi Laporan Pengajuan"
+                            buttonLabel="Aksi Laporan"
+                            buttonVariant="outline"
+                        />
+                    ) : (
+                        <span className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#DCEAF8] bg-white px-3.5 text-xs font-semibold text-[#52658E] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:text-[#B5C8DC]">
+                            <FileText aria-hidden="true" className="size-4 text-[#0060F4]" />
+                            PDF siap cetak A4
+                        </span>
+                    )}
                 </header>
 
                 <Card overflow="hidden">
@@ -689,26 +701,14 @@ export default function RequestReports({
                                 {requests.total.toLocaleString('id-ID')} dokumen
                             </p>
                             {canExport && (
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        variant="primary"
-                                        size="md"
-                                        onClick={() => handleExport('pdf')}
-                                        leftIcon={<FileText aria-hidden="true" className="size-4" />}
-                                    >
-                                        Unduh PDF
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="md"
-                                        onClick={() => handleExport('xlsx')}
-                                        leftIcon={<FileSpreadsheet aria-hidden="true" className="size-4 text-[#087443]" />}
-                                    >
-                                        Unduh Excel
-                                    </Button>
-                                </div>
+                                <ReportActionMenu
+                                    onExportPdf={() => handleExport('pdf')}
+                                    onExportXlsx={() => handleExport('xlsx')}
+                                    onPrint={() => window.print()}
+                                    label="Aksi Laporan Pengajuan"
+                                    buttonLabel="Aksi Laporan"
+                                    buttonVariant="outline"
+                                />
                             )}
                         </div>
                     </div>

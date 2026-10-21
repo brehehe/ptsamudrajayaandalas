@@ -29,6 +29,7 @@ use App\Http\Controllers\RequestReportController;
 use App\Http\Controllers\ServiceTypeController;
 use App\Http\Controllers\VendorInvoiceController;
 use App\Http\Controllers\VesselController;
+use App\Http\Controllers\VesselSummaryController;
 use App\Http\Controllers\WorkOrderController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -182,6 +183,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/reports/vessel-daily-expenses', [ReportController::class, 'index'])
         ->defaults('report', 'pengeluaran_kapal')
         ->name('reports.vessel-daily-expenses');
+    Route::get('/summary-vessel', [VesselSummaryController::class, 'index'])
+        ->name('summary-vessel.index');
+    Route::get('/reports/summary-vessel', [VesselSummaryController::class, 'index'])
+        ->name('reports.summary-vessel');
+    Route::get('/summary-vessel/export', [VesselSummaryController::class, 'export'])
+        ->name('summary-vessel.export');
     Route::get('/reports/activities', [ReportController::class, 'index'])
         ->defaults('report', 'aktivitas')
         ->name('reports.activities');

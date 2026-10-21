@@ -50,7 +50,7 @@ class SjaPermissionSeeder extends Seeder
                 'port-calls.view', 'port-calls.manage', 'daily-reports.view',
                 'daily-reports.create', 'daily-reports.update', 'expense-requests.view-own',
                 'expense-requests.create', 'funding.view-own', 'outgoing-payments.realize',
-                'attachments.download',
+                'attachments.download', 'masters.view',
             ],
         ];
 

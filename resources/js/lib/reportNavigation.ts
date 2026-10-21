@@ -33,19 +33,19 @@ export const REPORT_SECTIONS = [
     },
     {
         key: 'pengeluaran',
-        label: 'Pengeluaran (Kapal & Kantor)',
+        label: 'Pengeluaran',
         shortLabel: 'Pengeluaran',
         routeName: 'reports.expenses',
         href: '/reports/expenses',
         description: 'Laporan terpadu realisasi pengeluaran kebutuhan kapal (HPP) dan operasional kantor perusahaan.',
     },
     {
-        key: 'pengeluaran_kapal',
-        label: 'Pengeluaran Kapal',
-        shortLabel: 'Kapal Harian',
-        routeName: 'reports.vessel-daily-expenses',
-        href: '/reports/vessel-daily-expenses',
-        description: 'Monitoring pengeluaran per kapal dan per item setiap hari (dari awal sandar s/d keluar) untuk Pak Rian & Admin.',
+        key: 'summary_vessel',
+        label: 'Summary Kapal',
+        shortLabel: 'Summary',
+        routeName: 'summary-vessel.index',
+        href: '/summary-vessel',
+        description: 'Ringkasan komprehensif performa pendapatan, pengeluaran, margin, dan data operasional armada kapal.',
     },
     {
         key: 'aktivitas',
@@ -58,6 +58,14 @@ export const REPORT_SECTIONS = [
 ] as const;
 
 export const EXTRA_REPORT_SECTIONS = [
+    {
+        key: 'pengeluaran_kapal',
+        label: 'Pengeluaran Kapal',
+        shortLabel: 'Kapal Harian',
+        routeName: 'reports.vessel-daily-expenses',
+        href: '/reports/expenses?view=kapal',
+        description: 'Monitoring pengeluaran per kapal dan per item setiap hari (dari awal sandar s/d keluar).',
+    },
     {
         key: 'laba_rugi',
         label: 'Laba Rugi',

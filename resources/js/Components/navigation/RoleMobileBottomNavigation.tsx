@@ -37,6 +37,7 @@ const reportIconByKey: Record<ReportSectionKey, LucideIcon> = {
     invoice: FileText,
     piutang: HandCoins,
     pengeluaran: Banknote,
+    summary_vessel: Ship,
     pengeluaran_kapal: Ship,
     aktivitas: ClipboardList,
     laba_rugi: TrendingUp,

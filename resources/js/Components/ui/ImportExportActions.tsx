@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { router } from '@inertiajs/react';
 import {
     Download,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Modal from '../overlays/Modal';
 import Button from './Button';
+import ActionMenu, { type ActionMenuGroup } from './ActionMenu';
 
 export interface ImportExportActionsProps {
     resource:
@@ -30,6 +31,8 @@ export interface ImportExportActionsProps {
         | string;
     resourceTitle: string;
     canManage?: boolean;
+    buttonLabel?: string;
+    displayMode?: 'dropdown' | 'buttons';
     className?: string;
     onSuccess?: () => void;
 }
@@ -38,6 +41,8 @@ export default function ImportExportActions({
     resource,
     resourceTitle,
     canManage = true,
+    buttonLabel = 'Aksi Data',
+    displayMode = 'dropdown',
     className = '',
     onSuccess,
 }: ImportExportActionsProps) {
@@ -67,6 +72,54 @@ export default function ImportExportActions({
         const templateUrl = `/import-export/${resource}/template`;
         window.location.href = templateUrl;
     };
+
+    const actionGroups = useMemo<ActionMenuGroup[]>(() => {
+        const groups: ActionMenuGroup[] = [
+            {
+                id: 'export-group',
+                label: 'Ekspor Data',
+                items: [
+                    {
+                        id: 'export-excel',
+                        label: `Ekspor Excel (.xlsx)`,
+                        icon: isExporting ? (
+                            <Loader2 className="size-4 animate-spin text-[#0060F4]" />
+                        ) : (
+                            <FileSpreadsheet className="size-4 text-[#087443] dark:text-emerald-400" />
+                        ),
+                        tone: 'success' as const,
+                        onSelect: handleExport,
+                        disabled: isExporting,
+                    },
+                ],
+            },
+        ];
+
+        if (canManage) {
+            groups.push({
+                id: 'import-group',
+                label: 'Impor & Kelola Data',
+                items: [
+                    {
+                        id: 'import-excel',
+                        label: `Impor Data ${resourceTitle}`,
+                        icon: <Upload className="size-4 text-[#0060F4] dark:text-[#60A5FA]" />,
+                        tone: 'primary' as const,
+                        onSelect: () => setIsModalOpen(true),
+                    },
+                    {
+                        id: 'download-template',
+                        label: 'Unduh Template Excel',
+                        icon: <FileDown className="size-4 text-[#52658E] dark:text-[#94A3B8]" />,
+                        tone: 'default' as const,
+                        onSelect: handleDownloadTemplate,
+                    },
+                ],
+            });
+        }
+
+        return groups;
+    }, [isExporting, canManage, resourceTitle]);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -166,40 +219,55 @@ export default function ImportExportActions({
     };
 
     return (
-        <div className={`flex items-center gap-2 ${className}`}>
-            {/* Export Button */}
-            <Button
-                type="button"
-                variant="outline"
-                size="md"
-                onClick={handleExport}
-                disabled={isExporting}
-                leftIcon={
-                    isExporting ? (
-                        <Loader2 className="size-4 animate-spin text-[#0060F4]" />
-                    ) : (
-                        <Download className="size-4 text-[#0060F4] dark:text-[#60A5FA]" />
-                    )
-                }
-                title={`Unduh seluruh data ${resourceTitle} ke format Excel (.xlsx)`}
-                className="border-[#CCE0F5] bg-white font-bold text-[#0B1F63] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white dark:hover:bg-[#132847]"
-            >
-                Ekspor Excel
-            </Button>
-
-            {/* Import Button */}
-            {canManage && (
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="md"
-                    onClick={() => setIsModalOpen(true)}
-                    leftIcon={<Upload className="size-4 text-[#16A36A] dark:text-[#34D399]" />}
-                    title={`Impor data ${resourceTitle} massal dari Excel atau CSV`}
-                    className="border-[#CCE0F5] bg-white font-bold text-[#0B1F63] hover:border-[#16A36A] hover:bg-[#F0FDF4] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white dark:hover:bg-[#064E3B]"
-                >
-                    Impor Data
-                </Button>
+        <div className={`relative inline-flex items-center ${className}`}>
+            {displayMode === 'buttons' ? (
+                <div className="flex items-center gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="md"
+                        onClick={handleExport}
+                        disabled={isExporting}
+                        leftIcon={
+                            isExporting ? (
+                                <Loader2 className="size-4 animate-spin text-[#0060F4]" />
+                            ) : (
+                                <Download className="size-4 text-[#0060F4] dark:text-[#60A5FA]" />
+                            )
+                        }
+                        title={`Unduh seluruh data ${resourceTitle} ke format Excel (.xlsx)`}
+                        className="border-[#CCE0F5] bg-white font-bold text-[#0B1F63] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white dark:hover:bg-[#132847]"
+                    >
+                        Ekspor Excel
+                    </Button>
+                    {canManage && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="md"
+                            onClick={() => setIsModalOpen(true)}
+                            leftIcon={<Upload className="size-4 text-[#16A36A] dark:text-[#34D399]" />}
+                            title={`Impor data ${resourceTitle} massal dari Excel atau CSV`}
+                            className="border-[#CCE0F5] bg-white font-bold text-[#0B1F63] hover:border-[#16A36A] hover:bg-[#F0FDF4] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white dark:hover:bg-[#064E3B]"
+                        >
+                            Impor Data
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <ActionMenu
+                    label={`Aksi Data ${resourceTitle}`}
+                    buttonLabel={buttonLabel}
+                    buttonIcon={
+                        isExporting ? (
+                            <Loader2 className="size-4 animate-spin text-[#0060F4]" />
+                        ) : (
+                            <FileSpreadsheet className="size-4 text-[#0060F4] dark:text-[#60A5FA]" />
+                        )
+                    }
+                    buttonVariant="outline"
+                    groups={actionGroups}
+                />
             )}
 
             {/* Import Modal */}

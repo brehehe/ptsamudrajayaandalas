@@ -33,6 +33,7 @@ import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Modal from '../../Components/overlays/Modal';
 import ReportNavigationBar from '../../Components/reports/ReportNavigationBar';
 import ReportExportModal, { useReportExport } from '../../Components/reports/ReportExportModal';
+import ReportActionMenu from '../../Components/reports/ReportActionMenu';
 import { ResponsiveTable, type Column } from '../../Components/tables/Table';
 import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
 import DateRangePicker, { type DateRange } from '../../Components/forms/DateRangePicker';
@@ -422,9 +423,27 @@ export default function ReportsIndex({
         startDate: filters.from || '',
         endDate: filters.to || '',
     });
-    const [expenseSubView, setExpenseSubView] = useState<'all' | 'kapal' | 'kantor'>(
-        activeTab === 'pengeluaran_kapal' ? 'kapal' : 'all'
-    );
+    const [expenseSubView, setExpenseSubView] = useState<'all' | 'kapal' | 'kantor'>(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const viewParam = params.get('view');
+            if (viewParam === 'kapal') return 'kapal';
+            if (viewParam === 'kantor') return 'kantor';
+        }
+        return activeTab === 'pengeluaran_kapal' ? 'kapal' : 'all';
+    });
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const viewParam = params.get('view');
+            if (viewParam === 'kapal' || activeTab === 'pengeluaran_kapal') {
+                setExpenseSubView('kapal');
+            } else if (viewParam === 'kantor') {
+                setExpenseSubView('kantor');
+            }
+        }
+    }, [activeTab]);
 
     // Modal state for filters
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -463,7 +482,7 @@ export default function ReportsIndex({
             case 'piutang':
                 return 'receivables';
             case 'pengeluaran':
-                return 'expenses';
+                return expenseSubView === 'kapal' ? 'vessel_daily_expenses' : 'expenses';
             case 'aktivitas':
                 return 'activities';
             case 'pengajuan':
@@ -971,35 +990,14 @@ export default function ReportsIndex({
                         </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                            type="button"
-                            variant="primary"
-                            onClick={() => handleExport('pdf')}
-                            leftIcon={<FileText aria-hidden="true" className="size-4" />}
-                            className="bg-[#0060F4]"
-                        >
-                            Unduh PDF
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => handleExport('xlsx')}
-                            leftIcon={<FileSpreadsheet aria-hidden="true" className="size-4 text-[#087443]" />}
-                            className="bg-white dark:bg-[#0C1D36]"
-                        >
-                            Unduh Excel
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={handlePrint}
-                            leftIcon={<Printer aria-hidden="true" className="size-4" />}
-                            className="bg-white dark:bg-[#0C1D36]"
-                        >
-                            Cetak
-                        </Button>
-                    </div>
+                    <ReportActionMenu
+                        onExportPdf={() => handleExport('pdf')}
+                        onExportXlsx={() => handleExport('xlsx')}
+                        onPrint={handlePrint}
+                        label={`Aksi Laporan ${activeReportSection.label}`}
+                        buttonLabel="Aksi Laporan"
+                        buttonVariant="outline"
+                    />
                 </div>
 
                 {/* ── Advanced Filter Toolbar with Modal ── */}
