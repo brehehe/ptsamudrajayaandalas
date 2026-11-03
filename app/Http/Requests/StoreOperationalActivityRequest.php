@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\PortCall;
+use App\Models\Ship;
 use App\Models\ShipRequest;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -33,7 +34,8 @@ class StoreOperationalActivityRequest extends FormRequest
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'is_vessel_related' => ['required', 'boolean'],
-            'ship_id' => ['nullable', 'uuid', 'exists:ships,id'],
+            'ship_id' => ['nullable', 'string', 'max:50'],
+            'custom_ship_name' => ['nullable', 'string', 'max:255'],
             'port_call_id' => ['nullable', 'uuid', 'exists:port_calls,id'],
             'request_id' => ['nullable', 'uuid', 'exists:requests,id'],
             'category' => ['nullable', 'string', 'max:100'],
@@ -49,7 +51,7 @@ class StoreOperationalActivityRequest extends FormRequest
             ],
             'title' => ['required', 'string', 'max:255'],
             'detail' => ['required', 'string', 'max:2000'],
-            'vessel_position' => ['nullable', 'required_if:is_vessel_related,1,true', 'in:scheduled,anchored,berthed,departed'],
+            'vessel_position' => ['nullable', 'in:scheduled,anchored,berthed,departed'],
             'cargo_activity' => ['nullable', 'in:bongkar,muat,tidak_ada'],
             'cargo_quantity' => ['nullable', 'numeric', 'min:0'],
             'cargo_unit' => ['nullable', 'required_with:cargo_quantity', 'string', 'max:50'],
@@ -68,15 +70,31 @@ class StoreOperationalActivityRequest extends FormRequest
     {
         return [
             function (Validator $validator): void {
-                if ($validator->errors()->hasAny(['is_vessel_related', 'ship_id', 'port_call_id', 'request_id'])
+                if ($validator->errors()->hasAny(['is_vessel_related', 'ship_id', 'custom_ship_name', 'port_call_id', 'request_id'])
                     || ! $this->boolean('is_vessel_related')) {
                     return;
                 }
 
                 $shipId = $this->string('ship_id')->toString();
+                $isOtherShip = in_array($shipId, ['__other__', 'other'], true)
+                    || ($shipId === '' && $this->filled('custom_ship_name'));
+
+                if ($isOtherShip) {
+                    if (! $this->filled('custom_ship_name')) {
+                        $validator->errors()->add('custom_ship_name', 'Nama kapal wajib diisi jika memilih opsi kapal lainnya.');
+                    }
+
+                    return;
+                }
 
                 if ($shipId === '') {
                     $validator->errors()->add('ship_id', 'Kapal wajib dipilih untuk aktivitas kapal.');
+
+                    return;
+                }
+
+                if (! Ship::query()->whereKey($shipId)->exists()) {
+                    $validator->errors()->add('ship_id', 'Kapal yang dipilih tidak valid.');
 
                     return;
                 }
@@ -87,9 +105,6 @@ class StoreOperationalActivityRequest extends FormRequest
                     ->where('ship_id', $shipId)
                     ->exists()) {
                     $validator->errors()->add('port_call_id', 'Kunjungan / job tidak sesuai dengan kapal yang dipilih.');
-                }
-                if ($portCallId === '') {
-                    $validator->errors()->add('port_call_id', 'Kunjungan / job wajib dipilih untuk aktivitas kapal.');
                 }
 
                 $requestId = $this->string('request_id')->toString();

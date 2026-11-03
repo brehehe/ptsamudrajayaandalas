@@ -58,7 +58,7 @@ class StoreInvoiceRequest extends FormRequest
             'destination_port_name' => ['nullable', 'string', 'max:255'],
             'lines' => ['required', 'array', 'min:1', 'max:100'],
             'lines.*.section_title' => ['nullable', 'string', 'max:100'],
-            'lines.*.description' => ['required', 'string', 'max:255'],
+            'lines.*.description' => ['required', 'string'],
             'lines.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999999999.99'],
             'lines.*.unit' => ['required', 'string', 'max:50'],
             'lines.*.total_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999999.99'],

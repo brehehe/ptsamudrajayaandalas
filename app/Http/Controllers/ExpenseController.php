@@ -32,7 +32,7 @@ class ExpenseController extends Controller
     {
         abort_unless($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']), 403);
         $validated = $request->validate([
-            'tab' => ['nullable', Rule::in(['vendor_invoices', 'company_expenses'])],
+            'tab' => ['nullable', 'string'],
             'type' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['all', 'pending', 'verified'])],
             'search' => ['nullable', 'string', 'max:100'],
@@ -42,7 +42,7 @@ class ExpenseController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date'],
         ]);
-        $tab = $validated['tab'] ?? 'vendor_invoices';
+        $tab = 'vendor_invoices';
         $type = $validated['type'] ?? 'all';
         $status = $validated['status'] ?? 'all';
         $search = $validated['search'] ?? null;
@@ -169,6 +169,7 @@ class ExpenseController extends Controller
                     'portCall:id,job_number,ship_id,port_id',
                     'portCall.ship:id,name',
                     'portCall.port:id,name',
+                    'items.requestItem.request:id,request_number,service_type',
                 ])
                 ->orderBy('due_date')
                 ->orderBy('received_date')
@@ -184,6 +185,8 @@ class ExpenseController extends Controller
                         return null;
                     }
 
+                    $firstReq = $invoice->items->first()?->requestItem?->request;
+
                     return [
                         'id' => $invoice->id,
                         'document_number' => $invoice->document_number,
@@ -194,9 +197,9 @@ class ExpenseController extends Controller
                         'payable_amount' => $outstandingAmount,
                         'due_date' => $invoice->due_date?->toDateString(),
                         'port_call' => [
-                            'job_number' => $invoice->portCall?->job_number,
-                            'ship_name' => $invoice->portCall?->ship?->name,
-                            'port_name' => $invoice->portCall?->port?->name,
+                            'job_number' => $invoice->portCall?->job_number ?? $firstReq?->request_number ?? 'Biaya Perusahaan',
+                            'ship_name' => $invoice->portCall?->ship?->name ?? $firstReq?->service_type ?? 'Non-Kapal',
+                            'port_name' => $invoice->portCall?->port?->name ?? 'Kantor Perusahaan',
                         ],
                     ];
                 })
@@ -279,6 +282,13 @@ class ExpenseController extends Controller
             }
 
             $verifiedAt = now();
+            $proofPath = $request->hasFile('proof')
+                ? $request->file('proof')->store('sja/outgoing-payments', 'local')
+                : null;
+            $referenceNumber = ! empty($validated['reference_number'])
+                ? trim($validated['reference_number'])
+                : null;
+
             $payment = OutgoingPayment::create([
                 'port_call_id' => $invoice->port_call_id,
                 'payment_type' => 'Pembayaran Vendor',
@@ -286,8 +296,8 @@ class ExpenseController extends Controller
                 'amount' => $validated['amount'],
                 'currency' => 'IDR',
                 'payment_date' => $validated['payment_date'],
-                'reference_number' => $validated['reference_number'],
-                'proof_path' => $request->file('proof')->store('sja/outgoing-payments', 'local'),
+                'reference_number' => $referenceNumber,
+                'proof_path' => $proofPath,
                 'verification_status' => 'verified',
                 'recorded_by' => $request->user()->id,
                 'verified_by' => $request->user()->id,
@@ -327,7 +337,9 @@ class ExpenseController extends Controller
             return $payment;
         });
 
-        return redirect()->back()->with('success', "Pembayaran {$payment->reference_number} berhasil dicatat. Status invoice langsung diperbarui.");
+        $refDisplay = $payment->reference_number ? " {$payment->reference_number}" : '';
+
+        return redirect()->back()->with('success', "Pembayaran{$refDisplay} berhasil dicatat. Status invoice langsung diperbarui.");
     }
 
     public function storeCompanyExpense(StoreCompanyExpenseRequest $request): RedirectResponse

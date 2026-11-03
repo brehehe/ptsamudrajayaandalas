@@ -16,5 +16,6 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(SjaPermissionSeeder::class);
         $this->call(SjaMasterSeeder::class);
+        $this->call(InvoiceDocumentSettingSeeder::class);
     }
 }

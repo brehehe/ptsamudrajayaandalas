@@ -246,8 +246,8 @@ class InvoicePdfGenerator
                     $summaryY -= 16;
                 }
 
-                $commands[] = '0 0 0 RG 1.2 w 399 '.($summaryY + 5).' m 548 '.($summaryY + 5).' l S';
-                $commands[] = $this->textCommand('TOTAL', 354, $summaryY - 8, 10, true);
+                $commands[] = '0 0 0 RG 1.2 w 270 '.($summaryY + 5).' m 548 '.($summaryY + 5).' l S';
+                $commands[] = $this->textCommand('TOTAL', 270, $summaryY - 8, 10, true);
                 $commands[] = $this->textCommand('Rp', 428, $summaryY - 8, 10, true);
                 $commands[] = $this->rightAlignedTextCommand($this->number($invoice->grand_total), 548, $summaryY - 8, 10, true);
 
@@ -305,7 +305,7 @@ class InvoicePdfGenerator
     private function summaryLine(string $label, mixed $value, int $y): string
     {
         return implode("\n", [
-            $this->textCommand($label, 354, $y, 9),
+            $this->textCommand($label, 270, $y, 9),
             $this->textCommand('Rp', 428, $y, 9),
             $this->rightAlignedTextCommand($this->number($value), 548, $y, 9, true),
         ]);

@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowRight,
-    Banknote,
     Building2,
     Check,
     CheckCircle2,
@@ -15,21 +14,25 @@ import {
     Files,
     Layers3,
     MapPin,
+    RotateCcw,
     Search,
+    SlidersHorizontal,
     X,
 } from 'lucide-react';
 import AppLayout from '../../Layouts/AppLayout';
 import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
-import Table, { Column } from '../../Components/tables/Table';
-import TableMobile from '../../Components/tables/TableMobile';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
+import Modal from '../../Components/overlays/Modal';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import Tabs from '../../Components/ui/Tabs';
 import Button from '../../Components/ui/Button';
 import ShipImage from '../../Components/vessels/ShipImage';
 import { FileViewerTrigger } from '../../Components/ui/FileViewer';
+import DateRangePicker, { type DateRange } from '../../Components/forms/DateRangePicker';
+import SelectSearch, { type SelectSearchOption } from '../../Components/selects/SelectSearch';
+import ItemSubmissionHistoryBadge, { type ItemSubmissionRound } from '../../Components/requests/ItemSubmissionHistoryBadge';
 
 interface RequestItem {
     id: string;
@@ -48,12 +51,19 @@ interface RequestItem {
     surplus_source_item_name?: string | null;
     surplus_amount?: number | string | null;
     original_hpp_price?: number | string | null;
+    submission_count?: number;
+    submission_round_label?: string;
+    was_previously_unselected?: boolean;
+    submission_history?: ItemSubmissionRound[];
+    latest_submission_date?: string;
+    history_summary?: string;
 }
 
 interface ShipRequest {
     id: string;
     request_number: string;
     status: string;
+    service_type?: string;
     request_date: string;
     created_at: string;
     admin_forward_notes?: string | null;
@@ -95,6 +105,9 @@ interface ApprovalRow {
     pendingCount: number;
     pendingEvidenceCount: number;
     pendingHpp: number;
+    approvedCount: number;
+    approvedEvidenceCount: number;
+    approvedHpp: number;
     totalHpp: number;
     status: string;
     updatedAt: string;
@@ -135,10 +148,24 @@ interface ApprovalsIndexProps {
     requests: ShipRequest[];
     payments: OutgoingPayment[];
     companyExpenses?: CompanyExpenseItem[];
+    companies?: Array<{ id: string; name: string }>;
+    ships?: Array<{ id: string; name: string; ship_company_id?: string }>;
+    jobs?: Array<{ id: string; job_number?: string; ship_id?: string }>;
     counts: { semua?: number; menunggu: number; disetujui: number; ditolak: number };
     activeTab: string;
     search: string;
     date: string;
+    filters?: {
+        tab?: string;
+        status?: string;
+        search?: string;
+        company_id?: string;
+        ship_id?: string;
+        job?: string;
+        start_date?: string;
+        end_date?: string;
+        date?: string;
+    };
     dailySummary: {
         date: string;
         ship_count: number;
@@ -189,9 +216,15 @@ const normalized = (value?: string): string => (value || '').trim().toLowerCase(
 const isPendingDirectorItem = (item: RequestItem): boolean => {
     const s = normalized(item.status);
     return (
-        (s === 'diajukan_ke_direktur' || s === 'pending' || s === 'menunggu' || s.includes('menunggu')) &&
+        s === 'diajukan_ke_direktur' &&
         (!item.director_status || item.director_status === 'pending')
     );
+};
+
+const isApprovedDirectorItem = (item: RequestItem): boolean => {
+    const s = normalized(item.status);
+    const ds = normalized(item.director_status);
+    return ds === 'approved' || s === 'approved' || s === 'disetujui';
 };
 
 const itemHppTotal = (item: RequestItem): number =>
@@ -201,10 +234,14 @@ export default function ApprovalsIndex({
     requests,
     payments,
     companyExpenses = [],
+    companies = [],
+    ships = [],
+    jobs = [],
     counts,
     activeTab,
     search: initialSearch,
     date,
+    filters,
     dailySummary,
     all_requests_total_hpp,
     waiting_requests_total_hpp,
@@ -212,13 +249,113 @@ export default function ApprovalsIndex({
     rejected_requests_total_hpp,
     capabilities = DEFAULT_CAPABILITIES,
 }: ApprovalsIndexProps) {
-    const [search, setSearch] = useState(initialSearch);
-    const [section, setSection] = useState<'requests' | 'payments'>('requests');
-    const [paymentSubTab, setPaymentSubTab] = useState<'company_expenses' | 'vendor_payments'>('company_expenses');
-    const [decidingExpenseId, setDecidingExpenseId] = useState<string | null>(null);
-    const [rejectingExpense, setRejectingExpense] = useState<CompanyExpenseItem | null>(null);
-    const [rejectionNotes, setRejectionNotes] = useState('');
-    const [verifyingId, setVerifyingId] = useState<string | null>(null);
+    const [search, setSearch] = useState(filters?.search ?? initialSearch ?? '');
+    const [companyId, setCompanyId] = useState(filters?.company_id ?? '');
+    const [shipId, setShipId] = useState(filters?.ship_id ?? '');
+    const [job, setJob] = useState(filters?.job ?? '');
+    const [status, setStatus] = useState(filters?.tab ?? activeTab ?? 'menunggu');
+    const [dateRange, setDateRange] = useState<DateRange>({
+        startDate: filters?.start_date ?? '',
+        endDate: filters?.end_date ?? '',
+    });
+
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [modalCompanyId, setModalCompanyId] = useState(filters?.company_id ?? '');
+    const [modalShipId, setModalShipId] = useState(filters?.ship_id ?? '');
+    const [modalJob, setModalJob] = useState(filters?.job ?? '');
+    const [modalStatus, setModalStatus] = useState(filters?.tab ?? activeTab ?? 'menunggu');
+    const [modalDateRange, setModalDateRange] = useState<DateRange>({
+        startDate: filters?.start_date ?? '',
+        endDate: filters?.end_date ?? '',
+    });
+
+    const availableShips = useMemo(() => {
+        if (!companyId) return ships;
+        return ships.filter((s) => s.ship_company_id === companyId);
+    }, [ships, companyId]);
+
+    const modalAvailableShips = useMemo(() => {
+        if (!modalCompanyId) return ships;
+        return ships.filter((s) => s.ship_company_id === modalCompanyId);
+    }, [ships, modalCompanyId]);
+
+    const companyOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Perusahaan' },
+        ...companies.map((c) => ({ value: c.id, label: c.name })),
+    ], [companies]);
+
+    const shipOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Kapal' },
+        ...availableShips.map((s) => ({ value: s.id, label: s.name })),
+    ], [availableShips]);
+
+    const modalShipOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Kapal' },
+        ...modalAvailableShips.map((s) => ({ value: s.id, label: s.name })),
+    ], [modalAvailableShips]);
+
+    const jobOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Job' },
+        ...jobs.map((j) => ({ value: j.job_number || j.id, label: j.job_number || j.id })),
+    ], [jobs]);
+
+    const modalJobOptions: SelectSearchOption[] = useMemo(() => {
+        const list = modalShipId
+            ? (jobs || []).filter((j) => !j.ship_id || j.ship_id === modalShipId)
+            : (jobs || []);
+        return [
+            { value: '', label: 'Semua Job' },
+            ...list.map((j) => ({ value: j.job_number || j.id, label: j.job_number || j.id })),
+        ];
+    }, [jobs, modalShipId]);
+
+    const statusOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: 'menunggu', label: `Menunggu Approval (${counts.menunggu || 0})` },
+            { value: 'disetujui', label: `Disetujui (${counts.disetujui || 0})` },
+            { value: 'ditolak', label: `Ditolak (${counts.ditolak || 0})` },
+            { value: 'semua', label: `Semua Status (${counts.semua || 0})` },
+        ],
+        [counts]
+    );
+
+    const activeFilterCount = [
+        companyId,
+        shipId,
+        job,
+        status && status !== 'menunggu' && status !== 'semua' ? status : '',
+        dateRange.startDate || dateRange.endDate ? 'date' : '',
+    ].filter(Boolean).length;
+
+    const hasActiveFilters = Boolean(
+        search || companyId || shipId || job || (status && status !== 'menunggu' && status !== 'semua') || dateRange.startDate || dateRange.endDate
+    );
+
+    const applyFilters = (overrides?: Record<string, string | undefined>) => {
+        const nextFilters = {
+            tab: status,
+            search: search || undefined,
+            company_id: companyId || undefined,
+            ship_id: shipId || undefined,
+            job: job || undefined,
+            start_date: dateRange.startDate || undefined,
+            end_date: dateRange.endDate || undefined,
+            ...overrides,
+        };
+        router.get('/approvals', nextFilters, { preserveState: true });
+    };
+
+    const resetFilters = () => {
+        setSearch('');
+        setCompanyId('');
+        setShipId('');
+        setJob('');
+        setStatus('menunggu');
+        const emptyRange: DateRange = { startDate: '', endDate: '' };
+        setDateRange(emptyRange);
+        router.get('/approvals', { tab: 'menunggu' }, { preserveState: true });
+    };
+
     const [approvalTarget, setApprovalTarget] = useState<ApprovalRow | null>(null);
     const [isBatchApprovalOpen, setIsBatchApprovalOpen] = useState(false);
     const [selectedApprovalItemIds, setSelectedApprovalItemIds] = useState<string[]>([]);
@@ -232,11 +369,7 @@ export default function ApprovalsIndex({
         if (capabilities.can_decide_items) {
             return (
                 status === 'menunggu approval direktur' ||
-                (request.items || []).some(
-                    (item) =>
-                        normalized(item.status).includes('direktur') &&
-                        (!item.director_status || item.director_status === 'pending')
-                )
+                (request.items || []).some(isPendingDirectorItem)
             );
         }
 
@@ -259,6 +392,14 @@ export default function ApprovalsIndex({
                 (item) => item.attachment_url || item.supplier_invoice_url
             ).length;
             const pendingHpp = pendingItems.reduce((total, item) => total + itemHppTotal(item), 0);
+
+            const approvedItems = items.filter(isApprovedDirectorItem);
+            const approved = approvedItems.length;
+            const approvedEvidenceCount = approvedItems.filter(
+                (item) => item.attachment_url || item.supplier_invoice_url
+            ).length;
+            const approvedHpp = approvedItems.reduce((total, item) => total + itemHppTotal(item), 0);
+
             const evidenceCount = items.filter((item) => item.attachment_url || item.supplier_invoice_url).length;
             const existing = groups.get(key);
 
@@ -266,20 +407,23 @@ export default function ApprovalsIndex({
                 groups.set(key, {
                     key,
                     jobNumber: request.port_call?.job_number || request.request_number,
-                    shipName: request.ship?.name || request.port_call?.ship?.name || '-',
+                    shipName: request.ship?.name || request.port_call?.ship?.name || request.service_type || 'Biaya Operasional Perusahaan',
                     shipImage: request.ship?.image || request.port_call?.ship?.image,
                     companyName:
                         request.company?.name ||
                         request.ship?.company?.name ||
                         request.port_call?.ship?.company?.name ||
-                        '-',
-                    portName: request.port_call?.port?.name || request.port?.name || '-',
+                        'PT Samudra Jaya Andalas',
+                    portName: request.port_call?.port?.name || request.port?.name || 'Kantor / Operasional',
                     requests: [request],
                     itemCount: items.length,
                     evidenceCount,
                     pendingCount: pending,
                     pendingEvidenceCount,
                     pendingHpp,
+                    approvedCount: approved,
+                    approvedEvidenceCount,
+                    approvedHpp,
                     totalHpp: hpp,
                     status: request.status,
                     updatedAt: request.created_at || request.request_date,
@@ -294,6 +438,9 @@ export default function ApprovalsIndex({
             existing.pendingCount += pending;
             existing.pendingEvidenceCount += pendingEvidenceCount;
             existing.pendingHpp += pendingHpp;
+            existing.approvedCount += approved;
+            existing.approvedEvidenceCount += approvedEvidenceCount;
+            existing.approvedHpp += approvedHpp;
             existing.totalHpp += hpp;
             existing.isNew = existing.isNew || requestNeedsAction(request);
             if (
@@ -309,359 +456,19 @@ export default function ApprovalsIndex({
             return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
         });
 
-        return activeTab === 'menunggu'
-            ? sortedRows.filter((row) => row.pendingCount > 0 || normalized(row.status).includes('menunggu'))
-            : sortedRows;
+        if (activeTab === 'menunggu') {
+            return sortedRows.filter((row) => row.pendingCount > 0);
+        }
+
+        if (activeTab === 'disetujui') {
+            return sortedRows.filter((row) => row.approvedCount > 0);
+        }
+
+        return sortedRows;
     }, [requests, capabilities, activeTab]);
 
-    const paymentRows = useMemo(
-        () =>
-            [...payments].sort((a, b) => {
-                const aNew = capabilities.can_decide_items && a.verification_status === 'pending';
-                const bNew = capabilities.can_decide_items && b.verification_status === 'pending';
-                if (aNew !== bNew) return aNew ? -1 : 1;
-                return new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime();
-            }),
-        [payments, capabilities.can_decide_items]
-    );
-
-    const paymentColumns = useMemo<Column<OutgoingPayment>[]>(
-        () => [
-            {
-                key: 'reference',
-                header: 'Referensi / Tanggal',
-                width: '210px',
-                render: (payment) => {
-                    const isNew =
-                        capabilities.can_decide_items &&
-                        payment.verification_status === 'pending';
-                    return (
-                        <div>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-mono font-bold text-[#0060F4]">
-                                    {payment.reference_number}
-                                </span>
-                                {isNew && (
-                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                        Baru
-                                    </span>
-                                )}
-                            </div>
-                            <p className="mt-1 text-[#52658E]">{formatDate(payment.payment_date)}</p>
-                        </div>
-                    );
-                },
-            },
-            {
-                key: 'recipient',
-                header: 'Penerima / Job',
-                width: '260px',
-                render: (payment) => (
-                    <div>
-                        <p className="font-semibold">{payment.recipient}</p>
-                        <p className="mt-1 text-[#52658E]">
-                            {payment.port_call?.ship?.name || '-'} ·{' '}
-                            {payment.port_call?.job_number || '-'}
-                        </p>
-                    </div>
-                ),
-            },
-            {
-                key: 'type',
-                header: 'Jenis',
-                width: '180px',
-                render: (payment) => payment.payment_type,
-            },
-            {
-                key: 'amount',
-                header: 'Nominal',
-                align: 'right',
-                width: '170px',
-                render: (payment) => (
-                    <span className="whitespace-nowrap font-mono font-bold tabular-nums">
-                        {formatCurrency(payment.amount, payment.currency || 'IDR')}
-                    </span>
-                ),
-            },
-            {
-                key: 'status',
-                header: 'Status',
-                width: '170px',
-                render: (payment) => (
-                    <StatusBadge
-                        status={
-                            payment.verification_status === 'verified'
-                                ? 'Disetujui'
-                                : payment.verification_status === 'rejected'
-                                    ? 'Ditolak'
-                                    : 'Menunggu Approval'
-                        }
-                        label={
-                            payment.verification_status === 'verified'
-                                ? 'Terverifikasi'
-                                : payment.verification_status === 'rejected'
-                                    ? 'Ditolak'
-                                    : 'Menunggu'
-                        }
-                        size="sm"
-                        showDot
-                    />
-                ),
-            },
-            {
-                key: 'action',
-                header: 'Aksi',
-                align: 'right',
-                width: '150px',
-                render: (payment) =>
-                    capabilities.can_decide_items && payment.verification_status === 'pending' ? (
-                        <button
-                            type="button"
-                            disabled={verifyingId !== null}
-                            onClick={() => {
-                                setVerifyingId(payment.id);
-                                router.post(
-                                    `/approvals/payments/${payment.id}/verify`,
-                                    {},
-                                    {
-                                        preserveScroll: true,
-                                        onFinish: () => setVerifyingId(null),
-                                    }
-                                );
-                            }}
-                            className="inline-flex min-h-9 items-center gap-1.5 rounded-[10px] bg-[#0060F4] px-3 font-bold text-white hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            <Check aria-hidden="true" className="size-3.5" />
-                            {verifyingId === payment.id ? 'Memproses' : 'Verifikasi'}
-                        </button>
-                    ) : (
-                        <span className="text-[#52658E]">
-                            {payment.verifier?.name || '—'}
-                        </span>
-                    ),
-            },
-        ],
-        [capabilities.can_decide_items, verifyingId]
-    );
-
-    const handleApproveExpense = (item: CompanyExpenseItem) => {
-        setDecidingExpenseId(item.id);
-        router.post(
-            `/approvals/company-expenses/${item.id}/decision`,
-            { decision: 'approve' },
-            {
-                preserveScroll: true,
-                onFinish: () => setDecidingExpenseId(null),
-            }
-        );
-    };
-
-    const handleConfirmRejectExpense = () => {
-        if (!rejectingExpense) return;
-        setDecidingExpenseId(rejectingExpense.id);
-        router.post(
-            `/approvals/company-expenses/${rejectingExpense.id}/decision`,
-            { decision: 'reject', notes: rejectionNotes },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    setRejectingExpense(null);
-                    setRejectionNotes('');
-                },
-                onFinish: () => setDecidingExpenseId(null),
-            }
-        );
-    };
-
-    const companyExpenseRows = useMemo(
-        () =>
-            [...(companyExpenses || [])].sort((a, b) => {
-                const aNew = capabilities.can_decide_items && a.status === 'waiting_director';
-                const bNew = capabilities.can_decide_items && b.status === 'waiting_director';
-                if (aNew !== bNew) return aNew ? -1 : 1;
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-            }),
-        [companyExpenses, capabilities.can_decide_items]
-    );
-
-    const companyExpenseColumns = useMemo<Column<CompanyExpenseItem>[]>(
-        () => [
-            {
-                key: 'request_number',
-                header: 'Nomor / Tanggal',
-                width: '210px',
-                render: (item) => {
-                    const isNew = capabilities.can_decide_items && item.status === 'waiting_director';
-                    return (
-                        <div>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-mono font-bold text-[#0060F4]">
-                                    {item.request_number}
-                                </span>
-                                {isNew && (
-                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                        Perlu Approval
-                                    </span>
-                                )}
-                            </div>
-                            <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">{formatDate(item.created_at)}</p>
-                        </div>
-                    );
-                },
-            },
-            {
-                key: 'category',
-                header: 'Kategori / Pemohon',
-                width: '240px',
-                render: (item) => (
-                    <div>
-                        <span className="inline-block rounded-md bg-[#DCEAF8] dark:bg-[#1E3A5F] px-2 py-0.5 text-xs font-semibold text-[#0B1F63] dark:text-white">
-                            {item.category || 'Operasional'}
-                        </span>
-                        <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                            Diajukan: <span className="font-medium text-[#0B1F63] dark:text-[#F1F5F9]">{item.creator?.name || 'Staff'}</span>
-                        </p>
-                        {item.notes && (
-                            <div className={`mt-1.5 p-1.5 rounded-lg text-xs ${
-                                item.status === 'rejected'
-                                    ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-medium'
-                                    : 'text-[#52658E] dark:text-[#94A3B8] italic'
-                            }`}>
-                                {item.status === 'rejected' && <span className="font-bold block text-[11px] uppercase tracking-wide text-rose-700 dark:text-rose-300">Catatan Ditolak:</span>}
-                                "{item.notes}"
-                            </div>
-                        )}
-                    </div>
-                ),
-            },
-            {
-                key: 'items',
-                header: 'Rincian Item',
-                width: '260px',
-                render: (item) => (
-                    <div className="space-y-1">
-                        {(item.items || []).slice(0, 2).map((it, idx) => (
-                            <div key={it.id || idx} className="text-xs text-[#0B1F63] dark:text-[#F1F5F9] flex justify-between gap-2">
-                                <span className="truncate">{it.description}</span>
-                                <span className="font-mono font-semibold shrink-0">{formatCurrency(it.amount, it.currency || 'IDR')}</span>
-                            </div>
-                        ))}
-                        {(item.items || []).length > 2 && (
-                            <p className="text-[11px] font-bold text-[#0060F4]">
-                                +{item.items!.length - 2} item lainnya
-                            </p>
-                        )}
-                        {item.supporting_document_path && (
-                            <FileViewerTrigger
-                                url={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
-                                downloadUrl={`/expenses/company-requests/${item.id}/documents/supporting?download=1`}
-                                title={`Bukti Lampiran: Pengajuan Perusahaan #${item.id}`}
-                                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0060F4] hover:underline mt-1 bg-[#E0F0FF] dark:bg-[#132847] px-2 py-0.5 rounded-md"
-                            >
-                                <Files aria-hidden="true" className="size-3.5" />
-                                Lihat Bukti / Lampiran
-                            </FileViewerTrigger>
-                        )}
-                    </div>
-                ),
-            },
-            {
-                key: 'total',
-                header: 'Total Biaya',
-                align: 'right',
-                width: '170px',
-                render: (item) => (
-                    <span className="whitespace-nowrap font-mono font-bold tabular-nums text-base text-[#0B1F63] dark:text-white">
-                        {formatCurrency(item.total, item.currency || 'IDR')}
-                    </span>
-                ),
-            },
-            {
-                key: 'status',
-                header: 'Status',
-                width: '180px',
-                render: (item) => {
-                    const statusLabel =
-                        item.status === 'waiting_director'
-                            ? 'Menunggu Approval'
-                            : item.status === 'approved'
-                                ? 'Disetujui'
-                                : item.status === 'rejected'
-                                    ? 'Ditolak'
-                                    : item.status === 'realized'
-                                        ? 'Terealisasi'
-                                        : item.status;
-                    return (
-                        <div>
-                            <StatusBadge
-                                status={
-                                    item.status === 'approved' || item.status === 'realized'
-                                        ? 'Disetujui'
-                                        : item.status === 'rejected'
-                                            ? 'Ditolak'
-                                            : 'Menunggu Approval Direktur'
-                                }
-                                label={statusLabel}
-                                size="sm"
-                                showDot
-                            />
-                            {item.reviewer && (
-                                <p className="mt-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                    Oleh: <span className="font-semibold">{item.reviewer.name}</span>
-                                    {item.reviewed_at && ` · ${formatDate(item.reviewed_at)}`}
-                                </p>
-                            )}
-                        </div>
-                    );
-                },
-            },
-            {
-                key: 'action',
-                header: 'Aksi',
-                align: 'right',
-                width: '190px',
-                render: (item) => {
-                    const isWaiting = item.status === 'waiting_director';
-                    if (capabilities.can_decide_items && isWaiting) {
-                        return (
-                            <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                    type="button"
-                                    disabled={decidingExpenseId !== null}
-                                    onClick={() => handleApproveExpense(item)}
-                                    className="inline-flex min-h-8 items-center gap-1 rounded-lg bg-[#0060F4] px-2.5 text-xs font-bold text-white hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                    <Check aria-hidden="true" className="size-3.5" />
-                                    {decidingExpenseId === item.id ? '...' : 'Setujui'}
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={decidingExpenseId !== null}
-                                    onClick={() => {
-                                        setRejectingExpense(item);
-                                        setRejectionNotes('');
-                                    }}
-                                    className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-[#FCA5A5] bg-white px-2.5 text-xs font-bold text-[#DC2626] hover:bg-[#FEF2F2] dark:border-[#7F1D1D] dark:bg-[#071322] dark:text-[#F87171] dark:hover:bg-[#450A0A] disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                    <X aria-hidden="true" className="size-3.5" />
-                                    Tolak
-                                </button>
-                            </div>
-                        );
-                    }
-                    return (
-                        <span className="text-xs text-[#52658E] dark:text-[#94A3B8]">
-                            {item.status === 'approved' ? 'Telah Disetujui' : item.status === 'rejected' ? 'Telah Ditolak' : '—'}
-                        </span>
-                    );
-                },
-            },
-        ],
-        [capabilities.can_decide_items, decidingExpenseId]
-    );
-
     const visit = (tab = activeTab, query = search, selectedDate = date): void => {
-        router.get('/approvals', { tab, search: query || undefined, date: selectedDate || undefined }, { preserveState: true });
+        applyFilters({ tab, search: query || undefined, date: selectedDate || undefined });
     };
 
     const approvalSelectionRows = useMemo(
@@ -798,24 +605,36 @@ export default function ApprovalsIndex({
 
     const queueSummary = useMemo(() => {
         const rowsToCount = activeTab === 'menunggu'
-            ? approvalRows.filter((row) => row.pendingCount > 0 || normalized(row.status).includes('menunggu'))
-            : approvalRows;
+            ? approvalRows.filter((row) => row.pendingCount > 0)
+            : (activeTab === 'disetujui'
+                ? approvalRows.filter((row) => row.approvedCount > 0)
+                : approvalRows);
 
         const totalHppPending = rowsToCount.reduce((total, row) => total + (row.pendingHpp || 0), 0);
+        const totalHppApproved = rowsToCount.reduce((total, row) => total + (row.approvedHpp || 0), 0);
         const totalHppRows = rowsToCount.reduce((total, row) => total + (row.totalHpp || 0), 0);
 
         let activeHpp = totalHppRows;
         let activeHppLabel = 'Total HPP Selesai / Disetujui';
         let itemHeaderLabel = 'Item Terbuka';
+        let totalItems = rowsToCount.reduce((total, row) => total + row.itemCount, 0);
 
         if (activeTab === 'menunggu') {
-            activeHpp = totalHppPending > 0 ? totalHppPending : (waiting_requests_total_hpp ?? totalHppRows);
+            activeHpp = waiting_requests_total_hpp ?? totalHppPending;
             activeHppLabel = 'HPP Perlu Diputuskan';
             itemHeaderLabel = 'Item Ditinjau';
+            totalItems = rowsToCount.reduce(
+                (total, row) => total + row.pendingCount,
+                0
+            );
         } else if (activeTab === 'disetujui') {
-            activeHpp = approved_requests_total_hpp ?? totalHppRows;
+            activeHpp = approved_requests_total_hpp ?? totalHppApproved;
             activeHppLabel = 'Total HPP Disetujui';
             itemHeaderLabel = 'Item Disetujui';
+            totalItems = rowsToCount.reduce(
+                (total, row) => total + (row.approvedCount > 0 ? row.approvedCount : row.itemCount),
+                0
+            );
         } else if (activeTab === 'ditolak') {
             activeHpp = rejected_requests_total_hpp ?? totalHppRows;
             activeHppLabel = 'Total HPP Ditolak';
@@ -828,10 +647,7 @@ export default function ApprovalsIndex({
                 (total, row) => total + row.requests.length,
                 0
             ),
-            itemCount: rowsToCount.reduce(
-                (total, row) => total + (row.pendingCount > 0 ? row.pendingCount : row.itemCount),
-                0
-            ),
+            itemCount: totalItems,
             totalHppAll: all_requests_total_hpp ?? totalHppRows,
             totalHppDaftar: totalHppRows,
             totalHpp: totalHppPending > 0 ? totalHppPending : totalHppRows,
@@ -843,15 +659,27 @@ export default function ApprovalsIndex({
 
     const renderApprovalCard = (row: ApprovalRow) => {
         const isWaitingView = activeTab === 'menunggu';
+        const isApprovedView = activeTab === 'disetujui';
+
         const actionableRequests = row.requests.filter((request) =>
             (request.items || []).some(isPendingDirectorItem)
         );
-        const displayedRequests = isWaitingView && actionableRequests.length > 0
+        const approvedRequests = row.requests.filter((request) =>
+            (request.items || []).some(isApprovedDirectorItem)
+        );
+        const displayedRequests = isWaitingView
             ? actionableRequests
-            : row.requests;
-        const displayedItemCount = isWaitingView ? row.pendingCount : row.itemCount;
-        const displayedEvidenceCount = isWaitingView ? row.pendingEvidenceCount : row.evidenceCount;
-        const displayedHpp = isWaitingView && row.pendingCount > 0 ? row.pendingHpp : row.totalHpp;
+            : (isApprovedView && approvedRequests.length > 0 ? approvedRequests : row.requests);
+
+        const displayedItemCount = isWaitingView
+            ? row.pendingCount
+            : (isApprovedView ? row.approvedCount : row.itemCount);
+        const displayedEvidenceCount = isWaitingView
+            ? row.pendingEvidenceCount
+            : (isApprovedView ? row.approvedEvidenceCount : row.evidenceCount);
+        const displayedHpp = isWaitingView
+            ? (row.pendingCount > 0 ? row.pendingHpp : row.totalHpp)
+            : (isApprovedView ? row.approvedHpp : row.totalHpp);
 
         return (
             <Card
@@ -859,8 +687,8 @@ export default function ApprovalsIndex({
                 role="article"
                 overflow="hidden"
                 className={`flex h-full flex-col ${row.isNew
-                        ? 'border-l-4 border-l-[#0060F4] ring-1 ring-[#0060F4]/10 dark:border-l-[#38BDF8]'
-                        : ''
+                    ? 'border-l-4 border-l-[#0060F4] ring-1 ring-[#0060F4]/10 dark:border-l-[#38BDF8]'
+                    : ''
                     }`}
             >
                 <div className="flex flex-col gap-2.5 border-b border-[#DCEAF8] bg-[#F8FBFF] p-3.5 sm:p-4 dark:border-[#1E3A5F] dark:bg-[#071322]">
@@ -956,11 +784,14 @@ export default function ApprovalsIndex({
                             {displayedRequests.map((shipRequest) => {
                                 const requestItems = shipRequest.items || [];
                                 const pendingItems = requestItems.filter(isPendingDirectorItem);
-                                const requestItemCount = isWaitingView ? pendingItems.length : requestItems.length;
-                                const requestHpp = (isWaitingView && pendingItems.length > 0
+                                const approvedItems = requestItems.filter(isApprovedDirectorItem);
+                                const activeItems = isWaitingView
                                     ? pendingItems
-                                    : requestItems
-                                ).reduce((total, item) => total + itemHppTotal(item), 0);
+                                    : (isApprovedView ? approvedItems : requestItems);
+                                const requestItemCount = isWaitingView
+                                    ? pendingItems.length
+                                    : (isApprovedView ? approvedItems.length : requestItems.length);
+                                const requestHpp = activeItems.reduce((total, item) => total + itemHppTotal(item), 0);
 
                                 return (
                                     <div
@@ -972,7 +803,7 @@ export default function ApprovalsIndex({
                                                 {shipRequest.request_number}
                                             </p>
                                             <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                                {requestItemCount} item {isWaitingView ? 'menunggu keputusan' : 'dalam pengajuan'}
+                                                {requestItemCount} item {isWaitingView ? 'menunggu keputusan' : (isApprovedView ? 'disetujui Direktur' : 'dalam pengajuan')}
                                             </p>
                                             {shipRequest.admin_forward_notes && (
                                                 <p className="mt-1.5 rounded-lg bg-[#E0F0FF] px-2 py-1.5 text-[11px] leading-4 text-[#0B1F63] dark:bg-[#132847] dark:text-[#D8E7F6]">
@@ -995,14 +826,19 @@ export default function ApprovalsIndex({
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                Total HPP Pengajuan
+                                {isApprovedView ? 'Total HPP Disetujui' : (isWaitingView && row.pendingCount > 0 ? 'Total HPP Perlu Ditinjau' : 'Total HPP Pengajuan')}
                             </p>
                             <p className="mt-0.5 font-mono text-base sm:text-lg font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                {formatCurrency(row.totalHpp)}
+                                {formatCurrency(displayedHpp)}
                             </p>
                             {isWaitingView && row.pendingHpp > 0 && row.pendingHpp !== row.totalHpp && (
                                 <p className="mt-0.5 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
                                     Perlu diputuskan: {formatCurrency(row.pendingHpp)}
+                                </p>
+                            )}
+                            {isApprovedView && row.approvedHpp > 0 && row.approvedHpp !== row.totalHpp && (
+                                <p className="mt-0.5 text-[11px] font-bold text-[#087443] dark:text-emerald-400">
+                                    Dari total pengajuan: {formatCurrency(row.totalHpp)}
                                 </p>
                             )}
                             <p className="mt-1 flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
@@ -1027,8 +863,8 @@ export default function ApprovalsIndex({
                                 prefetch
                                 aria-label={`${row.pendingCount > 0 ? 'Tinjau' : 'Buka'} persetujuan ${row.jobNumber}`}
                                 className={`inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${isWaitingView && capabilities.can_decide_items && row.pendingCount > 0
-                                        ? 'border border-[#BCE0FD] bg-white text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#285585] dark:bg-[#0C1D36] dark:hover:bg-[#102B4A]'
-                                        : 'bg-[#0060F4] text-white shadow-sm hover:bg-[#0050D0]'
+                                    ? 'border border-[#BCE0FD] bg-white text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#285585] dark:bg-[#0C1D36] dark:hover:bg-[#102B4A]'
+                                    : 'bg-[#0060F4] text-white shadow-sm hover:bg-[#0050D0]'
                                     }`}
                             >
                                 {row.pendingCount > 0 ? `Tinjau ${row.pendingCount} Item` : 'Lihat Detail'}
@@ -1045,7 +881,7 @@ export default function ApprovalsIndex({
         <AppLayout title="Persetujuan" transparentMobileHeader noPaddingMobile mobileBackground="surface">
             <Head title="Persetujuan - PT Samudra Jaya Andalas" />
 
-            <MobilePageHero title="Persetujuan" description="Tinjau pengajuan dan pembayaran yang memerlukan keputusan." />
+            <MobilePageHero title="Persetujuan" description="Tinjau pengajuan yang memerlukan keputusan." />
 
             <div className="relative z-10 mx-auto -mt-6 max-w-7xl space-y-4 rounded-t-[28px] bg-white px-4 pb-10 pt-4 shadow-[0_-6px_20px_rgba(0,0,0,0.18)] dark:bg-[#0C1D36] md:mt-0 md:rounded-none md:bg-transparent md:px-0 md:pt-0 md:shadow-none md:dark:bg-transparent">
                 <header className="hidden md:block">
@@ -1053,175 +889,122 @@ export default function ApprovalsIndex({
                         Persetujuan
                     </h1>
                     <p className="mt-1 text-sm text-[#52658E] dark:text-[#94A3B8]">
-                        Pengajuan dan pembayaran yang perlu ditinjau.
+                        Pengajuan yang perlu ditinjau oleh Direktur.
                     </p>
                 </header>
 
-                <Tabs
-                    items={[
-                        { id: 'requests', label: 'Pengajuan Kapal', count: approvalRows.length, icon: <FileCheck2 aria-hidden="true" className="size-4" /> },
-                        { id: 'payments', label: 'Pembayaran & Biaya', count: payments.length + (companyExpenses?.length || 0), icon: <Banknote aria-hidden="true" className="size-4" /> },
-                    ]}
-                    activeId={section}
-                    onChange={(value) => setSection(value as 'requests' | 'payments')}
-                    ariaLabel="Jenis persetujuan"
-                    equalWidth
-                    className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
-                />
-
-                {section === 'requests' && (
-                    <section
-                        className="overflow-hidden rounded-2xl border border-[#0060F4]/30 bg-linear-to-br from-[#E0F0FF] via-white to-[#F0F8FF] shadow-[0_10px_30px_rgba(0,96,244,0.08)] dark:border-[#285585] dark:from-[#102B4A] dark:via-[#0C1D36] dark:to-[#071322]"
-                        aria-labelledby="approval-queue-heading"
-                    >
-                        <div className="flex flex-col gap-2.5 border-b border-[#BCE0FD] p-3.5 sm:p-4 dark:border-[#285585] sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h2 id="approval-queue-heading" className="text-sm sm:text-base font-extrabold text-[#0B1F63] dark:text-white">
-                                        {activeTab === 'menunggu'
-                                            ? 'Antrean Keputusan Direktur'
-                                            : activeTab === 'disetujui'
-                                                ? 'Rekap Pengajuan Disetujui Direktur'
-                                                : activeTab === 'ditolak'
-                                                    ? 'Rekap Pengajuan Ditolak Direktur'
-                                                    : 'Rekap Seluruh Pengajuan Kapal'}
-                                    </h2>
-                                    <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                        {queueSummary.jobCount} Job {activeTab === 'disetujui' ? 'Disetujui' : activeTab === 'ditolak' ? 'Ditolak' : 'Aktif'}
-                                    </span>
-                                </div>
-                                <p className="mt-1 hidden max-w-3xl text-xs leading-relaxed text-[#52658E] dark:text-[#B5C8DC] sm:block">
-                                    {activeTab === 'menunggu'
-                                        ? 'Pengajuan yang dikirim bersamaan dikelompokkan per job. Rincian setiap REQ tetap dipisahkan agar keputusan mudah diperiksa.'
-                                        : activeTab === 'disetujui'
-                                            ? 'Daftar job dan pengajuan yang telah disetujui Direktur dan siap diproses ke operasional/vendor invoice.'
-                                            : 'Rincian pengajuan dan HPP per job untuk pengawasan Direktur.'}
-                                </p>
-                            </div>
+                <section
+                    className="overflow-hidden rounded-2xl border border-[#0060F4]/30 bg-linear-to-br from-[#E0F0FF] via-white to-[#F0F8FF] shadow-[0_10px_30px_rgba(0,96,244,0.08)] dark:border-[#285585] dark:from-[#102B4A] dark:via-[#0C1D36] dark:to-[#071322]"
+                    aria-labelledby="approval-queue-heading"
+                >
+                    <div className="flex flex-col gap-2.5 border-b border-[#BCE0FD] p-3.5 sm:p-4 dark:border-[#285585] sm:flex-row sm:items-center sm:justify-between">
+                        <div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-[#BCE0FD] bg-white px-2.5 py-1 text-xs font-bold text-[#0060F4] dark:border-[#285585] dark:bg-[#071322] dark:text-[#60A5FA]">
-                                    <Layers3 aria-hidden="true" className="size-3.5" />
-                                    {queueSummary.itemCount} item {activeTab === 'menunggu' ? 'menunggu' : activeTab === 'disetujui' ? 'disetujui' : ''}
-                                </div>
-                                {activeTab === 'menunggu' && capabilities.can_decide_items && queueSummary.jobCount > 1 && (
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        leftIcon={<CheckCircle2 aria-hidden="true" className="size-4" />}
-                                        disabled={approvingJobKey !== null}
-                                        onClick={openBatchApprovalSelection}
-                                        className="min-h-9 bg-[#0060F4] px-3 font-bold text-white hover:bg-[#0050D0]"
-                                    >
-                                        Setujui Beberapa Job
-                                    </Button>
-                                )}
+                                <h2 id="approval-queue-heading" className="text-sm sm:text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                    {activeTab === 'menunggu'
+                                        ? 'Antrean Keputusan Direktur'
+                                        : activeTab === 'disetujui'
+                                            ? 'Rekap Pengajuan Disetujui Direktur'
+                                            : activeTab === 'ditolak'
+                                                ? 'Rekap Pengajuan Ditolak Direktur'
+                                                : 'Rekap Seluruh Pengajuan Kapal'}
+                                </h2>
+                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                    {queueSummary.jobCount} Job {activeTab === 'disetujui' ? 'Disetujui' : activeTab === 'ditolak' ? 'Ditolak' : 'Aktif'}
+                                </span>
                             </div>
+                            <p className="mt-1 hidden max-w-3xl text-xs leading-relaxed text-[#52658E] dark:text-[#B5C8DC] sm:block">
+                                {activeTab === 'menunggu'
+                                    ? 'Pengajuan yang dikirim bersamaan dikelompokkan per job. Rincian setiap REQ tetap dipisahkan agar keputusan mudah diperiksa.'
+                                    : activeTab === 'disetujui'
+                                        ? 'Daftar job dan pengajuan yang telah disetujui Direktur dan siap diproses ke operasional/vendor invoice.'
+                                        : 'Rincian pengajuan dan HPP per job untuk pengawasan Direktur.'}
+                            </p>
                         </div>
-
-                        <dl className="grid grid-cols-2 gap-px bg-[#BCE0FD] dark:bg-[#285585] sm:grid-cols-3 lg:grid-cols-5">
-                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
-                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                    {activeTab === 'disetujui' ? 'Job Disetujui' : activeTab === 'ditolak' ? 'Job Ditolak' : 'Job Aktif'}
-                                </dt>
-                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                    {queueSummary.jobCount}
-                                </dd>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-[#BCE0FD] bg-white px-2.5 py-1 text-xs font-bold text-[#0060F4] dark:border-[#285585] dark:bg-[#071322] dark:text-[#60A5FA]">
+                                <Layers3 aria-hidden="true" className="size-3.5" />
+                                {queueSummary.itemCount} item {activeTab === 'menunggu' ? 'menunggu' : activeTab === 'disetujui' ? 'disetujui' : ''}
                             </div>
-                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
-                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                    Surat Pengajuan
-                                </dt>
-                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                    {queueSummary.requestCount}
-                                </dd>
-                            </div>
-                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
-                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                    {queueSummary.itemHeaderLabel}
-                                </dt>
-                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                    {queueSummary.itemCount}
-                                </dd>
-                            </div>
-                            <div className="bg-[#EAF5FF] p-2.5 sm:p-3.5 dark:bg-[#102B4A]/95 col-span-2 sm:col-span-1 border-t sm:border-t-0 border-[#BCE0FD] dark:border-[#285585]">
-                                <dt className="text-[10px] font-bold uppercase tracking-wide text-[#0060F4] dark:text-[#60A5FA]">
-                                    Total HPP Semua Pengajuan
-                                </dt>
-                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-black tabular-nums text-[#082870] dark:text-white">
-                                    {formatCurrency(queueSummary.totalHppAll)}
-                                </dd>
-                            </div>
-                            <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95 col-span-2 sm:col-span-1">
-                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
-                                    {queueSummary.activeHppLabel}
-                                </dt>
-                                <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
-                                    {formatCurrency(queueSummary.activeHpp)}
-                                </dd>
-                            </div>
-                        </dl>
-                    </section>
-                )}
-
-                {section === 'requests' && (
-                    <>
-                        {/* Mobile: Sleek Collapsible Daily Summary */}
-                        <div className="sm:hidden">
-                            <button
-                                type="button"
-                                onClick={() => setIsDailySummaryOpen(!isDailySummaryOpen)}
-                                className="flex w-full items-center justify-between rounded-xl border border-[#B9D9FF] bg-[#F0F8FF] px-3.5 py-2.5 text-xs font-bold text-[#0B1F63] dark:border-[#285585] dark:bg-[#102B4A] dark:text-white"
-                            >
-                                <span className="flex items-center gap-2">
-                                    <FileText aria-hidden="true" className="size-4 text-[#0060F4]" />
-                                    <span>Rekap Harian ({formatDate(date || dailySummary.date)})</span>
-                                </span>
-                                <span className="flex items-center gap-1 text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
-                                    {isDailySummaryOpen ? 'Tutup' : 'Lihat'}
-                                    {isDailySummaryOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-                                </span>
-                            </button>
-
-                            {isDailySummaryOpen && (
-                                <div className="mt-2 space-y-2.5 rounded-2xl border border-[#B9D9FF] bg-[#F0F8FF] p-3 dark:border-[#285585] dark:bg-[#102B4A]">
-                                    <div>
-                                        <label className="text-xs font-bold text-[#0B1F63] dark:text-white">
-                                            Tanggal rekap
-                                            <input
-                                                name="date"
-                                                autoComplete="off"
-                                                type="date"
-                                                value={date || dailySummary.date}
-                                                onChange={(event) => visit(activeTab, search, event.target.value)}
-                                                className="mt-1 block h-9 w-full rounded-xl border border-[#DCEAF8] bg-white px-2.5 text-xs text-[#0B1F63] focus-visible:border-[#0060F4] focus-visible:outline-none dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
-                                            />
-                                        </label>
-                                    </div>
-                                    <dl className="grid grid-cols-2 gap-2">
-                                        {[
-                                            ['Kapal', dailySummary.ship_count],
-                                            ['Pengajuan', dailySummary.request_count],
-                                            ['Item', dailySummary.item_count],
-                                            ['Total HPP', formatCurrency(dailySummary.total_hpp)],
-                                            ['HPP Disetujui', formatCurrency(dailySummary.approved_hpp)],
-                                        ].map(([label, value]) => (
-                                            <div key={String(label)} className="rounded-xl border border-[#DCEAF8] bg-white p-2 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E]">{label}</dt>
-                                                <dd className="mt-0.5 break-words font-mono text-xs font-bold tabular-nums text-[#0B1F63] dark:text-white">{value}</dd>
-                                            </div>
-                                        ))}
-                                    </dl>
-                                </div>
+                            {activeTab === 'menunggu' && capabilities.can_decide_items && queueSummary.jobCount > 1 && (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    leftIcon={<CheckCircle2 aria-hidden="true" className="size-4" />}
+                                    disabled={approvingJobKey !== null}
+                                    onClick={openBatchApprovalSelection}
+                                    className="min-h-9 bg-[#0060F4] px-3 font-bold text-white hover:bg-[#0050D0]"
+                                >
+                                    Setujui Beberapa Job
+                                </Button>
                             )}
                         </div>
+                    </div>
 
-                        {/* Desktop: Always Visible Daily Summary */}
-                        <section className="hidden sm:block rounded-2xl border border-[#B9D9FF] bg-[#F0F8FF] p-3 dark:border-[#285585] dark:bg-[#102B4A]" aria-label="Rekap pengajuan harian">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                                <div>
-                                    <h2 className="text-sm font-extrabold text-[#0B1F63] dark:text-white">Rekap Harian Semua Kapal</h2>
-                                    <p className="mt-0.5 text-xs text-[#52658E] dark:text-[#94A3B8]">Ringkasan biaya pengajuan pada tanggal yang sama.</p>
-                                </div>
+                    <dl className="grid grid-cols-2 gap-px bg-[#BCE0FD] dark:bg-[#285585] sm:grid-cols-3 lg:grid-cols-5">
+                        <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
+                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                {activeTab === 'disetujui' ? 'Job Disetujui' : activeTab === 'ditolak' ? 'Job Ditolak' : 'Job Aktif'}
+                            </dt>
+                            <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                {queueSummary.jobCount}
+                            </dd>
+                        </div>
+                        <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
+                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                Surat Pengajuan
+                            </dt>
+                            <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                {queueSummary.requestCount}
+                            </dd>
+                        </div>
+                        <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95">
+                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                {queueSummary.itemHeaderLabel}
+                            </dt>
+                            <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                {queueSummary.itemCount}
+                            </dd>
+                        </div>
+                        <div className="bg-[#EAF5FF] p-2.5 sm:p-3.5 dark:bg-[#102B4A]/95 col-span-2 sm:col-span-1 border-t sm:border-t-0 border-[#BCE0FD] dark:border-[#285585]">
+                            <dt className="text-[10px] font-bold uppercase tracking-wide text-[#0060F4] dark:text-[#60A5FA]">
+                                Total HPP Semua Pengajuan
+                            </dt>
+                            <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-black tabular-nums text-[#082870] dark:text-white">
+                                {formatCurrency(queueSummary.totalHppAll)}
+                            </dd>
+                        </div>
+                        <div className="bg-white/90 p-2.5 sm:p-3.5 dark:bg-[#0C1D36]/95 col-span-2 sm:col-span-1">
+                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">
+                                {queueSummary.activeHppLabel}
+                            </dt>
+                            <dd className="mt-0.5 break-words font-mono text-sm sm:text-base font-extrabold tabular-nums text-[#0B1F63] dark:text-white">
+                                {formatCurrency(queueSummary.activeHpp)}
+                            </dd>
+                        </div>
+                    </dl>
+                </section>
+
+                {/* Mobile: Sleek Collapsible Daily Summary */}
+                <div className="sm:hidden">
+                    <button
+                        type="button"
+                        onClick={() => setIsDailySummaryOpen(!isDailySummaryOpen)}
+                        className="flex w-full items-center justify-between rounded-xl border border-[#B9D9FF] bg-[#F0F8FF] px-3.5 py-2.5 text-xs font-bold text-[#0B1F63] dark:border-[#285585] dark:bg-[#102B4A] dark:text-white"
+                    >
+                        <span className="flex items-center gap-2">
+                            <FileText aria-hidden="true" className="size-4 text-[#0060F4]" />
+                            <span>Rekap Harian ({formatDate(date || dailySummary.date)})</span>
+                        </span>
+                        <span className="flex items-center gap-1 text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
+                            {isDailySummaryOpen ? 'Tutup' : 'Lihat'}
+                            {isDailySummaryOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                        </span>
+                    </button>
+
+                    {isDailySummaryOpen && (
+                        <div className="mt-2 space-y-2.5 rounded-2xl border border-[#B9D9FF] bg-[#F0F8FF] p-3 dark:border-[#285585] dark:bg-[#102B4A]">
+                            <div>
                                 <label className="text-xs font-bold text-[#0B1F63] dark:text-white">
                                     Tanggal rekap
                                     <input
@@ -1230,11 +1013,11 @@ export default function ApprovalsIndex({
                                         type="date"
                                         value={date || dailySummary.date}
                                         onChange={(event) => visit(activeTab, search, event.target.value)}
-                                        className="mt-1 block h-11 rounded-xl border border-[#DCEAF8] bg-white px-3 text-sm focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]"
+                                        className="mt-1 block h-9 w-full rounded-xl border border-[#DCEAF8] bg-white px-2.5 text-xs text-[#0B1F63] focus-visible:border-[#0060F4] focus-visible:outline-none dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
                                     />
                                 </label>
                             </div>
-                            <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                            <dl className="grid grid-cols-2 gap-2">
                                 {[
                                     ['Kapal', dailySummary.ship_count],
                                     ['Pengajuan', dailySummary.request_count],
@@ -1242,364 +1025,270 @@ export default function ApprovalsIndex({
                                     ['Total HPP', formatCurrency(dailySummary.total_hpp)],
                                     ['HPP Disetujui', formatCurrency(dailySummary.approved_hpp)],
                                 ].map(([label, value]) => (
-                                    <div key={String(label)} className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                    <div key={String(label)} className="rounded-xl border border-[#DCEAF8] bg-white p-2 dark:border-[#1E3A5F] dark:bg-[#071322]">
                                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E]">{label}</dt>
-                                        <dd className="mt-1 break-words font-bold tabular-nums text-[#0B1F63] dark:text-white">{value}</dd>
+                                        <dd className="mt-0.5 break-words font-mono text-xs font-bold tabular-nums text-[#0B1F63] dark:text-white">{value}</dd>
                                     </div>
                                 ))}
                             </dl>
-                        </section>
-                    </>
-                )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Desktop: Always Visible Daily Summary */}
+                <section className="hidden sm:block rounded-2xl border border-[#B9D9FF] bg-[#F0F8FF] p-3 dark:border-[#285585] dark:bg-[#102B4A]" aria-label="Rekap pengajuan harian">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <h2 className="text-sm font-extrabold text-[#0B1F63] dark:text-white">Rekap Harian Semua Kapal</h2>
+                            <p className="mt-0.5 text-xs text-[#52658E] dark:text-[#94A3B8]">Ringkasan biaya pengajuan pada tanggal yang sama.</p>
+                        </div>
+                        <label className="text-xs font-bold text-[#0B1F63] dark:text-white">
+                            Tanggal rekap
+                            <input
+                                name="date"
+                                autoComplete="off"
+                                type="date"
+                                value={date || dailySummary.date}
+                                onChange={(event) => visit(activeTab, search, event.target.value)}
+                                className="mt-1 block h-11 rounded-xl border border-[#DCEAF8] bg-white px-3 text-sm focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322]"
+                            />
+                        </label>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        {[
+                            ['Kapal', dailySummary.ship_count],
+                            ['Pengajuan', dailySummary.request_count],
+                            ['Item', dailySummary.item_count],
+                            ['Total HPP', formatCurrency(dailySummary.total_hpp)],
+                            ['HPP Disetujui', formatCurrency(dailySummary.approved_hpp)],
+                        ].map(([label, value]) => (
+                            <div key={String(label)} className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E]">{label}</dt>
+                                <dd className="mt-1 break-words font-bold tabular-nums text-[#0B1F63] dark:text-white">{value}</dd>
+                            </div>
+                        ))}
+                    </dl>
+                </section>
 
                 <section className="space-y-3" aria-label="Filter persetujuan">
-                    <form
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            visit();
-                        }}
-                        className="relative"
-                    >
-                        <Search
-                            aria-hidden="true"
-                            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#0060F4]"
-                        />
-                        <input
-                            type="search"
-                            name="search"
-                            autoComplete="off"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Cari job, kapal, pengajuan, atau pembayaran…"
-                            aria-label="Cari persetujuan"
-                            className="h-11 w-full rounded-xl border border-[#DCEAF8] bg-white pl-10 pr-11 text-sm text-[#0B1F63] shadow-xs placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#F1F5F9]"
-                        />
-                        {search && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setSearch('');
-                                    visit(activeTab, '');
-                                }}
-                                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#52658E] hover:text-[#C62840] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
-                                aria-label="Hapus pencarian"
-                            >
-                                <X aria-hidden="true" className="size-4" />
-                            </button>
-                        )}
-                    </form>
+                    <Card padding="md" className="shadow-xs">
+                        <div className="space-y-3">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                                {/* Search Input */}
+                                <form
+                                    onSubmit={(event) => {
+                                        event.preventDefault();
+                                        visit(activeTab, search);
+                                    }}
+                                    className="relative flex-1"
+                                >
+                                    <Search
+                                        aria-hidden="true"
+                                        className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8C9BB9]"
+                                    />
+                                    <input
+                                        type="search"
+                                        name="search"
+                                        autoComplete="off"
+                                        value={search}
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        placeholder="Cari job, kapal, pengajuan, atau pembayaran…"
+                                        aria-label="Cari persetujuan"
+                                        className="w-full h-11 pl-10 pr-9 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                                    />
+                                    {search && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSearch('');
+                                                visit(activeTab, '');
+                                            }}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                            aria-label="Hapus pencarian"
+                                        >
+                                            <X aria-hidden="true" className="size-4" />
+                                        </button>
+                                    )}
+                                </form>
+
+                                {/* Filter Trigger Button */}
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <Button
+                                        type="button"
+                                        variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                                        onClick={() => {
+                                            setModalCompanyId(companyId);
+                                            setModalShipId(shipId);
+                                            setModalJob(job);
+                                            setModalStatus(status);
+                                            setModalDateRange(dateRange);
+                                            setIsFilterModalOpen(true);
+                                        }}
+                                        leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                                        className="h-11 px-4 text-xs font-bold"
+                                        aria-haspopup="dialog"
+                                        aria-expanded={isFilterModalOpen}
+                                    >
+                                        <span>Filter</span>
+                                        {activeFilterCount > 0 && (
+                                            <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                                {activeFilterCount}
+                                            </span>
+                                        )}
+                                    </Button>
+
+                                    {hasActiveFilters && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={resetFilters}
+                                            className="h-11 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                                        >
+                                            <RotateCcw aria-hidden="true" className="size-3.5 mr-1" />
+                                            Reset
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Active Filter Chips */}
+                            {activeFilterCount > 0 && (
+                                <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60 text-xs">
+                                    <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+                                    {companyId && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                            Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setCompanyId('');
+                                                    setShipId('');
+                                                    applyFilters({ company_id: undefined, ship_id: undefined });
+                                                }}
+                                                className="hover:text-[#C62840]"
+                                                aria-label="Hapus filter perusahaan"
+                                            >
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {shipId && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                            Kapal: {ships.find((s) => s.id === shipId)?.name || shipId}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShipId('');
+                                                    applyFilters({ ship_id: undefined });
+                                                }}
+                                                className="hover:text-[#C62840]"
+                                                aria-label="Hapus filter kapal"
+                                            >
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {job && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                            Job: {job}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setJob('');
+                                                    applyFilters({ job: undefined });
+                                                }}
+                                                className="hover:text-[#C62840]"
+                                                aria-label="Hapus filter job"
+                                            >
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {status && status !== 'semua' && status !== 'menunggu' && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                            Status: {status === 'disetujui' ? 'Disetujui' : status === 'ditolak' ? 'Ditolak' : status}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setStatus('menunggu');
+                                                    applyFilters({ tab: 'menunggu' });
+                                                }}
+                                                className="hover:text-[#C62840]"
+                                                aria-label="Hapus filter status"
+                                            >
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {(dateRange.startDate || dateRange.endDate) && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 text-xs font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                            Periode: {dateRange.startDate || '…'} s/d {dateRange.endDate || '…'}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setDateRange({ startDate: '', endDate: '' });
+                                                    applyFilters({ start_date: undefined, end_date: undefined });
+                                                }}
+                                                className="hover:text-[#C62840]"
+                                                aria-label="Hapus filter tanggal"
+                                            >
+                                                <X className="size-3" />
+                                            </button>
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </Card>
 
                     <Tabs
                         items={[
                             { id: 'menunggu', label: 'Menunggu', count: counts.menunggu },
                             { id: 'disetujui', label: 'Disetujui', count: counts.disetujui },
-                            { id: 'ditolak', label: 'Ditolak', count: counts.ditolak },
+                            // { id: 'ditolak', label: 'Ditolak', count: counts.ditolak },
+                            { id: 'semua', label: 'Semua', count: counts.semua },
                         ]}
                         activeId={activeTab}
-                        onChange={(value) => visit(value)}
+                        onChange={(value) => {
+                            setStatus(value);
+                            visit(value);
+                        }}
                         ariaLabel="Filter status persetujuan"
                         className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
                     />
                 </section>
 
-                {section === 'requests' ? (
-                    <section className="space-y-3" aria-labelledby="approval-list-heading">
-                        <div className="flex items-end justify-between gap-3">
-                            <div>
-                                <h2 id="approval-list-heading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
-                                    Pengajuan per Job
-                                </h2>
-                                <p className="mt-0.5 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                    Setiap kartu merangkum seluruh REQ dalam satu kegiatan kapal.
-                                </p>
-                            </div>
-                            <span className="shrink-0 text-xs font-bold text-[#52658E] dark:text-[#94A3B8]">
-                                {approvalRows.length} job
-                            </span>
+                <section className="space-y-3" aria-labelledby="approval-list-heading">
+                    <div className="flex items-end justify-between gap-3">
+                        <div>
+                            <h2 id="approval-list-heading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                Pengajuan per Job
+                            </h2>
+                            <p className="mt-0.5 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                Setiap kartu merangkum seluruh REQ dalam satu kegiatan kapal atau operasional.
+                            </p>
                         </div>
-
-                        {approvalRows.length > 0 ? (
-                            <div className="grid items-stretch gap-4 xl:grid-cols-2">
-                                {approvalRows.map(renderApprovalCard)}
-                            </div>
-                        ) : (
-                            <Card className="p-10 text-center">
-                                <FileCheck2 aria-hidden="true" className="mx-auto size-8 text-[#8C9BB9] dark:text-[#64748B]" />
-                                <h3 className="mt-3 text-sm font-extrabold text-[#0B1F63] dark:text-white">
-                                    Tidak ada pengajuan pada antrean ini
-                                </h3>
-                                <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                    Coba pilih status lain atau ubah kata kunci pencarian.
-                                </p>
-                            </Card>
-                        )}
-                    </section>
-                ) : (
-                    <div className="space-y-4">
-                        {/* <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#DCEAF8] bg-[#F8FBFF] p-2 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                            <button
-                                type="button"
-                                onClick={() => setPaymentSubTab('company_expenses')}
-                                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-extrabold transition-all ${
-                                    paymentSubTab === 'company_expenses'
-                                        ? 'bg-[#0060F4] text-white shadow-sm'
-                                        : 'bg-white text-[#52658E] hover:bg-[#F0F8FF] hover:text-[#0B1F63] dark:bg-[#0C1D36] dark:text-[#94A3B8] dark:hover:bg-[#102B4A] dark:hover:text-white border border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                }`}
-                            >
-                                <Building2 aria-hidden="true" className="size-4" />
-                                <span>Pengajuan Biaya Perusahaan</span>
-                                <span
-                                    className={`rounded-full px-2 py-0.5 text-xs font-mono font-bold ${
-                                        paymentSubTab === 'company_expenses'
-                                            ? 'bg-white/20 text-white'
-                                            : 'bg-[#E0F0FF] text-[#0060F4] dark:bg-[#102B4A] dark:text-[#60A5FA]'
-                                    }`}
-                                >
-                                    {companyExpenseRows.length}
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setPaymentSubTab('vendor_payments')}
-                                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-extrabold transition-all ${
-                                    paymentSubTab === 'vendor_payments'
-                                        ? 'bg-[#0060F4] text-white shadow-sm'
-                                        : 'bg-white text-[#52658E] hover:bg-[#F0F8FF] hover:text-[#0B1F63] dark:bg-[#0C1D36] dark:text-[#94A3B8] dark:hover:bg-[#102B4A] dark:hover:text-white border border-[#DCEAF8] dark:border-[#1E3A5F]'
-                                }`}
-                            >
-                                <Banknote aria-hidden="true" className="size-4" />
-                                <span>Verifikasi Pembayaran Vendor</span>
-                                <span
-                                    className={`rounded-full px-2 py-0.5 text-xs font-mono font-bold ${
-                                        paymentSubTab === 'vendor_payments'
-                                            ? 'bg-white/20 text-white'
-                                            : 'bg-[#E0F0FF] text-[#0060F4] dark:bg-[#102B4A] dark:text-[#60A5FA]'
-                                    }`}
-                                >
-                                    {paymentRows.length}
-                                </span>
-                            </button>
-                        </div> */}
-
-                        {paymentSubTab === 'company_expenses' ? (
-                            <>
-                                <div className="hidden md:block">
-                                    <Table
-                                        columns={companyExpenseColumns}
-                                        data={companyExpenseRows}
-                                        keyExtractor={(item) => item.id}
-                                        compact
-                                        minWidth="1080px"
-                                        emptyIcon={<Building2 aria-hidden="true" className="mx-auto size-7" />}
-                                        emptyMessage="Tidak ada pengajuan biaya perusahaan pada antrean ini"
-                                        rowClassName={(item) =>
-                                            capabilities.can_decide_items && item.status === 'waiting_director'
-                                                ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]'
-                                                : ''
-                                        }
-                                    />
-                                </div>
-                                <TableMobile
-                                    className="md:hidden"
-                                    data={companyExpenseRows}
-                                    keyExtractor={(item) => item.id}
-                                    titleRender={(item) => item.request_number}
-                                    subtitleRender={(item) => `${item.category || 'Operasional'} · ${item.creator?.name || 'Staff'}`}
-                                    statusRender={(item) => {
-                                        const label =
-                                            item.status === 'waiting_director'
-                                                ? 'Menunggu Approval'
-                                                : item.status === 'approved'
-                                                    ? 'Disetujui'
-                                                    : item.status === 'rejected'
-                                                        ? 'Ditolak'
-                                                        : item.status === 'realized'
-                                                            ? 'Terealisasi'
-                                                            : item.status;
-                                        return (
-                                            <StatusBadge
-                                                status={
-                                                    item.status === 'approved' || item.status === 'realized'
-                                                        ? 'Disetujui'
-                                                        : item.status === 'rejected'
-                                                            ? 'Ditolak'
-                                                            : 'Menunggu Approval Direktur'
-                                                }
-                                                label={label}
-                                                size="sm"
-                                            />
-                                        );
-                                    }}
-                                    fields={[
-                                        { label: 'Tanggal', render: (item) => formatDate(item.created_at) },
-                                        {
-                                            label: 'Nominal',
-                                            fullWidth: true,
-                                            render: (item) => (
-                                                <span className="font-bold tabular-nums text-base text-[#0B1F63] dark:text-white">
-                                                    {formatCurrency(item.total, item.currency || 'IDR')}
-                                                </span>
-                                            ),
-                                        },
-                                        {
-                                            label: 'Lampiran',
-                                            fullWidth: true,
-                                            render: (item) =>
-                                                item.supporting_document_path ? (
-                                                    <FileViewerTrigger
-                                                        url={`/expenses/company-requests/${item.id}/documents/supporting?view=1`}
-                                                        downloadUrl={`/expenses/company-requests/${item.id}/documents/supporting?download=1`}
-                                                        title={`File Lampiran: Pengajuan Perusahaan #${item.id}`}
-                                                        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#E0F0FF] px-2.5 py-1 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] dark:bg-[#132847] dark:text-[#60A5FA]"
-                                                    >
-                                                        <Files aria-hidden="true" className="size-3.5" />
-                                                        Buka File Lampiran
-                                                    </FileViewerTrigger>
-                                                ) : (
-                                                    <span className="text-xs text-[#8C9BB9]">—</span>
-                                                ),
-                                        },
-                                        {
-                                            label: 'Catatan / Alasan',
-                                            fullWidth: true,
-                                            render: (item) =>
-                                                item.notes ? (
-                                                    <div className={`p-2 rounded-xl text-xs ${
-                                                        item.status === 'rejected'
-                                                            ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-semibold'
-                                                            : 'text-[#52658E] dark:text-[#94A3B8]'
-                                                    }`}>
-                                                        {item.status === 'rejected' && <span className="block font-bold text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-0.5">Alasan Penolakan:</span>}
-                                                        "{item.notes}"
-                                                    </div>
-                                                ) : (
-                                                    '-'
-                                                ),
-                                        },
-                                        {
-                                            label: 'Pemeriksa',
-                                            fullWidth: true,
-                                            render: (item) =>
-                                                item.reviewer
-                                                    ? `${item.reviewer.name}${item.reviewed_at ? ` (${formatDate(item.reviewed_at)})` : ''}`
-                                                    : '-',
-                                        },
-                                    ]}
-                                    actionsRender={(item) =>
-                                        capabilities.can_decide_items && item.status === 'waiting_director' ? (
-                                            <div className="flex w-full gap-2">
-                                                <button
-                                                    type="button"
-                                                    disabled={decidingExpenseId !== null}
-                                                    onClick={() => handleApproveExpense(item)}
-                                                    className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#0060F4] px-3 text-sm font-bold text-white hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-50"
-                                                >
-                                                    <Check aria-hidden="true" className="size-4" />
-                                                    {decidingExpenseId === item.id ? 'Memproses...' : 'Setujui'}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={decidingExpenseId !== null}
-                                                    onClick={() => {
-                                                        setRejectingExpense(item);
-                                                        setRejectionNotes('');
-                                                    }}
-                                                    className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#FCA5A5] bg-white px-3 text-sm font-bold text-[#DC2626] hover:bg-[#FEF2F2] dark:border-[#7F1D1D] dark:bg-[#071322] dark:text-[#F87171] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DC2626] disabled:opacity-50"
-                                                >
-                                                    <X aria-hidden="true" className="size-4" />
-                                                    Tolak
-                                                </button>
-                                            </div>
-                                        ) : undefined
-                                    }
-                                    emptyIcon={<Building2 aria-hidden="true" className="mx-auto size-7" />}
-                                    emptyMessage="Tidak ada pengajuan biaya perusahaan"
-                                />
-                            </>
-                        ) : (
-                            <>
-                                <div className="hidden md:block">
-                                    <Table
-                                        columns={paymentColumns}
-                                        data={paymentRows}
-                                        keyExtractor={(payment) => payment.id}
-                                        compact
-                                        minWidth="1080px"
-                                        emptyIcon={<Banknote aria-hidden="true" className="mx-auto size-7" />}
-                                        emptyMessage="Data Tidak Ditemukan"
-                                        rowClassName={(payment) =>
-                                            capabilities.can_decide_items && payment.verification_status === 'pending'
-                                                ? '!bg-[#E0F0FF]/70 dark:!bg-[#102B4A] border-l-4 border-l-[#0060F4]'
-                                                : ''
-                                        }
-                                    />
-                                </div>
-                                <TableMobile
-                                    className="md:hidden"
-                                    data={paymentRows}
-                                    keyExtractor={(payment) => payment.id}
-                                    titleRender={(payment) => payment.recipient}
-                                    subtitleRender={(payment) => payment.reference_number}
-                                    statusRender={(payment) => (
-                                        <StatusBadge
-                                            status={
-                                                payment.verification_status === 'verified'
-                                                    ? 'Disetujui'
-                                                    : payment.verification_status === 'rejected'
-                                                        ? 'Ditolak'
-                                                        : 'Menunggu Approval'
-                                            }
-                                            label={
-                                                payment.verification_status === 'verified'
-                                                    ? 'Terverifikasi'
-                                                    : payment.verification_status === 'rejected'
-                                                        ? 'Ditolak'
-                                                        : 'Menunggu'
-                                            }
-                                            size="sm"
-                                        />
-                                    )}
-                                    fields={[
-                                        { label: 'Job', fullWidth: true, render: (payment) => payment.port_call?.job_number || '-' },
-                                        { label: 'Jenis', render: (payment) => payment.payment_type },
-                                        { label: 'Tanggal', render: (payment) => formatDate(payment.payment_date) },
-                                        {
-                                            label: 'Nominal',
-                                            fullWidth: true,
-                                            render: (payment) => (
-                                                <span className="font-bold tabular-nums">
-                                                    {formatCurrency(payment.amount, payment.currency || 'IDR')}
-                                                </span>
-                                            ),
-                                        },
-                                    ]}
-                                    actionsRender={(payment) =>
-                                        capabilities.can_decide_items && payment.verification_status === 'pending' ? (
-                                            <button
-                                                type="button"
-                                                disabled={verifyingId !== null}
-                                                onClick={() => {
-                                                    setVerifyingId(payment.id);
-                                                    router.post(
-                                                        `/approvals/payments/${payment.id}/verify`,
-                                                        {},
-                                                        { preserveScroll: true, onFinish: () => setVerifyingId(null) }
-                                                    );
-                                                }}
-                                                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0060F4] px-4 text-sm font-bold text-white hover:bg-[#0050D0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                <Check aria-hidden="true" className="size-4" />
-                                                {verifyingId === payment.id ? 'Memproses' : 'Verifikasi'}
-                                            </button>
-                                        ) : undefined
-                                    }
-                                    emptyIcon={<Banknote aria-hidden="true" className="mx-auto size-7" />}
-                                    emptyMessage="Data Tidak Ditemukan"
-                                />
-                            </>
-                        )}
+                        <span className="shrink-0 text-xs font-bold text-[#52658E] dark:text-[#94A3B8]">
+                            {approvalRows.length} job
+                        </span>
                     </div>
-                )}
+
+                    {approvalRows.length > 0 ? (
+                        <div className="grid items-stretch gap-4 xl:grid-cols-2">
+                            {approvalRows.map(renderApprovalCard)}
+                        </div>
+                    ) : (
+                        <Card className="p-10 text-center">
+                            <FileCheck2 aria-hidden="true" className="mx-auto size-8 text-[#8C9BB9] dark:text-[#64748B]" />
+                            <h3 className="mt-3 text-sm font-extrabold text-[#0B1F63] dark:text-white">
+                                Tidak ada pengajuan pada antrean ini
+                            </h3>
+                            <p className="mt-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                Coba pilih status lain atau ubah kata kunci pencarian.
+                            </p>
+                        </Card>
+                    )}
+                </section>
 
                 <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
                     “Baru” hanya tampil pada status yang membutuhkan tindakan role Anda.
@@ -1768,8 +1457,8 @@ export default function ApprovalsIndex({
                                                     <div
                                                         key={item.id}
                                                         className={`rounded-xl border px-3 py-2.5 transition-colors ${isSelected
-                                                                ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
-                                                                : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] dark:border-[#1E3A5F] dark:bg-[#0C1D36]'
+                                                            ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                                                            : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] dark:border-[#1E3A5F] dark:bg-[#0C1D36]'
                                                             }`}
                                                     >
                                                         <label className="flex min-h-11 cursor-pointer items-start gap-3">
@@ -1789,9 +1478,12 @@ export default function ApprovalsIndex({
                                                                         {formatCurrency(itemHppTotal(item))}
                                                                     </span>
                                                                 </span>
-                                                                <span className="mt-1 block break-all font-mono text-[10px] font-semibold text-[#0060F4]">
-                                                                    {requestNumber}
-                                                                </span>
+                                                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                                    <span className="break-all font-mono text-[10px] font-semibold text-[#0060F4]">
+                                                                        {requestNumber}
+                                                                    </span>
+                                                                    <ItemSubmissionHistoryBadge item={item} />
+                                                                </div>
                                                                 <span className="mt-1 block break-words text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                                                     {item.vendor?.name || 'Tanpa vendor/supplier'} · Qty {item.quantity}
                                                                     {item.supplier_invoice_number
@@ -1871,46 +1563,112 @@ export default function ApprovalsIndex({
                 )}
             </ConfirmDialog>
 
-            <ConfirmDialog
-                isOpen={rejectingExpense !== null}
-                title="Tolak Pengajuan Biaya Perusahaan"
-                description={`Masukkan alasan penolakan untuk pengajuan ${rejectingExpense?.request_number || ''}. Alasan ini akan tercatat dan dikirimkan ke pemohon.`}
-                confirmLabel="Tolak Pengajuan"
-                onConfirm={handleConfirmRejectExpense}
-                onClose={() => {
-                    if (decidingExpenseId === null) {
-                        setRejectingExpense(null);
-                        setRejectionNotes('');
-                    }
-                }}
-                processing={decidingExpenseId !== null}
-                disabled={!rejectionNotes.trim()}
-            >
-                {rejectingExpense && (
-                    <div className="space-y-3">
-                        <div className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] p-3 text-xs dark:border-[#7F1D1D] dark:bg-[#450A0A]/30">
-                            <p className="font-bold text-[#DC2626] dark:text-[#F87171]">
-                                Total Pengajuan: {formatCurrency(rejectingExpense.total, rejectingExpense.currency || 'IDR')}
-                            </p>
-                            <p className="mt-0.5 text-[#7F1D1D] dark:text-[#FCA5A5]">
-                                Kategori: {rejectingExpense.category || 'Operasional'} · Diajukan oleh: {rejectingExpense.creator?.name || 'Staff'}
-                            </p>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-[#0B1F63] dark:text-white">
-                                Alasan Penolakan <span className="text-[#DC2626]">*</span>
-                            </label>
-                            <textarea
-                                value={rejectionNotes}
-                                onChange={(e) => setRejectionNotes(e.target.value)}
-                                placeholder="Tuliskan alasan penolakan untuk pemohon..."
-                                rows={3}
-                                className="mt-1.5 w-full rounded-xl border border-[#DCEAF8] bg-white p-3 text-sm text-[#0B1F63] placeholder:text-[#8C9BB9] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/20 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
-                            />
+            {/* Modal Filter */}
+            <Modal
+                isOpen={isFilterModalOpen}
+                onClose={() => setIsFilterModalOpen(false)}
+                title="Filter Pengajuan & Persetujuan"
+                subtitle="Sesuaikan kriteria filter untuk mempersempit daftar persetujuan."
+                size="lg"
+                asBottomSheetOnMobile
+                footer={(
+                    <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between w-full gap-2.5">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setModalCompanyId('');
+                                setModalShipId('');
+                                setModalJob('');
+                                setModalStatus('menunggu');
+                                setModalDateRange({ startDate: '', endDate: '' });
+                            }}
+                            className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
+                        >
+                            <RotateCcw aria-hidden="true" className="size-3.5 mr-1.5" />
+                            Reset Pilihan
+                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setIsFilterModalOpen(false)}
+                            >
+                                Batal
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="primary"
+                                onClick={() => {
+                                    setCompanyId(modalCompanyId);
+                                    setShipId(modalShipId);
+                                    setJob(modalJob);
+                                    setStatus(modalStatus);
+                                    setDateRange(modalDateRange);
+                                    setIsFilterModalOpen(false);
+                                    applyFilters({
+                                        tab: modalStatus,
+                                        company_id: modalCompanyId || undefined,
+                                        ship_id: modalShipId || undefined,
+                                        job: modalJob || undefined,
+                                        start_date: modalDateRange.startDate || undefined,
+                                        end_date: modalDateRange.endDate || undefined,
+                                    });
+                                }}
+                            >
+                                Terapkan Filter
+                            </Button>
                         </div>
                     </div>
                 )}
-            </ConfirmDialog>
+            >
+                <div className="space-y-4 py-1">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <SelectSearch
+                            label="Perusahaan Pelayaran"
+                            value={modalCompanyId}
+                            onChange={(value) => {
+                                setModalCompanyId(String(value || ''));
+                                setModalShipId('');
+                            }}
+                            options={companyOptions}
+                            placeholder="Pilih Perusahaan"
+                            searchPlaceholder="Cari perusahaan…"
+                        />
+                        <SelectSearch
+                            label="Armada Kapal"
+                            value={modalShipId}
+                            onChange={(value) => setModalShipId(String(value || ''))}
+                            options={modalShipOptions}
+                            placeholder="Pilih Kapal"
+                            searchPlaceholder="Cari kapal…"
+                        />
+                        <SelectSearch
+                            label="Nomor Job / Port Call"
+                            value={modalJob}
+                            onChange={(value) => setModalJob(String(value || ''))}
+                            options={modalJobOptions}
+                            placeholder="Pilih Job"
+                            searchPlaceholder="Cari nomor job…"
+                        />
+                        <SelectSearch
+                            label="Status Persetujuan"
+                            value={modalStatus}
+                            onChange={(value) => setModalStatus(String(value || 'menunggu'))}
+                            options={statusOptions}
+                            placeholder="Pilih Status"
+                        />
+                        <div className="space-y-1.5 text-left sm:col-span-2">
+                            <p className="text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">Periode Tanggal</p>
+                            <DateRangePicker
+                                value={modalDateRange}
+                                onChange={setModalDateRange}
+                                placeholder="Pilih Rentang Tanggal"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </Modal>
         </AppLayout>
     );
 }

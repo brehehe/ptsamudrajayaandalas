@@ -20,6 +20,7 @@ import SelectSearch, { type SelectSearchOption } from '../../Components/selects/
 import DateRangePicker, { DateRange } from '../../Components/forms/DateRangePicker';
 import ImportExportActions from '../../Components/ui/ImportExportActions';
 import { toDateInputValue } from '../../lib/formatDate';
+import ItemSubmissionHistoryBadge, { type ItemSubmissionRound } from '../../Components/requests/ItemSubmissionHistoryBadge';
 
 interface RequestItem {
     id: string;
@@ -45,6 +46,12 @@ interface RequestItem {
     surplus_source_item_name?: string | null;
     surplus_amount?: number | string | null;
     original_hpp_price?: number | string | null;
+    submission_count?: number;
+    submission_round_label?: string;
+    was_previously_unselected?: boolean;
+    submission_history?: ItemSubmissionRound[];
+    latest_submission_date?: string;
+    history_summary?: string;
 }
 
 interface VendorOption {
@@ -56,6 +63,7 @@ interface ShipRequest {
     id: string;
     request_number: string;
     status: string;
+    service_type?: string;
     request_date: string;
     created_at: string;
     ship?: {
@@ -365,10 +373,10 @@ export default function RequestsIndex({
                         request.port_call?.job_number ||
                         request.port_call?.work_order?.system_number ||
                         request.request_number,
-                    shipName: request.ship?.name || 'Kapal belum ditentukan',
+                    shipName: request.ship?.name || request.service_type || 'Biaya Operasional',
                     shipImage: request.ship?.image,
-                    companyName: request.company?.name || request.ship?.company?.name || '-',
-                    portName: request.port_call?.port?.name || request.port?.name || '-',
+                    companyName: request.company?.name || request.ship?.company?.name || 'PT Samudra Jaya Andalas',
+                    portName: request.port_call?.port?.name || request.port?.name || 'Kantor / Operasional',
                     requests: [request],
                     totalItems: items.length,
                     evidenceCount,
@@ -425,10 +433,10 @@ export default function RequestsIndex({
                         const readinessLabel = !hasSupplierInvoice && !hasValidHpp
                             ? 'Lengkapi nota supplier dan HPP'
                             : !hasSupplierInvoice
-                              ? 'Nota supplier belum lengkap'
-                              : !hasValidHpp
-                                ? 'HPP belum diisi'
-                                : 'Siap diajukan ke Direktur';
+                                ? 'Nota supplier belum lengkap'
+                                : !hasValidHpp
+                                    ? 'HPP belum diisi'
+                                    : 'Siap diajukan ke Direktur';
 
                         return {
                             id: item.id,
@@ -516,11 +524,10 @@ export default function RequestsIndex({
                             {row.evidenceCount} bukti item
                         </p>
                         {capabilities.can_review_prices && row.forwardableItemCount > 0 && (
-                            <p className={`mt-1 text-[11px] font-bold ${
-                                row.readyItemIds.length > 0
-                                    ? 'text-[#087A45] dark:text-[#34D399]'
-                                    : 'text-[#B85C00] dark:text-[#FBBF24]'
-                            }`}>
+                            <p className={`mt-1 text-[11px] font-bold ${row.readyItemIds.length > 0
+                                ? 'text-[#087A45] dark:text-[#34D399]'
+                                : 'text-[#B85C00] dark:text-[#FBBF24]'
+                                }`}>
                                 {row.readyItemIds.length}/{row.forwardableItemCount} item siap dikirim
                             </p>
                         )}
@@ -768,9 +775,8 @@ export default function RequestsIndex({
         return (
             <section
                 aria-label="Kirim item pilihan ke Direktur"
-                className={`rounded-2xl border border-[#B9D9FF] bg-[#EAF5FF] p-3 dark:border-[#285585] dark:bg-[#102B4A] ${
-                    mobile ? 'mb-3' : ''
-                }`}
+                className={`rounded-2xl border border-[#B9D9FF] bg-[#EAF5FF] p-3 dark:border-[#285585] dark:bg-[#102B4A] ${mobile ? 'mb-3' : ''
+                    }`}
             >
                 <div className={`flex gap-3 ${mobile ? 'flex-col' : 'items-center justify-between'}`}>
                     <div className="min-w-0">
@@ -1048,13 +1054,12 @@ export default function RequestsIndex({
                                 return (
                                     <article
                                         key={row.key}
-                                        className={`overflow-hidden rounded-2xl border bg-white shadow-2xs dark:bg-[#0C1D36] ${
-                                            selectedCount > 0
-                                                ? 'border-[#0060F4] ring-2 ring-[#0060F4]/20 dark:border-[#38BDF8]'
-                                                : row.isNew
-                                                  ? 'border-[#0060F4] ring-1 ring-[#0060F4]/15 dark:border-[#38BDF8]'
-                                                  : 'border-[#E2EEF9] dark:border-[#1E3A5F]'
-                                        }`}
+                                        className={`overflow-hidden rounded-2xl border bg-white shadow-2xs dark:bg-[#0C1D36] ${selectedCount > 0
+                                            ? 'border-[#0060F4] ring-2 ring-[#0060F4]/20 dark:border-[#38BDF8]'
+                                            : row.isNew
+                                                ? 'border-[#0060F4] ring-1 ring-[#0060F4]/15 dark:border-[#38BDF8]'
+                                                : 'border-[#E2EEF9] dark:border-[#1E3A5F]'
+                                            }`}
                                     >
                                         {capabilities.can_review_prices && (
                                             <div className="flex items-center justify-between gap-3 border-b border-[#E2EEF9] bg-[#F8FBFF] px-3 py-2 dark:border-[#1E3A5F] dark:bg-[#071322]">
@@ -1082,68 +1087,68 @@ export default function RequestsIndex({
                                             aria-label={`Buka pengajuan ${row.jobNumber} untuk ${row.shipName}`}
                                             className="group grid min-h-28 touch-manipulation grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-x-3 gap-y-2 p-2.5 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#0060F4]"
                                         >
-                                    <ShipImage
-                                        src={row.shipImage}
-                                        alt={`Foto ${row.shipName}`}
-                                        width={112}
-                                        height={112}
-                                        loading="lazy"
-                                        className="size-full min-h-28 rounded-xl border border-[#DCEAF8]/60 object-cover dark:border-[#1E3A5F]"
-                                    />
+                                            <ShipImage
+                                                src={row.shipImage}
+                                                alt={`Foto ${row.shipName}`}
+                                                width={112}
+                                                height={112}
+                                                loading="lazy"
+                                                className="size-full min-h-28 rounded-xl border border-[#DCEAF8]/60 object-cover dark:border-[#1E3A5F]"
+                                            />
 
-                                    <div className="min-w-0 space-y-1.5 py-0.5">
-                                        <div className="flex min-w-0 items-start justify-between gap-2">
-                                            <h2 className="min-w-0 break-words text-pretty text-[13.5px] font-bold leading-5 text-[#082870] group-hover:text-[#0060F4] dark:text-[#F1F5F9]">
-                                                {row.shipName}
-                                            </h2>
-                                            {row.isNew && (
-                                                <span className="shrink-0 whitespace-nowrap rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">
-                                                    Baru
+                                            <div className="min-w-0 space-y-1.5 py-0.5">
+                                                <div className="flex min-w-0 items-start justify-between gap-2">
+                                                    <h2 className="min-w-0 break-words text-pretty text-[13.5px] font-bold leading-5 text-[#082870] group-hover:text-[#0060F4] dark:text-[#F1F5F9]">
+                                                        {row.shipName}
+                                                    </h2>
+                                                    {row.isNew && (
+                                                        <span className="shrink-0 whitespace-nowrap rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold text-white">
+                                                            Baru
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <StatusBadge
+                                                    status={row.status}
+                                                    label={requestStatusLabel(row.status)}
+                                                    size="sm"
+                                                    className="max-w-full shrink-0 whitespace-nowrap"
+                                                />
+
+                                                <div className="flex min-w-0 items-start gap-1 text-[11px] leading-4 text-[#52658E] dark:text-[#94A3B8]">
+                                                    <MapPin aria-hidden="true" className="size-3.5 shrink-0 text-[#0060F4]" />
+                                                    <span className="min-w-0 break-words">{row.portName}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                    <CalendarDays aria-hidden="true" className="size-3.5 shrink-0" />
+                                                    <span className="tabular-nums">{formatDate(row.updatedAt)}</span>
+                                                </div>
+
+                                                {row.creatorNames.length > 0 && (
+                                                    <p className="text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
+                                                        Diajukan oleh: <span className="font-semibold">{row.creatorNames.join(', ')}</span>
+                                                    </p>
+                                                )}
+
+                                                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                    <span><strong className="text-[#082870] dark:text-white">{row.requests.length}</strong> surat</span>
+                                                    <span><strong className="text-[#0060F4]">{row.totalItems}</strong> item</span>
+                                                    <span><strong className="text-[#0060F4]">{row.evidenceCount}</strong> bukti</span>
+                                                    <span className="font-semibold tabular-nums text-[#082870] dark:text-white">
+                                                        {formatCurrency(row.totalHpp)}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="col-span-2 flex min-w-0 items-start gap-2 border-t border-[#E2EEF9] px-1 pt-2 dark:border-[#1E3A5F]">
+                                                <span className="shrink-0 text-[10px] font-semibold text-[#8C9BB9] dark:text-[#64748B]">
+                                                    Job
                                                 </span>
-                                            )}
-                                        </div>
-
-                                        <StatusBadge
-                                            status={row.status}
-                                            label={requestStatusLabel(row.status)}
-                                            size="sm"
-                                            className="max-w-full shrink-0 whitespace-nowrap"
-                                        />
-
-                                        <div className="flex min-w-0 items-start gap-1 text-[11px] leading-4 text-[#52658E] dark:text-[#94A3B8]">
-                                            <MapPin aria-hidden="true" className="size-3.5 shrink-0 text-[#0060F4]" />
-                                            <span className="min-w-0 break-words">{row.portName}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                            <CalendarDays aria-hidden="true" className="size-3.5 shrink-0" />
-                                            <span className="tabular-nums">{formatDate(row.updatedAt)}</span>
-                                        </div>
-
-                                        {row.creatorNames.length > 0 && (
-                                            <p className="text-[11px] text-[#0060F4] dark:text-[#38BDF8]">
-                                                Diajukan oleh: <span className="font-semibold">{row.creatorNames.join(', ')}</span>
-                                            </p>
-                                        )}
-
-                                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                                            <span><strong className="text-[#082870] dark:text-white">{row.requests.length}</strong> surat</span>
-                                            <span><strong className="text-[#0060F4]">{row.totalItems}</strong> item</span>
-                                            <span><strong className="text-[#0060F4]">{row.evidenceCount}</strong> bukti</span>
-                                            <span className="font-semibold tabular-nums text-[#082870] dark:text-white">
-                                                {formatCurrency(row.totalHpp)}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-span-2 flex min-w-0 items-start gap-2 border-t border-[#E2EEF9] px-1 pt-2 dark:border-[#1E3A5F]">
-                                        <span className="shrink-0 text-[10px] font-semibold text-[#8C9BB9] dark:text-[#64748B]">
-                                            Job
-                                        </span>
-                                        <span className="min-w-0 flex-1 break-words font-mono text-[10px] font-bold leading-4 text-[#52658E] dark:text-[#94A3B8]" translate="no">
-                                            {row.jobNumber}
-                                        </span>
-                                        <ArrowRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#0060F4]" />
-                                    </div>
+                                                <span className="min-w-0 flex-1 break-words font-mono text-[10px] font-bold leading-4 text-[#52658E] dark:text-[#94A3B8]" translate="no">
+                                                    {row.jobNumber}
+                                                </span>
+                                                <ArrowRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#0060F4]" />
+                                            </div>
                                         </Link>
                                     </article>
                                 );
@@ -1401,11 +1406,10 @@ export default function RequestsIndex({
                             return (
                                 <div
                                     key={item.id}
-                                    className={`rounded-xl border p-3 transition-colors ${
-                                        isSelected
-                                            ? 'border-[#0060F4] bg-[#F0F8FF] dark:border-[#38BDF8] dark:bg-[#102B4A]'
-                                            : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#071322]'
-                                    }`}
+                                    className={`rounded-xl border p-3 transition-colors ${isSelected
+                                        ? 'border-[#0060F4] bg-[#F0F8FF] dark:border-[#38BDF8] dark:bg-[#102B4A]'
+                                        : 'border-[#DCEAF8] bg-white dark:border-[#1E3A5F] dark:bg-[#071322]'
+                                        }`}
                                 >
                                     <Checkbox
                                         id={`select-item-${item.id}`}
@@ -1415,22 +1419,31 @@ export default function RequestsIndex({
                                         description={`${item.requestNumber} · ${item.quantity} ${item.unit || ''} · HPP ${formatCurrency(item.hppPrice)}`}
                                         onChange={(event) => toggleItemSelection(item.id, event.target.checked)}
                                     />
+                                    <div className="mt-1 ml-7">
+                                        <ItemSubmissionHistoryBadge item={item.requestItem} />
+                                    </div>
                                     {item.requestItem.surplus_amount && Number(item.requestItem.surplus_amount) > 0 && (
-                                        <div className="mt-1 ml-7 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-                                            🔄 Dialihkan <strong>{formatCurrency(Number(item.requestItem.surplus_amount))}</strong> dari {item.requestItem.surplus_source_item_name || 'item lain'}
-                                            {item.requestItem.original_hpp_price && Number(item.requestItem.original_hpp_price) > Number(item.requestItem.hpp_price) && (
-                                                <span className="ml-1 text-amber-700 dark:text-amber-400">
-                                                    (Nota: {formatCurrency(Number(item.requestItem.original_hpp_price))})
-                                                </span>
-                                            )}
+                                        <div className="mt-1 ml-7 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                            <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                🔄 Pengalihan Kelebihan Dana
+                                            </div>
+                                            <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                <div>Total Biaya Nota: <strong className="font-mono">{formatCurrency(Number(item.requestItem.original_hpp_price || item.requestItem.hpp_price) * Number(item.quantity))}</strong></div>
+                                                <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatCurrency(Number(item.requestItem.surplus_amount))}</strong> dari {item.requestItem.surplus_source_item_name || 'item lain'}</div>
+                                                <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                    Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatCurrency(Number(item.requestItem.hpp_price) * Number(item.quantity))}</strong>
+                                                    <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                        (Hanya bayar {formatCurrency(Number(item.requestItem.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatCurrency(Number(item.requestItem.surplus_amount))} dari {item.requestItem.surplus_source_item_name || 'item lain'})
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 pl-7">
-                                        <p className={`text-[11px] font-bold ${
-                                            item.isReady
-                                                ? 'text-[#087A45] dark:text-[#34D399]'
-                                                : 'text-[#B85C00] dark:text-[#FBBF24]'
-                                        }`}>
+                                        <p className={`text-[11px] font-bold ${item.isReady
+                                            ? 'text-[#087A45] dark:text-[#34D399]'
+                                            : 'text-[#B85C00] dark:text-[#FBBF24]'
+                                            }`}>
                                             {item.readinessLabel}
                                         </p>
                                         {!item.isReady && itemPickerRow && (
@@ -1462,7 +1475,7 @@ export default function RequestsIndex({
                 subtitle={supplierInvoiceTarget
                     ? `${supplierInvoiceTarget.item.requestNumber} · ${supplierInvoiceTarget.item.itemName}`
                     : undefined}
-                size="lg"
+                size="xl"
                 footer={(
                     <>
                         <Button
@@ -1491,13 +1504,32 @@ export default function RequestsIndex({
                 >
                     <FormErrorSummary errors={supplierInvoiceForm.errors} />
 
-                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                            {supplierInvoiceTarget?.item.itemName}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                            Setelah tersimpan, item otomatis dipilih dan siap dikirim ke Direktur.
-                        </p>
+                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {supplierInvoiceTarget?.item.itemName}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                    Setelah tersimpan, item otomatis dipilih dan siap dikirim ke Direktur.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0 rounded-lg bg-white/90 dark:bg-[#0B1F38] px-3 py-1.5 border border-[#BCE0FD] dark:border-[#1E3A5F] shadow-2xs">
+                                <div>
+                                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Quantity</span>
+                                    <span className="font-mono text-xs sm:text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                        {supplierInvoiceTarget?.item.quantity} {supplierInvoiceTarget?.item.unit || 'Item'}
+                                    </span>
+                                </div>
+                                <div className="h-6 w-px bg-[#DCEAF8] dark:bg-[#1E3A5F]" />
+                                <div>
+                                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#0060F4] dark:text-[#38BDF8]">Total HPP Nota</span>
+                                    <span className="font-mono text-xs sm:text-sm font-extrabold text-[#0060F4] dark:text-[#38BDF8]">
+                                        {formatCurrency(Number(supplierInvoiceTarget?.item.quantity || 1) * Number(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0))}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -1512,14 +1544,20 @@ export default function RequestsIndex({
                             ]}
                             error={supplierInvoiceForm.errors.vendor_id}
                         />
-                        <MoneyInput
-                            required
-                            id="supplier_index_hpp_price"
-                            label="HPP per Satuan"
-                            value={supplierInvoiceForm.data.hpp_price}
-                            onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
-                            error={supplierInvoiceForm.errors.hpp_price}
-                        />
+                        <div>
+                            <MoneyInput
+                                required
+                                id="supplier_index_hpp_price"
+                                label="HPP per Satuan"
+                                value={supplierInvoiceForm.data.hpp_price}
+                                onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
+                                error={supplierInvoiceForm.errors.hpp_price}
+                            />
+                            <div className="mt-1 flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                <span>Qty: <strong className="font-mono text-[#0B1F63] dark:text-[#F1F5F9]">{supplierInvoiceTarget?.item.quantity} {supplierInvoiceTarget?.item.unit || 'Item'}</strong></span>
+                                <span>Total HPP: <strong className="font-mono font-bold text-[#0060F4] dark:text-[#38BDF8]">{formatCurrency(Number(supplierInvoiceTarget?.item.quantity || 1) * Number(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0))}</strong></span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional */}
@@ -1542,12 +1580,29 @@ export default function RequestsIndex({
                                     className="w-full h-10 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] px-2.5 text-xs text-[#0B1F63] dark:text-[#F1F5F9]"
                                 >
                                     <option value="">Tanpa pengalihan (langsung ajukan riil)</option>
-                                    {availableSurplusItemsForModal.map((it) => (
-                                        <option key={it.id} value={it.id}>
-                                            {it.item_name} ({formatCurrency(Number(it.hpp_price || 0))})
-                                        </option>
-                                    ))}
+                                    {availableSurplusItemsForModal.map((it) => {
+                                        const totalHpp = Number(it.quantity || 1) * Number(it.hpp_price || 0);
+                                        const qtyInfo = Number(it.quantity) > 1 ? `(${it.quantity} ${it.unit || 'Item'}) ` : '';
+                                        return (
+                                            <option key={it.id} value={it.id}>
+                                                {it.item_name} {qtyInfo}— Total HPP: {formatCurrency(totalHpp)}
+                                            </option>
+                                        );
+                                    })}
                                 </select>
+                                {(() => {
+                                    const srcItem = availableSurplusItemsForModal.find((it) => it.id === supplierInvoiceForm.data.surplus_source_item_id);
+                                    if (!srcItem) return null;
+                                    const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                                    return (
+                                        <div className="mt-2 flex items-center justify-between rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] px-2.5 py-1.5 text-xs text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
+                                            <span className="text-[#52658E] dark:text-[#94A3B8]">Total HPP Sumber ({srcItem.quantity} {srcItem.unit || 'Item'}):</span>
+                                            <strong className="font-mono font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                {formatCurrency(srcTotalHpp)}
+                                            </strong>
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             {supplierInvoiceForm.data.surplus_source_item_id && (
@@ -1563,6 +1618,19 @@ export default function RequestsIndex({
                                         placeholder="Contoh: 500.000"
                                         error={supplierInvoiceForm.errors.surplus_amount}
                                     />
+                                    {(() => {
+                                        const srcItem = availableSurplusItemsForModal.find((it) => it.id === supplierInvoiceForm.data.surplus_source_item_id);
+                                        if (!srcItem) return null;
+                                        const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                                        return (
+                                            <div className="mt-1 flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                <span>Maksimal dana pengalihan:</span>
+                                                <strong className="font-mono text-[#0B1F63] dark:text-white">
+                                                    {formatCurrency(srcTotalHpp)}
+                                                </strong>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             )}
                         </div>
@@ -1570,8 +1638,8 @@ export default function RequestsIndex({
                         {supplierInvoiceForm.data.surplus_source_item_id && (
                             <div className="mt-3 rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] p-2.5 text-[11px] text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
                                 <div className="flex justify-between font-semibold">
-                                    <span>Total HPP Nota Supplier:</span>
-                                    <span>{formatCurrency(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0)}</span>
+                                    <span>Total HPP Nota Supplier ({supplierInvoiceTarget?.item.quantity} {supplierInvoiceTarget?.item.unit || 'Item'}):</span>
+                                    <span>{formatCurrency((Number(supplierInvoiceTarget?.item.quantity || 1) * (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0)))}</span>
                                 </div>
                                 <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
                                     <span>Pengalihan dari Item Lain:</span>
@@ -1583,8 +1651,8 @@ export default function RequestsIndex({
                                         {formatCurrency(
                                             Math.max(
                                                 0,
-                                                (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0) -
-                                                    (parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)
+                                                ((Number(supplierInvoiceTarget?.item.quantity || 1) * (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0))) -
+                                                (parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)
                                             )
                                         )}
                                     </span>

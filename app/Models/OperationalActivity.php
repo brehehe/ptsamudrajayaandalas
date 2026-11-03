@@ -22,6 +22,7 @@ class OperationalActivity extends Model
         'longitude',
         'is_vessel_related',
         'ship_id',
+        'custom_ship_name',
         'port_call_id',
         'request_id',
         'category',

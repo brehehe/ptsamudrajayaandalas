@@ -311,6 +311,7 @@ class ReportController extends Controller
                 'portCall.ship:id,name',
                 'recorder:id,name',
                 'verifier:id,name',
+                'allocations.costDocument.items.requestItem.request:id,request_number,service_type',
             ])
             ->paginate(10, ['*'], 'expense_page')
             ->withQueryString()
@@ -368,9 +369,10 @@ class ReportController extends Controller
         $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
 
         $vesselDailyExpenseSummary = $this->vesselDailyExpenseSummary($from, $to, $shipId, $companyId, $job, $search);
-        $totalVesselExpense = (float) ($vesselDailyExpenseSummary['total_expenses'] ?? 0);
+        $totalVesselExpense = (float) ($vesselDailyExpenseSummary['total_vessel_expenses'] ?? $vesselDailyExpenseSummary['total_expenses'] ?? 0);
+        $totalNonVesselExpense = (float) ($vesselDailyExpenseSummary['total_non_vessel_expenses'] ?? 0);
         $totalCompanyRecorded = (float) $paymentRecords->sum('amount');
-        $totalCombinedExpenses = $totalVesselExpense + $totalCompanyRecorded;
+        $totalCombinedExpenses = (float) ($vesselDailyExpenseSummary['total_expenses'] ?? ($totalVesselExpense + $totalCompanyRecorded));
 
         return Inertia::render('Reports/Index', [
             'summary' => $summary,
@@ -542,18 +544,32 @@ class ReportController extends Controller
     /** @return array<string, mixed> */
     private function expenseReportRow(OutgoingPayment $payment): array
     {
+        $linkedRequest = $payment->allocations
+            ->flatMap(fn ($a) => $a->costDocument?->items?->map(fn ($i) => $i->requestItem?->request))
+            ->filter()
+            ->first();
+
+        $jobNumber = $payment->portCall?->job_number
+            ?? $linkedRequest?->request_number
+            ?? '-';
+
+        $shipName = $payment->portCall?->ship?->name
+            ?? $linkedRequest?->service_type
+            ?? ($linkedRequest ? 'Biaya Operasional' : '-');
+
         return [
             'id' => $payment->id,
             'reference_number' => $payment->reference_number,
             'payment_type' => $payment->payment_type,
             'payment_date' => $payment->payment_date?->toDateString(),
             'recipient' => $payment->recipient,
-            'job_number' => $payment->portCall?->job_number ?? '-',
-            'ship_name' => $payment->portCall?->ship?->name ?? '-',
+            'job_number' => $jobNumber,
+            'ship_name' => $shipName,
             'amount' => (float) $payment->amount,
             'verification_status' => $payment->verification_status,
             'recorded_by' => $payment->recorder?->name ?? '-',
             'verified_by' => $payment->verifier?->name,
+            'is_vessel' => $payment->port_call_id !== null,
         ];
     }
 
@@ -844,7 +860,13 @@ class ReportController extends Controller
                 'workOrder.company:id,name',
                 'port:id,name',
                 'requests' => fn ($q) => $q->with([
-                    'items' => fn ($iq) => $iq->orderBy('required_date')->orderBy('created_at'),
+                    'items' => fn ($iq) => $iq
+                        ->where(function ($query) {
+                            $query->where('director_status', 'approved')
+                                ->orWhereIn('status', ['disetujui', 'selesai']);
+                        })
+                        ->orderBy('required_date')
+                        ->orderBy('created_at'),
                 ]),
             ])
             ->when($shipId, fn ($q) => $q->where('ship_id', $shipId))
@@ -884,6 +906,13 @@ class ReportController extends Controller
 
             foreach ($call->requests as $req) {
                 foreach ($req->items as $item) {
+                    $isApproved = $item->director_status === 'approved'
+                        || in_array(strtolower($item->status ?? ''), ['disetujui', 'selesai'], true);
+
+                    if (! $isApproved) {
+                        continue;
+                    }
+
                     $itemCost = (float) $item->hpp_price * (float) $item->quantity;
                     $runningTotal += $itemCost;
                     $itemDate = $item->required_date
@@ -929,7 +958,7 @@ class ReportController extends Controller
             $grandTotalCost += $vesselTotal;
             $grandItemCount += count($filteredItems);
 
-            if (count($filteredItems) > 0 || $shipId !== null) {
+            if (count($filteredItems) > 0) {
                 $vesselsData[] = [
                     'port_call_id' => $call->id,
                     'job_number' => $call->job_number,
@@ -945,12 +974,139 @@ class ReportController extends Controller
                     'total_expense' => $vesselTotal,
                     'item_count' => count($filteredItems),
                     'items' => $filteredItems,
+                    'is_vessel' => true,
                 ];
             }
         }
 
+        $vesselCount = count($vesselsData);
+        $vesselTotalCost = $grandTotalCost;
+        $vesselItemCount = $grandItemCount;
+        $nonVesselsData = [];
+        $nonVesselTotalCost = 0;
+        $nonVesselItemCount = 0;
+
+        // If not filtered strictly to a specific ship, also load non-vessel requests directly corresponding to /requests
+        if ($shipId === null) {
+            $nonVesselRequests = ShipRequest::query()
+                ->with([
+                    'company:id,name',
+                    'port:id,name',
+                    'items' => fn ($iq) => $iq
+                        ->where(function ($query) {
+                            $query->where('director_status', 'approved')
+                                ->orWhereIn('status', ['disetujui', 'selesai']);
+                        })
+                        ->orderBy('required_date')
+                        ->orderBy('created_at'),
+                ])
+                ->whereNull('port_call_id')
+                ->when($companyId, fn ($q) => $q->where('company_id', $companyId))
+                ->when($job, fn ($q) => $q->where(function ($jq) use ($like, $job): void {
+                    $jq->where('request_number', $like, "%{$job}%");
+                    if (Str::isUuid($job)) {
+                        $jq->orWhere('id', $job);
+                    }
+                }))
+                ->when($search, fn ($q) => $q->where(function ($sq) use ($like, $search): void {
+                    $sq->where('request_number', $like, "%{$search}%")
+                        ->orWhere('service_type', $like, "%{$search}%")
+                        ->orWhereHas('items', fn ($iq) => $iq->where('item_name', $like, "%{$search}%"));
+                }))
+                ->orderByDesc('created_at')
+                ->get();
+
+            foreach ($nonVesselRequests as $req) {
+                $shipName = $req->service_type ?: 'Biaya Operasional';
+                $companyName = $req->company?->name ?? 'PT Samudra Jaya Andalas';
+                $portName = $req->port?->name ?? 'Kantor / Operasional';
+
+                $itemsList = [];
+                $runningTotal = 0;
+
+                foreach ($req->items as $item) {
+                    $isApproved = $item->director_status === 'approved'
+                        || in_array(strtolower($item->status ?? ''), ['disetujui', 'selesai'], true);
+
+                    if (! $isApproved) {
+                        continue;
+                    }
+
+                    $itemCost = (float) $item->hpp_price * (float) $item->quantity;
+                    $runningTotal += $itemCost;
+                    $itemDate = $item->required_date
+                        ? CarbonImmutable::parse($item->required_date)->toDateString()
+                        : ($req->request_date ? CarbonImmutable::parse($req->request_date)->toDateString() : $req->created_at?->toDateString());
+
+                    $itemsList[] = [
+                        'id' => $item->id,
+                        'date' => $itemDate,
+                        'request_number' => $req->request_number,
+                        'item_name' => $item->item_name,
+                        'item_type' => $item->item_type,
+                        'quantity' => (float) $item->quantity,
+                        'unit' => $item->unit,
+                        'hpp_price' => (float) $item->hpp_price,
+                        'total_cost' => $itemCost,
+                        'cumulative_cost' => $runningTotal,
+                        'director_status' => $item->director_status,
+                        'status' => $item->status,
+                        'notes' => $item->notes,
+                    ];
+                }
+
+                $filteredItems = array_values(array_filter($itemsList, function ($it) use ($from, $to) {
+                    if (! $it['date']) {
+                        return true;
+                    }
+
+                    return $it['date'] >= $from->toDateString() && $it['date'] <= $to->toDateString();
+                }));
+
+                $reqRunning = 0;
+                foreach ($filteredItems as &$fItem) {
+                    $reqRunning += $fItem['total_cost'];
+                    $fItem['cumulative_cost'] = $reqRunning;
+                }
+                unset($fItem);
+
+                $reqTotal = (float) array_sum(array_column($filteredItems, 'total_cost'));
+                $nonVesselTotalCost += $reqTotal;
+                $nonVesselItemCount += count($filteredItems);
+
+                if (count($filteredItems) > 0) {
+                    $nonVesselsData[] = [
+                        'port_call_id' => $req->id,
+                        'job_number' => $req->request_number,
+                        'client_spk' => null,
+                        'ship_name' => $shipName,
+                        'company_name' => $companyName,
+                        'port_name' => $portName,
+                        'status' => $req->status,
+                        'eta' => $req->request_date?->toDateString() ?: $req->created_at?->toDateString(),
+                        'etd' => null,
+                        'departed_at' => null,
+                        'stay_duration' => '-',
+                        'total_expense' => $reqTotal,
+                        'item_count' => count($filteredItems),
+                        'items' => $filteredItems,
+                        'is_vessel' => false,
+                    ];
+                }
+            }
+
+            $vesselsData = array_merge($vesselsData, $nonVesselsData);
+            $grandTotalCost += $nonVesselTotalCost;
+            $grandItemCount += $nonVesselItemCount;
+        }
+
         return [
-            'total_vessels' => count($vesselsData),
+            'total_vessels' => $vesselCount,
+            'total_vessel_expenses' => $vesselTotalCost,
+            'vessel_item_count' => $vesselItemCount,
+            'total_non_vessels' => count($nonVesselsData),
+            'total_non_vessel_expenses' => $nonVesselTotalCost,
+            'non_vessel_item_count' => $nonVesselItemCount,
             'total_expenses' => $grandTotalCost,
             'total_items' => $grandItemCount,
             'vessels' => $vesselsData,

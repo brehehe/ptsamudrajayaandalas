@@ -205,3 +205,17 @@ test('storing vessel requires valid company id and name', function () {
     $response->assertStatus(422);
     $response->assertJsonValidationErrors(['name', 'ship_company_id']);
 });
+
+test('operational staff like pak prima can access master vessels with canManage true for import', function () {
+    $fieldStaff = masterTestUser('Lapangan');
+
+    $response = $this->actingAs($fieldStaff)->get(route('master.vessels.index'));
+
+    $response->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Master/Vessels/Index')
+            ->where('canManage', true)
+            ->where('canEdit', false)
+            ->where('canDelete', false)
+        );
+});

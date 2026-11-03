@@ -89,15 +89,18 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/requests', [RequestController::class, 'store'])->name('requests.store');
     Route::post('/requests/wizard', [RequestController::class, 'storeWizard'])->name('requests.store-wizard');
     Route::post('/requests/multi', [RequestController::class, 'storeMulti'])->name('requests.store-multi');
+    Route::post('/requests/company-expense', [RequestController::class, 'storeCompanyExpense'])->name('requests.company-expense.store');
     Route::post('/requests/batch-forward-director', [RequestController::class, 'batchForwardDirector'])->name('requests.batch-forward-director');
     Route::post('/requests/{id}/forward-director', [RequestController::class, 'forwardToDirector'])->name('requests.forward-director');
     Route::post('/requests/{requestId}/items/{itemId}/revision', [RequestController::class, 'requestItemRevision'])->name('requests.items.revision');
     Route::post('/requests/{requestId}/items/{itemId}/update-price', [RequestController::class, 'updateItemPrice'])->name('requests.items.update-price');
     Route::post('/requests/items/batch-update-prices', [RequestController::class, 'batchUpdateItemPrices'])->name('requests.items.batch-update-prices');
+    Route::post('/requests/items/batch-complete', [RequestController::class, 'batchCompleteItems'])->name('requests.items.batch-complete');
     Route::post('/requests/{id}/create-clearance-in-invoice', [RequestController::class, 'createClearanceInInvoice'])->name('requests.clearance-in-invoice');
     Route::post('/requests/{id}/split-invoices', [RequestController::class, 'splitInvoices'])->name('requests.split-invoices');
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
     Route::post('/requests/{id}/taktis-supplement', [RequestController::class, 'storeTaktisSupplement'])->name('requests.taktis-supplement');
+    Route::post('/requests/{id}/nota-rampung-kurang-bayar', [RequestController::class, 'storeNotaRampungKurangBayar'])->name('requests.nota-rampung-kurang-bayar')->where('id', '.*');
     Route::get('/request-items/{requestItem}/attachment', [RequestController::class, 'downloadItemAttachment'])->name('request-items.attachment');
     Route::post('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'store'])->name('request-items.supplier-invoice.store');
     Route::get('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'show'])->name('request-items.supplier-invoice.show');
@@ -116,6 +119,7 @@ Route::middleware(['auth'])->group(function () {
     // Operasional & Laporan Lapangan Pak Prima
     Route::get('/operations', [OperationController::class, 'index'])->name('operations.index');
     Route::post('/operations/activities', [OperationController::class, 'storeActivity'])->name('operations.activities.store');
+    Route::delete('/operations/activities/{activity}', [OperationController::class, 'destroyActivity'])->name('operations.activities.destroy');
     Route::post('/operations/daily-reports', [OperationController::class, 'storeDailyReport'])->name('operations.daily-reports.store');
     Route::patch('/operations/port-calls/{id}/status', [OperationController::class, 'updateStatus'])->name('operations.port-calls.status');
 

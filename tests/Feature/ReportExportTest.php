@@ -272,3 +272,56 @@ test('unauthorized users cannot access export endpoints', function () {
         ])
         ->assertForbidden();
 });
+
+test('integrated expense report export includes vessel hpp items and office payments in pdf and excel', function () {
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+    $data = createExportTestData($admin);
+
+    // 1. Export expenses as PDF (Integrated report)
+    $pdfResponse = $this->actingAs($admin)->postJson(route('reports.exports.store'), [
+        'report_type' => 'expenses',
+        'format' => 'pdf',
+        'parameters' => [
+            'from' => today()->subMonth()->toDateString(),
+            'to' => today()->addDays(5)->toDateString(),
+        ],
+    ]);
+    $pdfResponse->assertStatus(202);
+    $statusResponse = $this->getJson(route('reports.exports.status', $pdfResponse->json('id')));
+    $statusResponse->assertOk()->assertJson(['status' => 'completed']);
+
+    $pdfDownload = $this->get($statusResponse->json('download_url'));
+    $pdfDownload->assertOk()->assertHeader('content-type', 'application/pdf');
+    $pdfContent = file_get_contents($pdfDownload->baseResponse->getFile()->getPathname());
+    expect($pdfContent)->toContain('LAPORAN PENGELUARAN TERPADU');
+    expect($pdfContent)->toContain($data['jobNumber']);
+    expect($pdfContent)->toContain('Bongkar Muat & Fresh Water 50 Ton');
+
+    // 2. Export expenses as XLSX (Integrated report)
+    $xlsxResponse = $this->actingAs($admin)->postJson(route('reports.exports.store'), [
+        'report_type' => 'expenses',
+        'format' => 'xlsx',
+        'parameters' => [
+            'from' => today()->subMonth()->toDateString(),
+            'to' => today()->addDays(5)->toDateString(),
+        ],
+    ]);
+    $xlsxResponse->assertStatus(202);
+    $xlsxStatus = $this->getJson(route('reports.exports.status', $xlsxResponse->json('id')));
+    $xlsxStatus->assertOk()->assertJson(['status' => 'completed']);
+
+    $xlsxDownload = $this->get($xlsxStatus->json('download_url'));
+    $xlsxDownload->assertOk()->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    $tempFile = $xlsxDownload->baseResponse->getFile()->getPathname();
+    $archive = new ZipArchive;
+    expect($archive->open($tempFile))->toBeTrue();
+    $sheetXml = $archive->getFromName('xl/worksheets/sheet1.xml');
+    $archive->close();
+
+    expect($sheetXml)->toContain('LAPORAN PENGELUARAN TERPADU');
+    expect($sheetXml)->toContain($data['jobNumber']);
+    expect($sheetXml)->toContain('Bongkar Muat &amp; Fresh Water 50 Ton');
+    expect($sheetXml)->toContain('BIAYA OPERASIONAL KANTOR');
+});

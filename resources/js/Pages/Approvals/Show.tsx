@@ -30,6 +30,8 @@ import ShipImage from '../../Components/vessels/ShipImage';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
 import RequirementDate from '../../Components/ui/RequirementDate';
 import { FileViewerTrigger } from '../../Components/ui/FileViewer';
+import { RequestAuditHistory, type RequestHistoryItem } from '../../Components/requests/RequestAuditHistory';
+import ItemSubmissionHistoryBadge, { type ItemSubmissionRound } from '../../Components/requests/ItemSubmissionHistoryBadge';
 
 interface RequestItem {
     id: string;
@@ -62,6 +64,12 @@ interface RequestItem {
     surplus_source_item_name?: string | null;
     surplus_amount?: number | string | null;
     original_hpp_price?: number | string | null;
+    submission_count?: number;
+    submission_round_label?: string;
+    was_previously_unselected?: boolean;
+    submission_history?: ItemSubmissionRound[];
+    latest_submission_date?: string;
+    history_summary?: string;
 }
 
 interface JobInfo {
@@ -78,6 +86,8 @@ interface JobInfo {
         name: string;
         code?: string;
     };
+    ship_id?: string;
+    port_call_id?: string;
     ship?: {
         id: string;
         name: string;
@@ -113,6 +123,8 @@ interface ShipRequest {
     service_type?: string;
     requested_port_call_status?: string | null;
     operational_occurred_at?: string | null;
+    ship_id?: string;
+    port_call_id?: string;
     ship?: {
         id: string;
         name: string;
@@ -141,6 +153,7 @@ interface ShipRequest {
         name: string;
     };
     items: RequestItem[];
+    histories?: RequestHistoryItem[];
     invoices?: Array<{
         id: string;
         invoice_number: string;
@@ -305,13 +318,20 @@ export default function ApprovalShow({
     const currentShip = activeJob?.ship ?? allRequests[0]?.ship ?? null;
     const currentPort = activeJob?.port ?? allRequests[0]?.port ?? null;
 
-    const shipName = currentShip?.name || 'Kapal Belum Ditentukan';
+    const shipName = currentShip?.name || allRequests[0]?.service_type || 'Biaya Operasional Perusahaan';
     const shipImage = currentShip?.image ?? null;
     const imoNumber = currentShip?.imo_number || '-';
-    const shipType = currentShip?.ship_type || '-';
-    const companyName = currentShip?.company?.name || allRequests[0]?.company?.name || 'Klien Keagenan';
-    const portName = currentPort?.name || 'Pelabuhan Belum Ditentukan';
+    const shipType = currentShip?.ship_type || (currentShip ? '-' : 'Operasional Kantor / Perusahaan');
+    const companyName = currentShip?.company?.name || allRequests[0]?.company?.name || 'PT Samudra Jaya Andalas';
+    const portName = currentPort?.name || 'Kantor / Operasional';
     const jobNumber = activeJob?.job_number || allRequests[0]?.request_number || 'JOB-SJA';
+
+    const isCompanyExpense = Boolean(
+        (!activeJob?.id && !allRequests[0]?.port_call_id && !allRequests[0]?.ship_id) ||
+        (allRequests.length > 0 && allRequests.every((r) => !r.port_call_id && !r.ship_id)) ||
+        allRequests[0]?.service_type?.toLowerCase().includes('biaya perusahaan') ||
+        allRequests[0]?.service_type?.toLowerCase().includes('operasional kantor')
+    );
 
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
     const [activeAction, setActiveAction] = useState<string | null>(null);
@@ -435,6 +455,20 @@ export default function ApprovalShow({
         }, 0);
     }, [allRequests]);
 
+    const allHistoriesAcrossRequests = useMemo(() => {
+        const list: RequestHistoryItem[] = [];
+        allRequests.forEach((req) => {
+            (req.histories || []).forEach((h) => {
+                list.push(h);
+            });
+        });
+        return list.sort((a, b) => {
+            const timeA = a.action_date ? Date.parse(a.action_date) : 0;
+            const timeB = b.action_date ? Date.parse(b.action_date) : 0;
+            return timeA - timeB;
+        });
+    }, [allRequests]);
+
     const handleCopy = (numberStr: string) => {
         navigator.clipboard.writeText(numberStr);
         setCopiedNumber(numberStr);
@@ -444,16 +478,16 @@ export default function ApprovalShow({
 
     return (
         <AppLayout
-            title={`Approval Anggaran — Job ${jobNumber}`}
+            title={`Approval ${isCompanyExpense ? 'Biaya' : 'Anggaran'} — ${isCompanyExpense ? 'Pengajuan' : 'Job'} ${jobNumber}`}
             transparentMobileHeader
             noPaddingMobile
             mobileBackground="surface"
         >
-            <Head title={`Approval Anggaran ${jobNumber} • ${shipName} — PT Samudra Jaya Andalas`} />
+            <Head title={`Approval ${isCompanyExpense ? 'Biaya' : 'Anggaran'} ${jobNumber} • ${shipName} — PT Samudra Jaya Andalas`} />
 
             <MobilePageHero
-                title={`Approval Anggaran ${jobNumber}`}
-                description={`${shipName} • HPP Kas Operasional`}
+                title={`Approval ${isCompanyExpense ? 'Biaya' : 'Anggaran'} ${jobNumber}`}
+                description={`${shipName} • ${isCompanyExpense ? 'Pengajuan Biaya Operasional / Non-Kapal' : 'HPP Kas Operasional'}`}
             />
 
             <div className="relative z-10 mx-auto -mt-6 w-full max-w-full space-y-4 rounded-t-[28px] bg-white px-4 pb-24 pt-4 dark:bg-[#0C1D36] sm:px-6 md:mt-0 md:space-y-5 md:rounded-none md:bg-transparent md:px-0 md:pb-10 md:pt-0 md:dark:bg-transparent lg:px-8">
@@ -481,7 +515,7 @@ export default function ApprovalShow({
 
                         <span className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#BCE0FD] bg-[#E0F0FF] px-3.5 text-xs font-black text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]">
                             <Layers className="size-3.5" />
-                            <span>Job {jobNumber}</span>
+                            <span>{isCompanyExpense ? `Pengajuan ${jobNumber}` : `Job ${jobNumber}`}</span>
                         </span>
                     </div>
                 </div>
@@ -489,19 +523,27 @@ export default function ApprovalShow({
                 {/* ── 1. Informasi Kapal & Nomor Job (Langsung di Atas) ── */}
                 <section className="overflow-hidden rounded-2xl border border-[#DCEAF8] bg-white shadow-[0_2px_10px_rgba(8,40,112,0.05)] dark:border-[#1E3A5F] dark:bg-[#0C1D36] md:hidden">
                     <div className="flex items-start gap-3 p-3.5">
-                        <ShipImage
-                            src={shipImage}
-                            alt={shipName}
-                            className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
-                        />
+                        {isCompanyExpense ? (
+                            <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white">
+                                <Building2 className="size-7" />
+                            </div>
+                        ) : (
+                            <ShipImage
+                                src={shipImage}
+                                alt={shipName}
+                                className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
+                            />
+                        )}
                         <div className="min-w-0 flex-1">
                             <h2 className="break-words text-lg font-extrabold leading-tight text-[#0B1F63] dark:text-[#F1F5F9]">
                                 {shipName}
                             </h2>
                             <p className="mt-1 break-words text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
-                                {companyName} {imoNumber !== '-' ? `• IMO ${imoNumber}` : ''}
+                                {isCompanyExpense
+                                    ? (allRequests[0]?.service_type || 'Operasional Kantor & Non-Kapal')
+                                    : `${companyName} ${imoNumber !== '-' ? `• IMO ${imoNumber}` : ''}`}
                             </p>
-                            {activeJob?.status && (
+                            {!isCompanyExpense && activeJob?.status && (
                                 <div className="mt-2">
                                     <StatusBadge status={activeJob.status} label={activeJob.status} showDot size="sm" />
                                 </div>
@@ -514,7 +556,7 @@ export default function ApprovalShow({
                             <Layers className="size-4 shrink-0" aria-hidden="true" />
                             <div className="min-w-0">
                                 <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                    Nomor job
+                                    {isCompanyExpense ? 'Nomor Pengajuan' : 'Nomor job'}
                                 </span>
                                 <span className="block break-all font-mono text-xs font-black" translate="no">
                                     {jobNumber}
@@ -523,22 +565,43 @@ export default function ApprovalShow({
                         </div>
 
                         <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                            <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
-                                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Pelabuhan</dt>
-                                <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">{portName}</dd>
-                            </div>
-                            <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
-                                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">ETA</dt>
-                                <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">
-                                    {activeJob?.eta_at ? formatDateOnly(activeJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-')}
-                                </dd>
-                            </div>
-                            <div className="col-span-2 rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
-                                <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">SPK</dt>
-                                <dd className="mt-1 break-all font-mono font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
-                                    {activeJob?.work_order?.system_number || '-'}
-                                </dd>
-                            </div>
+                            {isCompanyExpense ? (
+                                <>
+                                    <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                        <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Entitas</dt>
+                                        <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">{companyName}</dd>
+                                    </div>
+                                    <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                        <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Kategori</dt>
+                                        <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">{allRequests[0]?.service_type || 'Biaya Perusahaan'}</dd>
+                                    </div>
+                                    <div className="col-span-2 rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                        <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Tanggal Pengajuan</dt>
+                                        <dd className="mt-1 break-all font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {allRequests[0]?.request_date ? formatDateOnly(allRequests[0].request_date) : '-'}
+                                        </dd>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                        <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Pelabuhan</dt>
+                                        <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">{portName}</dd>
+                                    </div>
+                                    <div className="rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                        <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">ETA</dt>
+                                        <dd className="mt-1 break-words font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {activeJob?.eta_at ? formatDateOnly(activeJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-')}
+                                        </dd>
+                                    </div>
+                                    <div className="col-span-2 rounded-xl border border-[#DCEAF8] bg-white p-2.5 dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
+                                        <dt className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">SPK</dt>
+                                        <dd className="mt-1 break-all font-mono font-bold leading-4 text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
+                                            {activeJob?.work_order?.system_number || '-'}
+                                        </dd>
+                                    </div>
+                                </>
+                            )}
                         </dl>
                     </div>
                 </section>
@@ -550,10 +613,10 @@ export default function ApprovalShow({
                                 <div className="flex flex-wrap items-center gap-2.5">
                                     <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#BCE0FD] bg-[#E0F0FF] px-3 py-1 font-mono text-xs font-extrabold text-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#132847] dark:text-[#60A5FA]">
                                         <Layers className="size-3.5 text-[#0060F4] dark:text-[#60A5FA]" />
-                                        <span>{jobNumber}</span>
+                                        <span>{isCompanyExpense ? `Pengajuan ${jobNumber}` : `Job ${jobNumber}`}</span>
                                     </span>
 
-                                    {activeJob?.status && (
+                                    {!isCompanyExpense && activeJob?.status && (
                                         <StatusBadge
                                             status={activeJob.status}
                                             label={`Job: ${activeJob.status}`}
@@ -562,10 +625,12 @@ export default function ApprovalShow({
                                         />
                                     )}
 
-                                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50/80 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300">
-                                        <Anchor className="size-3 text-blue-600 dark:text-blue-400" />
-                                        <span>{portName}</span>
-                                    </span>
+                                    {!isCompanyExpense && (
+                                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50/80 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300">
+                                            <Anchor className="size-3 text-blue-600 dark:text-blue-400" />
+                                            <span>{portName}</span>
+                                        </span>
+                                    )}
                                 </div>
 
                                 <div className="space-y-1">
@@ -573,66 +638,115 @@ export default function ApprovalShow({
                                         {shipName}
                                     </h1>
                                     <p className="max-w-2xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">
-                                        Tinjau dan putuskan persetujuan biaya pengeluaran operasional (HPP) PT Samudra Jaya Andalas sebelum pencairan dana.
+                                        {isCompanyExpense
+                                            ? 'Tinjau dan putuskan persetujuan biaya pengeluaran operasional kantor & non-kapal PT Samudra Jaya Andalas sebelum pencairan dana.'
+                                            : 'Tinjau dan putuskan persetujuan biaya pengeluaran operasional (HPP) PT Samudra Jaya Andalas sebelum pencairan dana.'}
                                     </p>
                                 </div>
                             </div>
 
-                            {/* Vessel Preview Box */}
-                            <div className="flex shrink-0 items-center gap-3.5 rounded-2xl border border-[#BCE0FD] bg-white/90 p-3.5 shadow-sm backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] lg:min-w-80">
-                                <div className="relative">
-                                    <ShipImage
-                                        src={shipImage}
-                                        alt={shipName}
-                                        className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
-                                    />
-                                    <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full bg-[#0060F4] text-white shadow">
-                                        <ShipIcon className="size-3" />
-                                    </span>
+                            {/* Vessel or Company Preview Box */}
+                            {isCompanyExpense ? (
+                                <div className="flex shrink-0 items-center gap-3.5 rounded-2xl border border-[#BCE0FD] bg-white/90 p-3.5 shadow-sm backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] lg:min-w-80">
+                                    <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white">
+                                        <Building2 className="size-7" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#0060F4] dark:text-[#60A5FA]">
+                                            Biaya Perusahaan
+                                        </span>
+                                        <p className="truncate text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {allRequests[0]?.service_type || 'Operasional Kantor'}
+                                        </p>
+                                        <p className="mt-0.5 truncate text-xs font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                            Non-Kapal • {companyName}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="min-w-0">
-                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#0060F4] dark:text-[#60A5FA]">
-                                        Informasi Kapal
-                                    </span>
-                                    <p className="truncate text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                        {shipName}
-                                    </p>
-                                    <p className="mt-0.5 truncate text-xs font-medium text-[#52658E] dark:text-[#94A3B8]">
-                                        IMO {imoNumber} {shipType !== '-' ? `• ${shipType}` : ''}
-                                    </p>
+                            ) : (
+                                <div className="flex shrink-0 items-center gap-3.5 rounded-2xl border border-[#BCE0FD] bg-white/90 p-3.5 shadow-sm backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] lg:min-w-80">
+                                    <div className="relative">
+                                        <ShipImage
+                                            src={shipImage}
+                                            alt={shipName}
+                                            className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
+                                        />
+                                        <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full bg-[#0060F4] text-white shadow">
+                                            <ShipIcon className="size-3" />
+                                        </span>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#0060F4] dark:text-[#60A5FA]">
+                                            Informasi Kapal
+                                        </span>
+                                        <p className="truncate text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {shipName}
+                                        </p>
+                                        <p className="mt-0.5 truncate text-xs font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                            IMO {imoNumber} {shipType !== '-' ? `• ${shipType}` : ''}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     </div>
 
                     {/* Metadata Strip */}
                     <div className="grid gap-px border-t border-[#DCEAF8] bg-[#DCEAF8] dark:border-[#1E3A5F] dark:bg-[#1E3A5F] sm:grid-cols-2 lg:grid-cols-4">
-                        {[
-                            {
-                                icon: Building2,
-                                label: 'Perusahaan Pemilik / Agen',
-                                value: companyName,
-                                sub: 'Client / Owner Kapal',
-                            },
-                            {
-                                icon: MapPin,
-                                label: 'Pelabuhan Sandar / Labuh',
-                                value: portName,
-                                sub: currentPort?.code ? `Kode: ${currentPort.code}` : 'Wilayah Kerja SJA',
-                            },
-                            {
-                                icon: CalendarDays,
-                                label: 'Estimasi Kedatangan (ETA)',
-                                value: activeJob?.eta_at ? formatDateOnly(activeJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-'),
-                                sub: activeJob?.etd_at ? `ETD: ${formatDateOnly(activeJob.etd_at)}` : 'Jadwal operasional kapal',
-                            },
-                            {
-                                icon: FileText,
-                                label: 'Surat Perintah Kerja (SPK)',
-                                value: activeJob?.work_order?.system_number ? activeJob.work_order.system_number : (currentShip?.call_sign ? `Call Sign: ${currentShip.call_sign}` : 'Keagenan Kapal'),
-                                sub: currentShip?.flag ? `Bendera: ${currentShip.flag}` : 'Operasional Wilayah Kerja SJA',
-                            },
-                        ].map(({ icon: Icon, label, value, sub }) => (
+                        {(isCompanyExpense
+                            ? [
+                                {
+                                    icon: Building2,
+                                    label: 'Perusahaan / Entitas',
+                                    value: companyName,
+                                    sub: 'PT Samudra Jaya Andalas',
+                                },
+                                {
+                                    icon: Layers,
+                                    label: 'Kategori Biaya',
+                                    value: allRequests[0]?.service_type || 'Biaya Perusahaan',
+                                    sub: 'Operasional Kantor / Non-Kapal',
+                                },
+                                {
+                                    icon: CalendarDays,
+                                    label: 'Tanggal Pengajuan',
+                                    value: allRequests[0]?.request_date ? formatDateOnly(allRequests[0].request_date) : '-',
+                                    sub: 'Periode Berjalan',
+                                },
+                                {
+                                    icon: FileText,
+                                    label: 'Status Pengajuan',
+                                    value: allRequests[0]?.status || 'Diajukan',
+                                    sub: 'Jalur Tunggal Approval Direktur',
+                                },
+                            ]
+                            : [
+                                {
+                                    icon: Building2,
+                                    label: 'Perusahaan Pemilik / Agen',
+                                    value: companyName,
+                                    sub: 'Client / Owner Kapal',
+                                },
+                                {
+                                    icon: MapPin,
+                                    label: 'Pelabuhan Sandar / Labuh',
+                                    value: portName,
+                                    sub: currentPort?.code ? `Kode: ${currentPort.code}` : 'Wilayah Kerja SJA',
+                                },
+                                {
+                                    icon: CalendarDays,
+                                    label: 'Estimasi Kedatangan (ETA)',
+                                    value: activeJob?.eta_at ? formatDateOnly(activeJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-'),
+                                    sub: activeJob?.etd_at ? `ETD: ${formatDateOnly(activeJob.etd_at)}` : 'Jadwal operasional kapal',
+                                },
+                                {
+                                    icon: FileText,
+                                    label: 'Surat Perintah Kerja (SPK)',
+                                    value: activeJob?.work_order?.system_number ? activeJob.work_order.system_number : (currentShip?.call_sign ? `Call Sign: ${currentShip.call_sign}` : 'Keagenan Kapal'),
+                                    sub: currentShip?.flag ? `Bendera: ${currentShip.flag}` : 'Operasional Wilayah Kerja SJA',
+                                },
+                            ]
+                        ).map(({ icon: Icon, label, value, sub }) => (
                             <div key={label} className="min-w-0 bg-white p-4 dark:bg-[#0C1D36]">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">
                                     <Icon className="size-4 shrink-0 text-[#0060F4] dark:text-[#60A5FA]" aria-hidden="true" />
@@ -742,6 +856,13 @@ export default function ApprovalShow({
                         {summary.rejected_items_count} item ditolak dan menunggu revisi Admin.
                     </p>
                 )}
+
+                {/* ── Riwayat Pengajuan & Keputusan Direktur ── */}
+                <RequestAuditHistory
+                    histories={allHistoriesAcrossRequests}
+                    requestNumber={allRequests[0]?.request_number}
+                    className="mb-4"
+                />
 
                 {/* ── 3. Aksi keputusan Direktur ── */}
                 {capabilities.can_decide_items && pendingItemsAcrossJob.length > 0 && (
@@ -887,24 +1008,29 @@ export default function ApprovalShow({
                                 width: '235px',
                                 render: ({ item }) => (
                                     <div className="space-y-1">
-                                        <p className="text-pretty font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                            {item.item_name}
-                                        </p>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <p className="text-pretty font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                {item.item_name}
+                                            </p>
+                                            <ItemSubmissionHistoryBadge item={item} />
+                                        </div>
                                         <RequirementDate value={item.required_date} />
                                         <ItemEvidenceLinks item={item} />
                                         {item.surplus_amount && Number(item.surplus_amount) > 0 && (
-                                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                            <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
                                                 <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
                                                     🔄 Pengalihan Kelebihan Dana
                                                 </div>
-                                                <div className="mt-1">
-                                                    Dialihkan <strong className="font-mono">{formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
-                                                </div>
-                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
-                                                    <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 pt-1 border-t border-amber-200/60 dark:border-amber-800/60">
-                                                        Total Nota: {formatRupiah(item.original_hpp_price)} → Real Diajukan: {formatRupiah(item.hpp_price)}
+                                                <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                    <div>Total Biaya Nota ({item.quantity} {item.unit || 'Item'}): <strong className="font-mono">{formatRupiah(Number(item.original_hpp_price || item.hpp_price) * Number(item.quantity))}</strong></div>
+                                                    <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong></div>
+                                                    <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                        Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(item.hpp_price) * Number(item.quantity))}</strong>
+                                                        <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                            (Hanya bayar {formatRupiah(Number(item.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatRupiah(item.surplus_amount)} dari item {item.surplus_source_item_name || 'lain'})
+                                                        </span>
                                                     </div>
-                                                )}
+                                                </div>
                                             </div>
                                         )}
                                         {item.is_urgent && (
@@ -938,7 +1064,7 @@ export default function ApprovalShow({
                             },
                             {
                                 key: 'hpp',
-                                header: 'HPP',
+                                header: 'HPP Awal',
                                 align: 'right',
                                 width: '145px',
                                 render: ({ item }) => (
@@ -980,14 +1106,18 @@ export default function ApprovalShow({
                                                     ? 'Disetujui'
                                                     : item.director_status === 'rejected'
                                                         ? 'Ditolak'
-                                                        : 'Menunggu Approval'
+                                                        : item.status === 'diajukan_ke_direktur'
+                                                            ? 'Menunggu Approval Direktur'
+                                                            : 'Menunggu Approval'
                                             }
                                             label={
                                                 item.director_status === 'approved'
                                                     ? 'Disetujui'
                                                     : item.director_status === 'rejected'
                                                         ? 'Ditolak'
-                                                        : 'Menunggu'
+                                                        : item.status === 'diajukan_ke_direktur'
+                                                            ? 'Menunggu Direktur'
+                                                            : 'Menunggu Admin'
                                             }
                                             size="sm"
                                             showDot
@@ -1219,6 +1349,7 @@ export default function ApprovalShow({
                                                             <h3 className="break-words text-sm font-extrabold leading-5 text-[#0B1F63] dark:text-[#F1F5F9]">
                                                                 {item.item_name}
                                                             </h3>
+                                                            <ItemSubmissionHistoryBadge item={item} />
                                                             {isNew && (
                                                                 <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
                                                                     Baru
@@ -1241,14 +1372,16 @@ export default function ApprovalShow({
                                                                 <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
                                                                     🔄 Pengalihan Kelebihan Dana
                                                                 </div>
-                                                                <div className="mt-1">
-                                                                    Dialihkan <strong className="font-mono">{formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
-                                                                </div>
-                                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
-                                                                    <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 pt-1 border-t border-amber-200/60 dark:border-amber-800/60">
-                                                                        Total Nota: {formatRupiah(item.original_hpp_price)} → Real Diajukan: {formatRupiah(item.hpp_price)}
+                                                                <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                                    <div>Total Biaya Nota ({item.quantity} {item.unit || 'Item'}): <strong className="font-mono">{formatRupiah(Number(item.original_hpp_price || item.hpp_price) * Number(item.quantity))}</strong></div>
+                                                                    <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong></div>
+                                                                    <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                                        Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(item.hpp_price) * Number(item.quantity))}</strong>
+                                                                        <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                                            (Hanya bayar {formatRupiah(Number(item.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatRupiah(item.surplus_amount)} dari item {item.surplus_source_item_name || 'lain'})
+                                                                        </span>
                                                                     </div>
-                                                                )}
+                                                                </div>
                                                             </div>
                                                         )}
                                                         {item.notes && (
@@ -1275,13 +1408,13 @@ export default function ApprovalShow({
                                                     </p>
                                                 )}
 
-                                                <dl className="mt-2.5 grid grid-cols-2 gap-2 rounded-xl border border-[#DCEAF8] bg-white/80 p-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]/70">
+                                                <dl className="mt-2.5 grid grid-cols-3 gap-2 rounded-xl border border-[#DCEAF8] bg-white/80 p-2.5 text-xs dark:border-[#1E3A5F] dark:bg-[#071322]/70">
                                                     <div>
                                                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">Qty</dt>
                                                         <dd className="mt-0.5 break-words font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{item.quantity} {item.unit || 'Dokumen'}</dd>
                                                     </div>
                                                     <div className="text-right">
-                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP</dt>
+                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#52658E] dark:text-[#94A3B8]">HPP Awal</dt>
                                                         <dd className="mt-0.5 break-words font-mono font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">
                                                             {formatRupiah(item.hpp_price)}
                                                             {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (

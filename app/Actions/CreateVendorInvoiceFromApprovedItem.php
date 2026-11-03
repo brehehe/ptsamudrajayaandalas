@@ -28,7 +28,7 @@ class CreateVendorInvoiceFromApprovedItem
 
         // Data lama dapat sudah berada di antrean Direktur sebelum aturan nota per item diberlakukan.
         // Pengajuan baru tetap dijaga oleh RequestController sebelum dapat diteruskan ke Direktur.
-        if (! $requestItem->hasCompleteSupplierInvoice() || ! $requestItem->request?->port_call_id) {
+        if (! $requestItem->hasCompleteSupplierInvoice()) {
             return null;
         }
 
@@ -38,7 +38,7 @@ class CreateVendorInvoiceFromApprovedItem
             ->lockForUpdate()
             ->first();
 
-        if ($invoice && $invoice->port_call_id !== $requestItem->request?->port_call_id) {
+        if ($invoice && $requestItem->request?->port_call_id && $invoice->port_call_id && $invoice->port_call_id !== $requestItem->request->port_call_id) {
             throw ValidationException::withMessages([
                 'supplier_invoice' => "Nomor invoice {$requestItem->supplier_invoice_number} sudah digunakan oleh vendor ini pada Job lain.",
             ]);
@@ -51,13 +51,13 @@ class CreateVendorInvoiceFromApprovedItem
         }
 
         $invoice ??= CostDocument::create([
-            'port_call_id' => $requestItem->request->port_call_id,
+            'port_call_id' => $requestItem->request?->port_call_id,
             'vendor_id' => $requestItem->vendor_id,
             'document_type' => 'vendor_invoice',
             'document_number' => $requestItem->supplier_invoice_number,
             'issuer_name' => $requestItem->vendor?->name ?? 'Tanpa vendor/supplier',
-            'document_date' => $requestItem->supplier_invoice_date,
-            'received_date' => $requestItem->supplier_invoice_received_date,
+            'document_date' => $requestItem->supplier_invoice_date ?? now()->toDateString(),
+            'received_date' => $requestItem->supplier_invoice_received_date ?? now()->toDateString(),
             'due_date' => $requestItem->supplier_invoice_due_date,
             'currency' => 'IDR',
             'estimated_total' => 0,
@@ -66,7 +66,7 @@ class CreateVendorInvoiceFromApprovedItem
             'status' => 'verified',
             'payment_status' => 'unpaid',
             'document_path' => $requestItem->supplier_invoice_path,
-            'recorded_by' => $requestItem->supplier_invoice_uploaded_by,
+            'recorded_by' => $requestItem->supplier_invoice_uploaded_by ?? $director->id,
             'verified_by' => $director->id,
             'verified_at' => now(),
         ]);

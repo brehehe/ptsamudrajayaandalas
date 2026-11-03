@@ -157,9 +157,7 @@ export default function ExpensesIndex({
     abilities,
     activeTab: initialActiveTab = 'vendor_invoices',
 }: ExpensesIndexProps) {
-    const [currentTab, setCurrentTab] = useState<'vendor_invoices' | 'company_expenses'>(
-        initialActiveTab === 'company_expenses' ? 'company_expenses' : 'vendor_invoices'
-    );
+    const [currentTab, setCurrentTab] = useState<'vendor_invoices'>('vendor_invoices');
     const [search, setSearch] = useState(filters.search || '');
     const [status, setStatus] = useState(filters.status || 'all');
     const [companyId, setCompanyId] = useState(filters.company_id || '');
@@ -392,66 +390,23 @@ export default function ExpensesIndex({
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                         <div className="hidden sm:block">
                             <p className="text-xs font-bold uppercase text-[#0060F4]">Keuangan Operasional</p>
-                            <h1 className="mt-1 text-balance text-2xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] md:text-3xl">Pengeluaran &amp; Pembayaran</h1>
+                            <h1 className="mt-1 text-balance text-2xl font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] md:text-3xl">Pembayaran Invoice Vendor</h1>
                             <p className="mt-1 max-w-3xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">
-                                Kelola pembayaran invoice vendor dan pengajuan biaya operasional perusahaan dalam satu modul terintegrasi.
+                                Kelola pembayaran invoice vendor dan pencatatan kas keluar operasional perusahaan.
                             </p>
                         </div>
                         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                             <ImportExportActions
                                 resource="expenses"
-                                resourceTitle="Pengeluaran & Pembayaran"
+                                resourceTitle="Pembayaran Invoice Vendor"
                                 canManage={abilities.manage}
                             />
-                            {currentTab === 'vendor_invoices' && abilities.manage && (
+                            {abilities.manage && (
                                 <Button className="w-full sm:w-auto" onClick={openPaymentModal} disabled={payableVendorInvoices.length === 0} leftIcon={<Plus aria-hidden="true" className="size-4" />}>
                                     Bayar Invoice Vendor
                                 </Button>
                             )}
-                            {currentTab === 'company_expenses' && abilities.create_company_expense && (
-                                <Button className="w-full sm:w-auto" type="button" onClick={() => setIsCompanyExpenseModalOpen(true)} leftIcon={<FilePlus2 aria-hidden="true" className="size-4" />}>
-                                    Buat Pengajuan
-                                </Button>
-                            )}
                         </div>
-                    </div>
-
-                    {/* 2 Main Tabs */}
-                    <div className="mt-2.5 flex overflow-x-auto border-b border-[#DCEAF8] dark:border-[#1E3A5F] sm:mt-4">
-                        <button
-                            type="button"
-                            onClick={() => setCurrentTab('vendor_invoices')}
-                            className={`inline-flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-bold transition-all ${
-                                currentTab === 'vendor_invoices'
-                                    ? 'border-[#0060F4] text-[#0060F4] dark:border-[#38BDF8] dark:text-[#38BDF8]'
-                                    : 'border-transparent text-[#52658E] hover:border-[#DCEAF8] hover:text-[#0B1F63] dark:text-[#94A3B8] dark:hover:text-white'
-                            }`}
-                        >
-                            <Banknote aria-hidden="true" className="size-4" />
-                            <span>Pembayaran Invoice Vendor</span>
-                            {payableVendorInvoices.length > 0 && (
-                                <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[11px] font-bold text-white">
-                                    {payableVendorInvoices.length}
-                                </span>
-                            )}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setCurrentTab('company_expenses')}
-                            className={`inline-flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-bold transition-all ${
-                                currentTab === 'company_expenses'
-                                    ? 'border-[#0060F4] text-[#0060F4] dark:border-[#38BDF8] dark:text-[#38BDF8]'
-                                    : 'border-transparent text-[#52658E] hover:border-[#DCEAF8] hover:text-[#0B1F63] dark:text-[#94A3B8] dark:hover:text-white'
-                            }`}
-                        >
-                            <FilePlus2 aria-hidden="true" className="size-4" />
-                            <span>Pengajuan Biaya Perusahaan</span>
-                            {companyExpenseRequests.total > 0 && (
-                                <span className="rounded-full bg-[#DCEAF8] px-2 py-0.5 text-[11px] font-bold text-[#0B1F63] dark:bg-[#1E3A5F] dark:text-[#94A3B8]">
-                                    {companyExpenseRequests.total}
-                                </span>
-                            )}
-                        </button>
                     </div>
                 </div>
 
@@ -668,137 +623,6 @@ export default function ExpensesIndex({
                             }}
                         />
                         <Pagination links={expenses.links} currentPage={expenses.current_page} lastPage={expenses.last_page} total={expenses.total} from={expenses.from ?? undefined} to={expenses.to ?? undefined} />
-                    </div>
-                )}
-
-                {/* TAB 2: Pengajuan Biaya Perusahaan */}
-                {currentTab === 'company_expenses' && (
-                    <div className="space-y-4">
-                        <div className="grid gap-3 sm:grid-cols-3">
-                            <Card padding="md">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs text-[#52658E]">Total Pengajuan</p>
-                                        <p className="mt-1 text-xl font-extrabold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">{money(companyStats.totalAmount)}</p>
-                                        <p className="mt-1 text-[11px] text-[#52658E]">{companyExpenseRequests.total} pengajuan</p>
-                                    </div>
-                                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#E0F0FF] text-[#0060F4]"><Banknote aria-hidden="true" className="size-5" /></span>
-                                </div>
-                            </Card>
-                            <Card padding="md">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs text-[#52658E]">Menunggu Direktur</p>
-                                        <p className="mt-1 text-xl font-extrabold tabular-nums text-amber-700 dark:text-amber-400">{companyStats.waitingCount} pengajuan</p>
-                                        <p className="mt-1 text-[11px] text-[#52658E]">Menunggu keputusan di menu Approval</p>
-                                    </div>
-                                    <span className="flex size-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"><Clock3 aria-hidden="true" className="size-5" /></span>
-                                </div>
-                            </Card>
-                            <Card padding="md">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs text-[#52658E]">Disetujui / Realisasi</p>
-                                        <p className="mt-1 text-xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">{companyStats.approvedCount} pengajuan</p>
-                                        <p className="mt-1 text-[11px] text-[#52658E]">Siap / telah dicatat bayar</p>
-                                    </div>
-                                    <span className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"><CheckCircle2 aria-hidden="true" className="size-5" /></span>
-                                </div>
-                            </Card>
-                        </div>
-
-                        <Card
-                            title="Daftar Pengajuan Biaya Perusahaan"
-                            titleLevel={2}
-                            subtitle="Pengajuan biaya operasional kantor yang telah disetujui Direktur dapat dicatat realisasinya di sini."
-                            padding="none"
-                            actions={abilities.create_company_expense ? (
-                                <Button type="button" size="sm" onClick={() => setIsCompanyExpenseModalOpen(true)} leftIcon={<FilePlus2 aria-hidden="true" className="size-4" />}>
-                                    Buat Pengajuan
-                                </Button>
-                            ) : null}
-                        >
-                            <ResponsiveTable<CompanyExpenseRequest>
-                                data={companyExpenseRequests.data}
-                                keyExtractor={(expense) => expense.id}
-                                desktop={{ columns: companyColumns, compact: true, minWidth: '940px', emptyMessage: 'Belum ada pengajuan biaya perusahaan.' }}
-                                mobile={{
-                                    titleRender: (expense) => expense.category,
-                                    subtitleRender: (expense) => expense.request_number,
-                                    statusRender: (expense) => {
-                                        const badge = companyExpenseStatus(expense.status);
-                                        return <StatusBadge status={badge.status} label={badge.label} />;
-                                    },
-                                    fields: [
-                                        { label: 'Uraian', fullWidth: true, render: (expense) => expense.items[0]?.description || '—' },
-                                        { label: 'Diajukan', render: (expense) => money(expense.total) },
-                                        { label: 'Tanggal', render: (expense) => formatDate(expense.created_at) },
-                                        { label: 'Pemohon', render: (expense) => expense.creator?.name || '—' },
-                                        {
-                                            label: 'Dokumen',
-                                            fullWidth: true,
-                                            render: (expense) =>
-                                                expense.supporting_document_path ? (
-                                                    <DocumentActions
-                                                        viewHref={`/expenses/company-requests/${expense.id}/documents/supporting?view=1`}
-                                                        downloadHref={`/expenses/company-requests/${expense.id}/documents/supporting`}
-                                                        viewLabel="Buka Lampiran"
-                                                    />
-                                                ) : (
-                                                    <span className="text-xs text-[#8C9BB9]">—</span>
-                                                ),
-                                        },
-                                        {
-                                            label: 'Catatan / Alasan',
-                                            fullWidth: true,
-                                            render: (expense) =>
-                                                expense.notes ? (
-                                                    <div className={`p-2 rounded-xl text-xs ${
-                                                        expense.status === 'rejected'
-                                                            ? 'bg-rose-50 border border-rose-200 text-[#C62840] dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 font-semibold'
-                                                            : 'text-[#52658E] dark:text-[#94A3B8]'
-                                                    }`}>
-                                                        {expense.status === 'rejected' && <span className="block font-bold text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-300 mb-0.5">Alasan Penolakan:</span>}
-                                                        "{expense.notes}"
-                                                    </div>
-                                                ) : (
-                                                    '-'
-                                                ),
-                                        },
-                                        {
-                                            label: 'Bukti Bayar',
-                                            fullWidth: true,
-                                            render: (expense) =>
-                                                expense.payment_proof_path ? (
-                                                    <DocumentActions
-                                                        viewHref={`/expenses/company-requests/${expense.id}/documents/payment?view=1`}
-                                                        downloadHref={`/expenses/company-requests/${expense.id}/documents/payment`}
-                                                        viewLabel="Bukti Bayar"
-                                                    />
-                                                ) : (
-                                                    '-'
-                                                ),
-                                        },
-                                    ],
-                                    actionsRender: (expense) => (
-                                        <div className="flex w-full flex-wrap gap-2">
-                                            {abilities.decide_company_expense && expense.status === 'waiting_director' && (
-                                                <Button className="flex-1" type="button" size="sm" onClick={() => setDecisionExpense(expense)}>Putuskan</Button>
-                                            )}
-                                            {abilities.realize_company_expense && expense.status === 'approved' && (
-                                                <Button className="flex-1" type="button" size="sm" onClick={() => { setRealizationExpense(expense); realizationForm.setData('realized_amount', String(expense.total)); }}>Catat Bayar</Button>
-                                            )}
-                                        </div>
-                                    ),
-                                    emptyMessage: 'Belum ada pengajuan biaya perusahaan.',
-                                }}
-                            />
-                            {companyExpenseRequests.last_page > 1 && (
-                                <div className="border-t border-[#DCEAF8] p-3 dark:border-[#1E3A5F]">
-                                    <Pagination links={companyExpenseRequests.links} currentPage={companyExpenseRequests.current_page} lastPage={companyExpenseRequests.last_page} total={companyExpenseRequests.total} from={companyExpenseRequests.from ?? undefined} to={companyExpenseRequests.to ?? undefined} />
-                                </div>
-                            )}
-                        </Card>
                     </div>
                 )}
             </div>

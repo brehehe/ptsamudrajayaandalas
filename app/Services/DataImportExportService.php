@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CompletionNote;
 use App\Models\CostDocument;
 use App\Models\Invoice;
+use App\Models\InvoiceItemSource;
 use App\Models\OperationalActivity;
 use App\Models\OutgoingPayment;
 use App\Models\Port;
@@ -68,16 +69,28 @@ class DataImportExportService
 
         return match ($resource) {
             'work-orders' => [
-                ['key' => 'client_number', 'header' => 'No SPK Klien', 'width' => 20, 'align' => 'left', 'type' => 'text', 'required' => true],
+                ['key' => 'spk_number', 'header' => 'No SPK Klien', 'width' => 20, 'align' => 'left', 'type' => 'text', 'required' => true],
+                ['key' => 'line_no', 'header' => 'No. Urut (1 / 1.2 / 1.3 / 1.4)', 'width' => 14, 'align' => 'center', 'type' => 'text', 'required' => true],
+                ['key' => 'row_type', 'header' => 'Tipe Baris (SPK / Pengajuan / Inv Reimburse / Inv Keagenan)', 'width' => 30, 'align' => 'left', 'type' => 'text', 'required' => true],
+                ['key' => 'job_number', 'header' => 'No Job Kunjungan (Opsional)', 'width' => 22, 'align' => 'left', 'type' => 'text'],
                 ['key' => 'company_name', 'header' => 'Perusahaan Klien', 'width' => 28, 'align' => 'left', 'type' => 'text', 'required' => true],
                 ['key' => 'ship_name', 'header' => 'Nama Kapal', 'width' => 24, 'align' => 'left', 'type' => 'text', 'required' => true],
-                ['key' => 'port_name', 'header' => 'Pelabuhan', 'width' => 22, 'align' => 'left', 'type' => 'text'],
-                ['key' => 'document_date', 'header' => 'Tanggal SPK (YYYY-MM-DD)', 'width' => 22, 'align' => 'center', 'type' => 'text'],
-                ['key' => 'planned_eta_at', 'header' => 'Estimasi Sandar ETA (YYYY-MM-DD)', 'width' => 24, 'align' => 'center', 'type' => 'text'],
-                ['key' => 'planned_etd_at', 'header' => 'Estimasi Keluar ETD (YYYY-MM-DD)', 'width' => 24, 'align' => 'center', 'type' => 'text'],
-                ['key' => 'client_pic_name', 'header' => 'Nama PIC Klien', 'width' => 20, 'align' => 'left', 'type' => 'text'],
-                ['key' => 'client_pic_contact', 'header' => 'No HP PIC Klien', 'width' => 18, 'align' => 'left', 'type' => 'text'],
-                ['key' => 'status', 'header' => 'Status', 'width' => 16, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'port_name', 'header' => 'Pelabuhan Sandar', 'width' => 24, 'align' => 'left', 'type' => 'text'],
+                ['key' => 'document_number', 'header' => 'No Dokumen (SPK / PGJ / INV)', 'width' => 24, 'align' => 'left', 'type' => 'text'],
+                ['key' => 'service_category', 'header' => 'Kategori Layanan (deck/engine/logistics/agency/reimburse)', 'width' => 28, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'item_description', 'header' => 'Uraian Kebutuhan / Item Tagihan', 'width' => 36, 'align' => 'left', 'type' => 'text', 'required' => true],
+                ['key' => 'item_type', 'header' => 'Tipe (jasa / non_jasa)', 'width' => 18, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'quantity', 'header' => 'Jumlah (Qty)', 'width' => 14, 'align' => 'right', 'type' => 'number'],
+                ['key' => 'unit', 'header' => 'Satuan', 'width' => 14, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'unit_price', 'header' => 'Harga Satuan / HPP (Rp)', 'width' => 22, 'align' => 'right', 'type' => 'currency'],
+                ['key' => 'total_price', 'header' => 'Total Nilai / Subtotal (Rp)', 'width' => 22, 'align' => 'right', 'type' => 'currency'],
+                ['key' => 'status', 'header' => 'Status (active/disetujui/diajukan/draft/released/paid)', 'width' => 24, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'document_date', 'header' => 'Tanggal Dokumen (YYYY-MM-DD)', 'width' => 22, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'due_date', 'header' => 'Jatuh Tempo / ETD (YYYY-MM-DD)', 'width' => 22, 'align' => 'center', 'type' => 'text'],
+                ['key' => 'pic_name', 'header' => 'Nama PIC Klien', 'width' => 20, 'align' => 'left', 'type' => 'text'],
+                ['key' => 'pic_contact', 'header' => 'No HP PIC Klien', 'width' => 18, 'align' => 'left', 'type' => 'text'],
+                ['key' => 'linked_item_name', 'header' => 'Kaitan Item Pengajuan (Untuk Invoice)', 'width' => 32, 'align' => 'left', 'type' => 'text'],
+                ['key' => 'notes', 'header' => 'Catatan / Keterangan', 'width' => 30, 'align' => 'left', 'type' => 'text'],
             ],
             'requests' => [
                 ['key' => 'request_number', 'header' => 'No Pengajuan', 'width' => 18, 'align' => 'left', 'type' => 'text'],
@@ -215,8 +228,74 @@ class DataImportExportService
 
         return match ($resource) {
             'work-orders' => [
-                ['SPK/2026/X/001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Benete', '2026-10-21', '2026-10-22', '2026-10-25', 'Bpk. Rahmat Hidayat', '081234567890', 'active'],
-                ['SPK/2026/X/002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', '2026-10-22', '2026-10-23', '2026-10-28', 'Ibu Siti Aminah', '081398765432', 'active'],
+                // === 1. SPK 1 (TB Mitra Bahari 01 - 4 Item Pengajuan, 2 Item Inv Reimburse, 1 Item Inv Keagenan) ===
+                // 1. SPK
+                [
+                    'SPK/2026/XI/001', '1.', 'SPK', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'SPK/2026/XI/001', 'agency', 'Pelayanan Keagenan & Logistik TB Mitra Bahari 01', 'jasa', 1, 'Trip', 0, 0, 'active', '2026-11-01', '2026-11-06', 'Bpk. Rahmat Hidayat', '081234567890', '', 'SPK Pelayanan Keagenan & Kebutuhan Kapal Sandar',
+                ],
+                // 1.2 Pengajuan Kebutuhan (4 Item)
+                [
+                    'SPK/2026/XI/001', '1.2', 'Pengajuan', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'PGJ-2026-0001', 'logistics', 'Pasokan Air Tawar Bersih Kapal (Fresh Water)', 'non_jasa', 50, 'Ton', 50000, 2500000, 'disetujui', '2026-11-02', '', 'Bpk. Rahmat Hidayat', '081234567890', '', 'Pengisian air tawar via tangki dermaga',
+                ],
+                [
+                    'SPK/2026/XI/001', '1.2', 'Pengajuan', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'PGJ-2026-0001', 'agency', 'Jasa Port Clearance In & Out Syahbandar', 'jasa', 1, 'Kegiatan', 3500000, 3500000, 'disetujui', '2026-11-02', '', 'Bpk. Rahmat Hidayat', '081234567890', '', 'Formalitas perizinan kedatangan dan keberangkatan',
+                ],
+                [
+                    'SPK/2026/XI/001', '1.2', 'Pengajuan', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'PGJ-2026-0001', 'deck', 'Jasa Pemanduan & Penundaan Kapal (Pilot & Tug)', 'jasa', 2, 'Gerakan', 2000000, 4000000, 'disetujui', '2026-11-02', '', 'Bpk. Rahmat Hidayat', '081234567890', '', 'Pemanduan alur dan olah gerak sandar kapal',
+                ],
+                [
+                    'SPK/2026/XI/001', '1.2', 'Pengajuan', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'PGJ-2026-0001', 'engine', 'Pelumas Mesin Induk Meditran Marine', 'non_jasa', 4, 'Drum', 1800000, 7200000, 'disetujui', '2026-11-02', '', 'Bpk. Rahmat Hidayat', '081234567890', '', 'Penggantian oli berkala mesin utama',
+                ],
+                // 1.3 Invoice Reimbursement (2 Item)
+                [
+                    'SPK/2026/XI/001', '1.3', 'Invoice Reimbursement', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'INV/2026/RMB/001', 'reimburse', 'Reimbursement Pasokan Air Tawar 50 Ton', 'non_jasa', 50, 'Ton', 65000, 3250000, 'released', '2026-11-03', '2026-11-20', 'Bpk. Rahmat Hidayat', '081234567890', 'Pasokan Air Tawar Bersih Kapal (Fresh Water)', 'Tagihan reimbursement air tawar sesuai meteran',
+                ],
+                [
+                    'SPK/2026/XI/001', '1.3', 'Invoice Reimbursement', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'INV/2026/RMB/001', 'reimburse', 'Reimbursement PNBP Port Clearance Syahbandar', 'jasa', 1, 'Kegiatan', 3500000, 3500000, 'released', '2026-11-03', '2026-11-20', 'Bpk. Rahmat Hidayat', '081234567890', 'Jasa Port Clearance In & Out Syahbandar', 'Sesuai kuitansi resmi PNBP Syahbandar',
+                ],
+                // 1.4 Invoice Jasa Keagenan (1 Item)
+                [
+                    'SPK/2026/XI/001', '1.4', 'Invoice Jasa Keagenan', 'JOB-2026-0001', 'PT Pelayaran Samudra Berlian', 'TB Mitra Bahari 01', 'Pelabuhan Tanjung Perak', 'INV/2026/AGY/001', 'agency', 'Jasa Pengurusan Keagenan Kapal Sandar (Agency Fee)', 'jasa', 1, 'Paket', 5000000, 5000000, 'released', '2026-11-03', '2026-11-20', 'Bpk. Rahmat Hidayat', '081234567890', '', 'Agency fee resmi operasional keagenan kapal',
+                ],
+
+                // === 2. SPK 2 (MV Samudra Jaya 88 - 6 Item Pengajuan, 3 Item Inv Reimburse, 1 Item Inv Keagenan) ===
+                // 2. SPK
+                [
+                    'SPK/2026/XI/002', '2.', 'SPK', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'SPK/2026/XI/002', 'agency', 'Pelayanan Keagenan & Kebutuhan Bongkar Muat MV Samudra Jaya 88', 'jasa', 1, 'Trip', 0, 0, 'active', '2026-11-03', '2026-11-08', 'Ibu Siti Aminah', '081398765432', '', 'Pelayanan keagenan kapal muatan curah',
+                ],
+                // 2.1 Pengajuan Kebutuhan (6 Item)
+                [
+                    'SPK/2026/XI/002', '2.1', 'Pengajuan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'PGJ-2026-0002', 'deck', 'Jasa Pandu & Tunda Pelindo (EPB Sandar & Tolak)', 'jasa', 2, 'Gerakan', 2500000, 5000000, 'diajukan', '2026-11-04', '', 'Ibu Siti Aminah', '081398765432', '', 'Pemanduan alur masuk dermaga jetty',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.1', 'Pengajuan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'PGJ-2026-0002', 'engine', 'Penggantian Sparepart Filter Oli Mesin Induk', 'non_jasa', 4, 'Pcs', 750000, 3000000, 'diajukan', '2026-11-04', '', 'Ibu Siti Aminah', '081398765432', '', 'Suku cadang mesin induk Yanmar',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.1', 'Pengajuan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'PGJ-2026-0002', 'logistics', 'Pasokan Bahan Makanan & Logistik ABK (Bama Fresh)', 'non_jasa', 1, 'Paket', 4500000, 4500000, 'diajukan', '2026-11-04', '', 'Ibu Siti Aminah', '081398765432', '', 'Bama fresh untuk 18 crew kapal selama 14 hari',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.1', 'Pengajuan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'PGJ-2026-0002', 'deck', 'Tali Tambat Polypropylene 8 Strand (Mooring Rope)', 'non_jasa', 2, 'Coil', 6250000, 12500000, 'diajukan', '2026-11-04', '', 'Ibu Siti Aminah', '081398765432', '', 'Tali tambat pengganti haluan & buritan',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.1', 'Pengajuan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'PGJ-2026-0002', 'agency', 'Pemberian Izin Sandar & Labuh Kantor KSOP', 'jasa', 1, 'Kegiatan', 1500000, 1500000, 'diajukan', '2026-11-04', '', 'Ibu Siti Aminah', '081398765432', '', 'Administrasi perizinan labuh jangkar KSOP',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.1', 'Pengajuan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'PGJ-2026-0002', 'logistics', 'Pengisian Air Bersih Fresh Water 80 Ton', 'non_jasa', 80, 'Ton', 55000, 4400000, 'diajukan', '2026-11-04', '', 'Ibu Siti Aminah', '081398765432', '', 'Air bersih dari tongkang suplier lokal',
+                ],
+                // 2.2 Invoice Reimbursement (3 Item)
+                [
+                    'SPK/2026/XI/002', '2.2', 'Invoice Reimbursement', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'INV/2026/RMB/002', 'reimburse', 'Reimbursement Pandu Tunda Pelindo 2 Gerakan', 'jasa', 2, 'Gerakan', 2800000, 5600000, 'draft', '2026-11-05', '2026-11-25', 'Ibu Siti Aminah', '081398765432', 'Jasa Pandu & Tunda Pelindo (EPB Sandar & Tolak)', 'Penyesuaian tarif tarif resmi pemanduan',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.2', 'Invoice Reimbursement', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'INV/2026/RMB/002', 'reimburse', 'Reimbursement Filter Oli Mesin Induk 4 Pcs', 'non_jasa', 4, 'Pcs', 850000, 3400000, 'draft', '2026-11-05', '2026-11-25', 'Ibu Siti Aminah', '081398765432', 'Penggantian Sparepart Filter Oli Mesin Induk', 'Suku cadang terverifikasi',
+                ],
+                [
+                    'SPK/2026/XI/002', '2.2', 'Invoice Reimbursement', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'INV/2026/RMB/002', 'reimburse', 'Reimbursement Air Bersih Fresh Water 80 Ton', 'non_jasa', 80, 'Ton', 65000, 5200000, 'draft', '2026-11-05', '2026-11-25', 'Ibu Siti Aminah', '081398765432', 'Pengisian Air Bersih Fresh Water 80 Ton', 'Reimbursement pasokan air tawar pelabuhan',
+                ],
+                // 2.3 Invoice Jasa Keagenan (1 Item)
+                [
+                    'SPK/2026/XI/002', '2.3', 'Invoice Jasa Keagenan', 'JOB-2026-0002', 'PT Indo Maritime Lines', 'MV Samudra Jaya 88', 'Pelabuhan Benete', 'INV/2026/AGY/002', 'agency', 'Paket Jasa Supervisi Operasional & Port Clearance Keagenan', 'jasa', 1, 'Paket', 7500000, 7500000, 'draft', '2026-11-05', '2026-11-25', 'Ibu Siti Aminah', '081398765432', '', 'Supervisi keagenan kapal bongkar muat',
+                ],
             ],
             'requests' => [
                 ['REQ-2024-0801', 'TB Mitra Bahari 01', 'PT Pelayaran Samudra Berlian', 'Pelabuhan Benete', '2024-08-15', 'Air Tawar (Fresh Water)', 50, 'Ton', 50000, 'non_jasa', 'JOB-2024-001', 'Selesai', 'Data arsip pengajuan lama yang sudah selesai'],
@@ -276,13 +355,24 @@ class DataImportExportService
         $samples = $this->getSampleRows($resource);
         $resourceName = self::RESOURCES[$resource] ?? strtoupper($resource);
 
+        $metaLines = $resource === 'work-orders'
+            ? [
+                'PETUNJUK FORMAT VERTIKAL TERPADU (HIERARKI SPK -> PENGAJUAN KEBUTUHAN -> INVOICE REIMBURSEMENT -> INVOICE JASA KEAGENAN):',
+                '1. PEMISAHAN NO. URUT & TIPE BARIS: Kolom "No. Urut" memuat kode angka hierarki tingkat (1. / 1.2 / 1.3 / 1.4 untuk SPK 1, dan 2. / 2.1 / 2.2 / 2.3 untuk SPK 2). Kolom "Tipe Baris" diisi jenis baris entitas (SPK / Pengajuan / Invoice Reimbursement / Invoice Jasa Keagenan).',
+                '2. PERBEDAAN TIPE BARIS & KODE: [SPK] = Data induk perintah kerja kapal (klien, kapal, pelabuhan, jadwal ETA/ETD, PIC); [Pengajuan] = Rincian kebutuhan modal/operasional kapal ke Direktur (HPP modal beli); [Inv Reimbursement] = Tagihan penggantian biaya riil operasional ke klien (air tawar, PNBP, EPB pandu tunda, sparepart); [Inv Jasa Keagenan] = Tagihan imbalan jasa keagenan resmi (Agency Fee) PT Samudra Jaya Andalas.',
+                '3. FLEKSIBILITAS JUMLAH ITEM: Setiap SPK bebas memiliki jumlah item pengajuan & invoice yang berbeda-beda ke bawah (contoh: SPK 1 memiliki 4 item pengajuan & 2 invoice reimburse; SPK 2 memiliki 6 item pengajuan & 3 invoice reimburse).',
+                '4. INTEGRASI HPP & LABA OTOMATIS: Kolom "Kaitan Item Pengajuan (Untuk Invoice)" pada baris invoice otomatis menghubungkan baris tagihan ke item pengajuan terkait sehingga sistem langsung membandingkan HPP modal vs Harga Jual dan menghitung Margin Laba secara otomatis.',
+                '5. KUNCI PENGELOMPOKAN: Kolom "No SPK Klien" wajib diisi sama pada seluruh baris dalam satu paket SPK agar semua pengajuan dan invoice terkait terkumpul pada SPK yang benar.',
+            ]
+            : [
+                'Petunjuk: Isi data di bawah baris judul. Disediakan 2 baris contoh data valid yang dapat dihapus/disesuaikan.',
+                'Pastikan nama perusahaan, kapal, dan pelabuhan ditulis dengan benar.',
+            ];
+
         $data = [
             'title' => "TEMPLATE IMPORT - {$resourceName}",
             'sheet_name' => 'Template',
-            'meta_lines' => [
-                'Petunjuk: Isi data di bawah baris judul. Disediakan 2 baris contoh data valid yang dapat dihapus/disesuaikan.',
-                'Pastikan nama perusahaan, kapal, dan pelabuhan ditulis dengan benar.',
-            ],
+            'meta_lines' => $metaLines,
             'columns' => array_map(fn ($c) => [
                 'header' => $c['header'],
                 'width' => $c['width'],
@@ -312,20 +402,170 @@ class DataImportExportService
 
         switch ($resource) {
             case 'work-orders':
-                $items = WorkOrder::with(['company', 'ship', 'port'])->latest('created_at')->get();
+                $items = WorkOrder::with([
+                    'company',
+                    'ship',
+                    'port',
+                    'portCall.port',
+                    'portCall.requests.items',
+                    'portCall.invoices.items.requestItem',
+                    'portCall.invoices.items.sources.requestItem',
+                ])->latest('created_at')->get();
+
+                $spkIndex = 1;
                 foreach ($items as $item) {
+                    $portCall = $item->portCall;
+                    $requests = $portCall?->requests ?? collect();
+                    $invoices = $portCall?->invoices ?? collect();
+                    $reimbInvoices = $invoices->where('invoice_type', 'reimburse');
+                    $agencyInvoices = $invoices->where('invoice_type', 'agency');
+
+                    $spkNumber = $item->client_number ?? $item->system_number;
+                    $jobNumber = $portCall?->job_number ?? '-';
+                    $companyName = $item->company?->name ?? '-';
+                    $shipName = $item->ship?->name ?? '-';
+                    $portName = $item->port?->name ?? ($portCall?->port?->name ?? '-');
+                    $picName = $item->client_pic_name ?? '-';
+                    $picContact = $item->client_pic_contact ?? '-';
+                    $spkDate = $item->document_date?->format('Y-m-d') ?? '-';
+                    $etdDate = $item->planned_etd_at?->format('Y-m-d') ?? ($portCall?->etd_at?->format('Y-m-d') ?? '-');
+
+                    // 1. Baris Utama SPK
                     $rows[] = [
-                        $item->client_number ?? $item->system_number,
-                        $item->company?->name ?? '-',
-                        $item->ship?->name ?? '-',
-                        $item->port?->name ?? '-',
-                        $item->document_date?->format('Y-m-d') ?? '-',
-                        $item->planned_eta_at?->format('Y-m-d') ?? '-',
-                        $item->planned_etd_at?->format('Y-m-d') ?? '-',
-                        $item->client_pic_name ?? '-',
-                        $item->client_pic_contact ?? '-',
+                        $spkNumber,
+                        "{$spkIndex}.",
+                        'SPK',
+                        $jobNumber,
+                        $companyName,
+                        $shipName,
+                        $portName,
+                        $spkNumber,
+                        'Keagenan Kapal',
+                        "Pelayanan Keagenan & Kebutuhan Kapal {$shipName}",
+                        'jasa',
+                        1,
+                        'Trip',
+                        0,
+                        0,
                         $item->status ?? 'active',
+                        $spkDate,
+                        $etdDate,
+                        $picName,
+                        $picContact,
+                        '',
+                        'Work Order / SPK Operasional Keagenan',
                     ];
+
+                    // 2. Baris Pengajuan Pengajuannya
+                    $prefixReq = "{$spkIndex}.".($spkIndex === 1 ? '2' : '1');
+                    foreach ($requests as $req) {
+                        foreach ($req->items as $reqItem) {
+                            $hppPrice = (float) $reqItem->hpp_price;
+                            $qty = (float) $reqItem->quantity;
+                            $hppTotal = $hppPrice * $qty;
+
+                            $rows[] = [
+                                $spkNumber,
+                                $prefixReq,
+                                'Pengajuan',
+                                $jobNumber,
+                                $companyName,
+                                $shipName,
+                                $portName,
+                                $req->request_number,
+                                $req->service_type ?? 'logistics',
+                                $reqItem->item_name,
+                                $reqItem->item_type ?? 'non_jasa',
+                                $qty,
+                                $reqItem->unit ?? 'Unit',
+                                $hppPrice,
+                                $hppTotal,
+                                $reqItem->status ?? $req->status ?? 'disetujui',
+                                $reqItem->required_date?->format('Y-m-d') ?? ($req->request_date?->format('Y-m-d') ?? '-'),
+                                '',
+                                $picName,
+                                $picContact,
+                                '',
+                                $req->notes ?? 'Rincian Kebutuhan Kapal',
+                            ];
+                        }
+                    }
+
+                    // 3. Baris Invoice Reimbursement
+                    $prefixReimb = "{$spkIndex}.".($spkIndex === 1 ? '3' : '2');
+                    foreach ($reimbInvoices as $rInv) {
+                        foreach ($rInv->items as $rItem) {
+                            $linkedName = $rItem->requestItem?->item_name
+                                ?? $rItem->sources->first()?->requestItem?->item_name
+                                ?? '';
+
+                            $rows[] = [
+                                $spkNumber,
+                                $prefixReimb,
+                                'Invoice Reimbursement',
+                                $jobNumber,
+                                $companyName,
+                                $shipName,
+                                $portName,
+                                $rInv->invoice_number,
+                                'reimburse',
+                                $rItem->description,
+                                'non_jasa',
+                                (float) $rItem->quantity,
+                                $rItem->unit ?? 'Unit',
+                                (float) $rItem->unit_price,
+                                (float) $rItem->subtotal,
+                                $rInv->status ?? 'draft',
+                                $rInv->invoice_date?->format('Y-m-d') ?? '-',
+                                $rInv->due_date?->format('Y-m-d') ?? '-',
+                                $picName,
+                                $picContact,
+                                $linkedName,
+                                'Tagihan Reimbursement Biaya Operasional',
+                            ];
+                        }
+                    }
+
+                    // 4. Baris Invoice Jasa Keagenan
+                    $prefixAgency = "{$spkIndex}.".($spkIndex === 1 ? '4' : '3');
+                    foreach ($agencyInvoices as $aInv) {
+                        foreach ($aInv->items as $aItem) {
+                            $linkedName = $aItem->requestItem?->item_name
+                                ?? $aItem->sources->first()?->requestItem?->item_name
+                                ?? '';
+
+                            $rows[] = [
+                                $spkNumber,
+                                $prefixAgency,
+                                'Invoice Jasa Keagenan',
+                                $jobNumber,
+                                $companyName,
+                                $shipName,
+                                $portName,
+                                $aInv->invoice_number,
+                                'agency',
+                                $aItem->description,
+                                'jasa',
+                                (float) $aItem->quantity,
+                                $aItem->unit ?? 'Kegiatan',
+                                (float) $aItem->unit_price,
+                                (float) $aItem->subtotal,
+                                $aInv->status ?? 'draft',
+                                $aInv->invoice_date?->format('Y-m-d') ?? '-',
+                                $aInv->due_date?->format('Y-m-d') ?? '-',
+                                $picName,
+                                $picContact,
+                                $linkedName,
+                                'Tagihan Jasa Keagenan Resmi',
+                            ];
+                        }
+                    }
+
+                    $spkIndex++;
+                }
+
+                if (empty($rows)) {
+                    $rows = $this->getSampleRows('work-orders');
                 }
                 break;
 
@@ -689,22 +929,45 @@ class DataImportExportService
         // Find header row by matching headers
         $headerRowIndex = null;
         $columnKeysOrder = array_column($columns, 'key');
-        $expectedHeaders = array_map(fn ($c) => strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $c['header']))), $columns);
 
         foreach ($rawRows as $idx => $r) {
             $normalizedRow = array_map(fn ($cell) => strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', (string) $cell))), $r);
             $matchCount = 0;
-            foreach ($expectedHeaders as $exp) {
-                if (in_array($exp, $normalizedRow, true)) {
+            foreach ($columns as $c) {
+                $normExp = strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $c['header'])));
+                $normKey = strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $c['key'])));
+                if (in_array($normExp, $normalizedRow, true) || in_array($normKey, $normalizedRow, true)) {
                     $matchCount++;
                 }
             }
-            // If at least 2 expected headers match, this is our header row
+            // If at least 2 expected headers or keys match, this is our header row
             if ($matchCount >= 2) {
                 $headerRowIndex = $idx;
                 break;
             }
         }
+
+        // Map column indices to keys from the detected header row
+        $columnIndexToKey = [];
+        if ($headerRowIndex !== null) {
+            $headerRow = $rawRows[$headerRowIndex];
+            foreach ($headerRow as $cellColIdx => $headerVal) {
+                $normHeader = strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', (string) $headerVal)));
+                if ($normHeader === '') {
+                    continue;
+                }
+                foreach ($columns as $c) {
+                    $normExp = strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $c['header'])));
+                    $normKey = strtolower(trim(preg_replace('/[^a-zA-Z0-9]/', '', $c['key'])));
+                    if ($normHeader === $normExp || $normHeader === $normKey) {
+                        $columnIndexToKey[$cellColIdx] = $c['key'];
+                        break;
+                    }
+                }
+            }
+        }
+
+        $useHeaderMap = count($columnIndexToKey) >= min(2, count($columns));
 
         // If no header found, assume row 0 or row 4 (default template index)
         $dataStartIndex = $headerRowIndex !== null ? $headerRowIndex + 1 : 0;
@@ -723,8 +986,20 @@ class DataImportExportService
             }
 
             $mapped = [];
-            foreach ($columnKeysOrder as $colIdx => $key) {
-                $mapped[$key] = trim($rowValues[$colIdx] ?? '');
+            if ($useHeaderMap) {
+                foreach ($columnIndexToKey as $colIdx => $key) {
+                    $mapped[$key] = trim($rowValues[$colIdx] ?? '');
+                }
+            } else {
+                foreach ($columnKeysOrder as $colIdx => $key) {
+                    $mapped[$key] = trim($rowValues[$colIdx] ?? '');
+                }
+            }
+
+            foreach ($columnKeysOrder as $key) {
+                if (! isset($mapped[$key])) {
+                    $mapped[$key] = '';
+                }
             }
 
             $result[] = $mapped;
@@ -764,22 +1039,60 @@ class DataImportExportService
         try {
             switch ($resource) {
                 case 'work-orders':
+                    // Group rows by SPK (spk_number or client_number)
+                    $groupedBySpk = [];
                     foreach ($rows as $idx => $row) {
-                        $lineNum = $idx + 1;
-                        $clientNumber = $row['client_number'] ?? '';
-                        $companyName = $row['company_name'] ?? '';
-                        $shipName = $row['ship_name'] ?? '';
-
-                        if (blank($clientNumber) || blank($companyName) || blank($shipName)) {
-                            $errors[] = "Baris {$lineNum}: No SPK, Perusahaan Klien, dan Nama Kapal wajib diisi.";
+                        $spkNum = trim((string) ($row['spk_number'] ?? $row['client_number'] ?? ''));
+                        if (blank($spkNum)) {
+                            $errors[] = 'Baris '.($idx + 1).': No SPK Klien wajib diisi.';
                             $skippedCount++;
+
+                            continue;
+                        }
+                        $groupedBySpk[$spkNum][] = ['idx' => $idx + 1, 'row' => $row];
+                    }
+
+                    foreach ($groupedBySpk as $clientNumber => $items) {
+                        // Find the SPK header row (containing 'spk' in row_type) or default to the first row
+                        $spkRowData = null;
+                        $firstLineNum = $items[0]['idx'];
+                        foreach ($items as $entry) {
+                            $rType = strtolower(trim((string) ($entry['row']['row_type'] ?? '')));
+                            if ($rType === '' || str_contains($rType, 'spk')) {
+                                $spkRowData = $entry['row'];
+                                $firstLineNum = $entry['idx'];
+                                break;
+                            }
+                        }
+                        if (! $spkRowData) {
+                            $spkRowData = $items[0]['row'];
+                        }
+
+                        $companyName = trim((string) ($spkRowData['company_name'] ?? ''));
+                        $shipName = trim((string) ($spkRowData['ship_name'] ?? ''));
+
+                        // If not found in spkRowData, search across any row in the group
+                        if (blank($companyName) || blank($shipName)) {
+                            foreach ($items as $entry) {
+                                if (blank($companyName) && filled($entry['row']['company_name'] ?? '')) {
+                                    $companyName = trim((string) $entry['row']['company_name']);
+                                }
+                                if (blank($shipName) && filled($entry['row']['ship_name'] ?? '')) {
+                                    $shipName = trim((string) $entry['row']['ship_name']);
+                                }
+                            }
+                        }
+
+                        if (blank($companyName) || blank($shipName)) {
+                            $errors[] = "Baris {$firstLineNum}: Perusahaan Klien dan Nama Kapal wajib diisi untuk SPK {$clientNumber}.";
+                            $skippedCount += count($items);
 
                             continue;
                         }
 
                         $company = ShipCompany::firstOrCreate(
                             ['name' => $companyName],
-                            ['code' => strtoupper(Str::limit(preg_replace('/[^A-Za-z0-9]/', '', $companyName), 4, '')), 'is_active' => true]
+                            ['code' => 'CMP-'.strtoupper(Str::random(5)), 'is_active' => true]
                         );
 
                         $ship = Ship::firstOrCreate(
@@ -788,29 +1101,44 @@ class DataImportExportService
                         );
 
                         $portId = null;
-                        if (filled($row['port_name'] ?? '')) {
+                        $portNameFound = trim((string) ($spkRowData['port_name'] ?? ''));
+                        if (blank($portNameFound)) {
+                            foreach ($items as $entry) {
+                                if (filled($entry['row']['port_name'] ?? '')) {
+                                    $portNameFound = trim((string) $entry['row']['port_name']);
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (filled($portNameFound)) {
                             $port = Port::firstOrCreate(
-                                ['name' => $row['port_name']],
-                                ['code' => strtoupper(Str::limit(preg_replace('/[^A-Za-z0-9]/', '', $row['port_name']), 5, '')), 'city' => 'Sumbawa', 'is_active' => true]
+                                ['name' => $portNameFound],
+                                ['code' => 'PRT-'.strtoupper(Str::random(5)), 'city' => 'Sumbawa', 'is_active' => true]
                             );
                             $portId = $port->id;
                         }
 
-                        $docDate = $this->parseDate($row['document_date'] ?? null) ?? now();
-                        $eta = $this->parseDate($row['planned_eta_at'] ?? null);
-                        $etd = $this->parseDate($row['planned_etd_at'] ?? null);
+                        $docDate = $this->parseDate($spkRowData['document_date'] ?? null) ?? now();
+                        $eta = $this->parseDate($spkRowData['planned_eta_at'] ?? $spkRowData['document_date'] ?? null) ?? $docDate;
+                        $etd = $this->parseDate($spkRowData['due_date'] ?? $spkRowData['planned_etd_at'] ?? null);
+                        $spkStatus = trim((string) ($spkRowData['status'] ?? $spkRowData['spk_status'] ?? 'active')) ?: 'active';
 
-                        $existing = WorkOrder::where('client_number', $clientNumber)->first();
-                        if ($existing) {
-                            $existing->update([
+                        $picName = $spkRowData['pic_name'] ?? $spkRowData['client_pic_name'] ?? null;
+                        $picContact = $spkRowData['pic_contact'] ?? $spkRowData['client_pic_contact'] ?? null;
+
+                        $workOrder = WorkOrder::where('client_number', $clientNumber)->first();
+                        if ($workOrder) {
+                            $workOrder->update([
                                 'company_id' => $company->id,
                                 'planned_ship_id' => $ship->id,
-                                'planned_port_id' => $portId ?? $existing->planned_port_id,
+                                'planned_port_id' => $portId ?? $workOrder->planned_port_id,
                                 'document_date' => $docDate,
                                 'planned_eta_at' => $eta,
                                 'planned_etd_at' => $etd,
-                                'client_pic_name' => $row['client_pic_name'] ?? $existing->client_pic_name,
-                                'client_pic_contact' => $row['client_pic_contact'] ?? $existing->client_pic_contact,
+                                'client_pic_name' => $picName ?? $workOrder->client_pic_name,
+                                'client_pic_contact' => $picContact ?? $workOrder->client_pic_contact,
+                                'status' => $spkStatus,
                             ]);
                             $updatedCount++;
                         } else {
@@ -824,25 +1152,340 @@ class DataImportExportService
                                 'document_date' => $docDate,
                                 'received_at' => now(),
                                 'source' => 'import',
-                                'status' => $row['status'] ?: 'active',
-                                'client_pic_name' => $row['client_pic_name'] ?? null,
-                                'client_pic_contact' => $row['client_pic_contact'] ?? null,
+                                'status' => $spkStatus,
+                                'client_pic_name' => $picName,
+                                'client_pic_contact' => $picContact,
                                 'created_by' => $user->id,
                             ]);
+                            $importedCount++;
+                        }
 
-                            // Automatically create PortCall for active/in_progress work orders
+                        // Automatically link or create PortCall (Job)
+                        $jobNumber = trim((string) ($spkRowData['job_number'] ?? ''));
+                        if (blank($jobNumber)) {
                             $jobNumber = sprintf('JOB-%s-%s', now()->format('Y'), Str::upper(Str::random(5)));
-                            PortCall::create([
+                        }
+
+                        $portCall = PortCall::where('work_order_id', $workOrder->id)->first();
+                        if (! $portCall) {
+                            $portCall = PortCall::create([
                                 'work_order_id' => $workOrder->id,
                                 'ship_id' => $ship->id,
                                 'port_id' => $portId ?? Port::first()?->id,
                                 'job_number' => $jobNumber,
                                 'status' => 'berthed',
-                                'eta_at' => $eta ?? now(),
-                                'etd_at' => $etd ?? now()->addDays(3),
+                                'eta_at' => $eta,
+                                'etd_at' => $etd ?? $docDate->copy()->addDays(3),
                             ]);
+                        } elseif (filled($spkRowData['job_number'] ?? '')) {
+                            $portCall->update(['job_number' => $jobNumber]);
+                        }
 
-                            $importedCount++;
+                        $touchedInvoices = [];
+                        $createdRequestItems = [];
+
+                        // Pass 1: Process Pengajuan items first
+                        foreach ($items as $entry) {
+                            $row = $entry['row'];
+                            $lineNo = trim((string) ($row['line_no'] ?? $row['no_urut'] ?? ''));
+                            $rowType = strtolower(trim((string) ($row['row_type'] ?? '')));
+                            $docNumber = trim((string) ($row['document_number'] ?? ''));
+
+                            // Skip if this is explicitly the SPK summary row
+                            if ((str_contains($rowType, 'spk') || in_array($lineNo, ['1.', '1', '2.', '2'], true)) && ! str_contains($rowType, 'pengajuan')) {
+                                continue;
+                            }
+
+                            $isPengajuan = str_contains($rowType, 'pengajuan')
+                                || str_contains($rowType, 'kebutuhan')
+                                || str_contains($rowType, 'pgj')
+                                || str_starts_with($lineNo, '1.2')
+                                || str_starts_with($lineNo, '2.1')
+                                || str_starts_with(strtoupper($docNumber), 'PGJ')
+                                || str_starts_with(strtoupper($docNumber), 'REQ')
+                                || filled($row['request_number'] ?? '')
+                                || (! str_contains($rowType, 'reimburse') && ! str_contains($rowType, 'keagenan') && ! str_contains($rowType, 'agency') && filled($row['item_name'] ?? ''));
+
+                            if (! $isPengajuan) {
+                                continue;
+                            }
+
+                            $reqNumber = trim((string) ($row['document_number'] ?? $row['request_number'] ?? ''));
+                            if (blank($reqNumber) || str_starts_with($reqNumber, 'SPK') || str_starts_with($reqNumber, 'INV')) {
+                                $reqNumber = 'PGJ-'.now()->format('Y').'-'.Str::upper(Str::random(4));
+                            }
+
+                            $itemName = trim((string) ($row['item_description'] ?? $row['item_name'] ?? ''));
+                            if (blank($itemName)) {
+                                continue;
+                            }
+
+                            $reqStatus = trim((string) ($row['status'] ?? $row['request_status'] ?? 'disetujui'));
+                            $isApproved = in_array(strtolower($reqStatus), ['disetujui', 'approved', 'selesai', 'completed'], true);
+                            $serviceCategory = trim((string) ($row['service_category'] ?? $row['service_type'] ?? 'logistics')) ?: 'logistics';
+
+                            $shipRequest = ShipRequest::where('request_number', $reqNumber)->first();
+                            if (! $shipRequest) {
+                                $shipRequest = ShipRequest::create([
+                                    'request_number' => $reqNumber,
+                                    'port_call_id' => $portCall->id,
+                                    'ship_id' => $ship->id,
+                                    'company_id' => $company->id,
+                                    'port_id' => $portId ?? $portCall->port_id,
+                                    'service_type' => $serviceCategory,
+                                    'status' => $isApproved ? 'disetujui' : 'diajukan_ke_direktur',
+                                    'request_date' => $this->parseDate($row['document_date'] ?? $row['required_date'] ?? null) ?? $docDate,
+                                    'created_by' => $user->id,
+                                ]);
+                            }
+
+                            $qty = (float) str_replace(',', '', (string) ($row['quantity'] ?? 1));
+                            if ($qty <= 0) {
+                                $qty = 1;
+                            }
+                            $unit = trim((string) ($row['unit'] ?? 'Unit')) ?: 'Unit';
+                            $unitPrice = (float) str_replace(',', '', (string) ($row['unit_price'] ?? $row['hpp_price'] ?? 0));
+                            $itemType = in_array(strtolower(trim((string) ($row['item_type'] ?? ''))), ['jasa', 'service'], true) ? 'jasa' : 'non_jasa';
+
+                            $requestItem = RequestItem::where('request_id', $shipRequest->id)
+                                ->where('item_name', $itemName)
+                                ->first();
+
+                            if (! $requestItem) {
+                                $sellingPrice = (float) str_replace(',', '', (string) ($row['unit_price'] ?? $row['hpp_price'] ?? $row['reimburse_selling_price'] ?? $row['agency_selling_price'] ?? 0));
+                                $requestItem = RequestItem::create([
+                                    'request_id' => $shipRequest->id,
+                                    'item_name' => $itemName,
+                                    'item_type' => $itemType,
+                                    'quantity' => $qty,
+                                    'unit' => $unit,
+                                    'hpp_price' => $unitPrice,
+                                    'selling_price' => $sellingPrice,
+                                    'required_date' => $this->parseDate($row['document_date'] ?? $row['required_date'] ?? null) ?? $docDate,
+                                    'status' => $isApproved ? 'disetujui' : 'diajukan_ke_direktur',
+                                    'director_status' => $isApproved ? 'approved' : 'pending',
+                                ]);
+                            }
+
+                            $createdRequestItems[$itemName] = $requestItem;
+                        }
+
+                        // Pass 2: Process Invoices (Reimbursement and Agency)
+                        foreach ($items as $entry) {
+                            $row = $entry['row'];
+                            $lineNo = trim((string) ($row['line_no'] ?? $row['no_urut'] ?? ''));
+                            $rowType = strtolower(trim((string) ($row['row_type'] ?? '')));
+                            $docNumber = trim((string) ($row['document_number'] ?? ''));
+                            $itemDesc = trim((string) ($row['item_description'] ?? ''));
+                            $linkedItemName = trim((string) ($row['linked_item_name'] ?? ''));
+
+                            // Reimbursement invoice detection
+                            $isReimburse = str_contains($rowType, 'reimburse')
+                                || str_contains($rowType, 'rmb')
+                                || str_starts_with($lineNo, '1.3')
+                                || str_starts_with($lineNo, '2.2')
+                                || strtolower(trim((string) ($row['service_category'] ?? ''))) === 'reimburse'
+                                || (str_starts_with(strtoupper($docNumber), 'INV') && str_contains(strtoupper($docNumber), 'RMB'))
+                                || filled($row['reimburse_invoice_number'] ?? '');
+
+                            // Agency invoice detection
+                            $isAgency = str_contains($rowType, 'agency')
+                                || str_contains($rowType, 'keagenan')
+                                || str_contains($rowType, 'agy')
+                                || str_starts_with($lineNo, '1.4')
+                                || str_starts_with($lineNo, '2.3')
+                                || strtolower(trim((string) ($row['service_category'] ?? ''))) === 'agency'
+                                || (str_starts_with(strtoupper($docNumber), 'INV') && str_contains(strtoupper($docNumber), 'AGY'))
+                                || filled($row['agency_invoice_number'] ?? '');
+
+                            // Process Reimbursement Invoice
+                            if ($isReimburse) {
+                                $reimbInvNumber = filled($docNumber) && ! str_starts_with(strtoupper($docNumber), 'SPK') && ! str_starts_with(strtoupper($docNumber), 'PGJ')
+                                    ? $docNumber
+                                    : (trim((string) ($row['reimburse_invoice_number'] ?? '')) ?: ('INV-'.now()->format('Y').'-RMB-'.Str::upper(Str::random(4))));
+
+                                $reimbInv = Invoice::where('invoice_number', $reimbInvNumber)->first();
+                                if (! $reimbInv) {
+                                    $rawReimbStatus = strtolower(trim((string) ($row['status'] ?? $row['reimburse_status'] ?? 'draft')));
+                                    $reimbStatus = match ($rawReimbStatus) {
+                                        'paid', 'lunas' => 'paid',
+                                        'released', 'terkirim', 'dirilis' => 'released',
+                                        default => 'draft',
+                                    };
+                                    $reimbInv = Invoice::create([
+                                        'invoice_number' => $reimbInvNumber,
+                                        'port_call_id' => $portCall->id,
+                                        'company_id' => $company->id,
+                                        'request_id' => $portCall->requests()->first()?->id,
+                                        'invoice_type' => 'reimburse',
+                                        'invoice_date' => $this->parseDate($row['document_date'] ?? null) ?? $docDate,
+                                        'due_date' => $this->parseDate($row['due_date'] ?? $row['reimburse_due_date'] ?? null) ?? $docDate->copy()->addDays(14),
+                                        'subtotal' => 0,
+                                        'addon_total' => 0,
+                                        'discount' => 0,
+                                        'tax' => 0,
+                                        'grand_total' => 0,
+                                        'paid_amount' => 0,
+                                        'outstanding_amount' => 0,
+                                        'currency' => 'IDR',
+                                        'status' => $reimbStatus,
+                                        'delivery_status' => 'pending',
+                                        'version' => 1,
+                                    ]);
+                                }
+
+                                $desc = $itemDesc ?: (trim((string) ($row['reimburse_description'] ?? '')) ?: 'Reimbursement Biaya Operasional');
+                                $qty = (float) str_replace(',', '', (string) ($row['quantity'] ?? $row['reimburse_qty'] ?? 1));
+                                if ($qty <= 0) {
+                                    $qty = 1;
+                                }
+                                $unit = trim((string) ($row['unit'] ?? 'Unit')) ?: 'Unit';
+                                $price = (float) str_replace(',', '', (string) ($row['unit_price'] ?? $row['reimburse_selling_price'] ?? 0));
+                                $subtotal = (float) str_replace(',', '', (string) ($row['total_price'] ?? $row['reimburse_subtotal'] ?? ($qty * $price)));
+
+                                // Find matching RequestItem
+                                $matchedReqItem = null;
+                                if (filled($linkedItemName) && isset($createdRequestItems[$linkedItemName])) {
+                                    $matchedReqItem = $createdRequestItems[$linkedItemName];
+                                } elseif (isset($createdRequestItems[$desc])) {
+                                    $matchedReqItem = $createdRequestItems[$desc];
+                                } else {
+                                    foreach ($createdRequestItems as $k => $ritem) {
+                                        if (str_contains(strtolower($desc), strtolower($k)) || str_contains(strtolower($k), strtolower($desc))) {
+                                            $matchedReqItem = $ritem;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                $existingReimbItem = $reimbInv->items()->where('description', $desc)->first();
+                                if (! $existingReimbItem) {
+                                    $invItem = $reimbInv->items()->create([
+                                        'request_item_id' => $matchedReqItem?->id,
+                                        'description' => $desc,
+                                        'quantity' => $qty,
+                                        'unit' => $unit,
+                                        'unit_price' => $price,
+                                        'subtotal' => $subtotal,
+                                        'sort_order' => $reimbInv->items()->count(),
+                                        'is_custom' => $matchedReqItem === null,
+                                    ]);
+
+                                    if ($matchedReqItem) {
+                                        InvoiceItemSource::firstOrCreate([
+                                            'invoice_item_id' => $invItem->id,
+                                            'request_item_id' => $matchedReqItem->id,
+                                        ], [
+                                            'allocated_quantity' => $qty,
+                                            'source_cost' => $qty * (float) $matchedReqItem->hpp_price,
+                                        ]);
+                                        $matchedReqItem->update(['is_invoiced' => true]);
+                                    }
+                                }
+                                $touchedInvoices[$reimbInv->id] = $reimbInv;
+                            }
+
+                            // Process Agency Invoice
+                            if ($isAgency) {
+                                $agencyInvNumber = filled($docNumber) && ! str_starts_with(strtoupper($docNumber), 'SPK') && ! str_starts_with(strtoupper($docNumber), 'PGJ')
+                                    ? $docNumber
+                                    : (trim((string) ($row['agency_invoice_number'] ?? '')) ?: ('INV-'.now()->format('Y').'-AGY-'.Str::upper(Str::random(4))));
+
+                                $agencyInv = Invoice::where('invoice_number', $agencyInvNumber)->first();
+                                if (! $agencyInv) {
+                                    $rawAgencyStatus = strtolower(trim((string) ($row['status'] ?? $row['agency_status'] ?? 'draft')));
+                                    $agencyStatus = match ($rawAgencyStatus) {
+                                        'paid', 'lunas' => 'paid',
+                                        'released', 'terkirim', 'dirilis' => 'released',
+                                        default => 'draft',
+                                    };
+                                    $agencyInv = Invoice::create([
+                                        'invoice_number' => $agencyInvNumber,
+                                        'port_call_id' => $portCall->id,
+                                        'company_id' => $company->id,
+                                        'request_id' => $portCall->requests()->first()?->id,
+                                        'invoice_type' => 'agency',
+                                        'invoice_date' => $this->parseDate($row['document_date'] ?? null) ?? $docDate,
+                                        'due_date' => $this->parseDate($row['due_date'] ?? $row['agency_due_date'] ?? null) ?? $docDate->copy()->addDays(14),
+                                        'subtotal' => 0,
+                                        'addon_total' => 0,
+                                        'discount' => 0,
+                                        'tax' => 0,
+                                        'grand_total' => 0,
+                                        'paid_amount' => 0,
+                                        'outstanding_amount' => 0,
+                                        'currency' => 'IDR',
+                                        'status' => $agencyStatus,
+                                        'delivery_status' => 'pending',
+                                        'version' => 1,
+                                    ]);
+                                }
+
+                                $desc = $itemDesc ?: (trim((string) ($row['agency_description'] ?? '')) ?: 'Jasa Pelayanan Keagenan Kapal');
+                                $qty = (float) str_replace(',', '', (string) ($row['quantity'] ?? $row['agency_qty'] ?? 1));
+                                if ($qty <= 0) {
+                                    $qty = 1;
+                                }
+                                $unit = trim((string) ($row['unit'] ?? 'Kegiatan')) ?: 'Kegiatan';
+                                $price = (float) str_replace(',', '', (string) ($row['unit_price'] ?? $row['agency_selling_price'] ?? 0));
+                                $subtotal = (float) str_replace(',', '', (string) ($row['total_price'] ?? $row['agency_subtotal'] ?? ($qty * $price)));
+
+                                // Find matching RequestItem
+                                $matchedReqItem = null;
+                                if (filled($linkedItemName) && isset($createdRequestItems[$linkedItemName])) {
+                                    $matchedReqItem = $createdRequestItems[$linkedItemName];
+                                } elseif (isset($createdRequestItems[$desc])) {
+                                    $matchedReqItem = $createdRequestItems[$desc];
+                                } else {
+                                    foreach ($createdRequestItems as $k => $ritem) {
+                                        if (str_contains(strtolower($desc), strtolower($k)) || str_contains(strtolower($k), strtolower($desc))) {
+                                            $matchedReqItem = $ritem;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                $existingAgencyItem = $agencyInv->items()->where('description', $desc)->first();
+                                if (! $existingAgencyItem) {
+                                    $invItem = $agencyInv->items()->create([
+                                        'request_item_id' => $matchedReqItem?->id,
+                                        'description' => $desc,
+                                        'quantity' => $qty,
+                                        'unit' => $unit,
+                                        'unit_price' => $price,
+                                        'subtotal' => $subtotal,
+                                        'sort_order' => $agencyInv->items()->count(),
+                                        'is_custom' => $matchedReqItem === null,
+                                    ]);
+
+                                    if ($matchedReqItem) {
+                                        InvoiceItemSource::firstOrCreate([
+                                            'invoice_item_id' => $invItem->id,
+                                            'request_item_id' => $matchedReqItem->id,
+                                        ], [
+                                            'allocated_quantity' => $qty,
+                                            'source_cost' => $qty * (float) $matchedReqItem->hpp_price,
+                                        ]);
+                                        $matchedReqItem->update(['is_invoiced' => true]);
+                                    }
+                                }
+                                $touchedInvoices[$agencyInv->id] = $agencyInv;
+                            }
+                        }
+
+                        // Recalculate totals on touched invoices
+                        foreach ($touchedInvoices as $inv) {
+                            $inv->refresh();
+                            $subtotal = (float) $inv->items()->sum('subtotal');
+                            $tax = (float) $inv->tax;
+                            $grandTotal = $subtotal + $tax;
+                            $isPaid = in_array(strtolower($inv->status), ['paid', 'lunas'], true);
+                            $inv->update([
+                                'subtotal' => $subtotal,
+                                'grand_total' => $grandTotal,
+                                'paid_amount' => $isPaid ? $grandTotal : 0,
+                                'outstanding_amount' => $isPaid ? 0 : $grandTotal,
+                            ]);
                         }
                     }
                     break;

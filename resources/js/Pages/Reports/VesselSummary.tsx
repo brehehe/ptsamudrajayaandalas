@@ -349,14 +349,14 @@ export default function VesselSummary({
     const getStatusLabel = (st: string) => {
         switch (st?.toLowerCase()) {
             case 'berthed':
-                return { label: 'Sandar', tone: 'success' as const };
+                return { label: 'Sandar', tone: 'danger' as const };
             case 'anchored':
-                return { label: 'Labuh', tone: 'info' as const };
+                return { label: 'Labuh', tone: 'warning' as const };
             case 'departed':
             case 'completed':
-                return { label: 'Selesai / Berlayar', tone: 'neutral' as const };
+                return { label: 'Selesai / Berlayar', tone: 'success' as const };
             case 'scheduled':
-                return { label: 'Akan Datang', tone: 'warning' as const };
+                return { label: 'Akan Datang', tone: 'info' as const };
             case 'idle':
             default:
                 return { label: 'Tidak Ada Kunjungan', tone: 'neutral' as const };

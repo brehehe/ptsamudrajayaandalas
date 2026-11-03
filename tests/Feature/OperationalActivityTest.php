@@ -3,6 +3,7 @@
 use App\Models\OperationalActivity;
 use App\Models\PortCall;
 use App\Models\Ship;
+use App\Models\ShipCompany;
 use App\Models\User;
 use Spatie\Permission\Models\Role;
 
@@ -145,4 +146,126 @@ test('vessel activity rejects a visit job that belongs to another ship', functio
         ]);
 
     expect(OperationalActivity::query()->count())->toBe(0);
+});
+
+test('activity can be saved for other ship without job and with custom position', function () {
+    $user = User::factory()->create();
+    $user->assignRole('Lapangan');
+
+    $response = $this->actingAs($user)
+        ->from(route('operations.index'))
+        ->post(route('operations.activities.store'), [
+            'activity_date' => '2026-10-22',
+            'activity_time' => '09:00',
+            'location_name' => 'Dermaga Luar',
+            'is_vessel_related' => true,
+            'ship_id' => '__other__',
+            'custom_ship_name' => 'KM Sumber Berkah',
+            'category' => 'Kegiatan Kapal',
+            'title' => 'Pengecekan Tali Sandar',
+            'detail' => 'Pengecekan tali sandar kapal eksternal selesai.',
+            'vessel_position' => 'berthed',
+        ]);
+
+    $response
+        ->assertRedirect(route('operations.index'))
+        ->assertSessionHas('success', 'Aktivitas lapangan berhasil dicatat.');
+
+    $activity = OperationalActivity::query()->where('title', 'Pengecekan Tali Sandar')->first();
+
+    expect($activity)->not->toBeNull()
+        ->and($activity->ship_id)->toBeNull()
+        ->and($activity->custom_ship_name)->toBe('KM Sumber Berkah')
+        ->and($activity->port_call_id)->toBeNull()
+        ->and($activity->vessel_position)->toBe('berthed');
+});
+
+test('activity for registered ship can skip port call job and save successfully', function () {
+    $user = User::factory()->create();
+    $user->assignRole('Lapangan');
+    $ship = Ship::create(['name' => 'KM Mitra Sejati', 'status' => 'Labuh', 'is_active' => true]);
+
+    $response = $this->actingAs($user)
+        ->from(route('operations.index'))
+        ->post(route('operations.activities.store'), [
+            'activity_date' => '2026-10-22',
+            'activity_time' => '10:00',
+            'location_name' => 'Area Labuh',
+            'is_vessel_related' => true,
+            'ship_id' => $ship->id,
+            'category' => 'Kegiatan Kapal',
+            'title' => 'Monitoring Posisi Labuh',
+            'detail' => 'Monitoring rutin tanpa nomor SPK/job aktif.',
+            'vessel_position' => 'anchored',
+        ]);
+
+    $response
+        ->assertRedirect(route('operations.index'))
+        ->assertSessionHas('success', 'Aktivitas lapangan berhasil dicatat.');
+
+    $activity = OperationalActivity::query()->where('title', 'Monitoring Posisi Labuh')->first();
+
+    expect($activity)->not->toBeNull()
+        ->and($activity->ship_id)->toBe($ship->id)
+        ->and($activity->port_call_id)->toBeNull()
+        ->and($activity->vessel_position)->toBe('anchored');
+});
+
+test('operations index filters work correctly with status, ship, company, and search', function () {
+    $user = User::factory()->create();
+    $user->assignRole('Lapangan');
+
+    $company = ShipCompany::create(['name' => 'PT Pelayaran Maju Jaya', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM Samudra 88', 'ship_company_id' => $company->id, 'status' => 'Sandar', 'is_active' => true]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-FILTER-001',
+        'ship_id' => $ship->id,
+        'status' => 'berthed',
+        'eta_at' => '2026-10-20 08:00:00',
+    ]);
+
+    $response = $this->actingAs($user)->get(route('operations.index', [
+        'company_id' => $company->id,
+        'ship_id' => $ship->id,
+        'job' => 'JOB-FILTER-001',
+        'status' => 'berthed',
+        'search' => 'Samudra',
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Operations/Index')
+            ->has('portCalls', 1)
+            ->where('filters.company_id', $company->id)
+            ->where('filters.ship_id', $ship->id)
+            ->where('filters.job', 'JOB-FILTER-001')
+            ->where('filters.status', 'berthed')
+            ->where('filters.search', 'Samudra')
+        );
+});
+
+test('operational activity can be deleted by authorized staff', function () {
+    $user = User::factory()->create();
+    $user->assignRole('Lapangan');
+
+    $activity = OperationalActivity::create([
+        'activity_date' => '2026-10-20',
+        'activity_time' => '11:00',
+        'location_name' => 'Dermaga Mirah',
+        'is_vessel_related' => false,
+        'category' => 'Kegiatan Kapal',
+        'title' => 'Pemeriksaan tali tambat',
+        'detail' => 'Pemeriksaan tali tambat selesai dilakukan.',
+        'created_by' => $user->id,
+    ]);
+
+    $response = $this->actingAs($user)
+        ->from(route('operations.index'))
+        ->delete(route('operations.activities.destroy', $activity->id));
+
+    $response->assertRedirect(route('operations.index'))
+        ->assertSessionHas('success', 'Aktivitas lapangan berhasil dihapus.');
+
+    expect(OperationalActivity::find($activity->id))->toBeNull();
+    expect(OperationalActivity::withTrashed()->find($activity->id))->not->toBeNull();
 });

@@ -546,3 +546,35 @@ test('admin can store and update invoice by supplying total_price directly', fun
     expect((float) $updatedLine->subtotal)->toBe(1500000.0)
         ->and((float) $updatedLine->unit_price)->toBe(750000.0);
 });
+
+test('invoice line description supports longtext exceeding 255 characters on create and update', function () {
+    $admin = clientInvoiceAdmin();
+    $workflow = clientInvoiceWorkflow($admin);
+
+    $longDescription = str_repeat('Jasa pelayanan kapal keagenan dan logistik operasional pelabuhan serta administrasi clearance in out syahbandar karantina. ', 5);
+    expect(strlen($longDescription))->toBeGreaterThan(255);
+
+    $response = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => $longDescription,
+                'quantity' => '1',
+                'unit' => 'Kegiatan',
+                'unit_price' => '2500000',
+                'total_price' => '2500000',
+                'source_item_ids' => [$workflow['agencyItem']->id],
+            ],
+        ],
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $invoice = Invoice::query()->latest('id')->firstOrFail();
+
+    $item = $invoice->items()->firstOrFail();
+    expect($item->description)->toBe(trim($longDescription));
+});

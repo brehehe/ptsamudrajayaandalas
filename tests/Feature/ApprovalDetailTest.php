@@ -3,6 +3,7 @@
 use App\Models\PortCall;
 use App\Models\RequestItem;
 use App\Models\Ship;
+use App\Models\ShipCompany;
 use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\Vendor;
@@ -502,5 +503,266 @@ test('approval detail resolves by item name url and exposes surplus allocation p
             ->where('requests.0.items.1.surplus_amount', '500000.00')
             ->where('requests.0.items.1.original_hpp_price', '2500000.00')
             ->where('requests.0.items.1.surplus_source_item_name', 'Item Sumber Sisa Biaya')
+        );
+});
+
+test('approvals index filters correctly with company, ship, job, and tab status', function () {
+    $role = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
+    $director = User::factory()->create();
+    $director->assignRole($role);
+
+    $company = ShipCompany::create(['name' => 'PT Pelayaran Approval Test', 'is_active' => true]);
+    $ship = Ship::create(['name' => 'KM Approval Express', 'ship_company_id' => $company->id, 'status' => 'Sandar', 'is_active' => true]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-APP-FILTER-001',
+        'ship_id' => $ship->id,
+        'status' => 'berthed',
+        'eta_at' => now()->toDateString(),
+    ]);
+
+    $shipRequest = ShipRequest::create([
+        'request_number' => 'REQ-APP-FILTER-001',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $director->id,
+        'status' => 'Menunggu Approval Direktur',
+        'request_date' => now()->toDateString(),
+    ]);
+
+    $response = $this->actingAs($director)->get(route('approvals.index', [
+        'tab' => 'menunggu',
+        'company_id' => $company->id,
+        'ship_id' => $ship->id,
+        'job' => 'JOB-APP-FILTER-001',
+        'search' => 'Approval',
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Index')
+            ->has('requests', 1)
+            ->where('filters.company_id', $company->id)
+            ->where('filters.ship_id', $ship->id)
+            ->where('filters.job', 'JOB-APP-FILTER-001')
+            ->where('filters.tab', 'menunggu')
+            ->where('filters.status', 'menunggu')
+            ->where('filters.search', 'Approval')
+        );
+});
+
+test('approvals index hpp totals respect date filters and approved hpp only counts approved items', function () {
+    $role = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
+    $director = User::factory()->create();
+    $director->assignRole($role);
+
+    $ship = Ship::create(['name' => 'KM HPP Precision', 'status' => 'Sandar', 'is_active' => true]);
+    $portCall = PortCall::create([
+        'job_number' => 'JOB-HPP-001',
+        'ship_id' => $ship->id,
+        'status' => 'berthed',
+    ]);
+
+    // Request on 2026-11-02
+    $reqToday = ShipRequest::create([
+        'request_number' => 'REQ-TODAY-001',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $director->id,
+        'status' => 'Disetujui Sebagian',
+        'request_date' => '2026-11-02',
+    ]);
+
+    // Item 1: approved (100.000)
+    RequestItem::create([
+        'request_id' => $reqToday->id,
+        'item_name' => 'Item 1 Approved',
+        'quantity' => 1,
+        'hpp_price' => 100000,
+        'status' => 'approved',
+        'director_status' => 'approved',
+    ]);
+
+    // Item 2: pending (200.000)
+    RequestItem::create([
+        'request_id' => $reqToday->id,
+        'item_name' => 'Item 2 Pending',
+        'quantity' => 1,
+        'hpp_price' => 200000,
+        'status' => 'diajukan_ke_direktur',
+        'director_status' => 'pending',
+    ]);
+
+    // Request on a different date (2026-10-15)
+    $reqOld = ShipRequest::create([
+        'request_number' => 'REQ-OLD-001',
+        'ship_id' => $ship->id,
+        'port_call_id' => $portCall->id,
+        'created_by' => $director->id,
+        'status' => 'Disetujui',
+        'request_date' => '2026-10-15',
+    ]);
+
+    RequestItem::create([
+        'request_id' => $reqOld->id,
+        'item_name' => 'Item Old Approved',
+        'quantity' => 1,
+        'hpp_price' => 50000000,
+        'status' => 'approved',
+        'director_status' => 'approved',
+    ]);
+
+    // Filter specifically by 2026-11-02
+    $response = $this->actingAs($director)->get(route('approvals.index', [
+        'tab' => 'disetujui',
+        'start_date' => '2026-11-02',
+        'end_date' => '2026-11-02',
+    ]));
+
+    $response->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Approvals/Index')
+            ->where('all_requests_total_hpp', 300000) // 100k + 200k for 2026-11-02 only
+            ->where('approved_requests_total_hpp', 100000) // Only the 100k approved item! NOT 300k, NOT 50.3M!
+            ->where('waiting_requests_total_hpp', 200000) // The 200k pending item
+        );
+});
+
+test('bu titik and pak ryan partial approval and resubmission workflow records full audit history', function () {
+    $adminRole = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+    $directorRole = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
+
+    $buTitik = User::factory()->create(['name' => 'Bu Titik']);
+    $buTitik->assignRole($adminRole);
+
+    $pakRyan = User::factory()->create(['name' => 'Pak Ryan']);
+    $pakRyan->assignRole($directorRole);
+
+    $ship = Ship::create([
+        'name' => 'KM Samudra Test',
+        'status' => 'Akan Datang',
+        'is_active' => true,
+    ]);
+
+    $shipRequest = ShipRequest::create([
+        'request_number' => 'PGJ-2026-9999',
+        'ship_id' => $ship->id,
+        'created_by' => $buTitik->id,
+        'status' => 'Menunggu Approval',
+        'request_date' => '2026-11-03',
+    ]);
+
+    $item1 = RequestItem::create([
+        'request_id' => $shipRequest->id,
+        'item_type' => 'jasa',
+        'item_name' => 'Taktis Sandar Kapal',
+        'unit' => 'Kegiatan',
+        'quantity' => 1,
+        'hpp_price' => 1500000,
+        'status' => 'pending',
+        'director_status' => 'pending',
+        'supplier_invoice_number' => 'INV-TEST-001',
+        'supplier_invoice_date' => '2026-11-03',
+        'supplier_invoice_received_date' => '2026-11-03',
+        'supplier_invoice_path' => 'supplier-invoices/test1.pdf',
+        'supplier_invoice_uploaded_by' => $buTitik->id,
+    ]);
+
+    $item2 = RequestItem::create([
+        'request_id' => $shipRequest->id,
+        'item_type' => 'non_jasa',
+        'item_name' => 'Tali Tambat Polypropylene',
+        'unit' => 'Roll',
+        'quantity' => 2,
+        'hpp_price' => 3000000,
+        'status' => 'pending',
+        'director_status' => 'pending',
+        'supplier_invoice_number' => 'INV-TEST-002',
+        'supplier_invoice_date' => '2026-11-03',
+        'supplier_invoice_received_date' => '2026-11-03',
+        'supplier_invoice_path' => 'supplier-invoices/test2.pdf',
+        'supplier_invoice_uploaded_by' => $buTitik->id,
+    ]);
+
+    // Step 1: Bu Titik forwards both items to Pak Ryan on 2026-11-03
+    $forwardResponse = $this->actingAs($buTitik)->post(route('requests.forward-director', $shipRequest->id), [
+        'selected_items' => [$item1->id, $item2->id],
+        'item_prices' => [
+            ['id' => $item1->id, 'hpp_price' => 1500000],
+            ['id' => $item2->id, 'hpp_price' => 3000000],
+        ],
+        'admin_notes' => 'Pengajuan awal 2 item kebutuhan kapal',
+        'submission_date' => '2026-11-03',
+    ]);
+    $forwardResponse->assertRedirect();
+
+    $shipRequest->refresh();
+    expect($shipRequest->status)->toBe('Menunggu Approval Direktur');
+    expect($shipRequest->histories)->toHaveCount(1);
+    expect($shipRequest->histories->first()->action)->toBe('submitted_to_director');
+    expect($shipRequest->histories->first()->actor_name)->toBe('Bu Titik');
+    expect($shipRequest->histories->first()->submission_date->toDateString())->toBe('2026-11-03');
+
+    // Step 2: Pak Ryan approves only Item 1, while Item 2 is unselected (returned to Admin)
+    $decisionResponse = $this->actingAs($pakRyan)->post(route('approvals.requests.batch-item-decision'), [
+        'decisions' => [
+            ['item_id' => $item1->id, 'status' => 'approved', 'director_notes' => 'ACC Taktis Sandar'],
+            ['item_id' => $item2->id, 'status' => 'pending', 'director_notes' => 'Tali tambat mohon negosiasi harga dulu dengan supplier'],
+        ],
+    ]);
+    $decisionResponse->assertRedirect();
+
+    $item1->refresh();
+    $item2->refresh();
+    $shipRequest->refresh();
+
+    expect($item1->director_status)->toBe('approved');
+    expect($item1->status)->toBe('disetujui');
+    expect($item2->director_status)->toBe('pending');
+    expect($item2->status)->toBe('pending');
+    expect($shipRequest->status)->toBe('Disetujui Sebagian');
+
+    // History should now have 2 records
+    expect($shipRequest->histories)->toHaveCount(2);
+    $decisionHistory = $shipRequest->histories->last();
+    expect($decisionHistory->action)->toBe('director_partial_approval');
+    expect($decisionHistory->actor_name)->toBe('Pak Ryan');
+
+    // Step 3: Bu Titik checks the request detail and sees the histories & returned item
+    $showResponse = $this->actingAs($buTitik)->get(route('requests.show', $shipRequest->id));
+    $showResponse->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('requests.0.histories', 2)
+            ->where('requests.0.status', 'Disetujui Sebagian')
+        );
+
+    // Step 4: The next day (2026-11-04), Bu Titik re-submits Item 2 to Pak Ryan with a new date
+    $resubmitResponse = $this->actingAs($buTitik)->post(route('requests.forward-director', $shipRequest->id), [
+        'selected_items' => [$item2->id],
+        'item_prices' => [
+            ['id' => $item2->id, 'hpp_price' => 2800000],
+        ],
+        'admin_notes' => 'Harga tali tambat sudah dinegosiasi turun menjadi 2.8jt per roll',
+        'submission_date' => '2026-11-04',
+    ]);
+    $resubmitResponse->assertRedirect();
+
+    $shipRequest->refresh();
+    $item2->refresh();
+
+    expect($item2->status)->toBe('diajukan_ke_direktur');
+    expect($item2->hpp_price)->toBe('2800000.00');
+    expect($shipRequest->status)->toBe('Menunggu Approval Direktur');
+    expect($shipRequest->histories)->toHaveCount(3);
+
+    $resubmitHistory = $shipRequest->histories->last();
+    expect($resubmitHistory->action)->toBe('resubmitted_to_director');
+    expect($resubmitHistory->actor_name)->toBe('Bu Titik');
+    expect($resubmitHistory->submission_date->toDateString())->toBe('2026-11-04');
+
+    // Step 5: Pak Ryan views approval detail and sees all 3 timeline entries
+    $approvalDetailResponse = $this->actingAs($pakRyan)->get('/approvals/'.$shipRequest->request_number.'/detail');
+    $approvalDetailResponse->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('requests.0.histories', 3)
         );
 });

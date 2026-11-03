@@ -99,8 +99,15 @@ final class ReportExportXlsxBuilder
         $writer->writeAttribute('xmlns', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
         $writer->writeAttribute('xmlns:r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
 
+        // Dynamic Header Row Index based on meta lines count
+        $metaLines = $data['meta_lines'] ?? [];
+        if (empty($metaLines)) {
+            $metaLines = ['Diekspor pada: '.now()->timezone('Asia/Jakarta')->format('d-m-Y H:i').' WIB'];
+        }
+        $metaCount = count($metaLines);
+        $headerRowIndex = $metaCount + 3;
+
         // Freeze pane below header
-        $headerRowIndex = 5;
         $writer->startElement('sheetViews');
         $writer->startElement('sheetView');
         $writer->writeAttribute('workbookViewId', '0');
@@ -139,20 +146,18 @@ final class ReportExportXlsxBuilder
             'A' => strtoupper($company).' — '.strtoupper($data['title']),
         ], 1, 28);
 
-        // Row 2-3: Meta lines
-        $metaLines = $data['meta_lines'] ?? [];
+        // Row 2..N: Meta lines
+        $mergeReferences = [
+            'A1:'.$lastColumnLetter.'1',
+        ];
         $metaRowIndex = 2;
-        foreach (array_slice($metaLines, 0, 2) as $meta) {
+        foreach ($metaLines as $meta) {
             $this->writeTextRow($writer, $metaRowIndex, ['A' => $meta], 2, 20);
+            $mergeReferences[] = 'A'.$metaRowIndex.':'.$lastColumnLetter.$metaRowIndex;
             $metaRowIndex++;
         }
-        if (count($metaLines) < 2) {
-            $this->writeTextRow($writer, 3, [
-                'A' => 'Diekspor pada: '.now()->timezone('Asia/Jakarta')->format('d-m-Y H:i').' WIB',
-            ], 2, 20);
-        }
 
-        // Row 5: Table Header Row
+        // Table Header Row
         $writer->startElement('row');
         $writer->writeAttribute('r', (string) $headerRowIndex);
         $writer->writeAttribute('ht', '26');
@@ -164,12 +169,7 @@ final class ReportExportXlsxBuilder
         $writer->endElement();
 
         // Data Rows
-        $currentRow = 6;
-        $mergeReferences = [
-            'A1:'.$lastColumnLetter.'1',
-            'A2:'.$lastColumnLetter.'2',
-            'A3:'.$lastColumnLetter.'3',
-        ];
+        $currentRow = $headerRowIndex + 1;
 
         if (empty($data['rows'])) {
             $this->writeTextRow($writer, $currentRow, [
@@ -472,7 +472,7 @@ final class ReportExportXlsxBuilder
                 $currentRow++;
             }
 
-            // Grand Total Row
+            // Grand Total Kapal Row
             $grandTotal = (float) array_sum(array_column($sections, 'total_expense'));
             $totalItems = (int) array_sum(array_column($sections, 'item_count'));
             $vesselsCount = count($sections);
@@ -482,7 +482,7 @@ final class ReportExportXlsxBuilder
             $writer->writeAttribute('ht', '26');
             $writer->writeAttribute('customHeight', '1');
 
-            $this->writeTextCell($writer, 'A'.$currentRow, 'GRAND TOTAL PENGELUARAN SEMUA KAPAL:', 9);
+            $this->writeTextCell($writer, 'A'.$currentRow, 'GRAND TOTAL PENGELUARAN KAPAL (HPP):', 9);
             for ($ci = 1; $ci < 7; $ci++) {
                 $this->writeTextCell($writer, $this->columnLetter($ci + 1).$currentRow, '', 9);
             }
@@ -496,8 +496,179 @@ final class ReportExportXlsxBuilder
 
             // Spacer Row
             $currentRow++;
+        }
 
-            // Summary Boxes Row: Total Kapal Terdata (kiri), Total Item Kebutuhan (tengah), Total Pengeluaran (kanan)
+        // Section B: Office / Company Outgoing Payments (Optional)
+        $hasOfficeSection = ! empty($data['office_section']);
+        $totalOfficeExpense = 0.0;
+        if ($hasOfficeSection) {
+            $office = $data['office_section'];
+            $officeRows = $office['rows'] ?? [];
+            $totalOfficeExpense = (float) ($office['total'] ?? 0);
+
+            // Office Banner Row
+            $writer->startElement('row');
+            $writer->writeAttribute('r', (string) $currentRow);
+            $writer->writeAttribute('ht', '26');
+            $writer->writeAttribute('customHeight', '1');
+            $this->writeTextCell($writer, 'A'.$currentRow, $office['title'] ?? 'BIAYA OPERASIONAL KANTOR & KAS KELUAR PERUSAHAAN', 9);
+            for ($ci = 1; $ci < 10; $ci++) {
+                $this->writeTextCell($writer, $this->columnLetter($ci + 1).$currentRow, '', 9);
+            }
+            $writer->endElement();
+            $mergeReferences[] = "A{$currentRow}:J{$currentRow}";
+            $currentRow++;
+
+            // Office Column Headers Row
+            $officeHeaderTitles = ['No.', 'No. Referensi', 'Tanggal', 'Kapal / Job', 'Penerima / Vendor', 'Keperluan / Rincian', 'Jumlah (Rp)', 'Status', 'Dicatat Oleh'];
+            $writer->startElement('row');
+            $writer->writeAttribute('r', (string) $currentRow);
+            $writer->writeAttribute('ht', '24');
+            $writer->writeAttribute('customHeight', '1');
+            foreach ($officeHeaderTitles as $oIdx => $oTitle) {
+                $this->writeTextCell($writer, $this->columnLetter($oIdx + 1).$currentRow, $oTitle, 3);
+            }
+            $this->writeTextCell($writer, 'J'.$currentRow, '', 3);
+            $writer->endElement();
+            $currentRow++;
+
+            // Office Item Rows
+            if (empty($officeRows)) {
+                $writer->startElement('row');
+                $writer->writeAttribute('r', (string) $currentRow);
+                $writer->writeAttribute('ht', '20');
+                $this->writeTextCell($writer, 'A'.$currentRow, 'Belum ada transaksi kas keluar / biaya operasional kantor untuk periode ini.', 4);
+                for ($ci = 1; $ci < 10; $ci++) {
+                    $this->writeTextCell($writer, $this->columnLetter($ci + 1).$currentRow, '', 4);
+                }
+                $writer->endElement();
+                $mergeReferences[] = "A{$currentRow}:J{$currentRow}";
+                $currentRow++;
+            } else {
+                foreach ($officeRows as $or) {
+                    $writer->startElement('row');
+                    $writer->writeAttribute('r', (string) $currentRow);
+                    $writer->writeAttribute('ht', '20');
+                    $this->writeNumberCell($writer, 'A'.$currentRow, (float) ($or[0] ?? 0), 4);
+                    $this->writeTextCell($writer, 'B'.$currentRow, (string) ($or[1] ?? '-'), 4);
+                    $this->writeTextCell($writer, 'C'.$currentRow, (string) ($or[2] ?? '-'), 4);
+                    $this->writeTextCell($writer, 'D'.$currentRow, (string) ($or[3] ?? '-'), 4);
+                    $this->writeTextCell($writer, 'E'.$currentRow, (string) ($or[4] ?? '-'), 4);
+                    $this->writeTextCell($writer, 'F'.$currentRow, (string) ($or[5] ?? '-'), 4);
+                    $this->writeNumberCell($writer, 'G'.$currentRow, (float) ($or[6] ?? 0), 6);
+                    $this->writeTextCell($writer, 'H'.$currentRow, (string) ($or[7] ?? '-'), 4);
+                    $this->writeTextCell($writer, 'I'.$currentRow, (string) ($or[8] ?? '-'), 4);
+                    $this->writeTextCell($writer, 'J'.$currentRow, '', 4);
+                    $writer->endElement();
+                    $currentRow++;
+                }
+            }
+
+            // Office Subtotal Row
+            $writer->startElement('row');
+            $writer->writeAttribute('r', (string) $currentRow);
+            $writer->writeAttribute('ht', '24');
+            $writer->writeAttribute('customHeight', '1');
+            $this->writeTextCell($writer, 'A'.$currentRow, 'TOTAL PENGELUARAN KAS KANTOR:', 9);
+            for ($ci = 1; $ci < 6; $ci++) {
+                $this->writeTextCell($writer, $this->columnLetter($ci + 1).$currentRow, '', 9);
+            }
+            $this->writeNumberCell($writer, 'G'.$currentRow, $totalOfficeExpense, 8);
+            $this->writeTextCell($writer, 'H'.$currentRow, count($officeRows).' Transaksi', 10);
+            $this->writeTextCell($writer, 'I'.$currentRow, '', 10);
+            $this->writeTextCell($writer, 'J'.$currentRow, '', 10);
+            $writer->endElement();
+            $mergeReferences[] = "A{$currentRow}:F{$currentRow}";
+            $mergeReferences[] = "H{$currentRow}:J{$currentRow}";
+            $currentRow++;
+
+            // Spacer Row
+            $currentRow++;
+
+            // Grand Total Terpadu Row (Combined)
+            if (! empty($sections)) {
+                $combinedTotal = (float) array_sum(array_column($sections, 'total_expense')) + $totalOfficeExpense;
+                $writer->startElement('row');
+                $writer->writeAttribute('r', (string) $currentRow);
+                $writer->writeAttribute('ht', '28');
+                $writer->writeAttribute('customHeight', '1');
+                $this->writeTextCell($writer, 'A'.$currentRow, 'GRAND TOTAL PENGELUARAN TERPADU (KAPAL & KANTOR):', 9);
+                for ($ci = 1; $ci < 6; $ci++) {
+                    $this->writeTextCell($writer, $this->columnLetter($ci + 1).$currentRow, '', 9);
+                }
+                $this->writeNumberCell($writer, 'G'.$currentRow, $combinedTotal, 8);
+                $this->writeTextCell($writer, 'H'.$currentRow, '', 10);
+                $this->writeTextCell($writer, 'I'.$currentRow, '', 10);
+                $this->writeTextCell($writer, 'J'.$currentRow, '', 10);
+                $writer->endElement();
+                $mergeReferences[] = "A{$currentRow}:F{$currentRow}";
+                $mergeReferences[] = "H{$currentRow}:J{$currentRow}";
+                $currentRow++;
+
+                // Spacer Row
+                $currentRow++;
+            }
+        }
+
+        // Summary Boxes Row
+        $summaryBoxes = $data['summary_boxes'] ?? [];
+        if (! empty($summaryBoxes)) {
+            $writer->startElement('row');
+            $writer->writeAttribute('r', (string) $currentRow);
+            $writer->writeAttribute('ht', '28');
+            $writer->writeAttribute('customHeight', '1');
+
+            if (count($summaryBoxes) === 4) {
+                // Box 1: A-B
+                $this->writeTextCell($writer, 'A'.$currentRow, "{$summaryBoxes[0]['label']}: {$summaryBoxes[0]['value']}", 10);
+                $this->writeTextCell($writer, 'B'.$currentRow, '', 10);
+                $mergeReferences[] = "A{$currentRow}:B{$currentRow}";
+
+                // Box 2: C-D
+                $this->writeTextCell($writer, 'C'.$currentRow, "{$summaryBoxes[1]['label']}: {$summaryBoxes[1]['value']}", 10);
+                $this->writeTextCell($writer, 'D'.$currentRow, '', 10);
+                $mergeReferences[] = "C{$currentRow}:D{$currentRow}";
+
+                // Box 3: E-G
+                $this->writeTextCell($writer, 'E'.$currentRow, "{$summaryBoxes[2]['label']}: {$summaryBoxes[2]['value']}", 10);
+                $this->writeTextCell($writer, 'F'.$currentRow, '', 10);
+                $this->writeTextCell($writer, 'G'.$currentRow, '', 10);
+                $mergeReferences[] = "E{$currentRow}:G{$currentRow}";
+
+                // Box 4: H-J
+                $this->writeTextCell($writer, 'H'.$currentRow, "{$summaryBoxes[3]['label']}: {$summaryBoxes[3]['value']}", 10);
+                $this->writeTextCell($writer, 'I'.$currentRow, '', 10);
+                $this->writeTextCell($writer, 'J'.$currentRow, '', 10);
+                $mergeReferences[] = "H{$currentRow}:J{$currentRow}";
+            } else {
+                // 3 Boxes fallback
+                $this->writeTextCell($writer, 'A'.$currentRow, "{$summaryBoxes[0]['label']}: {$summaryBoxes[0]['value']}", 10);
+                $this->writeTextCell($writer, 'B'.$currentRow, '', 10);
+                $this->writeTextCell($writer, 'C'.$currentRow, '', 10);
+                $mergeReferences[] = "A{$currentRow}:C{$currentRow}";
+
+                if (isset($summaryBoxes[1])) {
+                    $this->writeTextCell($writer, 'D'.$currentRow, "{$summaryBoxes[1]['label']}: {$summaryBoxes[1]['value']}", 10);
+                    $this->writeTextCell($writer, 'E'.$currentRow, '', 10);
+                    $this->writeTextCell($writer, 'F'.$currentRow, '', 10);
+                    $mergeReferences[] = "D{$currentRow}:F{$currentRow}";
+                }
+
+                if (isset($summaryBoxes[2])) {
+                    $this->writeTextCell($writer, 'G'.$currentRow, "{$summaryBoxes[2]['label']}: {$summaryBoxes[2]['value']}", 10);
+                    $this->writeTextCell($writer, 'H'.$currentRow, '', 10);
+                    $this->writeTextCell($writer, 'I'.$currentRow, '', 10);
+                    $this->writeTextCell($writer, 'J'.$currentRow, '', 10);
+                    $mergeReferences[] = "G{$currentRow}:J{$currentRow}";
+                }
+            }
+            $writer->endElement();
+            $currentRow++;
+        } elseif (! empty($sections)) {
+            $grandTotal = (float) array_sum(array_column($sections, 'total_expense'));
+            $totalItems = (int) array_sum(array_column($sections, 'item_count'));
+            $vesselsCount = count($sections);
+
             $writer->startElement('row');
             $writer->writeAttribute('r', (string) $currentRow);
             $writer->writeAttribute('ht', '26');

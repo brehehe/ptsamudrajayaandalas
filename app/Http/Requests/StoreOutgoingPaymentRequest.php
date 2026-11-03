@@ -33,9 +33,9 @@ class StoreOutgoingPaymentRequest extends FormRequest
             ],
             'amount' => ['required', 'numeric', 'min:1', 'max:9999999999999.99'],
             'payment_date' => ['required', 'date'],
-            'reference_number' => ['required', 'string', 'max:100', 'unique:outgoing_payments,reference_number'],
+            'reference_number' => ['nullable', 'string', 'max:100', 'unique:outgoing_payments,reference_number'],
             'notes' => ['nullable', 'string', 'max:2000'],
-            'proof' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'proof' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ];
     }
 }

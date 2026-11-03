@@ -7,8 +7,12 @@ use App\Actions\DecideCompanyExpenseAction;
 use App\Models\ExpenseRequest;
 use App\Models\OutgoingPayment;
 use App\Models\PortCall;
+use App\Models\RequestHistory;
 use App\Models\RequestItem;
+use App\Models\Ship;
+use App\Models\ShipCompany;
 use App\Models\ShipRequest;
+use App\Support\RequestItemHistoryBuilder;
 use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,12 +33,23 @@ class ApprovalController extends Controller
     public function index(Request $request): Response
     {
         $validated = $request->validate([
-            'tab' => ['nullable', 'in:menunggu,disetujui,ditolak'],
+            'tab' => ['nullable', 'in:menunggu,disetujui,ditolak,semua'],
+            'status' => ['nullable', 'string', 'max:50'],
             'search' => ['nullable', 'string', 'max:100'],
+            'company_id' => ['nullable', 'string'],
+            'ship_id' => ['nullable', 'string'],
+            'job' => ['nullable', 'string', 'max:100'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
             'date' => ['nullable', 'date_format:Y-m-d'],
         ]);
-        $tab = $validated['tab'] ?? 'menunggu';
+        $tab = $validated['tab'] ?? ($validated['status'] ?? 'menunggu');
         $search = $validated['search'] ?? null;
+        $companyId = $validated['company_id'] ?? null;
+        $shipId = $validated['ship_id'] ?? null;
+        $job = $validated['job'] ?? null;
+        $startDate = $validated['start_date'] ?? null;
+        $endDate = $validated['end_date'] ?? null;
         $date = $validated['date'] ?? null;
 
         $requestsQuery = ShipRequest::query()->with([
@@ -66,18 +81,59 @@ class ApprovalController extends Controller
             'items:id,expense_request_id,description,amount',
         ]);
 
-        if ($date) {
+        if ($startDate) {
+            $requestsQuery->whereDate('request_date', '>=', $startDate);
+            $paymentsQuery->whereDate('payment_date', '>=', $startDate);
+            $companyExpensesQuery->whereDate('created_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $requestsQuery->whereDate('request_date', '<=', $endDate);
+            $paymentsQuery->whereDate('payment_date', '<=', $endDate);
+            $companyExpensesQuery->whereDate('created_at', '<=', $endDate);
+        }
+
+        if ($date && ! $startDate && ! $endDate) {
             $requestsQuery->whereDate('request_date', $date);
             $paymentsQuery->whereDate('payment_date', $date);
             $companyExpensesQuery->whereDate('created_at', $date);
         }
 
+        if ($companyId) {
+            $requestsQuery->where(function ($q) use ($companyId) {
+                $q->where('company_id', $companyId)
+                    ->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+            });
+            $paymentsQuery->whereHas('portCall.ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+        }
+
+        if ($shipId) {
+            $requestsQuery->where('ship_id', $shipId);
+            $paymentsQuery->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $shipId));
+        }
+
+        if ($job) {
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $requestsQuery->whereHas('portCall', function ($pq) use ($job, $like): void {
+                $pq->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $pq->orWhere('id', $job);
+                }
+            });
+            $paymentsQuery->whereHas('portCall', function ($pq) use ($job, $like): void {
+                $pq->where('job_number', $like, "%{$job}%");
+                if (Str::isUuid($job)) {
+                    $pq->orWhere('id', $job);
+                }
+            });
+        }
+
         if ($tab === 'menunggu') {
             $requestsQuery->where(function ($query) {
-                $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
+                $query->where('status', 'Menunggu Approval Direktur')
                     ->orWhereHas('items', fn ($itemQuery) => $itemQuery
                         ->where('status', 'diajukan_ke_direktur')
-                        ->where('director_status', 'pending'));
+                        ->where(fn ($dq) => $dq->where('director_status', 'pending')->orWhereNull('director_status')));
             });
             $paymentsQuery->where('verification_status', 'pending');
             $companyExpensesQuery->where('status', 'waiting_director');
@@ -142,42 +198,100 @@ class ApprovalController extends Controller
             'semua' => ShipRequest::count() + OutgoingPayment::count() + ExpenseRequest::where('scope', 'company')->count(),
             'menunggu' => ShipRequest::query()
                 ->where(function ($query) {
-                    $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
+                    $query->where('status', 'Menunggu Approval Direktur')
                         ->orWhereHas('items', fn ($itemQuery) => $itemQuery
                             ->where('status', 'diajukan_ke_direktur')
-                            ->where('director_status', 'pending'));
+                            ->where(fn ($dq) => $dq->where('director_status', 'pending')->orWhereNull('director_status')));
                 })
                 ->count() + OutgoingPayment::where('verification_status', 'pending')->count() + ExpenseRequest::where('scope', 'company')->where('status', 'waiting_director')->count(),
             'disetujui' => ShipRequest::whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai'])->count() + OutgoingPayment::where('verification_status', 'verified')->count() + ExpenseRequest::where('scope', 'company')->whereIn('status', ['approved', 'realized'])->count(),
             'ditolak' => ShipRequest::where('status', 'Ditolak')->count() + OutgoingPayment::where('verification_status', 'rejected')->count() + ExpenseRequest::where('scope', 'company')->where('status', 'rejected')->count(),
         ];
 
-        $allRequestsTotalHpp = (float) RequestItem::query()->sum(DB::raw('hpp_price * quantity'));
+        $baseItemsQuery = RequestItem::query()->whereHas('request', function ($q) use ($startDate, $endDate, $date, $companyId, $shipId, $job, $search) {
+            if ($startDate) {
+                $q->whereDate('request_date', '>=', $startDate);
+            }
+            if ($endDate) {
+                $q->whereDate('request_date', '<=', $endDate);
+            }
+            if ($date && ! $startDate && ! $endDate) {
+                $q->whereDate('request_date', $date);
+            }
+            if ($companyId) {
+                $q->where(function ($sub) use ($companyId) {
+                    $sub->where('company_id', $companyId)
+                        ->orWhereHas('ship', fn ($sq) => $sq->where('ship_company_id', $companyId));
+                });
+            }
+            if ($shipId) {
+                $q->where('ship_id', $shipId);
+            }
+            if ($job) {
+                $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                $q->whereHas('portCall', function ($pq) use ($job, $like): void {
+                    $pq->where('job_number', $like, "%{$job}%");
+                    if (Str::isUuid($job)) {
+                        $pq->orWhere('id', $job);
+                    }
+                });
+            }
+            if ($search) {
+                $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+                $q->where(function ($sq) use ($search, $like) {
+                    $sq->where('request_number', $like, "%{$search}%")
+                        ->orWhere('notes', $like, "%{$search}%")
+                        ->orWhere('admin_forward_notes', $like, "%{$search}%")
+                        ->orWhereHas('ship', fn ($sq2) => $sq2->where('name', $like, "%{$search}%"))
+                        ->orWhereHas('company', fn ($cq) => $cq->where('name', $like, "%{$search}%"))
+                        ->orWhereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$search}%"));
+                });
+            }
+        });
 
-        $waitingRequestsTotalHpp = (float) RequestItem::whereHas('request', function ($query) {
-            $query->whereIn('status', ['Menunggu Approval Direktur', 'Menunggu Approval'])
-                ->orWhereHas('items', fn ($itemQuery) => $itemQuery
-                    ->where('status', 'diajukan_ke_direktur')
-                    ->where('director_status', 'pending'));
+        $allRequestsTotalHpp = (float) (clone $baseItemsQuery)->sum(DB::raw('hpp_price * quantity'));
+
+        $waitingRequestsTotalHpp = (float) (clone $baseItemsQuery)->where(function ($query) {
+            $query->where('status', 'diajukan_ke_direktur')
+                ->where(function ($sub) {
+                    $sub->where('director_status', 'pending')
+                        ->orWhereNull('director_status');
+                });
         })->sum(DB::raw('hpp_price * quantity'));
 
-        $approvedRequestsTotalHpp = (float) RequestItem::where(function ($query) {
-            $query->where('director_status', 'approved')
-                ->orWhereHas('request', fn ($reqQuery) => $reqQuery->whereIn('status', ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Selesai']));
-        })->sum(DB::raw('hpp_price * quantity'));
+        $approvedRequestsTotalHpp = (float) (clone $baseItemsQuery)
+            ->where('director_status', 'approved')
+            ->sum(DB::raw('hpp_price * quantity'));
 
-        $rejectedRequestsTotalHpp = (float) RequestItem::where(function ($query) {
-            $query->where('director_status', 'rejected')
-                ->orWhereHas('request', fn ($reqQuery) => $reqQuery->where('status', 'Ditolak'));
-        })->sum(DB::raw('hpp_price * quantity'));
+        $rejectedRequestsTotalHpp = (float) (clone $baseItemsQuery)
+            ->where('director_status', 'rejected')
+            ->sum(DB::raw('hpp_price * quantity'));
+
+        $companies = ShipCompany::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $ships = Ship::where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
 
         return Inertia::render('Approvals/Index', [
             'requests' => $pendingRequests,
             'payments' => $pendingPayments,
             'companyExpenses' => $pendingCompanyExpenses,
+            'companies' => $companies,
+            'ships' => $ships,
+            'jobs' => $jobs,
             'counts' => $counts,
             'activeTab' => $tab,
             'search' => $search ?? '',
+            'filters' => [
+                'tab' => $tab,
+                'status' => $tab,
+                'search' => $search ?? '',
+                'company_id' => $companyId ?? '',
+                'ship_id' => $shipId ?? '',
+                'job' => $job ?? '',
+                'start_date' => $startDate ?? '',
+                'end_date' => $endDate ?? '',
+                'date' => $date ?? '',
+            ],
             'date' => $date ?? '',
             'dailySummary' => $dailySummary,
             'all_requests_total_hpp' => $allRequestsTotalHpp,
@@ -193,7 +307,7 @@ class ApprovalController extends Controller
         ]);
     }
 
-    public function show(Request $request, string $id): Response
+    public function show(Request $request, string $id): Response|RedirectResponse
     {
         $isUuid = Str::isUuid($id);
 
@@ -214,6 +328,7 @@ class ApprovalController extends Controller
             'requests.items.vendor',
             'requests.items.surplusSourceItem:id,item_name,hpp_price',
             'requests.items.costDocumentItem.costDocument',
+            'requests.histories',
         ]);
 
         $portCall = $isUuid
@@ -249,17 +364,21 @@ class ApprovalController extends Controller
                 'portCall.requests.items.vendor',
                 'portCall.requests.items.surplusSourceItem:id,item_name,hpp_price',
                 'portCall.requests.items.costDocumentItem.costDocument',
+                'portCall.requests.histories',
                 'creator',
                 'invoices',
                 'items.product.vendor',
                 'items.vendor',
                 'items.surplusSourceItem:id,item_name,hpp_price',
                 'items.costDocumentItem.costDocument',
+                'histories',
             ]);
 
             $shipRequest = $isUuid
                 ? (clone $shipRequestQuery)->where('id', $id)->first()
-                : (clone $shipRequestQuery)->where('request_number', $id)->first();
+                : (clone $shipRequestQuery)->where('request_number', $id)
+                    ->orderByRaw('CASE WHEN ship_id IS NULL AND port_call_id IS NULL THEN 0 ELSE 1 END')
+                    ->first();
 
             if (! $shipRequest) {
                 $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
@@ -272,6 +391,15 @@ class ApprovalController extends Controller
             if (! $shipRequest) {
                 $shipRequest = (clone $shipRequestQuery)->first();
                 abort_unless($shipRequest, 404);
+            }
+
+            // When a ship request is accessed via /approvals/{request_number}/detail,
+            // redirect to its Job detail URL so the user always sees it via its Job / SPK number.
+            if ($shipRequest->portCall && ! empty($shipRequest->portCall->job_number)) {
+                return redirect()->route('approvals.detail', [
+                    'id' => $shipRequest->portCall->job_number,
+                    'req' => $shipRequest->request_number,
+                ]);
             }
 
             $portCall = $shipRequest->portCall;
@@ -307,7 +435,7 @@ class ApprovalController extends Controller
                 } elseif ($item->director_status === 'rejected') {
                     $totalHppRejected += $lineHpp;
                     $rejectedItemsCount++;
-                } else {
+                } elseif ($item->status === 'diajukan_ke_direktur' && ($item->director_status === 'pending' || is_null($item->director_status))) {
                     $totalHppPending += $lineHpp;
                     $pendingItemsCount++;
                 }
@@ -402,11 +530,18 @@ class ApprovalController extends Controller
                     ->log('Direktur memberikan keputusan pada item pengajuan');
             }
 
-            $returnedItemCount = $decidedItemIds->isNotEmpty()
+            $returnedItems = $decidedItemIds->isNotEmpty()
                 ? $this->returnUnselectedItemsToAdmin($shipRequest, $decidedItemIds, $request)
-                : 0;
+                : collect();
+            $returnedItemCount = $returnedItems->count();
 
             $requestStatus = $this->syncRequestApprovalStatus($shipRequest);
+
+            if ($decidedItemIds->isNotEmpty()) {
+                $decidedItems = $shipRequest->items()->whereIn('id', $decidedItemIds)->get();
+                $involvedItems = $decidedItems->concat($returnedItems);
+                $this->recordApprovalHistory($shipRequest, $involvedItems, $request);
+            }
 
             if (function_exists('activity')) {
                 activity('approval')
@@ -468,6 +603,7 @@ class ApprovalController extends Controller
             }
 
             $this->syncRequestApprovalStatus($shipRequest);
+            $this->recordApprovalHistory($shipRequest, $forwardedItems, $request, 'Menyetujui seluruh item');
 
             if (function_exists('activity')) {
                 activity('approval')
@@ -532,6 +668,7 @@ class ApprovalController extends Controller
 
             $shipRequest->update(['notes' => $note]);
             $this->syncRequestApprovalStatus($shipRequest);
+            $this->recordApprovalHistory($shipRequest, $forwardedItems, $request, $validated['reason'] ?? 'Ditolak oleh Direktur');
             $this->workflowNotifier->notifyDirectorDecision($shipRequest, $request->user());
 
             return redirect()->back()->with('success', "Pengajuan {$shipRequest->request_number} telah ditolak.");
@@ -605,6 +742,7 @@ class ApprovalController extends Controller
                 ->log('Direktur memberikan keputusan pada item pengajuan');
 
             $requestStatus = $this->syncRequestApprovalStatus($item->request);
+            $this->recordApprovalHistory($item->request, collect([$item]), $request, $validated['notes'] ?? null);
 
             if ($requestStatus !== 'Menunggu Approval Direktur') {
                 $this->workflowNotifier->notifyDirectorDecision($item->request, $request->user());
@@ -656,12 +794,13 @@ class ApprovalController extends Controller
 
     /**
      * @param  Collection<int, string>  $decidedItemIds
+     * @return Collection<int, RequestItem>
      */
     private function returnUnselectedItemsToAdmin(
         ShipRequest $shipRequest,
         Collection $decidedItemIds,
         Request $request
-    ): int {
+    ): Collection {
         $unselectedItems = $shipRequest->items()
             ->where('status', 'diajukan_ke_direktur')
             ->where('director_status', 'pending')
@@ -688,12 +827,86 @@ class ApprovalController extends Controller
             }
         }
 
-        return $unselectedItems->count();
+        return $unselectedItems;
+    }
+
+    /**
+     * @param  Collection<int, RequestItem>  $affectedItems
+     */
+    private function recordApprovalHistory(
+        ShipRequest $shipRequest,
+        Collection $affectedItems,
+        Request $request,
+        ?string $generalNotes = null
+    ): void {
+        if ($affectedItems->isEmpty()) {
+            return;
+        }
+
+        $approvedCount = $affectedItems->where('director_status', 'approved')->count();
+        $rejectedCount = $affectedItems->where('director_status', 'rejected')->count();
+        $returnedCount = $affectedItems->filter(fn ($it) => $it->director_status !== 'approved' && $it->director_status !== 'rejected')->count();
+
+        if ($approvedCount > 0 && ($returnedCount > 0 || $rejectedCount > 0)) {
+            $action = 'director_partial_approval';
+            $title = 'Keputusan Direktur: Disetujui Sebagian oleh Pak Ryan';
+        } elseif ($approvedCount === $affectedItems->count()) {
+            $action = 'director_approved';
+            $title = 'Disetujui Penuh oleh Pak Ryan (Direktur)';
+        } elseif ($rejectedCount === $affectedItems->count()) {
+            $action = 'director_rejected';
+            $title = 'Ditolak oleh Pak Ryan (Direktur)';
+        } else {
+            $action = 'returned_to_admin';
+            $title = 'Item Dikembalikan ke Bu Titik (Admin) oleh Pak Ryan';
+        }
+
+        $summaryParts = [];
+        if ($approvedCount > 0) {
+            $summaryParts[] = "{$approvedCount} item disetujui";
+        }
+        if ($returnedCount > 0) {
+            $summaryParts[] = "{$returnedCount} item dikembalikan ke Bu Titik";
+        }
+        if ($rejectedCount > 0) {
+            $summaryParts[] = "{$rejectedCount} item ditolak";
+        }
+        $summary = implode(', ', $summaryParts);
+
+        $notes = $generalNotes ? "{$generalNotes} ({$summary})" : $summary;
+
+        $snapshot = $affectedItems->map(fn ($it) => [
+            'item_id' => $it->id,
+            'item_name' => $it->item_name,
+            'quantity' => (float) $it->quantity,
+            'unit' => $it->unit,
+            'hpp_price' => (float) $it->hpp_price,
+            'status' => $it->status,
+            'director_status' => $it->director_status,
+            'director_notes' => $it->director_notes,
+        ])->values()->all();
+
+        RequestHistory::create([
+            'request_id' => $shipRequest->id,
+            'user_id' => $request->user()?->id,
+            'actor_name' => $request->user()?->name ?? 'Pak Ryan',
+            'actor_role' => 'Direktur',
+            'action' => $action,
+            'title' => $title,
+            'notes' => $notes,
+            'submission_date' => now()->toDateString(),
+            'action_date' => now(),
+            'items_snapshot' => $snapshot,
+        ]);
     }
 
     /** @param Collection<int, ShipRequest> $shipRequests */
     private function prepareApprovalItems(Collection $shipRequests): void
     {
+        RequestItemHistoryBuilder::attachHistoryToRequests($shipRequests);
+
+        RequestItemHistoryBuilder::attachHistoryToRequests($shipRequests);
+
         $shipRequests->each(function (ShipRequest $shipRequest): void {
             $shipRequest->items->each(function (RequestItem $item): void {
                 $costDocument = $item->costDocumentItem?->costDocument;
@@ -794,15 +1007,20 @@ class ApprovalController extends Controller
             foreach ($decidedItemIdsByRequest as $requestId => $decidedItemIds) {
                 $shipRequest = ShipRequest::lockForUpdate()->find($requestId);
                 if ($shipRequest) {
-                    $returnedItemCount += $this->returnUnselectedItemsToAdmin(
+                    $returnedItems = $this->returnUnselectedItemsToAdmin(
                         $shipRequest,
                         $decidedItemIds,
                         $request
                     );
+                    $returnedItemCount += $returnedItems->count();
                     $requestStatus = $this->syncRequestApprovalStatus($shipRequest);
                     if ($requestStatus !== 'Menunggu Approval Direktur') {
                         $decidedRequests->push($shipRequest);
                     }
+
+                    $decidedItems = $shipRequest->items()->whereIn('id', $decidedItemIds)->get();
+                    $involvedItems = $decidedItems->concat($returnedItems);
+                    $this->recordApprovalHistory($shipRequest, $involvedItems, $request);
                 }
             }
 

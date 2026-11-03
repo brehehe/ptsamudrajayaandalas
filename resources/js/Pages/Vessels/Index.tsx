@@ -488,7 +488,7 @@ export default function VesselsIndex({
                     <span
                         className={
                             'whitespace-nowrap inline-flex items-center px-2.5 py-0.5 rounded-full ' +
-                            'text-[11px] font-semibold bg-[#DCF7E8] text-[#087443] flex-shrink-0'
+                            'text-[11px] font-semibold bg-[#FFE7EC] text-[#C62840] border border-rose-200 flex-shrink-0'
                         }
                     >
                         Sandar
@@ -499,7 +499,7 @@ export default function VesselsIndex({
                     <span
                         className={
                             'whitespace-nowrap inline-flex items-center px-2.5 py-0.5 rounded-full ' +
-                            'text-[11px] font-semibold bg-[#F1F5F9] text-[#64748B] flex-shrink-0'
+                            'text-[11px] font-semibold bg-[#DCF7E8] text-[#087443] flex-shrink-0'
                         }
                     >
                         Selesai

@@ -445,9 +445,7 @@ class NeedController extends Controller
                 ]);
             }
 
-            $allowedRequestStatuses = $nextItemStatus === 'dalam_proses'
-                ? ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Diproses', 'Selesai']
-                : ['Disetujui Sebagian', 'Dalam Proses', 'Diproses'];
+            $allowedRequestStatuses = ['Disetujui', 'Disetujui Sebagian', 'Dalam Proses', 'Diproses', 'Selesai'];
 
             if (! in_array($need->status, $allowedRequestStatuses, true)) {
                 throw ValidationException::withMessages([
@@ -455,15 +453,18 @@ class NeedController extends Controller
                 ]);
             }
 
-            $requiredCurrentStatus = $nextItemStatus === 'dalam_proses' ? 'disetujui' : 'dalam_proses';
+            $allowedCurrentStatuses = $nextItemStatus === 'dalam_proses'
+                ? ['disetujui']
+                : ['disetujui', 'dalam_proses'];
+
             $invalidItem = $items->first(fn (RequestItem $item): bool => $item->director_status !== 'approved'
-                || $item->status !== $requiredCurrentStatus);
+                || ! in_array($item->status, $allowedCurrentStatuses, true));
 
             if ($invalidItem) {
                 throw ValidationException::withMessages([
                     'item_ids' => $nextItemStatus === 'dalam_proses'
                         ? "Item {$invalidItem->item_name} belum disetujui atau sudah mulai diproses."
-                        : "Item {$invalidItem->item_name} belum berada pada tahap Dalam Proses.",
+                        : "Item {$invalidItem->item_name} belum disetujui oleh Direktur.",
                 ]);
             }
 

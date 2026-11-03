@@ -211,6 +211,11 @@ interface ReportsIndexProps {
     };
     vesselDailyExpenseSummary?: {
         total_vessels: number;
+        total_vessel_expenses?: number;
+        vessel_item_count?: number;
+        total_non_vessels?: number;
+        total_non_vessel_expenses?: number;
+        non_vessel_item_count?: number;
         total_expenses: number;
         total_items: number;
         vessels: Array<{
@@ -227,6 +232,7 @@ interface ReportsIndexProps {
             stay_duration: string;
             total_expense: number;
             item_count: number;
+            is_vessel?: boolean;
             items: Array<{
                 id: string;
                 date?: string | null;
@@ -433,6 +439,14 @@ export default function ReportsIndex({
         return activeTab === 'pengeluaran_kapal' ? 'kapal' : 'all';
     });
 
+    const displayedVessels = useMemo(() => {
+        return (vesselDailyExpenseSummary?.vessels || []).filter((v) => {
+            if (expenseSubView === 'kapal') return v.is_vessel !== false;
+            if (expenseSubView === 'kantor') return v.is_vessel === false;
+            return true;
+        });
+    }, [vesselDailyExpenseSummary?.vessels, expenseSubView]);
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
@@ -513,11 +527,18 @@ export default function ReportsIndex({
                 job: customJob || job,
                 status: status,
                 search: search,
+                subview: activeTab === 'pengeluaran' ? expenseSubView : undefined,
             },
             job_number: customJob,
             label: customJob
                 ? `Laporan Pengeluaran Kapal — Job ${customJob}`
-                : `Laporan ${activeReportSection.label} (${format.toUpperCase()})`,
+                : activeTab === 'pengeluaran'
+                    ? (expenseSubView === 'kapal'
+                        ? `Laporan Pengeluaran Kapal (${format.toUpperCase()})`
+                        : expenseSubView === 'kantor'
+                            ? `Laporan Kas Keluar Kantor (${format.toUpperCase()})`
+                            : `Laporan Pengeluaran Terpadu (${format.toUpperCase()})`)
+                    : `Laporan ${activeReportSection.label} (${format.toUpperCase()})`,
         });
     };
 
@@ -875,7 +896,7 @@ export default function ReportsIndex({
         },
         {
             key: 'job',
-            header: 'Kegiatan Kapal',
+            header: 'Kegiatan / Pengajuan',
             width: '220px',
             render: (expense) => (
                 <div>
@@ -1401,7 +1422,7 @@ export default function ReportsIndex({
                                         size="sm"
                                         className="bg-[#0060F4]"
                                     >
-                                        Unduh PDF (Semua)
+                                        {expenseSubView === 'all' ? 'Unduh PDF (Semua)' : expenseSubView === 'kapal' ? 'Unduh PDF (Kapal)' : 'Unduh PDF (Kantor)'}
                                     </Button>
                                     <Button
                                         type="button"
@@ -1411,7 +1432,7 @@ export default function ReportsIndex({
                                         size="sm"
                                         className="bg-white dark:bg-[#0C1D36]"
                                     >
-                                        Unduh Excel (Semua)
+                                        {expenseSubView === 'all' ? 'Unduh Excel (Semua)' : expenseSubView === 'kapal' ? 'Unduh Excel (Kapal)' : 'Unduh Excel (Kantor)'}
                                     </Button>
                                     <Button
                                         type="button"
@@ -1429,23 +1450,23 @@ export default function ReportsIndex({
                             {/* 4 KPI Cards */}
                             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                                 <MetricCard
-                                    label="Total Pengeluaran Terpadu"
-                                    value={expenseReport.summary.total_combined_expense ?? ((expenseReport.summary.total_recorded || 0) + (vesselDailyExpenseSummary?.total_expenses || 0))}
-                                    detail="Total gabungan kapal & kantor"
+                                    label="Total Pengeluaran Disetujui"
+                                    value={vesselDailyExpenseSummary?.total_expenses ?? expenseReport.summary.total_combined_expense ?? 0}
+                                    detail="Total pengeluaran pengajuan kapal & kantor yang telah disetujui"
                                     tone="blue"
                                     icon={<Banknote aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
                                 <MetricCard
                                     label="Pengeluaran Kapal (HPP)"
-                                    value={vesselDailyExpenseSummary?.total_expenses || expenseReport.summary.total_vessel_expense || 0}
-                                    detail={`${vesselDailyExpenseSummary?.total_vessels || 0} kapal · ${vesselDailyExpenseSummary?.total_items || 0} item kebutuhan`}
+                                    value={vesselDailyExpenseSummary?.total_vessel_expenses ?? vesselDailyExpenseSummary?.total_expenses ?? 0}
+                                    detail={`${vesselDailyExpenseSummary?.total_vessels || 0} kapal · ${vesselDailyExpenseSummary?.vessel_item_count || 0} item kebutuhan`}
                                     tone="slate"
                                     icon={<Ship aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
                                 <MetricCard
-                                    label="Biaya Operasional Kantor"
-                                    value={expenseReport.summary.total_recorded}
-                                    detail={`${expenseReport.summary.total_documents} transaksi kas keluar`}
+                                    label="Biaya Operasional / Non-Kapal"
+                                    value={vesselDailyExpenseSummary?.total_non_vessel_expenses ?? expenseReport.summary.total_recorded ?? 0}
+                                    detail={`${vesselDailyExpenseSummary?.total_non_vessels || 0} pengajuan non-kapal`}
                                     tone="amber"
                                     icon={<Building2 aria-hidden="true" className="size-4 sm:size-5" />}
                                 />
@@ -1471,7 +1492,7 @@ export default function ReportsIndex({
                                             : 'text-[#52658E] hover:text-[#0B1F63] hover:bg-white/80 dark:text-[#94A3B8] dark:hover:text-white dark:hover:bg-[#102B4A]'
                                     }`}
                                 >
-                                    Semua (Ringkasan Terpadu)
+                                    Semua ({vesselDailyExpenseSummary?.vessels?.length || 0})
                                 </button>
                                 <button
                                     type="button"
@@ -1495,77 +1516,104 @@ export default function ReportsIndex({
                                     }`}
                                 >
                                     <Building2 className="size-3.5" />
-                                    Biaya Kantor / Kas Keluar ({expenseReport.rows.total})
+                                    Biaya Non-Kapal &amp; Kantor ({(vesselDailyExpenseSummary?.total_non_vessels || 0) + expenseReport.rows.total})
                                 </button>
                             </div>
                             <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8] px-2 hidden sm:inline">
-                                {expenseSubView === 'all' && 'Menampilkan pengeluaran kapal dan operasional kantor'}
-                                {expenseSubView === 'kapal' && 'Fokus rincian pengeluaran per kapal dan per item'}
-                                {expenseSubView === 'kantor' && 'Fokus daftar kas keluar & biaya kantor'}
+                                {expenseSubView === 'all' && 'Menampilkan seluruh pengeluaran dari pengajuan yang telah disetujui (kapal & kantor)'}
+                                {expenseSubView === 'kapal' && 'Fokus rincian pengeluaran per kapal yang telah disetujui'}
+                                {expenseSubView === 'kantor' && 'Fokus rincian biaya non-kapal & operasional kantor yang telah disetujui'}
                             </span>
                         </div>
 
-                        {/* SECTION A: Vessel Expenses (Shown when expenseSubView === 'all' or 'kapal') */}
-                        {(expenseSubView === 'all' || expenseSubView === 'kapal') && (
-                            <section className="space-y-3" aria-labelledby="vessel-expense-subheading">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-2">
-                                        <Ship className="size-4 text-[#0060F4]" />
-                                        <h3 id="vessel-expense-subheading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
-                                            Pengeluaran Kebutuhan Kapal (HPP &amp; Harian)
-                                        </h3>
-                                    </div>
-                                    <span className="text-xs font-semibold text-[#52658E]">
-                                        {vesselDailyExpenseSummary?.total_vessels || 0} kapal · {vesselDailyExpenseSummary?.total_items || 0} item
-                                    </span>
-                                </div>
-
-                                <div className="space-y-4">
-                                    {(!vesselDailyExpenseSummary?.vessels || vesselDailyExpenseSummary.vessels.length === 0) ? (
-                                        <Card padding="lg" className="text-center py-10">
-                                            <Ship className="mx-auto size-9 text-[#8C9BB9] dark:text-[#52658E] mb-2" />
-                                            <p className="font-extrabold text-[#0B1F63] dark:text-white text-sm">Tidak Ada Data Pengeluaran Kapal</p>
-                                            <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1">
-                                                Tidak ditemukan catatan pengeluaran kebutuhan kapal untuk filter periode atau kapal yang dipilih.
-                                            </p>
-                                        </Card>
+                        {/* SECTION A: Vessel & Non-Vessel Requests */}
+                        <section className="space-y-3" aria-labelledby="vessel-expense-subheading">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                    {expenseSubView === 'kantor' ? (
+                                        <Building2 className="size-4 text-amber-500" />
                                     ) : (
-                                        vesselDailyExpenseSummary.vessels.map((vessel, vIndex) => (
-                                            <Card key={vessel.port_call_id || vIndex} padding="none" className="overflow-hidden border border-[#BCE0FD] dark:border-[#285585]">
-                                                <div className="bg-[#F0F8FF] dark:bg-[#102B4A] p-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
-                                                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                                                        <div className="min-w-0">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <span className="font-mono text-xs font-black text-[#0060F4] bg-[#E0F0FF] dark:bg-[#071322] px-2.5 py-0.5 rounded-md">
-                                                                    {vessel.job_number}
+                                        <Ship className="size-4 text-[#0060F4]" />
+                                    )}
+                                    <h3 id="vessel-expense-subheading" className="text-base font-extrabold text-[#0B1F63] dark:text-white">
+                                        {expenseSubView === 'kapal'
+                                            ? 'Pengeluaran Kebutuhan Kapal (HPP & Harian)'
+                                            : expenseSubView === 'kantor'
+                                              ? 'Pengeluaran Kebutuhan Non-Kapal & Biaya Operasional'
+                                              : 'Pengeluaran Kebutuhan Terpadu (Kapal & Non-Kapal)'}
+                                    </h3>
+                                </div>
+                                <span className="text-xs font-semibold text-[#52658E]">
+                                    {displayedVessels.length} {expenseSubView === 'kantor' ? 'pengajuan' : 'grup'} · {displayedVessels.reduce((acc, v) => acc + (v.item_count || 0), 0)} item
+                                </span>
+                            </div>
+
+                            <div className="space-y-4">
+                                {displayedVessels.length === 0 ? (
+                                    <Card padding="lg" className="text-center py-10">
+                                        {expenseSubView === 'kantor' ? (
+                                            <Building2 className="mx-auto size-9 text-[#8C9BB9] dark:text-[#52658E] mb-2" />
+                                        ) : (
+                                            <Ship className="mx-auto size-9 text-[#8C9BB9] dark:text-[#52658E] mb-2" />
+                                        )}
+                                        <p className="font-extrabold text-[#0B1F63] dark:text-white text-sm">
+                                            {expenseSubView === 'kantor' ? 'Tidak Ada Pengeluaran Non-Kapal' : 'Tidak Ada Data Pengeluaran'}
+                                        </p>
+                                        <p className="text-xs text-[#52658E] dark:text-[#94A3B8] mt-1">
+                                            Tidak ditemukan catatan pengeluaran kebutuhan untuk filter periode atau kriteria yang dipilih.
+                                        </p>
+                                    </Card>
+                                ) : (
+                                    displayedVessels.map((vessel, vIndex) => (
+                                        <Card key={vessel.port_call_id || vessel.job_number || vIndex} padding="none" className="overflow-hidden border border-[#BCE0FD] dark:border-[#285585]">
+                                            <div className="bg-[#F0F8FF] dark:bg-[#102B4A] p-4 border-b border-[#DCEAF8] dark:border-[#1E3A5F]">
+                                                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span className="font-mono text-xs font-black text-[#0060F4] bg-[#E0F0FF] dark:bg-[#071322] px-2.5 py-0.5 rounded-md">
+                                                                {vessel.job_number}
+                                                            </span>
+                                                            <h4 className="font-black text-base text-[#0B1F63] dark:text-white flex items-center gap-1.5">
+                                                                {vessel.is_vessel === false ? (
+                                                                    <Building2 className="size-4 text-amber-500 inline shrink-0" />
+                                                                ) : (
+                                                                    <Ship className="size-4 text-[#0060F4] inline shrink-0" />
+                                                                )}
+                                                                {vessel.ship_name}
+                                                            </h4>
+                                                            <StatusBadge
+                                                                status={vessel.is_vessel === false ? (vessel.status || 'Disetujui') : statusLabel(vessel.status)}
+                                                                label={vessel.is_vessel === false ? (vessel.status || 'Disetujui') : statusLabel(vessel.status)}
+                                                                size="sm"
+                                                            />
+                                                            {vessel.is_vessel === false && (
+                                                                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                                                                    Non-Kapal / Operasional
                                                                 </span>
-                                                                <h4 className="font-black text-base text-[#0B1F63] dark:text-white">
-                                                                    {vessel.ship_name}
-                                                                </h4>
-                                                                <StatusBadge
-                                                                    status={vessel.status === 'berthed' ? 'success' : vessel.status === 'departed' || vessel.status === 'completed' ? 'neutral' : 'info'}
-                                                                    label={statusLabel(vessel.status)}
-                                                                    size="sm"
-                                                                />
-                                                            </div>
-                                                            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
-                                                                <span>Perusahaan: <strong className="text-[#0B1F63] dark:text-white">{vessel.company_name}</strong></span>
-                                                                <span>Pelabuhan: <strong className="text-[#0B1F63] dark:text-white">{vessel.port_name}</strong></span>
-                                                                {vessel.client_spk && <span>SPK Klien: <strong className="font-mono">{vessel.client_spk}</strong></span>}
-                                                                <span>
-                                                                    Sandar: {formatDate(vessel.eta)}
-                                                                    {vessel.departed_at ? ` · Keluar: ${formatDate(vessel.departed_at)}` : vessel.etd ? ` · Rencana Keluar: ${formatDate(vessel.etd)}` : ''}
-                                                                    {` (${vessel.stay_duration})`}
-                                                                </span>
-                                                            </div>
+                                                            )}
                                                         </div>
-                                                        <div className="flex flex-wrap items-center gap-3 shrink-0 self-start lg:self-center">
-                                                            <div className="text-right">
-                                                                <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Total Pengeluaran Kapal</p>
-                                                                <p className="font-mono text-lg font-black text-[#0060F4] dark:text-[#60A5FA]">
-                                                                    {formatRupiah(vessel.total_expense)}
-                                                                </p>
-                                                            </div>
+                                                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                            <span>Perusahaan: <strong className="text-[#0B1F63] dark:text-white">{vessel.company_name}</strong></span>
+                                                            <span>Lokasi / Pelabuhan: <strong className="text-[#0B1F63] dark:text-white">{vessel.port_name}</strong></span>
+                                                            {vessel.client_spk && <span>SPK Klien: <strong className="font-mono">{vessel.client_spk}</strong></span>}
+                                                            <span>
+                                                                {vessel.is_vessel === false ? (
+                                                                    `Tanggal Pengajuan: ${formatDate(vessel.eta)}`
+                                                                ) : (
+                                                                    `Sandar: ${formatDate(vessel.eta)}${vessel.departed_at ? ` · Keluar: ${formatDate(vessel.departed_at)}` : vessel.etd ? ` · Rencana Keluar: ${formatDate(vessel.etd)}` : ''} (${vessel.stay_duration})`
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-3 shrink-0 self-start lg:self-center">
+                                                        <div className="text-right">
+                                                            <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                                                {vessel.is_vessel === false ? 'Total Biaya Pengajuan' : 'Total Pengeluaran Kapal'}
+                                                            </p>
+                                                            <p className="font-mono text-lg font-black text-[#0060F4] dark:text-[#60A5FA]">
+                                                                {formatRupiah(vessel.total_expense)}
+                                                            </p>
+                                                        </div>
                                                             <div className="rounded-xl bg-white dark:bg-[#071322] border border-[#DCEAF8] dark:border-[#1E3A5F] px-3 py-1.5 text-center">
                                                                 <p className="text-[10px] font-bold text-[#52658E] dark:text-[#94A3B8]">Item</p>
                                                                 <p className="font-mono text-sm font-extrabold text-[#0B1F63] dark:text-white">{vessel.item_count}</p>
@@ -1575,7 +1623,7 @@ export default function ReportsIndex({
                                                                     type="button"
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    onClick={() => handleExport('pdf', vessel.job_number)}
+                                                                    onClick={() => handleExport('pdf', vessel.job_number, 'vessel_daily_expenses')}
                                                                     leftIcon={<FileText aria-hidden="true" className="size-3.5 text-[#0060F4]" />}
                                                                     className="bg-white text-xs font-bold dark:bg-[#071322]"
                                                                     title={`Unduh PDF Pengeluaran Job ${vessel.job_number}`}
@@ -1586,7 +1634,7 @@ export default function ReportsIndex({
                                                                     type="button"
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    onClick={() => handleExport('xlsx', vessel.job_number)}
+                                                                    onClick={() => handleExport('xlsx', vessel.job_number, 'vessel_daily_expenses')}
                                                                     leftIcon={<FileSpreadsheet aria-hidden="true" className="size-3.5 text-[#087443]" />}
                                                                     className="bg-white text-xs font-bold dark:bg-[#071322]"
                                                                     title={`Unduh Excel Pengeluaran Job ${vessel.job_number}`}
@@ -1739,7 +1787,7 @@ export default function ReportsIndex({
                                                         <div className="flex items-center justify-between gap-3">
                                                             <div className="min-w-0">
                                                                 <p className="text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                                                    Total Pengeluaran Kapal
+                                                                    {vessel.is_vessel === false ? 'Total Biaya Pengajuan' : 'Total Pengeluaran Kapal'}
                                                                 </p>
                                                                 <p className="text-xs font-bold text-[#0B1F63] dark:text-white truncate">
                                                                     {vessel.ship_name}
@@ -1761,7 +1809,6 @@ export default function ReportsIndex({
                                     )}
                                 </div>
                             </section>
-                        )}
 
                         {/* SECTION B: Company Outgoing Payments & Expenses (Shown when expenseSubView === 'all' or 'kantor') */}
                         {(expenseSubView === 'all' || expenseSubView === 'kantor') && (
@@ -1798,7 +1845,7 @@ export default function ReportsIndex({
                                             fields: [
                                                 { label: 'Jenis', render: (expense) => expense.payment_type },
                                                 { label: 'Tanggal', render: (expense) => formatDate(expense.payment_date) },
-                                                { label: 'Kapal / Job', render: (expense) => `${expense.ship_name} · ${expense.job_number}` },
+                                                { label: 'Kapal / Pengajuan', render: (expense) => `${expense.ship_name} · ${expense.job_number}` },
                                                 { label: 'Dicatat Oleh', render: (expense) => expense.recorded_by },
                                                 { label: 'Nilai', fullWidth: true, render: (expense) => <MoneyValue value={expense.amount} className="font-black" /> },
                                             ],

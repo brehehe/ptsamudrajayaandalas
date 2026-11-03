@@ -248,7 +248,7 @@ test('vessel daily expenses report endpoint provides daily accumulation summary 
         'ship_id' => $ship->id,
         'job_number' => 'JOB-MONITOR-01',
         'status' => 'berthed',
-        'eta_at' => now()->subDays(3),
+        'eta_at' => now()->subDay(),
         'etd_at' => now()->addDays(2),
     ]);
 
@@ -258,7 +258,7 @@ test('vessel daily expenses report endpoint provides daily accumulation summary 
         'port_call_id' => $portCall->id,
         'status' => 'Disetujui',
         'created_by' => $director->id,
-        'request_date' => now()->subDays(2)->toDateString(),
+        'request_date' => now()->toDateString(),
     ]);
 
     RequestItem::create([
@@ -270,9 +270,13 @@ test('vessel daily expenses report endpoint provides daily accumulation summary 
         'hpp_price' => 1000000,
         'status' => 'disetujui',
         'director_status' => 'approved',
+        'required_date' => now()->toDateString(),
     ]);
 
-    $response = $this->actingAs($director)->get(route('reports.vessel-daily-expenses'));
+    $response = $this->actingAs($director)->get(route('reports.vessel-daily-expenses', [
+        'from' => now()->startOfMonth()->toDateString(),
+        'to' => now()->endOfMonth()->toDateString(),
+    ]));
 
     $response->assertOk();
     $response->assertInertia(fn (AssertableInertia $page) => $page

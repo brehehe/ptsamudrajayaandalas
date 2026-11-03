@@ -222,19 +222,18 @@ export default function VendorInvoicePaymentModal({
                     </div>
 
                     <Input
-                        required
                         name="reference_number"
                         autoComplete="off"
                         spellCheck={false}
-                        label="Nomor referensi transfer"
+                        label="Nomor referensi transfer (Opsional)"
+                        placeholder="Contoh: REF/TRF/2026/001 atau kosongkan jika cash"
                         value={paymentForm.data.reference_number}
                         onChange={(event) => paymentForm.setData('reference_number', event.target.value)}
                         error={paymentForm.errors.reference_number}
                     />
 
                     <PhotoUploadPicker
-                        label="Bukti pembayaran"
-                        required
+                        label="Bukti pembayaran (Opsional)"
                         value={paymentForm.data.proof}
                         onChange={(file) => paymentForm.setData('proof', file)}
                         mode="gallery"
@@ -242,7 +241,7 @@ export default function VendorInvoicePaymentModal({
                         maxSizeMb={10}
                         variant="compact"
                         error={paymentForm.errors.proof}
-                        helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB."
+                        helperText="PDF, JPG, JPEG, atau PNG. Maksimal 10 MB. Opsional jika cash / tunai."
                     />
 
                     <Textarea

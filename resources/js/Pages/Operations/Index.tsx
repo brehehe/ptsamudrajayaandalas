@@ -18,11 +18,12 @@ import SelectSearch, { type SelectSearchOption } from '../../Components/selects/
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { OperationalActivityData } from '../../Components/vessels/types';
 import { PageProps } from '@/types';
-import { ListChecks, MapPin, RotateCcw, Search, Send, SlidersHorizontal, X } from 'lucide-react';
+import { ListChecks, MapPin, RotateCcw, Search, Send, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import Table from '../../Components/tables/Table';
 import Tabs from '../../Components/ui/Tabs';
 import ImportExportActions from '../../Components/ui/ImportExportActions';
 import FormErrorSummary from '../../Components/forms/FormErrorSummary';
+import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
 
 /* ─── Domain Interfaces ─────────────────────────────────────────── */
 
@@ -71,6 +72,7 @@ interface OperationsIndexProps {
     dailyReports: DailyReport[];
     ships: Array<{ id: string; name: string; ship_company_id?: string }>;
     companies?: Array<{ id: string; name: string }>;
+    jobs?: Array<{ id: string; job_number?: string; ship_id?: string }>;
     ports: Array<{ id: string; name: string }>;
     requests: Array<{ id: string; request_number: string; ship_id?: string; port_call_id?: string; ship?: { id: string; name: string } }>;
     operationalActivities: OperationalActivityData[];
@@ -84,6 +86,8 @@ interface OperationsIndexProps {
     activeTab: string;
     search: string;
     filters?: {
+        tab?: string;
+        status?: string;
         search?: string;
         company_id?: string;
         ship_id?: string;
@@ -213,6 +217,7 @@ export default function OperationsIndex({
     dailyReports,
     ships,
     companies = [],
+    jobs = [],
     requests,
     operationalActivities,
     counts,
@@ -244,6 +249,7 @@ export default function OperationsIndex({
 
     /* ── Desktop state ── */
     const [tab, setTab] = useState(initialTab || 'aktivitas');
+    const [status, setStatus] = useState(filters?.status || 'all');
     const [search, setSearch] = useState(filters?.search || initialSearch || '');
     const [companyId, setCompanyId] = useState(filters?.company_id || '');
     const [shipId, setShipId] = useState(filters?.ship_id || '');
@@ -258,6 +264,7 @@ export default function OperationsIndex({
     const [modalCompanyId, setModalCompanyId] = useState(filters?.company_id || '');
     const [modalShipId, setModalShipId] = useState(filters?.ship_id || '');
     const [modalJobNumber, setModalJobNumber] = useState(filters?.job || '');
+    const [modalStatus, setModalStatus] = useState(filters?.status || 'all');
     const [modalDateRange, setModalDateRange] = useState<DateRange>({
         startDate: filters?.start_date || '',
         endDate: filters?.end_date || '',
@@ -294,16 +301,51 @@ export default function OperationsIndex({
         ...modalAvailableShips.map((s) => ({ value: s.id, label: s.name })),
     ], [modalAvailableShips]);
 
+    const jobOptions: SelectSearchOption[] = useMemo(() => [
+        { value: '', label: 'Semua Job / SPK' },
+        ...(jobs || []).map((j) => ({
+            value: j.job_number || j.id,
+            label: j.job_number || 'Tanpa nomor job',
+        })),
+    ], [jobs]);
+
+    const modalJobOptions: SelectSearchOption[] = useMemo(() => {
+        const list = modalShipId
+            ? (jobs || []).filter((j) => !j.ship_id || j.ship_id === modalShipId)
+            : (jobs || []);
+        return [
+            { value: '', label: 'Semua Job / SPK' },
+            ...list.map((j) => ({
+                value: j.job_number || j.id,
+                label: j.job_number || 'Tanpa nomor job',
+            })),
+        ];
+    }, [jobs, modalShipId]);
+
+    const statusOptions = useMemo<SelectSearchOption[]>(
+        () => [
+            { value: 'all', label: 'Semua Status Operasi' },
+            { value: 'berthed', label: `Sandar di Dermaga (${counts.berthed || 0})` },
+            { value: 'anchored', label: `Labuh Jangkar (${counts.anchored || 0})` },
+            { value: 'scheduled', label: 'Jadwal Datang (Scheduled)' },
+            { value: 'departed', label: 'Berangkat (Departed)' },
+            { value: 'completed', label: 'Selesai (Completed)' },
+        ],
+        [counts]
+    );
+
     const activeFilterCount = [
         companyId,
         shipId,
         jobNumber,
+        status && status !== 'all' ? status : '',
         dateRange.startDate || dateRange.endDate ? 'date' : '',
     ].filter(Boolean).length;
 
     const applyFilters = (overrides?: Record<string, string | undefined>) => {
         const nextFilters = {
             tab,
+            status: status !== 'all' ? status : undefined,
             search: search || undefined,
             company_id: companyId || undefined,
             ship_id: shipId || undefined,
@@ -320,13 +362,14 @@ export default function OperationsIndex({
         setCompanyId('');
         setShipId('');
         setJobNumber('');
+        setStatus('all');
         const emptyRange: DateRange = { startDate: '', endDate: '' };
         setDateRange(emptyRange);
         router.get('/operations', { tab }, { preserveState: true });
     };
 
     const hasActiveFilters = Boolean(
-        search || companyId || shipId || jobNumber || dateRange.startDate || dateRange.endDate
+        search || companyId || shipId || jobNumber || (status && status !== 'all') || dateRange.startDate || dateRange.endDate
     );
 
     /* ── Mobile state: Staf operasional bisa 'form' & 'riwayat', role lain otomatis hanya 'riwayat' ── */
@@ -343,6 +386,7 @@ export default function OperationsIndex({
     const [actCategoryOther, setActCategoryOther] = useState('');
     const [actIsVesselRelated, setActIsVesselRelated] = useState(true);
     const [actShipId, setActShipId] = useState('');
+    const [actCustomShipName, setActCustomShipName] = useState('');
     const [actPortCallId, setActPortCallId] = useState('');
     const [actRequestId, setActRequestId] = useState('');
     const [actVesselPosition, setActVesselPosition] = useState('');
@@ -361,6 +405,23 @@ export default function OperationsIndex({
 
     /* ── Lightbox & Detail state ── */
     const [selectedActivity, setSelectedActivity] = useState<OperationalActivityData | null>(null);
+    const [activityToDelete, setActivityToDelete] = useState<OperationalActivityData | null>(null);
+    const [isDeletingActivity, setIsDeletingActivity] = useState(false);
+
+    const handleDeleteActivity = () => {
+        if (!activityToDelete) return;
+        setIsDeletingActivity(true);
+        router.delete(route('operations.activities.destroy', activityToDelete.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                setActivityToDelete(null);
+                if (selectedActivity?.id === activityToDelete.id) {
+                    setSelectedActivity(null);
+                }
+            },
+            onFinish: () => setIsDeletingActivity(false),
+        });
+    };
 
     /* ── Geolocation ── */
     const geo = useGeolocation('');
@@ -427,6 +488,20 @@ export default function OperationsIndex({
         setSubmitError(null);
         setActivityErrors({});
 
+        if (actIsVesselRelated) {
+            if (actShipId === '__other__') {
+                if (!actCustomShipName.trim()) {
+                    setActivityErrors({ custom_ship_name: 'Nama kapal wajib diisi.' });
+                    setSubmitError('Nama kapal wajib diisi jika memilih opsi kapal lainnya.');
+                    return;
+                }
+            } else if (!actShipId) {
+                setActivityErrors({ ship_id: 'Pilih kapal terlebih dahulu.' });
+                setSubmitError('Pilih kapal terlebih dahulu.');
+                return;
+            }
+        }
+
         setSubmitting(true);
         const fd = new FormData();
         fd.append('activity_date', actDate);
@@ -435,10 +510,17 @@ export default function OperationsIndex({
         fd.append('latitude', geo.latitude !== null ? String(geo.latitude) : '');
         fd.append('longitude', geo.longitude !== null ? String(geo.longitude) : '');
         fd.append('is_vessel_related', actIsVesselRelated ? '1' : '0');
-        if (actIsVesselRelated && actShipId) fd.append('ship_id', actShipId);
-        if (actIsVesselRelated && actPortCallId) fd.append('port_call_id', actPortCallId);
+        if (actIsVesselRelated) {
+            if (actShipId === '__other__') {
+                fd.append('ship_id', '__other__');
+                fd.append('custom_ship_name', actCustomShipName.trim());
+            } else if (actShipId) {
+                fd.append('ship_id', actShipId);
+            }
+            if (actPortCallId) fd.append('port_call_id', actPortCallId);
+            if (actVesselPosition) fd.append('vessel_position', actVesselPosition);
+        }
         if (actRequestId) fd.append('request_id', actRequestId);
-        if (actIsVesselRelated && actVesselPosition) fd.append('vessel_position', actVesselPosition);
         if (actCargoActivity) fd.append('cargo_activity', actCargoActivity);
         if (actCargoQuantity) fd.append('cargo_quantity', actCargoQuantity);
         if (actCargoQuantity && actCargoUnit) fd.append('cargo_unit', actCargoUnit);
@@ -461,6 +543,7 @@ export default function OperationsIndex({
                 setActDetail('');
                 setActPhotos([]);
                 setActShipId('');
+                setActCustomShipName('');
                 setActPortCallId('');
                 setActRequestId('');
                 setActVesselPosition('');
@@ -489,11 +572,21 @@ export default function OperationsIndex({
     };
 
     const selectActivityShip = (shipId: string) => {
+        if (shipId === '__other__') {
+            setActShipId('__other__');
+            setActPortCallId('');
+            setActRequestId('');
+            return;
+        }
+
         const matchingVisit = portCalls.find((portCall) => portCall.ship?.id === shipId);
 
         setActShipId(shipId);
+        setActCustomShipName('');
         setActPortCallId(matchingVisit?.id ?? '');
-        setActVesselPosition(matchingVisit?.status ?? '');
+        if (matchingVisit?.status) {
+            setActVesselPosition(matchingVisit.status);
+        }
         setActRequestId('');
     };
 
@@ -534,7 +627,7 @@ export default function OperationsIndex({
             const q = actSearchQuery.toLowerCase();
             const matchTitle = (a.title || '').toLowerCase().includes(q);
             const matchDesc = (a.detail || '').toLowerCase().includes(q);
-            const matchShip = (a.ship?.name || '').toLowerCase().includes(q);
+            const matchShip = (a.ship?.name || a.custom_ship_name || '').toLowerCase().includes(q);
             const matchLoc = (a.location_name || '').toLowerCase().includes(q);
             if (!matchTitle && !matchDesc && !matchShip && !matchLoc) return false;
         }
@@ -723,54 +816,84 @@ export default function OperationsIndex({
                                             value={actShipId}
                                             onChange={(event) => selectActivityShip(event.target.value)}
                                             placeholder="Pilih kapal"
-                                            options={ships.map((ship) => ({ value: ship.id, label: ship.name }))}
+                                            options={[
+                                                ...ships.map((ship) => ({ value: ship.id, label: ship.name })),
+                                                { value: '__other__', label: '➕ Lainnya (Ketik Nama Kapal)' },
+                                            ]}
                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
                                             error={activityErrors.ship_id}
                                             required
                                         />
-                                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                        {actShipId === '__other__' && (
+                                            <div className="mt-3">
+                                                <Input
+                                                    id="activity-custom-ship-name"
+                                                    label="Nama Kapal Lainnya"
+                                                    name="custom_ship_name"
+                                                    autoComplete="off"
+                                                    value={actCustomShipName}
+                                                    onChange={(e) => setActCustomShipName(e.target.value)}
+                                                    placeholder="Ketik nama kapal (contoh: KM Sumber Berkah)"
+                                                    className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                    error={activityErrors.custom_ship_name}
+                                                    required
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="mt-3 grid gap-3">
                                             <Select
                                                 id="activity-port-call"
-                                                label="Kunjungan / job"
+                                                label="Kunjungan / job (opsional)"
                                                 name="port_call_id"
                                                 value={actPortCallId}
                                                 onChange={(event) => {
                                                     const visitId = event.target.value;
                                                     const visit = portCalls.find((portCall) => portCall.id === visitId);
                                                     setActPortCallId(visitId);
-                                                    setActVesselPosition(visit?.status ?? '');
+                                                    if (visit?.status) {
+                                                        setActVesselPosition(visit.status);
+                                                    }
                                                     setActRequestId('');
                                                 }}
-                                                placeholder={actShipId ? 'Pilih kunjungan / job' : 'Pilih kapal dahulu'}
-                                                options={portCalls
-                                                    .filter((portCall) => portCall.ship?.id === actShipId)
-                                                    .map((portCall) => ({
-                                                        value: portCall.id,
-                                                        label: `${portCall.job_number} · ${portCall.port?.name ?? 'Pelabuhan belum diisi'}`,
-                                                    }))}
+                                                placeholder={
+                                                    actShipId === '__other__'
+                                                        ? 'Dilewati (Tidak terhubung job)'
+                                                        : (actShipId ? 'Pilih kunjungan / job (Opsional)' : 'Pilih kapal dahulu')
+                                                }
+                                                options={
+                                                    actShipId === '__other__'
+                                                        ? []
+                                                        : [
+                                                            { value: '', label: '-- Lewati / Tanpa Job --' },
+                                                            ...portCalls
+                                                                .filter((portCall) => portCall.ship?.id === actShipId)
+                                                                .map((portCall) => ({
+                                                                    value: portCall.id,
+                                                                    label: `${portCall.job_number} · ${portCall.port?.name ?? 'Pelabuhan belum diisi'}`,
+                                                                })),
+                                                        ]
+                                                }
                                                 className="!bg-[#F8FBFF] dark:!bg-[#071322]"
                                                 error={activityErrors.port_call_id}
-                                                disabled={!actShipId}
-                                                required
+                                                disabled={!actShipId || actShipId === '__other__'}
                                             />
                                             <Select
                                                 id="activity-vessel-position"
-                                                label="Posisi kapal"
+                                                label="Posisi kapal (opsional)"
                                                 name="vessel_position"
                                                 value={actVesselPosition}
                                                 onChange={(event) => setActVesselPosition(event.target.value)}
-                                                placeholder="Pilih posisi"
+                                                placeholder="Pilih posisi (opsional)"
                                                 options={[
+                                                    { value: '', label: '-- Pilih Posisi Kapal (Opsional) --' },
                                                     { value: 'scheduled', label: 'Belum Tiba' },
                                                     { value: 'anchored', label: 'Labuh' },
                                                     { value: 'berthed', label: 'Sandar' },
                                                     { value: 'departed', label: 'Berangkat' },
                                                 ]}
                                                 className="!bg-[#F8FBFF] dark:!bg-[#071322]"
-                                                helperText="Diambil otomatis dari kunjungan / job yang dipilih."
+                                                helperText="Posisi dapat diubah bebas sesuai kondisi terkini."
                                                 error={activityErrors.vessel_position}
-                                                disabled
-                                                required
                                             />
                                         </div>
                                         <div className="mt-3">
@@ -781,12 +904,16 @@ export default function OperationsIndex({
                                                 value={actRequestId}
                                                 onChange={(event) => setActRequestId(event.target.value)}
                                                 placeholder="Tanpa pengajuan terkait"
-                                                options={requests
-                                                    .filter((request) => request.ship?.id === actShipId && (!request.port_call_id || request.port_call_id === actPortCallId))
-                                                    .map((request) => ({ value: request.id, label: request.request_number }))}
+                                                options={
+                                                    actShipId === '__other__'
+                                                        ? []
+                                                        : requests
+                                                            .filter((request) => request.ship?.id === actShipId && (!request.port_call_id || request.port_call_id === actPortCallId))
+                                                            .map((request) => ({ value: request.id, label: request.request_number }))
+                                                }
                                                 className="!bg-[#F8FBFF] dark:!bg-[#071322]"
                                                 error={activityErrors.request_id}
-                                                disabled={!actPortCallId}
+                                                disabled={!actPortCallId || actShipId === '__other__'}
                                             />
                                         </div>
                                     </div>
@@ -1030,14 +1157,14 @@ export default function OperationsIndex({
                                                 type="button"
                                                 onClick={() => setRiwayatCategoryFilter(cat)}
                                                 className={`flex min-h-9 flex-shrink-0 items-center gap-1 rounded-lg px-3 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${riwayatCategoryFilter === cat
-                                                        ? 'bg-[#0060F4] text-white shadow-sm'
-                                                        : 'bg-white border border-[#DCEAF8] text-[#52658E] hover:bg-[#F0F8FF]'
+                                                    ? 'bg-[#0060F4] text-white shadow-sm'
+                                                    : 'bg-white border border-[#DCEAF8] text-[#52658E] hover:bg-[#F0F8FF]'
                                                     }`}
                                             >
                                                 {cat}
                                                 <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${riwayatCategoryFilter === cat
-                                                        ? 'bg-white/25 text-white'
-                                                        : 'bg-[#F0F8FF] text-[#0060F4]'
+                                                    ? 'bg-white/25 text-white'
+                                                    : 'bg-[#F0F8FF] text-[#0060F4]'
                                                     }`}>
                                                     {catCounts[cat]}
                                                 </span>
@@ -1112,11 +1239,22 @@ export default function OperationsIndex({
                                                             <div className="min-w-0 flex-1 p-3">
                                                                 <div className="mb-1 flex items-start justify-between gap-2">
                                                                     <span className="line-clamp-1 text-sm font-bold leading-tight text-[#082870] dark:text-[#F1F5F9]">
-                                                                        {act.is_vessel_related && act.ship ? act.ship.name : act.title}
+                                                                        {act.is_vessel_related ? (act.ship?.name || act.custom_ship_name || 'Kapal Lainnya') : act.title}
                                                                     </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        title="Hapus Aktivitas"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setActivityToDelete(act);
+                                                                        }}
+                                                                        className="rounded-lg p-1 text-[#8C9BB9] transition-colors hover:bg-[#FFE7EC] hover:text-[#C62840] dark:hover:bg-red-950/50"
+                                                                    >
+                                                                        <Trash2 className="size-3.5" />
+                                                                    </button>
                                                                 </div>
 
-                                                                {act.is_vessel_related && act.ship && (
+                                                                {act.is_vessel_related && (act.ship || act.custom_ship_name) && (
                                                                     <p className="mb-1.5 line-clamp-2 text-[11px] font-bold leading-snug text-[#0060F4] dark:text-[#60A5FA]">
                                                                         {act.title}
                                                                     </p>
@@ -1205,129 +1343,207 @@ export default function OperationsIndex({
                 {/* ── Stat Badges ── */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                        { label: 'Aktivitas Lapangan', value: counts.aktivitas, color: 'text-[#0060F4]', val: 'text-[#0060F4]' },
-                        { label: 'Total Kunjungan (Job)', value: counts.kunjungan, color: 'text-[#52658E]', val: 'text-[#082870]' },
-                        { label: 'Kapal Sandar (Berthed)', value: counts.berthed, color: 'text-emerald-600', val: 'text-emerald-700' },
-                        { label: 'Kapal Labuh (Anchored)', value: counts.anchored, color: 'text-amber-600', val: 'text-amber-700' },
+                        {
+                            label: 'Aktivitas Lapangan',
+                            value: counts.aktivitas,
+                            color: 'text-[#0060F4]',
+                            val: 'text-[#0060F4]',
+                            onClick: () => {
+                                setTab('aktivitas');
+                                applyFilters({ tab: 'aktivitas' });
+                            },
+                        },
+                        {
+                            label: 'Total Kunjungan (Job)',
+                            value: counts.kunjungan,
+                            color: 'text-[#52658E]',
+                            val: 'text-[#082870]',
+                            onClick: () => {
+                                setTab('kunjungan');
+                                setStatus('all');
+                                applyFilters({ tab: 'kunjungan', status: undefined });
+                            },
+                        },
+                        {
+                            label: 'Kapal Sandar (Berthed)',
+                            value: counts.berthed,
+                            color: 'text-emerald-600',
+                            val: 'text-emerald-700',
+                            onClick: () => {
+                                setTab('kunjungan');
+                                setStatus('berthed');
+                                applyFilters({ tab: 'kunjungan', status: 'berthed' });
+                            },
+                        },
+                        {
+                            label: 'Kapal Labuh (Anchored)',
+                            value: counts.anchored,
+                            color: 'text-amber-600',
+                            val: 'text-amber-700',
+                            onClick: () => {
+                                setTab('kunjungan');
+                                setStatus('anchored');
+                                applyFilters({ tab: 'kunjungan', status: 'anchored' });
+                            },
+                        },
                     ].map((s) => (
-                        <div key={s.label} className="bg-white dark:bg-[#0C1D36] p-3.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-xs">
+                        <button
+                            type="button"
+                            key={s.label}
+                            onClick={s.onClick}
+                            className="bg-white dark:bg-[#0C1D36] p-3.5 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] shadow-xs text-left transition-all hover:border-[#0060F4]/40 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
+                        >
                             <div className={`text-[11px] font-medium ${s.color}`}>{s.label}</div>
                             <div className={`text-2xl font-bold mt-0.5 ${s.val}`}>{s.value}</div>
-                        </div>
+                        </button>
                     ))}
                 </div>
 
-                {/* ── Filter Bar (Kunjungan & Laporan) with Modal ── */}
-                {tab !== 'aktivitas' && (
-                    <div className="rounded-2xl border border-[#DCEAF8] bg-white p-3.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] space-y-3">
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                            {/* Search Input (Roomy) */}
-                            <form
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    applyFilters();
-                                }}
-                                className="relative flex-1"
-                            >
-                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8C9BB9]" />
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Cari job, kapal, pelabuhan..."
-                                    className="w-full pl-9 pr-8 h-11 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
-                                />
-                                {search && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setSearch('');
-                                            applyFilters({ search: undefined });
-                                        }}
-                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
-                                    >
-                                        <X className="size-3.5" />
-                                    </button>
-                                )}
-                            </form>
+                {/* ── Desktop Tab Navigation ── */}
+                <Tabs
+                    items={[
+                        { id: 'aktivitas', label: 'Aktivitas Lapangan', count: counts.aktivitas },
+                        { id: 'kunjungan', label: 'Operasional Kunjungan / Port Calls', count: counts.kunjungan },
+                        { id: 'laporan', label: 'Laporan Harian', count: counts.laporan },
+                    ]}
+                    activeId={tab}
+                    onChange={(nextTab) => {
+                        setTab(nextTab);
+                        applyFilters({ tab: nextTab });
+                    }}
+                    ariaLabel="Tab Operasional"
+                    className="rounded-t-2xl border-x border-t border-[#DCEAF8] dark:border-[#1E3A5F]"
+                />
 
-                            {/* Action Buttons: Filter Modal Trigger & Reset */}
-                            <div className="flex items-center gap-2 shrink-0">
+                {/* ── Filter Bar (Semua Tab) with Modal ── */}
+                <div className="rounded-2xl border border-[#DCEAF8] bg-white p-3.5 shadow-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] space-y-3">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                        {/* Search Input (Roomy) */}
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                applyFilters();
+                            }}
+                            className="relative flex-1"
+                        >
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8C9BB9]" />
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Cari job, kapal, pelabuhan, aktivitas..."
+                                className="w-full pl-9 pr-8 h-11 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                            />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearch('');
+                                        applyFilters({ search: undefined });
+                                    }}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C9BB9] hover:text-[#C62840]"
+                                >
+                                    <X className="size-3.5" />
+                                </button>
+                            )}
+                        </form>
+
+                        {/* Action Buttons: Filter Modal Trigger & Reset */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                                type="button"
+                                variant={activeFilterCount > 0 ? 'primary' : 'outline'}
+                                onClick={() => {
+                                    setModalCompanyId(companyId);
+                                    setModalShipId(shipId);
+                                    setModalJobNumber(jobNumber);
+                                    setModalStatus(status);
+                                    setModalDateRange(dateRange);
+                                    setIsFilterModalOpen(true);
+                                }}
+                                leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
+                                className="h-11 px-4 text-xs font-bold"
+                            >
+                                <span>Filter</span>
+                                {activeFilterCount > 0 && (
+                                    <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
+                                        {activeFilterCount}
+                                    </span>
+                                )}
+                            </Button>
+
+                            {hasActiveFilters && (
                                 <Button
                                     type="button"
-                                    variant={activeFilterCount > 0 ? 'primary' : 'outline'}
-                                    onClick={() => {
-                                        setModalCompanyId(companyId);
-                                        setModalShipId(shipId);
-                                        setModalJobNumber(jobNumber);
-                                        setModalDateRange(dateRange);
-                                        setIsFilterModalOpen(true);
-                                    }}
-                                    leftIcon={<SlidersHorizontal aria-hidden="true" className="size-4" />}
-                                    className="h-11 px-4 text-xs font-bold"
+                                    variant="outline"
+                                    onClick={handleResetAllFilters}
+                                    className="h-11 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
                                 >
-                                    <span>Filter</span>
-                                    {activeFilterCount > 0 && (
-                                        <span className="ml-1.5 flex size-5 items-center justify-center rounded-full bg-white/25 text-[11px] font-black text-white dark:bg-black/30">
-                                            {activeFilterCount}
-                                        </span>
-                                    )}
+                                    <RotateCcw aria-hidden="true" className="size-3.5 mr-1" />
+                                    Reset
                                 </Button>
-
-                                {hasActiveFilters && (
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={handleResetAllFilters}
-                                        className="h-11 px-3 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
-                                    >
-                                        <RotateCcw aria-hidden="true" className="size-3.5 mr-1" />
-                                        Reset
-                                    </Button>
-                                )}
-                            </div>
+                            )}
                         </div>
-
-                        {/* Active Filter Badges */}
-                        {hasActiveFilters && (
-                            <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-[#EAF2FA] dark:border-[#1E3A5F]/60 text-xs">
-                                <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
-                                {companyId && (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
-                                        <button type="button" onClick={() => { setCompanyId(''); applyFilters({ company_id: undefined }); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                                {shipId && (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Kapal: {ships.find((s) => s.id === shipId)?.name || shipId}
-                                        <button type="button" onClick={() => { setShipId(''); applyFilters({ ship_id: undefined }); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                                {jobNumber && (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Job: {jobNumber}
-                                        <button type="button" onClick={() => { setJobNumber(''); applyFilters({ job: undefined }); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                                {(dateRange.startDate || dateRange.endDate) && (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAF4FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]">
-                                        Tanggal: {dateRange.startDate || '...'} s/d {dateRange.endDate || '...'}
-                                        <button type="button" onClick={() => { const empty = { startDate: '', endDate: '' }; setDateRange(empty); applyFilters({ start_date: undefined, end_date: undefined }); }}>
-                                            <X className="size-3" />
-                                        </button>
-                                    </span>
-                                )}
-                            </div>
-                        )}
                     </div>
-                )}
+
+                    {/* Active Filter Badges */}
+                    {hasActiveFilters && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-[#EAF2FA] dark:border-[#1E3A5F]/60 text-xs">
+                            <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Filter aktif:</span>
+                            {companyId && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                    Perusahaan: {companies.find((c) => c.id === companyId)?.name || companyId}
+                                    <button type="button" onClick={() => { setCompanyId(''); setShipId(''); applyFilters({ company_id: undefined, ship_id: undefined }); }}>
+                                        <X className="size-3" />
+                                    </button>
+                                </span>
+                            )}
+                            {shipId && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                    Kapal: {ships.find((s) => s.id === shipId)?.name || shipId}
+                                    <button type="button" onClick={() => { setShipId(''); applyFilters({ ship_id: undefined }); }}>
+                                        <X className="size-3" />
+                                    </button>
+                                </span>
+                            )}
+                            {jobNumber && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                    Job: {jobNumber}
+                                    <button type="button" onClick={() => { setJobNumber(''); applyFilters({ job: undefined }); }}>
+                                        <X className="size-3" />
+                                    </button>
+                                </span>
+                            )}
+                            {status && status !== 'all' && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                    Status:{' '}
+                                    {status === 'berthed'
+                                        ? 'Sandar di Dermaga'
+                                        : status === 'anchored'
+                                            ? 'Labuh Jangkar'
+                                            : status === 'scheduled'
+                                                ? 'Jadwal Datang'
+                                                : status === 'departed'
+                                                    ? 'Berangkat'
+                                                    : status === 'completed'
+                                                        ? 'Selesai'
+                                                        : status}
+                                    <button type="button" onClick={() => { setStatus('all'); applyFilters({ status: undefined }); }} aria-label="Hapus filter status" className="hover:text-[#C62840]">
+                                        <X className="size-3" />
+                                    </button>
+                                </span>
+                            )}
+                            {(dateRange.startDate || dateRange.endDate) && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E0F0FF] px-3 py-1 font-semibold text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]">
+                                    Tanggal: {dateRange.startDate || '...'} s/d {dateRange.endDate || '...'}
+                                    <button type="button" onClick={() => { const empty = { startDate: '', endDate: '' }; setDateRange(empty); applyFilters({ start_date: undefined, end_date: undefined }); }}>
+                                        <X className="size-3" />
+                                    </button>
+                                </span>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 {/* ── Tab: Port Calls ── */}
                 {tab === 'kunjungan' && (
@@ -1442,15 +1658,15 @@ export default function OperationsIndex({
                                             type="button"
                                             onClick={() => setRiwayatCategoryFilter(cat)}
                                             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${riwayatCategoryFilter === cat
-                                                    ? 'bg-[#0060F4] text-white shadow-xs'
-                                                    : 'bg-[#F0F8FF] dark:bg-[#10243E] text-[#52658E] dark:text-[#9FB0C6] hover:bg-[#E0F0FF]'
+                                                ? 'bg-[#0060F4] text-white shadow-xs'
+                                                : 'bg-[#F0F8FF] dark:bg-[#10243E] text-[#52658E] dark:text-[#9FB0C6] hover:bg-[#E0F0FF]'
                                                 }`}
                                         >
                                             <span>{cat}</span>
                                             <span
                                                 className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${riwayatCategoryFilter === cat
-                                                        ? 'bg-white/25 text-white'
-                                                        : 'bg-white dark:bg-[#0C1D36] text-[#0060F4]'
+                                                    ? 'bg-white/25 text-white'
+                                                    : 'bg-white dark:bg-[#0C1D36] text-[#0060F4]'
                                                     }`}
                                             >
                                                 {catCounts[cat]}
@@ -1591,54 +1807,84 @@ export default function OperationsIndex({
                                                             value={actShipId}
                                                             onChange={(e) => selectActivityShip(e.target.value)}
                                                             placeholder="Pilih kapal"
-                                                            options={ships.map((ship) => ({ value: ship.id, label: ship.name }))}
+                                                            options={[
+                                                                ...ships.map((ship) => ({ value: ship.id, label: ship.name })),
+                                                                { value: '__other__', label: '➕ Lainnya (Ketik Nama Kapal)' },
+                                                            ]}
                                                             className="!bg-[#F8FBFF] dark:!bg-[#071322]"
                                                             error={activityErrors.ship_id}
                                                             required
                                                         />
-                                                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                                        {actShipId === '__other__' && (
+                                                            <div className="mt-3">
+                                                                <Input
+                                                                    id="desk-activity-custom-ship-name"
+                                                                    label="Nama Kapal Lainnya"
+                                                                    name="custom_ship_name"
+                                                                    autoComplete="off"
+                                                                    value={actCustomShipName}
+                                                                    onChange={(e) => setActCustomShipName(e.target.value)}
+                                                                    placeholder="Ketik nama kapal (contoh: KM Sumber Berkah)"
+                                                                    className="!bg-[#F8FBFF] dark:!bg-[#071322]"
+                                                                    error={activityErrors.custom_ship_name}
+                                                                    required
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        <div className="mt-3 grid gap-3">
                                                             <Select
                                                                 id="desk-activity-port-call"
-                                                                label="Kunjungan / job"
+                                                                label="Kunjungan / job (opsional)"
                                                                 name="port_call_id"
                                                                 value={actPortCallId}
                                                                 onChange={(e) => {
                                                                     const visitId = e.target.value;
                                                                     const visit = portCalls.find((pc) => pc.id === visitId);
                                                                     setActPortCallId(visitId);
-                                                                    setActVesselPosition(visit?.status ?? '');
+                                                                    if (visit?.status) {
+                                                                        setActVesselPosition(visit.status);
+                                                                    }
                                                                     setActRequestId('');
                                                                 }}
-                                                                placeholder={actShipId ? 'Pilih kunjungan / job' : 'Pilih kapal dahulu'}
-                                                                options={portCalls
-                                                                    .filter((pc) => pc.ship?.id === actShipId)
-                                                                    .map((pc) => ({
-                                                                        value: pc.id,
-                                                                        label: `${pc.job_number} · ${pc.port?.name ?? 'Pelabuhan belum diisi'}`,
-                                                                    }))}
+                                                                placeholder={
+                                                                    actShipId === '__other__'
+                                                                        ? 'Dilewati (Tidak terhubung job)'
+                                                                        : (actShipId ? 'Pilih kunjungan / job (Opsional)' : 'Pilih kapal dahulu')
+                                                                }
+                                                                options={
+                                                                    actShipId === '__other__'
+                                                                        ? []
+                                                                        : [
+                                                                            { value: '', label: '-- Lewati / Tanpa Job --' },
+                                                                            ...portCalls
+                                                                                .filter((pc) => pc.ship?.id === actShipId)
+                                                                                .map((pc) => ({
+                                                                                    value: pc.id,
+                                                                                    label: `${pc.job_number} · ${pc.port?.name ?? 'Pelabuhan belum diisi'}`,
+                                                                                })),
+                                                                        ]
+                                                                }
                                                                 className="!bg-[#F8FBFF] dark:!bg-[#071322]"
                                                                 error={activityErrors.port_call_id}
-                                                                disabled={!actShipId}
-                                                                required
+                                                                disabled={!actShipId || actShipId === '__other__'}
                                                             />
                                                             <Select
                                                                 id="desk-activity-vessel-position"
-                                                                label="Posisi kapal"
+                                                                label="Posisi kapal (opsional)"
                                                                 name="vessel_position"
                                                                 value={actVesselPosition}
                                                                 onChange={(e) => setActVesselPosition(e.target.value)}
-                                                                placeholder="Pilih posisi"
+                                                                placeholder="Pilih posisi (opsional)"
                                                                 options={[
+                                                                    { value: '', label: '-- Pilih Posisi Kapal (Opsional) --' },
                                                                     { value: 'scheduled', label: 'Belum Tiba' },
                                                                     { value: 'anchored', label: 'Labuh' },
                                                                     { value: 'berthed', label: 'Sandar' },
                                                                     { value: 'departed', label: 'Berangkat' },
                                                                 ]}
                                                                 className="!bg-[#F8FBFF] dark:!bg-[#071322]"
-                                                                helperText="Diambil otomatis dari kunjungan / job yang dipilih."
+                                                                helperText="Posisi dapat diubah bebas sesuai kondisi terkini."
                                                                 error={activityErrors.vessel_position}
-                                                                disabled
-                                                                required
                                                             />
                                                         </div>
                                                         <div className="mt-3">
@@ -1649,12 +1895,16 @@ export default function OperationsIndex({
                                                                 value={actRequestId}
                                                                 onChange={(e) => setActRequestId(e.target.value)}
                                                                 placeholder="Tanpa pengajuan terkait"
-                                                                options={requests
-                                                                    .filter((r) => r.ship?.id === actShipId && (!r.port_call_id || r.port_call_id === actPortCallId))
-                                                                    .map((r) => ({ value: r.id, label: r.request_number }))}
+                                                                options={
+                                                                    actShipId === '__other__'
+                                                                        ? []
+                                                                        : requests
+                                                                            .filter((r) => r.ship?.id === actShipId && (!r.port_call_id || r.port_call_id === actPortCallId))
+                                                                            .map((r) => ({ value: r.id, label: r.request_number }))
+                                                                }
                                                                 className="!bg-[#F8FBFF] dark:!bg-[#071322]"
                                                                 error={activityErrors.request_id}
-                                                                disabled={!actPortCallId}
+                                                                disabled={!actPortCallId || actShipId === '__other__'}
                                                             />
                                                         </div>
                                                     </div>
@@ -1933,14 +2183,27 @@ export default function OperationsIndex({
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="mb-1 flex items-start justify-between gap-2">
                                                                         <span className="line-clamp-1 font-extrabold text-xs text-[#0B1F63] transition-colors group-hover:text-[#0060F4] sm:text-sm dark:text-white">
-                                                                            {act.ship?.name || act.title}
+                                                                            {act.is_vessel_related ? (act.ship?.name || act.custom_ship_name || 'Kapal Lainnya') : act.title}
                                                                         </span>
-                                                                        <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
-                                                                            {act.activity_time} WIB
-                                                                        </span>
+                                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                                            <span className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                                                                                {act.activity_time} WIB
+                                                                            </span>
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Hapus Aktivitas"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setActivityToDelete(act);
+                                                                                }}
+                                                                                className="rounded-lg p-1 text-[#8C9BB9] transition-colors hover:bg-[#FFE7EC] hover:text-[#C62840] dark:hover:bg-red-950/50"
+                                                                            >
+                                                                                <Trash2 className="size-3.5" />
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
 
-                                                                    {act.ship && (
+                                                                    {act.is_vessel_related && (act.ship || act.custom_ship_name) && (
                                                                         <h5 className="line-clamp-1 text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
                                                                             {act.title}
                                                                         </h5>
@@ -2030,13 +2293,24 @@ export default function OperationsIndex({
                             <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                 Petugas: <strong className="text-[#0B1F63] dark:text-white">{selectedActivity.creator?.name || 'Tidak tersedia'}</strong>
                             </span>
-                            <Button
-                                variant="secondary"
-                                onClick={() => setSelectedActivity(null)}
-                                className="rounded-xl px-4 py-2 text-xs font-bold"
-                            >
-                                Tutup
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="danger"
+                                    onClick={() => setActivityToDelete(selectedActivity)}
+                                    leftIcon={<Trash2 aria-hidden="true" className="size-3.5" />}
+                                    className="rounded-xl px-3 py-2 text-xs font-bold"
+                                >
+                                    Hapus
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => setSelectedActivity(null)}
+                                    className="rounded-xl px-4 py-2 text-xs font-bold"
+                                >
+                                    Tutup
+                                </Button>
+                            </div>
                         </div>
 
                     ) : undefined
@@ -2170,6 +2444,7 @@ export default function OperationsIndex({
                 isOpen={isFilterModalOpen}
                 onClose={() => setIsFilterModalOpen(false)}
                 title="Filter Operasional Kapal"
+                subtitle="Saring data operasional berdasarkan status operasi, perusahaan pelayaran, kapal, job, atau rentang tanggal"
                 size="lg"
                 asBottomSheetOnMobile
                 footer={(
@@ -2181,10 +2456,12 @@ export default function OperationsIndex({
                                 setModalCompanyId('');
                                 setModalShipId('');
                                 setModalJobNumber('');
+                                setModalStatus('all');
                                 setModalDateRange({ startDate: '', endDate: '' });
                             }}
                             className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400"
                         >
+                            <RotateCcw aria-hidden="true" className="size-3.5 mr-1.5" />
                             Reset Pilihan
                         </Button>
                         <div className="flex items-center gap-2">
@@ -2197,16 +2474,19 @@ export default function OperationsIndex({
                             </Button>
                             <Button
                                 type="button"
+                                variant="primary"
                                 onClick={() => {
                                     setCompanyId(modalCompanyId);
                                     setShipId(modalShipId);
                                     setJobNumber(modalJobNumber);
+                                    setStatus(modalStatus);
                                     setDateRange(modalDateRange);
                                     setIsFilterModalOpen(false);
                                     applyFilters({
                                         company_id: modalCompanyId || undefined,
                                         ship_id: modalShipId || undefined,
                                         job: modalJobNumber || undefined,
+                                        status: modalStatus !== 'all' ? modalStatus : undefined,
                                         start_date: modalDateRange.startDate || undefined,
                                         end_date: modalDateRange.endDate || undefined,
                                     });
@@ -2221,7 +2501,7 @@ export default function OperationsIndex({
                 <div className="space-y-4 py-1">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <SelectSearch
-                            label="Perusahaan"
+                            label="Perusahaan Pelayaran"
                             value={modalCompanyId}
                             onChange={(val) => {
                                 const nextVal = String(val || '');
@@ -2230,6 +2510,7 @@ export default function OperationsIndex({
                             }}
                             options={companyOptions}
                             placeholder="Pilih Perusahaan"
+                            searchPlaceholder="Cari perusahaan…"
                         />
                         <SelectSearch
                             label="Armada Kapal"
@@ -2237,35 +2518,38 @@ export default function OperationsIndex({
                             onChange={(val) => setModalShipId(String(val || ''))}
                             options={modalShipOptions}
                             placeholder="Pilih Kapal"
+                            searchPlaceholder="Cari kapal…"
                         />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#94A3B8] mb-1.5">
-                            Nomor Job / SPK
-                        </label>
-                        <input
-                            type="text"
+                        <SelectSearch
+                            label="Nomor Job / SPK"
                             value={modalJobNumber}
-                            onChange={(e) => setModalJobNumber(e.target.value)}
-                            placeholder="Ketik nomor job (contoh: JOB-SPK-...)"
-                            className="w-full h-11 px-3.5 bg-[#F8FBFF] border border-[#DCEAF8] rounded-xl text-xs sm:text-sm font-semibold text-[#0B1F63] placeholder-[#8C9BB9] focus:outline-none focus:ring-2 focus:ring-[#0060F4]/30 focus:border-[#0060F4] dark:bg-[#071322] dark:border-[#1E3A5F] dark:text-white"
+                            onChange={(val) => setModalJobNumber(String(val || ''))}
+                            options={modalJobOptions}
+                            placeholder="Pilih Job / SPK"
+                            searchPlaceholder="Cari nomor job…"
                         />
-                    </div>
-
-                    <div className="pt-2 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60">
-                        <p className="mb-2 text-xs font-bold text-[#0B1F63] dark:text-[#94A3B8]">
-                            Rentang Tanggal Kegiatan:
-                        </p>
-                        <DateRangePicker
-                            inline
-                            value={modalDateRange}
-                            onChange={setModalDateRange}
-                            placeholder="Rentang Tanggal"
+                        <SelectSearch
+                            label="Status Operasi Kapal"
+                            value={modalStatus}
+                            onChange={(val) => setModalStatus(String(val || 'all'))}
+                            options={statusOptions}
+                            placeholder="Pilih Status Operasi"
                         />
                     </div>
                 </div>
             </Modal>
+
+            {/* ── Confirm Delete Activity Dialog ── */}
+            <ConfirmDialog
+                isOpen={Boolean(activityToDelete)}
+                title="Hapus Aktivitas Lapangan?"
+                description={`Apakah Anda yakin ingin menghapus aktivitas "${activityToDelete?.title || 'ini'}"? Catatan aktivitas ini akan dihapus dari riwayat operasional.`}
+                confirmLabel={isDeletingActivity ? 'Menghapus...' : 'Ya, Hapus Aktivitas'}
+                confirmVariant="danger"
+                processing={isDeletingActivity}
+                onConfirm={handleDeleteActivity}
+                onClose={() => setActivityToDelete(null)}
+            />
 
         </AppLayout>
     );

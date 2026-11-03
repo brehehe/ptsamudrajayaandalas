@@ -34,6 +34,7 @@ class OperationController extends Controller
     public function index(Request $request): Response
     {
         $tab = $request->query('tab', 'aktivitas'); // 'aktivitas' | 'kunjungan' | 'laporan'
+        $status = $request->query('status'); // 'all' | 'scheduled' | 'anchored' | 'berthed' | 'departed' | 'completed'
         $search = $request->query('search');
         $companyId = $request->query('company_id');
         $shipId = $request->query('ship_id');
@@ -71,7 +72,14 @@ class OperationController extends Controller
             $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
             $portCallsQuery->where('job_number', $like, "%{$jobNumber}%");
             $dailyReportsQuery->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"));
-            $operationalActivitiesQuery->whereHas('request.portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"));
+            $operationalActivitiesQuery->where(function ($q) use ($jobNumber, $like) {
+                $q->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"))
+                    ->orWhereHas('request.portCall', fn ($pq) => $pq->where('job_number', $like, "%{$jobNumber}%"));
+            });
+        }
+
+        if ($status && $status !== 'all') {
+            $portCallsQuery->where('status', $status);
         }
 
         if ($startDate) {
@@ -101,8 +109,11 @@ class OperationController extends Controller
             });
 
             $operationalActivitiesQuery->where(function ($q) use ($search, $like) {
-                $q->where('activity_name', $like, "%{$search}%")
-                    ->orWhere('description', $like, "%{$search}%")
+                $q->where('title', $like, "%{$search}%")
+                    ->orWhere('detail', $like, "%{$search}%")
+                    ->orWhere('location_name', $like, "%{$search}%")
+                    ->orWhere('category', $like, "%{$search}%")
+                    ->orWhere('custom_ship_name', $like, "%{$search}%")
                     ->orWhereHas('ship', fn ($sq) => $sq->where('name', $like, "%{$search}%"));
             });
         }
@@ -110,8 +121,9 @@ class OperationController extends Controller
         $portCalls = $portCallsQuery->get();
         $dailyReports = $dailyReportsQuery->get();
         $operationalActivities = $operationalActivitiesQuery->get();
-        $ships = Ship::where('is_active', true)->orderBy('name')->get();
-        $companies = ShipCompany::where('is_active', true)->orderBy('name')->get();
+        $ships = Ship::where('is_active', true)->orderBy('name')->get(['id', 'name', 'ship_company_id']);
+        $companies = ShipCompany::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $jobs = PortCall::query()->latest('created_at')->limit(100)->get(['id', 'job_number', 'ship_id']);
         $ports = Port::where('is_active', true)->orderBy('name')->get();
         $requests = ShipRequest::with('ship')
             ->whereIn('status', ['Menunggu Approval', 'Dalam Proses', 'Selesai', 'Draft'])
@@ -124,6 +136,7 @@ class OperationController extends Controller
             'operationalActivities' => $operationalActivities,
             'ships' => $ships,
             'companies' => $companies,
+            'jobs' => $jobs,
             'requests' => $requests,
             'ports' => $ports,
             'counts' => [
@@ -136,6 +149,7 @@ class OperationController extends Controller
             'activeTab' => $tab,
             'search' => $search ?? '',
             'filters' => [
+                'status' => $status ?? 'all',
                 'search' => $search ?? '',
                 'company_id' => $companyId ?? '',
                 'ship_id' => $shipId ?? '',
@@ -156,6 +170,12 @@ class OperationController extends Controller
             true,
         );
 
+        $rawShipId = $validated['ship_id'] ?? null;
+        $isOtherShip = in_array($rawShipId, ['__other__', 'other'], true)
+            || ($rawShipId === null && ! empty($validated['custom_ship_name']));
+        $shipId = ($isVesselRelated && ! $isOtherShip) ? $rawShipId : null;
+        $customShipName = ($isVesselRelated && $isOtherShip) ? ($validated['custom_ship_name'] ?? null) : null;
+
         $photoPaths = [];
         if ($request->hasFile('photos')) {
             foreach ($request->file('photos') as $file) {
@@ -171,7 +191,8 @@ class OperationController extends Controller
             'latitude' => $validated['latitude'] ?? null,
             'longitude' => $validated['longitude'] ?? null,
             'is_vessel_related' => $isVesselRelated,
-            'ship_id' => $isVesselRelated ? ($validated['ship_id'] ?? null) : null,
+            'ship_id' => $shipId,
+            'custom_ship_name' => $customShipName,
             'port_call_id' => $isVesselRelated ? ($validated['port_call_id'] ?? null) : null,
             'request_id' => $isVesselRelated ? ($validated['request_id'] ?? null) : null,
             'category' => $usesCustomCategory
@@ -191,6 +212,21 @@ class OperationController extends Controller
         ]);
 
         return redirect()->back()->with('success', 'Aktivitas lapangan berhasil dicatat.');
+    }
+
+    public function destroyActivity(Request $request, OperationalActivity $activity): RedirectResponse
+    {
+        $user = $request->user();
+        $isCreator = $activity->created_by && $user && (string) $activity->created_by === (string) $user->id;
+        $hasPermission = $user?->hasAnyRole(['Admin', 'Admin Sistem', 'Lapangan', 'Tim Lapangan', 'Staf Operasional', 'Direktur']);
+
+        if (! $isCreator && ! $hasPermission) {
+            abort(403, 'Anda tidak memiliki hak akses untuk menghapus aktivitas ini.');
+        }
+
+        $activity->delete();
+
+        return redirect()->back()->with('success', 'Aktivitas lapangan berhasil dihapus.');
     }
 
     public function storeDailyReport(Request $request): RedirectResponse

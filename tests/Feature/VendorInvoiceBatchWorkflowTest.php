@@ -569,3 +569,106 @@ test('partial vendor payment updates the invoice and prevents overpayment', func
     $this->assertDatabaseCount('outgoing_payments', 1);
     $this->assertDatabaseCount('outgoing_payment_allocations', 1);
 });
+
+test('vendor invoice payment succeeds without reference number and proof (cash payment)', function () {
+    $admin = vendorWorkflowUser('Admin');
+    $portCall = vendorWorkflowPortCall('CASH-TEST', $admin);
+    $vendor = Vendor::create(['code' => 'VD-CASH', 'name' => 'Toko Cash', 'is_active' => true]);
+    $invoice = CostDocument::create([
+        'port_call_id' => $portCall->id,
+        'vendor_id' => $vendor->id,
+        'document_type' => 'vendor_invoice',
+        'document_number' => 'INV-CASH-001',
+        'issuer_name' => $vendor->name,
+        'document_date' => '2026-10-01',
+        'received_date' => '2026-10-01',
+        'currency' => 'IDR',
+        'verified_total' => 300000,
+        'status' => 'verified',
+        'payment_status' => 'unpaid',
+        'recorded_by' => $admin->id,
+        'verified_by' => $admin->id,
+        'verified_at' => now(),
+    ]);
+
+    $this->actingAs($admin)->post(route('expenses.store'), [
+        'cost_document_id' => $invoice->id,
+        'payment_date' => '2026-10-01',
+        'amount' => 300000,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    $payment = OutgoingPayment::query()->where('recipient', 'Toko Cash')->firstOrFail();
+    expect($payment->reference_number)->toBeNull()
+        ->and($payment->proof_path)->toBeNull()
+        ->and($payment->verification_status)->toBe('verified');
+
+    expect($invoice->fresh()->payment_status)->toBe('paid');
+});
+
+test('vendor invoices index displays items and non-kapal request info instead of dashes', function () {
+    $admin = vendorWorkflowUser('Admin');
+    $vendor = Vendor::create(['code' => 'VD-NONKAPAL', 'name' => 'PT Office Supply', 'is_active' => true]);
+
+    $companyReq = ShipRequest::create([
+        'request_number' => 'PGJ-2026-NONKAPAL',
+        'ship_id' => null,
+        'service_type' => 'Biaya Perusahaan',
+        'created_by' => $admin->id,
+        'status' => 'Selesai',
+        'request_date' => now()->toDateString(),
+    ]);
+
+    $reqItem = RequestItem::create([
+        'request_id' => $companyReq->id,
+        'vendor_id' => $vendor->id,
+        'item_name' => 'Pembelian ATK dan Kertas Kantor',
+        'item_type' => 'non_jasa',
+        'quantity' => 5,
+        'unit' => 'Rim',
+        'hpp_price' => 50000,
+        'original_hpp_price' => 50000,
+        'selling_price' => 0,
+        'status' => 'disetujui',
+        'director_status' => 'approved',
+    ]);
+
+    $invoice = CostDocument::create([
+        'port_call_id' => null,
+        'vendor_id' => $vendor->id,
+        'document_type' => 'vendor_invoice',
+        'document_number' => 'INV-ATK-001',
+        'issuer_name' => $vendor->name,
+        'document_date' => now()->toDateString(),
+        'received_date' => now()->toDateString(),
+        'currency' => 'IDR',
+        'verified_total' => 250000,
+        'status' => 'verified',
+        'payment_status' => 'unpaid',
+        'recorded_by' => $admin->id,
+        'verified_by' => $admin->id,
+        'verified_at' => now(),
+    ]);
+
+    $invoice->items()->create([
+        'request_item_id' => $reqItem->id,
+        'description' => 'Pembelian ATK dan Kertas Kantor',
+        'quantity' => 5,
+        'unit' => 'Rim',
+        'amount' => 250000,
+        'billable' => true,
+        'billing_classification' => 'reimburse',
+    ]);
+
+    $response = $this->actingAs($admin)->get(route('vendor-invoices.index'));
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('VendorInvoices/Index')
+        ->has('invoices.data', fn (Assert $invoices) => $invoices
+            ->where('0.document_number', 'INV-ATK-001')
+            ->where('0.port_call', null)
+            ->where('0.items.0.description', 'Pembelian ATK dan Kertas Kantor')
+            ->where('0.items.0.request_item.request.request_number', 'PGJ-2026-NONKAPAL')
+            ->etc()
+        )
+    );
+});

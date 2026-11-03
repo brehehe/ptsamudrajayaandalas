@@ -84,6 +84,11 @@ class ShipRequest extends Model
         return $this->hasMany(RequestItem::class, 'request_id');
     }
 
+    public function histories(): HasMany
+    {
+        return $this->hasMany(RequestHistory::class, 'request_id')->orderBy('action_date', 'asc');
+    }
+
     /**
      * Derive the request status without blocking approved items behind items
      * that are still waiting for review.

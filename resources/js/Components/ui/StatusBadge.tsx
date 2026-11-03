@@ -62,7 +62,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     } else if (
         normalized.includes('batal') ||
         normalized.includes('nonaktif') ||
-        normalized === 'inactive'
+        normalized === 'inactive' ||
+        normalized === 'neutral'
     ) {
         bg = 'bg-[#EDF2F7] dark:bg-[#64748B]/20 border border-transparent dark:border-[#64748B]/30';
         text = 'text-[#526580] dark:text-[#94A3B8]';
@@ -75,15 +76,29 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         displayLabel = displayLabel || 'Akan Datang';
     } else if (
         normalized.includes('labuh') ||
+        normalized.includes('anchored') ||
         normalized.includes('menunggu') ||
-        normalized === 'waiting'
+        normalized === 'waiting' ||
+        normalized === 'warning'
     ) {
-        bg = 'bg-[#FFF0CC] dark:bg-[#F59E0B]/20 border border-transparent dark:border-[#F59E0B]/30';
-        text = 'text-[#A65300] dark:text-[#FBBF24]';
-        dot = 'bg-[#A65300] dark:bg-[#FBBF24]';
+        bg = 'bg-[#FEF3C7] dark:bg-[#F59E0B]/20 border border-amber-200 dark:border-[#F59E0B]/30';
+        text = 'text-[#D97706] dark:text-[#FBBF24]';
+        dot = 'bg-[#D97706] dark:bg-[#FBBF24]';
         displayLabel = displayLabel || 'Labuh';
+    } else if (normalized.includes('sebagian')) {
+        bg = 'bg-[#FEF3C7] dark:bg-[#F59E0B]/20 border border-amber-300 dark:border-[#F59E0B]/40';
+        text = 'text-[#B45309] dark:text-[#FBBF24]';
+        dot = 'bg-[#D97706] dark:bg-[#FBBF24]';
+        displayLabel = displayLabel || 'Disetujui Sebagian';
     } else if (
         normalized.includes('sandar') ||
+        normalized.includes('berthed')
+    ) {
+        bg = 'bg-[#FFE7EC] dark:bg-[#EF4444]/20 border border-rose-200 dark:border-[#EF4444]/30';
+        text = 'text-[#C62840] dark:text-[#F87171]';
+        dot = 'bg-[#C62840] dark:bg-[#F87171]';
+        displayLabel = displayLabel || 'Sandar';
+    } else if (
         normalized.includes('selesai') ||
         normalized.includes('disetujui') ||
         normalized.includes('aktif') ||
@@ -92,7 +107,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
         bg = 'bg-[#DCF7E8] dark:bg-[#10B981]/20 border border-transparent dark:border-[#10B981]/30';
         text = 'text-[#087443] dark:text-[#34D399]';
         dot = 'bg-[#087443] dark:bg-[#34D399]';
-        displayLabel = displayLabel || 'Sandar';
+        displayLabel = displayLabel || 'Selesai';
     } else if (
         normalized.includes('proses') ||
         normalized.includes('vendor') ||

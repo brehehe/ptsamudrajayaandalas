@@ -259,7 +259,7 @@ export default function VesselShow({
                     <span
                         className={
                             'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
-                            'text-xs font-bold bg-[#DCF7E8] text-[#087443] shadow-2xs'
+                            'text-xs font-bold bg-[#FFE7EC] text-[#C62840] border border-rose-200 shadow-2xs'
                         }
                     >
                         Sandar
@@ -270,7 +270,7 @@ export default function VesselShow({
                     <span
                         className={
                             'whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full ' +
-                            'text-xs font-bold bg-[#F1F5F9] text-[#64748B] shadow-2xs'
+                            'text-xs font-bold bg-[#DCF7E8] text-[#087443] shadow-2xs'
                         }
                     >
                         Selesai

@@ -57,6 +57,8 @@ import Select from '../../Components/selects/Select';
 import RequirementDate from '../../Components/ui/RequirementDate';
 import { toDateInputValue } from '../../lib/formatDate';
 import FileViewer, { FileViewerTrigger } from '../../Components/ui/FileViewer';
+import { RequestAuditHistory, type RequestHistoryItem } from '../../Components/requests/RequestAuditHistory';
+import ItemSubmissionHistoryBadge, { type ItemSubmissionRound } from '../../Components/requests/ItemSubmissionHistoryBadge';
 
 interface ProductOption {
     id: string;
@@ -105,6 +107,12 @@ interface RequestItem {
     surplus_source_item_name?: string | null;
     surplus_amount?: number | string | null;
     original_hpp_price?: number | string | null;
+    submission_count?: number;
+    submission_round_label?: string;
+    was_previously_unselected?: boolean;
+    submission_history?: ItemSubmissionRound[];
+    latest_submission_date?: string;
+    history_summary?: string;
 }
 
 interface JobInfo {
@@ -158,6 +166,8 @@ interface ShipRequest {
     director_reviewed_at?: string | null;
     notes?: string;
     service_type?: string;
+    ship_id?: string | null;
+    port_call_id?: string | null;
     requested_port_call_status?: string | null;
     operational_occurred_at?: string | null;
     ship?: {
@@ -188,6 +198,7 @@ interface ShipRequest {
         name: string;
     };
     items: RequestItem[];
+    histories?: RequestHistoryItem[];
     invoices: Array<{
         id: string;
         invoice_number: string;
@@ -320,7 +331,7 @@ const renderVesselStatusBadge = (status?: string) => {
     }
     if (s.includes('berth') || s.includes('sandar')) {
         return (
-            <span className="whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#DCF7E8] text-[#087443] shadow-2xs">
+            <span className="whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#FFE7EC] text-[#C62840] border border-rose-200 shadow-2xs">
                 Sandar
             </span>
         );
@@ -334,7 +345,7 @@ const renderVesselStatusBadge = (status?: string) => {
     }
     if (s.includes('depart') || s.includes('selesai') || s.includes('finish')) {
         return (
-            <span className="whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#F1F5F9] text-[#64748B] shadow-2xs">
+            <span className="whitespace-nowrap inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#DCF7E8] text-[#087443] shadow-2xs">
                 Selesai
             </span>
         );
@@ -366,7 +377,15 @@ const formatServiceType = (type?: string): string => {
     }
 };
 
-function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: string }) {
+function DirectorStatus({
+    status,
+    itemStatus,
+    directorNotes,
+}: {
+    status?: string;
+    itemStatus?: string;
+    directorNotes?: string | null;
+}) {
     const normalized = status === 'approved' || status === 'rejected' ? status : 'pending';
 
     if (normalized === 'approved') {
@@ -383,7 +402,7 @@ function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: 
             return (
                 <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-[#DCF7E8] px-2.5 py-1 text-xs font-bold text-[#087443] dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                     <span className="size-1.5 rounded-full bg-emerald-500" />
-                    Terpenuhi
+                    Disetujui & Terpenuhi
                 </span>
             );
         }
@@ -391,7 +410,7 @@ function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: 
         return (
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-[#DCF7E8] px-2.5 py-1 text-xs font-bold text-[#087443] dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <span className="size-1.5 rounded-full bg-emerald-500" />
-                Disetujui
+                Disetujui Pak Ryan
             </span>
         );
     }
@@ -400,12 +419,26 @@ function DirectorStatus({ status, itemStatus }: { status?: string; itemStatus?: 
         return (
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-rose-200 bg-[#FFE7EC] px-2.5 py-1 text-xs font-bold text-[#C62840] dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
                 <span className="size-1.5 rounded-full bg-rose-500" />
-                Ditolak
+                Ditolak Pak Ryan
             </span>
         );
     }
 
-    const label = itemStatus === 'diajukan_ke_direktur' ? 'Review Direktur' : 'Menunggu Review';
+    if (itemStatus === 'pending' && directorNotes) {
+        return (
+            <div className="flex flex-col items-center gap-0.5">
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-300 bg-[#FFF0CC] px-2.5 py-1 text-xs font-bold text-[#A65300] dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                    <span className="size-1.5 rounded-full bg-amber-500" />
+                    Dikembalikan ke Bu Titik
+                </span>
+                <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                    Belum Disetujui
+                </span>
+            </div>
+        );
+    }
+
+    const label = itemStatus === 'diajukan_ke_direktur' ? 'Review Pak Ryan' : 'Menunggu Review';
 
     return (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-[#FFF0CC] px-2.5 py-1 text-xs font-bold text-[#A65300] dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
@@ -492,11 +525,10 @@ function ItemEvidenceLinks({
                 <button
                     type="button"
                     onClick={onEditSupplierInvoice}
-                    className={`inline-flex min-h-8 items-center gap-1 rounded-lg border px-2 font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
-                        item.supplier_invoice_complete
-                            ? 'border-[#DCEAF8] bg-white text-[#0060F4] hover:border-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]'
-                            : 'border-amber-300 bg-amber-50 text-[#A65300] hover:border-amber-500 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                    }`}
+                    className={`inline-flex min-h-8 items-center gap-1 rounded-lg border px-2 font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${item.supplier_invoice_complete
+                        ? 'border-[#DCEAF8] bg-white text-[#0060F4] hover:border-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322]'
+                        : 'border-amber-300 bg-amber-50 text-[#A65300] hover:border-amber-500 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                        }`}
                 >
                     <FileCheck2 aria-hidden="true" className="size-3" />
                     {item.supplier_invoice_complete ? 'Ubah nota supplier' : 'Unggah nota supplier'}
@@ -633,13 +665,20 @@ export default function RequestShow({
     const currentPort = currentJob?.port || allRequests[0]?.port;
     const currentCompany = currentJob?.ship?.company || currentShip?.company || allRequests[0]?.company;
 
-    const jobNumber = currentJob?.job_number || 'JOB Kegiatan';
-    const shipName = currentShip?.name ?? allRequests[0]?.ship?.name ?? 'Kapal Belum Ditentukan';
+    const jobNumber = currentJob?.job_number || allRequests[0]?.request_number || 'Pengajuan Biaya';
+    const shipName = currentShip?.name ?? allRequests[0]?.service_type ?? allRequests[0]?.ship?.name ?? 'Biaya Operasional';
     const shipImage = currentShip?.image ?? allRequests[0]?.ship?.image ?? null;
     const imoNumber = currentShip?.imo_number ?? allRequests[0]?.ship?.imo_number ?? '-';
-    const shipType = currentShip?.ship_type ?? allRequests[0]?.ship?.ship_type ?? '-';
-    const companyName = currentCompany?.name ?? allRequests[0]?.company?.name ?? allRequests[0]?.ship?.company?.name ?? '-';
-    const portName = currentPort?.name ?? allRequests[0]?.port?.name ?? '-';
+    const shipType = currentShip?.ship_type ?? allRequests[0]?.ship?.ship_type ?? (currentJob ? '-' : 'Non-Kapal / Kantor');
+    const companyName = currentCompany?.name ?? allRequests[0]?.company?.name ?? allRequests[0]?.ship?.company?.name ?? 'PT Samudra Jaya Andalas';
+    const portName = currentPort?.name ?? allRequests[0]?.port?.name ?? 'Kantor Perusahaan';
+
+    const isCompanyExpense = Boolean(
+        (!currentJob?.id && !allRequests[0]?.port_call_id && !allRequests[0]?.ship_id) ||
+        (allRequests.length > 0 && allRequests.every((r) => !r.port_call_id && !r.ship_id)) ||
+        allRequests[0]?.service_type?.toLowerCase().includes('biaya perusahaan') ||
+        allRequests[0]?.service_type?.toLowerCase().includes('operasional kantor')
+    );
 
     const canUseAdminActions = capabilities.can_review_prices;
 
@@ -659,6 +698,7 @@ export default function RequestShow({
     const [activeAction, setActiveAction] = useState<string | null>(null);
     const [priceValidationErrors, setPriceValidationErrors] = useState<string[]>([]);
     const [batchAdminNotes, setBatchAdminNotes] = useState('');
+    const [submissionDate, setSubmissionDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
 
     // Modals
     const [addItemTargetReqId, setAddItemTargetReqId] = useState<string | null>(null);
@@ -668,6 +708,7 @@ export default function RequestShow({
         request: ShipRequest;
         item?: RequestItem;
     } | null>(null);
+    const [notaRampungModalOpen, setNotaRampungModalOpen] = useState(false);
     const [viewingDocument, setViewingDocument] = useState<{ url: string; title: string; downloadUrl?: string } | null>(null);
 
     useEffect(() => {
@@ -735,6 +776,96 @@ export default function RequestShow({
         });
     }, [allRequests]);
 
+    const allCompletableItemsAcrossJob = useMemo(() => {
+        const list: { requestId: string; item: RequestItem }[] = [];
+        allRequests.forEach((req) => {
+            if (!['Selesai', 'Dibatalkan'].includes(req.status)) {
+                (req.items || []).forEach((it) => {
+                    if (it.director_status === 'approved' && it.status !== 'selesai') {
+                        list.push({ requestId: req.id, item: it });
+                    }
+                });
+            }
+        });
+        return list;
+    }, [allRequests]);
+
+    const [batchCompleting, setBatchCompleting] = useState(false);
+
+    const handleCompleteAllInRequest = (requestId: string) => {
+        if (batchCompleting) return;
+        setBatchCompleting(true);
+        router.post(
+            route('requests.items.batch-complete'),
+            { request_id: requestId },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    playSjaChime('success');
+                },
+                onFinish: () => setBatchCompleting(false),
+            }
+        );
+    };
+
+    const handleCompleteAllApprovedAcrossJob = () => {
+        if (batchCompleting) return;
+        const targetJob = currentJob?.job_number || currentJob?.id || activeRequest?.id;
+        setBatchCompleting(true);
+        router.post(
+            route('requests.items.batch-complete'),
+            { job_number: targetJob },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    playSjaChime('success');
+                },
+                onFinish: () => setBatchCompleting(false),
+            }
+        );
+    };
+
+    const notaRampungForm = useForm({
+        document: null as File | null,
+        shortfall_amount: '',
+        document_number: '',
+        submission_date: toDateInputValue(),
+        notes: '',
+    });
+
+    const openNotaRampungModal = () => {
+        notaRampungForm.setData({
+            document: null,
+            shortfall_amount: '',
+            document_number: currentJob?.completion_note?.document_number || '',
+            submission_date: toDateInputValue(),
+            notes: '',
+        });
+        notaRampungForm.clearErrors();
+        setNotaRampungModalOpen(true);
+    };
+
+    const closeNotaRampungModal = () => {
+        setNotaRampungModalOpen(false);
+        notaRampungForm.reset();
+        notaRampungForm.clearErrors();
+    };
+
+    const submitNotaRampung = (event: FormEvent) => {
+        event.preventDefault();
+        const targetId = currentJob?.job_number || currentJob?.id || activeRequest?.request_number || activeRequest?.id;
+        if (!targetId) return;
+
+        notaRampungForm.post(route('requests.nota-rampung-kurang-bayar', targetId), {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                closeNotaRampungModal();
+                playSjaChime('success');
+            },
+        });
+    };
+
     const headerActionGroups = useMemo<ActionMenuGroup[]>(() => {
         const primaryItems: ActionMenuItem[] = [];
         const documentItems: ActionMenuItem[] = [];
@@ -773,37 +904,52 @@ export default function RequestShow({
             });
         }
 
-        const currentCompletionNote = currentJob?.completion_note;
-        if (currentCompletionNote) {
-            documentItems.push({
-                id: 'view-completion-note',
-                label: `Lihat Nota Rampung (${currentCompletionNote.document_number})`,
-                icon: <FileCheck2 className="size-4" />,
-                onSelect: () => setViewingDocument({
-                    url: `/completion-notes/${currentCompletionNote.document_number}/preview`,
-                    downloadUrl: route('completion-notes.document', {
-                        completionNote: currentCompletionNote.id,
-                        download: 1,
+        if (!isCompanyExpense && (currentJob?.id || activeRequest?.ship_id)) {
+            const currentCompletionNote = currentJob?.completion_note;
+            if (currentCompletionNote) {
+                documentItems.push({
+                    id: 'view-completion-note',
+                    label: `Lihat Nota Rampung (${currentCompletionNote.document_number})`,
+                    icon: <FileCheck2 className="size-4" />,
+                    onSelect: () => setViewingDocument({
+                        url: route('completion-notes.document', {
+                            completionNote: currentCompletionNote.id,
+                            view: 1,
+                        }),
+                        downloadUrl: route('completion-notes.document', {
+                            completionNote: currentCompletionNote.id,
+                            download: 1,
+                        }),
+                        title: `Nota Rampung: ${currentCompletionNote.document_number}`,
                     }),
-                    title: `Nota Rampung: ${currentCompletionNote.document_number}`,
-                }),
-            });
-        } else if (capabilities.can_create_completion_notes && currentJob?.status === 'departed') {
-            documentItems.push({
-                id: 'create-completion-note',
-                label: 'Unggah Nota Rampung',
-                icon: <FileUp className="size-4" />,
-                href: route('completion-notes.create', { port_call_id: currentJob.id }),
-                inertia: true,
+                });
+                if (capabilities.can_process_requests) {
+                    primaryItems.push({
+                        id: 'upload-nota-rampung-shortfall',
+                        label: 'Ajukan Kurang Bayar Pelindo',
+                        icon: <Plus className="size-4" />,
+                        onSelect: () => openNotaRampungModal(),
+                        tone: 'warning',
+                    });
+                }
+            } else if (capabilities.can_process_requests || capabilities.can_create_completion_notes) {
+                primaryItems.push({
+                    id: 'create-completion-note',
+                    label: 'Upload Nota Rampung & Kurang Bayar Pelindo',
+                    icon: <FileUp className="size-4" />,
+                    onSelect: () => openNotaRampungModal(),
+                    tone: 'warning',
+                });
+            }
+        }
+
+        if (capabilities.can_process_requests && allCompletableItemsAcrossJob.length > 0) {
+            primaryItems.push({
+                id: 'complete-all-approved-items',
+                label: `Selesaikan Semua Item (${allCompletableItemsAcrossJob.length})`,
+                icon: <CheckCircle2 className="size-4 text-emerald-600" />,
+                onSelect: handleCompleteAllApprovedAcrossJob,
                 tone: 'success',
-            });
-        } else if (capabilities.can_create_completion_notes) {
-            documentItems.push({
-                id: 'completion-note-waiting',
-                label: 'Nota Rampung (Tersedia setelah kapal berangkat)',
-                icon: <FileCheck2 className="size-4" />,
-                disabled: true,
-                onSelect: () => {},
             });
         }
 
@@ -826,13 +972,16 @@ export default function RequestShow({
         return groups;
     }, [
         capabilities.can_create_requests,
+        capabilities.can_process_requests,
         capabilities.can_print_request_reports,
         capabilities.can_create_completion_notes,
+        isCompanyExpense,
         activeRequest,
         currentJob?.work_order?.system_number,
         currentJob?.completion_note,
         currentJob?.status,
         currentJob?.id,
+        allCompletableItemsAcrossJob.length,
     ]);
 
     const itemForm = useForm({
@@ -925,9 +1074,9 @@ export default function RequestShow({
 
     const canEditSupplierInvoice = (item: RequestItem): boolean =>
         canUseAdminActions &&
-        item.director_status !== 'approved' &&
-        item.status !== 'diajukan_ke_direktur' &&
-        !item.is_invoiced;
+        !item.vendor_invoice_url &&
+        !item.is_invoiced &&
+        (item.director_status !== 'approved' ? item.status !== 'diajukan_ke_direktur' : !item.supplier_invoice_complete);
 
     const closeSupplierInvoiceModal = () => {
         setSupplierInvoiceItem(null);
@@ -1199,6 +1348,7 @@ export default function RequestShow({
                     hpp_price: parseFloat(priceDrafts[itemId]?.hpp_price ?? '0') || 0,
                 })),
                 admin_notes: batchAdminNotes.trim() || null,
+                submission_date: submissionDate,
             },
             {
                 preserveScroll: true,
@@ -1285,6 +1435,7 @@ export default function RequestShow({
                     hpp_price: parseFloat(priceDrafts[itemId]?.hpp_price ?? '0') || 0,
                 })),
                 admin_notes: batchAdminNotes.trim() || null,
+                submission_date: submissionDate,
             },
             {
                 preserveScroll: true,
@@ -1359,62 +1510,66 @@ export default function RequestShow({
     };
 
     const renderCompletionNoteAction = (fullWidth = false) => {
-        if (!currentJob) {
+        if (!currentJob || isCompanyExpense) {
             return null;
         }
 
         if (currentJob.completion_note) {
             return (
-                <FileViewerTrigger
-                    url={route('completion-notes.document', {
-                        completionNote: currentJob.completion_note.id,
-                        view: 1,
-                    })}
-                    title={`Nota Rampung ${currentJob.completion_note.document_number}`}
-                    fileType="pdf"
-                    downloadUrl={route('completion-notes.document', {
-                        completionNote: currentJob.completion_note.id,
-                        download: 1,
-                    })}
-                    className={getButtonClassName({
-                        variant: 'outline',
-                        className: fullWidth ? 'w-full' : 'shrink-0',
-                    })}
-                    aria-label={`Lihat Nota Rampung ${currentJob.completion_note.document_number}`}
-                >
-                    <FileCheck2 aria-hidden="true" className="size-4" />
-                    Lihat Nota Rampung
-                    <ExternalLink aria-hidden="true" className="size-3.5" />
-                </FileViewerTrigger>
+                <div className={`flex flex-wrap items-center gap-2 ${fullWidth ? 'w-full' : ''}`}>
+                    <FileViewerTrigger
+                        url={route('completion-notes.document', {
+                            completionNote: currentJob.completion_note.id,
+                            view: 1,
+                        })}
+                        title={`Nota Rampung ${currentJob.completion_note.document_number}`}
+                        fileType="pdf"
+                        downloadUrl={route('completion-notes.document', {
+                            completionNote: currentJob.completion_note.id,
+                            download: 1,
+                        })}
+                        className={getButtonClassName({
+                            variant: 'outline',
+                            className: fullWidth ? 'flex-1' : 'shrink-0',
+                        })}
+                        aria-label={`Lihat Nota Rampung ${currentJob.completion_note.document_number}`}
+                    >
+                        <FileCheck2 aria-hidden="true" className="size-4 text-emerald-600" />
+                        Lihat Nota Rampung
+                        <ExternalLink aria-hidden="true" className="size-3.5" />
+                    </FileViewerTrigger>
+                    {capabilities.can_process_requests && (
+                        <Button
+                            type="button"
+                            variant="primary"
+                            leftIcon={<Plus aria-hidden="true" className="size-4" />}
+                            onClick={openNotaRampungModal}
+                            className={getButtonClassName({
+                                variant: 'primary',
+                                className: `${fullWidth ? 'flex-1' : 'shrink-0'} bg-amber-600 hover:bg-amber-700 text-white font-bold`,
+                            })}
+                        >
+                            Kurang Bayar Pelindo
+                        </Button>
+                    )}
+                </div>
             );
         }
 
-        if (capabilities.can_create_completion_notes && currentJob.status === 'departed') {
+        if (capabilities.can_process_requests || capabilities.can_create_completion_notes) {
             return (
-                <Link
-                    href={route('completion-notes.create', { port_call_id: currentJob.id })}
-                    prefetch
+                <Button
+                    type="button"
+                    variant="primary"
+                    leftIcon={<FileUp aria-hidden="true" className="size-4" />}
+                    onClick={openNotaRampungModal}
                     className={getButtonClassName({
                         variant: 'primary',
-                        className: fullWidth ? 'w-full' : 'shrink-0',
+                        className: `${fullWidth ? 'w-full' : 'shrink-0'} bg-amber-600 hover:bg-amber-700 text-white font-bold`,
                     })}
                 >
-                    <FileUp aria-hidden="true" className="size-4" />
-                    Unggah Nota Rampung
-                </Link>
-            );
-        }
-
-        if (capabilities.can_create_completion_notes) {
-            return (
-                <span
-                    role="status"
-                    title="Nota Rampung dapat diunggah setelah kapal berangkat."
-                    className={`inline-flex min-h-11 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-[#DCEAF8] bg-[#F1F5F9] px-3.5 text-sm font-semibold text-[#64748B] opacity-70 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8] ${fullWidth ? 'w-full' : ''}`}
-                >
-                    <FileCheck2 aria-hidden="true" className="size-4" />
-                    Tersedia setelah kapal berangkat
-                </span>
+                    Upload Nota Rampung & Kurang Bayar
+                </Button>
             );
         }
 
@@ -1428,25 +1583,27 @@ export default function RequestShow({
             noPaddingMobile
             mobileBackground="surface"
         >
-            <Head title={`${jobNumber} • ${shipName} — Detail Kegiatan Kapal & Pengajuan`} />
+            <Head title={`${jobNumber} • ${shipName} — ${isCompanyExpense ? 'Detail Pengajuan Biaya' : 'Detail Kegiatan Kapal & Pengajuan'}`} />
 
             {/* ═══════════════════════════════════════════════════════════════
                 MOBILE VIEW (< md): EXACT MATCH TO Vessels/Show.tsx
                ═══════════════════════════════════════════════════════════════ */}
-            {/* Ship Hero Photo starts below the shared mobile header. */}
-            <div className="relative h-40 w-full overflow-hidden bg-[#DCEAF8] sm:h-44 md:hidden">
-                <ShipImage
-                    src={shipImage}
-                    alt={shipName}
-                    width={1280}
-                    height={720}
-                    fetchPriority="high"
-                    className="size-full object-cover object-center"
-                />
-                <div className="absolute bottom-3 right-3 z-10">
-                    {renderVesselStatusBadge(currentJob?.status || 'Labuh')}
+            {/* Mobile View Hero: Vessel photo only for vessel requests */}
+            {!isCompanyExpense && (
+                <div className="relative h-40 w-full overflow-hidden bg-[#DCEAF8] sm:h-44 md:hidden">
+                    <ShipImage
+                        src={shipImage}
+                        alt={shipName}
+                        width={1280}
+                        height={720}
+                        fetchPriority="high"
+                        className="size-full object-cover object-center"
+                    />
+                    <div className="absolute bottom-3 right-3 z-10">
+                        {renderVesselStatusBadge(currentJob?.status || 'Labuh')}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Mobile Top Header Bar matching Vessels/Show */}
             <div
@@ -1478,7 +1635,7 @@ export default function RequestShow({
                 </Link>
 
                 <h1 className="min-w-0 flex-1 break-words px-2 text-center text-sm font-bold leading-tight text-[#082870] dark:text-white">
-                    {shipName}
+                    {isCompanyExpense ? (allRequests[0]?.service_type || 'Biaya Perusahaan') : shipName}
                 </h1>
 
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -1498,7 +1655,9 @@ export default function RequestShow({
                             {shipName}
                         </h2>
                         <p className="mt-1 break-words text-xs leading-5 text-[#52658E] dark:text-[#94A3B8]">
-                            {companyName || 'Perusahaan belum diisi'} {imoNumber ? `• IMO ${imoNumber}` : ''}
+                            {isCompanyExpense
+                                ? (allRequests[0]?.service_type || 'Operasional Kantor & Non-Kapal')
+                                : `${companyName || 'Perusahaan belum diisi'} ${imoNumber ? `• IMO ${imoNumber}` : ''}`}
                         </p>
                     </div>
 
@@ -1506,7 +1665,7 @@ export default function RequestShow({
                         <Layers className="size-4 shrink-0" aria-hidden="true" />
                         <div className="min-w-0">
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                Nomor job
+                                {isCompanyExpense ? 'Nomor Pengajuan' : 'Nomor job'}
                             </span>
                             <span className="block break-all font-mono text-xs font-black" translate="no">
                                 {jobNumber}
@@ -1514,45 +1673,66 @@ export default function RequestShow({
                         </div>
                     </div>
 
-                    {/* Informasi inti kunjungan */}
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        {(() => {
-                            const etaParts = getEtaParts(currentJob?.eta_at || allRequests[0]?.request_date);
-                            return (
-                                <>
-                                    <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                            ETA
-                                        </span>
-                                        <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
-                                            {etaParts.date}{etaParts.time ? ` • ${etaParts.time}` : ''}
-                                        </span>
-                                    </div>
-                                    <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                            Pelabuhan
-                                        </span>
-                                        <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
-                                            {portName}
-                                        </span>
-                                    </div>
-                                    <div className="col-span-2 flex min-h-14 items-center justify-between gap-3 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                        <div className="min-w-0">
+                    {/* Informasi inti kunjungan / pengajuan */}
+                    {isCompanyExpense ? (
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                    Tanggal Pengajuan
+                                </span>
+                                <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
+                                    {allRequests[0]?.request_date ? formatDateOnly(allRequests[0].request_date) : '-'}
+                                </span>
+                            </div>
+                            <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                    Kategori
+                                </span>
+                                <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
+                                    {allRequests[0]?.service_type || 'Biaya Perusahaan'}
+                                </span>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            {(() => {
+                                const etaParts = getEtaParts(currentJob?.eta_at || allRequests[0]?.request_date);
+                                return (
+                                    <>
+                                        <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
                                             <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
-                                                SPK
+                                                ETA
                                             </span>
-                                            <span className="mt-0.5 block break-all font-mono text-xs font-bold text-[#082870] dark:text-white" translate="no">
-                                                {currentJob?.work_order?.system_number || '-'}
+                                            <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
+                                                {etaParts.date}{etaParts.time ? ` • ${etaParts.time}` : ''}
                                             </span>
                                         </div>
-                                        <span className="shrink-0 text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8]">
-                                            {currentShip?.call_sign ? `Call ${currentShip.call_sign}` : currentPort?.code || ''}
-                                        </span>
-                                    </div>
-                                </>
-                            );
-                        })()}
-                    </div>
+                                        <div className="flex min-h-16 flex-col justify-center rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                                Pelabuhan
+                                            </span>
+                                            <span className="mt-1 block break-words text-xs font-bold leading-tight text-[#082870] dark:text-white">
+                                                {portName}
+                                            </span>
+                                        </div>
+                                        <div className="col-span-2 flex min-h-14 items-center justify-between gap-3 rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] px-3 py-2.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                            <div className="min-w-0">
+                                                <span className="block text-[10px] font-bold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">
+                                                    SPK
+                                                </span>
+                                                <span className="mt-0.5 block break-all font-mono text-xs font-bold text-[#082870] dark:text-white" translate="no">
+                                                    {currentJob?.work_order?.system_number || '-'}
+                                                </span>
+                                            </div>
+                                            <span className="shrink-0 text-[10px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                {currentShip?.call_sign ? `Call ${currentShip.call_sign}` : currentPort?.code || ''}
+                                            </span>
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    )}
 
                     {(currentJob?.completion_note || capabilities.can_create_completion_notes) && (
                         <div className="mt-3">
@@ -1570,7 +1750,7 @@ export default function RequestShow({
                         className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3.5 text-sm font-semibold text-[#52658E] shadow-sm ring-1 ring-[#DCEAF8] transition hover:bg-[#F0F8FF] hover:text-[#0060F4] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4] dark:bg-[#0C1D36] dark:text-[#94A3B8] dark:ring-[#1E3A5F] dark:hover:bg-[#132847] dark:hover:text-[#38BDF8]"
                     >
                         <ArrowLeft className="size-4" aria-hidden="true" />
-                        Kembali ke daftar kegiatan kapal
+                        {isCompanyExpense ? 'Kembali ke daftar pengajuan' : 'Kembali ke daftar kegiatan kapal'}
                     </Link>
 
                     <div className="flex items-center gap-2">
@@ -1593,7 +1773,9 @@ export default function RequestShow({
                                         {shipName}
                                     </h1>
                                     <p className="max-w-2xl text-pretty text-sm text-[#52658E] dark:text-[#94A3B8]">
-                                        Kegiatan pelayanan keagenan dan logistik operasional kapal PT Samudra Jaya Andalas.
+                                        {isCompanyExpense
+                                            ? 'Pengajuan biaya operasional kantor & kebutuhan non-kapal PT Samudra Jaya Andalas.'
+                                            : 'Kegiatan pelayanan keagenan dan logistik operasional kapal PT Samudra Jaya Andalas.'}
                                     </p>
                                 </div>
 
@@ -1604,7 +1786,7 @@ export default function RequestShow({
                                         </span>
                                         <div className="min-w-0">
                                             <span className="block text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
-                                                Nomor job
+                                                {isCompanyExpense ? 'Nomor Pengajuan' : 'Nomor job'}
                                             </span>
                                             <span className="block break-all font-mono text-sm font-bold text-[#0B1F63] dark:text-white" translate="no">
                                                 {jobNumber}
@@ -1612,7 +1794,7 @@ export default function RequestShow({
                                         </div>
                                     </div>
 
-                                    {currentJob?.status && (
+                                    {currentJob?.status && !isCompanyExpense && (
                                         <div className="flex items-center gap-2">
                                             <span className="text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
                                                 Status
@@ -1626,75 +1808,124 @@ export default function RequestShow({
                                         </div>
                                     )}
 
-                                    <div className="flex min-w-0 items-center gap-2">
-                                        <Anchor className="size-4 shrink-0 text-[#52658E] dark:text-[#94A3B8]" aria-hidden="true" />
-                                        <div className="min-w-0">
-                                            <span className="block text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
-                                                Pelabuhan
-                                            </span>
-                                            <span className="block text-pretty text-sm font-semibold text-[#0B1F63] dark:text-white">
-                                                {portName}
-                                            </span>
+                                    {!isCompanyExpense && (
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <Anchor className="size-4 shrink-0 text-[#52658E] dark:text-[#94A3B8]" aria-hidden="true" />
+                                            <div className="min-w-0">
+                                                <span className="block text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                                    Pelabuhan
+                                                </span>
+                                                <span className="block text-pretty text-sm font-semibold text-[#0B1F63] dark:text-white">
+                                                    {portName}
+                                                </span>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Vessel Preview Box */}
-                            <div className="flex shrink-0 items-center gap-3.5 rounded-2xl border border-[#BCE0FD] bg-white/90 p-3.5 shadow-sm backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] lg:min-w-80">
-                                <div className="relative">
-                                    <ShipImage
-                                        src={shipImage}
-                                        alt={shipName}
-                                        className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
-                                    />
-                                    <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full bg-[#0060F4] text-white shadow">
-                                        <ShipIcon className="size-3" />
-                                    </span>
+                            {/* Vessel or Company Preview Box */}
+                            {isCompanyExpense ? (
+                                <div className="flex shrink-0 items-center gap-3.5 rounded-2xl border border-[#BCE0FD] bg-white/90 p-3.5 shadow-sm backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] lg:min-w-80">
+                                    <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white">
+                                        <Building2 className="size-7" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#0060F4] dark:text-[#60A5FA]">
+                                            Biaya Perusahaan
+                                        </span>
+                                        <p className="truncate text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {allRequests[0]?.service_type || 'Operasional Kantor'}
+                                        </p>
+                                        <p className="mt-0.5 truncate text-xs font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                            Non-Kapal • {companyName}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="min-w-0">
-                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#0060F4] dark:text-[#60A5FA]">
-                                        Informasi Kapal
-                                    </span>
-                                    <p className="truncate text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                        {shipName}
-                                    </p>
-                                    <p className="mt-0.5 truncate text-xs font-medium text-[#52658E] dark:text-[#94A3B8]">
-                                        IMO {imoNumber} {shipType !== '-' ? `• ${shipType}` : ''}
-                                    </p>
+                            ) : (
+                                <div className="flex shrink-0 items-center gap-3.5 rounded-2xl border border-[#BCE0FD] bg-white/90 p-3.5 shadow-sm backdrop-blur-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36] lg:min-w-80">
+                                    <div className="relative">
+                                        <ShipImage
+                                            src={shipImage}
+                                            alt={shipName}
+                                            className="size-16 shrink-0 rounded-xl border border-[#DCEAF8] object-cover dark:border-[#1E3A5F]"
+                                        />
+                                        <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full bg-[#0060F4] text-white shadow">
+                                            <ShipIcon className="size-3" />
+                                        </span>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#0060F4] dark:text-[#60A5FA]">
+                                            Informasi Kapal
+                                        </span>
+                                        <p className="truncate text-base font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                            {shipName}
+                                        </p>
+                                        <p className="mt-0.5 truncate text-xs font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                            IMO {imoNumber} {shipType !== '-' ? `• ${shipType}` : ''}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     </div>
 
                     {/* Metadata Strip */}
                     <div className="grid gap-px border-t border-[#DCEAF8] bg-[#DCEAF8] dark:border-[#1E3A5F] dark:bg-[#1E3A5F] sm:grid-cols-2 lg:grid-cols-4">
-                        {[
-                            {
-                                icon: Building2,
-                                label: 'Perusahaan Pemilik / Agen',
-                                value: companyName,
-                                sub: 'Client / Owner Kapal',
-                            },
-                            {
-                                icon: MapPin,
-                                label: 'Pelabuhan Sandar / Labuh',
-                                value: portName,
-                                sub: currentPort?.code ? `Kode: ${currentPort.code}` : 'Wilayah Kerja SJA',
-                            },
-                            {
-                                icon: CalendarDays,
-                                label: 'Estimasi Kedatangan (ETA)',
-                                value: currentJob?.eta_at ? formatDateOnly(currentJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-'),
-                                sub: currentJob?.etd_at ? `ETD: ${formatDateOnly(currentJob.etd_at)}` : 'Jadwal operasional kapal',
-                            },
-                            {
-                                icon: FileText,
-                                label: 'Surat Perintah Kerja (SPK)',
-                                value: currentJob?.work_order?.system_number ? currentJob.work_order.system_number : (currentShip?.call_sign ? `Call Sign: ${currentShip.call_sign}` : 'Keagenan Kapal'),
-                                sub: currentShip?.flag ? `Bendera: ${currentShip.flag}` : 'Operasional Wilayah Kerja SJA',
-                            },
-                        ].map(({ icon: Icon, label, value, sub }) => (
+                        {(isCompanyExpense
+                            ? [
+                                {
+                                    icon: Building2,
+                                    label: 'Perusahaan / Entitas',
+                                    value: companyName,
+                                    sub: 'PT Samudra Jaya Andalas',
+                                },
+                                {
+                                    icon: Layers,
+                                    label: 'Kategori Biaya',
+                                    value: allRequests[0]?.service_type || 'Biaya Perusahaan',
+                                    sub: 'Operasional Kantor / Non-Kapal',
+                                },
+                                {
+                                    icon: CalendarDays,
+                                    label: 'Tanggal Pengajuan',
+                                    value: allRequests[0]?.request_date ? formatDateOnly(allRequests[0].request_date) : '-',
+                                    sub: 'Periode Berjalan',
+                                },
+                                {
+                                    icon: FileText,
+                                    label: 'Status Pengajuan',
+                                    value: allRequests[0]?.status || 'Diajukan',
+                                    sub: 'Jalur Tunggal Approval Direktur',
+                                },
+                            ]
+                            : [
+                                {
+                                    icon: Building2,
+                                    label: 'Perusahaan Pemilik / Agen',
+                                    value: companyName,
+                                    sub: 'Client / Owner Kapal',
+                                },
+                                {
+                                    icon: MapPin,
+                                    label: 'Pelabuhan Sandar / Labuh',
+                                    value: portName,
+                                    sub: currentPort?.code ? `Kode: ${currentPort.code}` : 'Wilayah Kerja SJA',
+                                },
+                                {
+                                    icon: CalendarDays,
+                                    label: 'Estimasi Kedatangan (ETA)',
+                                    value: currentJob?.eta_at ? formatDateOnly(currentJob.eta_at) : (allRequests[0] ? formatDateOnly(allRequests[0].request_date) : '-'),
+                                    sub: currentJob?.etd_at ? `ETD: ${formatDateOnly(currentJob.etd_at)}` : 'Jadwal operasional kapal',
+                                },
+                                {
+                                    icon: FileText,
+                                    label: 'Surat Perintah Kerja (SPK)',
+                                    value: currentJob?.work_order?.system_number ? currentJob.work_order.system_number : (currentShip?.call_sign ? `Call Sign: ${currentShip.call_sign}` : 'Keagenan Kapal'),
+                                    sub: currentShip?.flag ? `Bendera: ${currentShip.flag}` : 'Operasional Wilayah Kerja SJA',
+                                },
+                            ]
+                        ).map(({ icon: Icon, label, value, sub }) => (
                             <div key={label} className="min-w-0 bg-white p-4 dark:bg-[#0C1D36]">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-[#52658E] dark:text-[#94A3B8]">
                                     <Icon className="size-4 shrink-0 text-[#0060F4] dark:text-[#60A5FA]" aria-hidden="true" />
@@ -1785,19 +2016,17 @@ export default function RequestShow({
                                                 tabIndex={isActive ? 0 : -1}
                                                 onClick={() => setActiveRequestId(shipRequest.id)}
                                                 onKeyDown={(event) => handleRequestTabKeyDown(event, shipRequest.id)}
-                                                className={`min-h-16 min-w-60 snap-start rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${
-                                                    isActive
-                                                        ? 'border-[#0060F4] bg-[#E0F0FF] shadow-2xs dark:border-[#60A5FA] dark:bg-[#132847]'
-                                                        : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]'
-                                                }`}
+                                                className={`min-h-16 min-w-60 snap-start rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] ${isActive
+                                                    ? 'border-[#0060F4] bg-[#E0F0FF] shadow-2xs dark:border-[#60A5FA] dark:bg-[#132847]'
+                                                    : 'border-[#DCEAF8] bg-white hover:border-[#BCE0FD] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0C1D36] dark:hover:bg-[#132847]'
+                                                    }`}
                                             >
                                                 <span className="flex items-start justify-between gap-2">
                                                     <span
-                                                        className={`min-w-0 break-all font-mono text-xs font-black ${
-                                                            isActive
-                                                                ? 'text-[#0060F4] dark:text-[#60A5FA]'
-                                                                : 'text-[#0B1F63] dark:text-[#F1F5F9]'
-                                                        }`}
+                                                        className={`min-w-0 break-all font-mono text-xs font-black ${isActive
+                                                            ? 'text-[#0060F4] dark:text-[#60A5FA]'
+                                                            : 'text-[#0B1F63] dark:text-[#F1F5F9]'
+                                                            }`}
                                                         translate="no"
                                                     >
                                                         {shipRequest.request_number}
@@ -1873,8 +2102,163 @@ export default function RequestShow({
                         </div>
                     )}
 
+                    {/* Status Approval Breakdown (Item Disetujui vs Item Belum Disetujui oleh Direktur) */}
+                    {activeRequest && activeRequest.items && (
+                        (() => {
+                            const approvedItems = activeRequest.items.filter((it) => it.director_status === 'approved');
+                            const unapprovedItems = activeRequest.items.filter((it) => it.director_status !== 'approved');
+
+                            if (approvedItems.length === 0 || unapprovedItems.length === 0) return null;
+
+                            return (
+                                <div className="rounded-2xl border border-amber-300 bg-amber-50/60 p-4 shadow-sm dark:border-amber-800 dark:bg-amber-950/20">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <AlertTriangle className="size-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                            <div>
+                                                <h4 className="text-sm font-bold text-[#0B1F63] dark:text-white">
+                                                    Status Keputusan Direktur (Pak Ryan): Disetujui Sebagian
+                                                </h4>
+                                                <p className="text-xs text-[#52658E] dark:text-[#94A3B8]">
+                                                    Hanya sebagian item yang disetujui. Item yang belum disetujui otomatis dikembalikan ke Bu Titik untuk diajukan ulang.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <span className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-amber-200/80 px-2.5 py-1 text-xs font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                                            {approvedItems.length} Disetujui · {unapprovedItems.length} Perlu Diajukan Ulang
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                        {/* Item yang Sudah Disetujui */}
+                                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3.5 dark:border-emerald-800 dark:bg-emerald-950/30">
+                                            <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300 mb-2">
+                                                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                                                <span>Item yang Sudah Disetujui Pak Ryan ({approvedItems.length} Item)</span>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                {approvedItems.map((it) => (
+                                                    <div key={it.id} className="flex items-center justify-between text-xs bg-white/90 dark:bg-[#071322]/90 p-2 rounded-lg border border-emerald-100 dark:border-emerald-900/50">
+                                                        <span className="font-semibold text-[#0B1F63] dark:text-white">
+                                                            {it.item_name} ({it.quantity} {it.unit || 'Item'})
+                                                        </span>
+                                                        <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                                                            {formatRupiah(Number(it.hpp_price) * Number(it.quantity))}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <p className="mt-2 text-[10.5px] text-emerald-700 dark:text-emerald-400 font-medium">
+                                                ✓ Item di atas sudah disetujui Pak Ryan (Direktur) dan siap diproses / dibuat invoice.
+                                            </p>
+                                        </div>
+
+                                        {/* Item yang Belum Disetujui / Dikembalikan ke Bu Titik */}
+                                        <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3.5 dark:border-amber-700 dark:bg-amber-950/40">
+                                            <div className="flex items-center justify-between gap-2 text-xs font-bold text-amber-900 dark:text-amber-200 mb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+                                                    <span>Item Belum Disetujui / Dikembalikan ke Bu Titik ({unapprovedItems.length} Item)</span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                {unapprovedItems.map((it) => (
+                                                    <div key={it.id} className="bg-white/90 dark:bg-[#071322]/90 p-2 rounded-lg border border-amber-200 dark:border-amber-900/50">
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <span className="font-semibold text-[#0B1F63] dark:text-white">
+                                                                {it.item_name} ({it.quantity} {it.unit || 'Item'})
+                                                            </span>
+                                                            <span className="font-mono font-bold text-[#0B1F63] dark:text-white">
+                                                                {formatRupiah(Number(it.hpp_price) * Number(it.quantity))}
+                                                            </span>
+                                                        </div>
+                                                        {it.director_notes && (
+                                                            <div className="mt-1 text-[11px] text-amber-800 dark:text-amber-300 italic">
+                                                                💬 Catatan Pak Ryan: {it.director_notes}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <p className="mt-2 text-[10.5px] text-amber-800 dark:text-amber-300 font-medium">
+                                                ⚠️ Item ini belum disetujui atau dikembalikan oleh Direktur. Bu Titik dapat memilih item di bawah dan mengajukan ulang dengan tanggal pengajuan yang ditentukan.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()
+                    )}
+
+                    {/* Riwayat Pengajuan & Keputusan Direktur */}
+                    <RequestAuditHistory
+                        histories={activeRequest?.histories || []}
+                        requestNumber={activeRequest?.request_number}
+                    />
+
+                    {/* Banner Nota Rampung & Kurang Bayar Pelindo */}
+                    {!isCompanyExpense && (currentJob || activeRequest?.ship_id) && (
+                        <div className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50/80 p-4 text-xs dark:border-amber-900/60 dark:bg-amber-950/25 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
+                            <div className="flex items-start gap-3">
+                                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-600 text-white shadow-2xs">
+                                    <FileText className="size-5" />
+                                </div>
+                                <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <h4 className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] text-sm">
+                                            Nota Rampung Pelindo & Pengajuan Kurang Bayar
+                                        </h4>
+                                        {currentJob?.completion_note && (
+                                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                                <CheckCircle2 className="size-3" />
+                                                Nota Tersedia ({currentJob.completion_note.document_number})
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="mt-0.5 text-[#52658E] dark:text-[#94A3B8] leading-relaxed max-w-2xl">
+                                        {currentJob?.completion_note
+                                            ? `Nota Rampung resmi (${currentJob.completion_note.document_number}) telah dicatat. Masukkan nominal kekurangan bayar jika terdapat selisih tagihan riil dari Pelindo untuk diajukan ke Pak Ryan (Direktur).`
+                                            : 'Upload berkas Nota Rampung resmi Pelindo dan masukkan nominal kekurangan bayar (jika ada). Pengajuan ini akan langsung diteruskan ke Pak Ryan (Direktur) untuk persetujuan pembayaran.'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                {currentJob?.completion_note && (
+                                    <FileViewerTrigger
+                                        url={route('completion-notes.document', {
+                                            completionNote: currentJob.completion_note.id,
+                                            view: 1,
+                                        })}
+                                        title={`Nota Rampung ${currentJob.completion_note.document_number}`}
+                                        fileType="pdf"
+                                        downloadUrl={route('completion-notes.document', {
+                                            completionNote: currentJob.completion_note.id,
+                                            download: 1,
+                                        })}
+                                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-[#0B1F63] hover:bg-slate-50 dark:border-slate-700 dark:bg-[#0C1D36] dark:text-white"
+                                    >
+                                        <FileCheck2 className="size-3.5 text-emerald-600" />
+                                        Lihat Dokumen
+                                    </FileViewerTrigger>
+                                )}
+                                {capabilities.can_process_requests && (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="primary"
+                                        leftIcon={<FileUp className="size-3.5" />}
+                                        onClick={openNotaRampungModal}
+                                        className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 font-bold text-white shadow-xs"
+                                    >
+                                        {currentJob?.completion_note ? 'Ajukan Kurang Bayar Pelindo' : 'Upload Nota Rampung & Kurang Bayar'}
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Callout Tambahan Biaya Taktis (Kekurangan Realisasi / Ngebon Lapangan) */}
-                    {activeRequest && (activeRequest.items?.some(isTaktisItem) || activeRequest.service_type === 'clearance_in') && (
+                    {!isCompanyExpense && activeRequest && (activeRequest.items?.some(isTaktisItem) || activeRequest.service_type === 'clearance_in') && (
                         <div className="flex flex-col gap-3 rounded-2xl border border-[#BCE0FD] bg-[#F0F8FF] p-4 text-xs dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:flex-row sm:items-center sm:justify-between shadow-2xs">
                             <div className="flex items-start gap-3">
                                 <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-2xs">
@@ -1904,6 +2288,43 @@ export default function RequestShow({
                         </div>
                     )}
 
+                    {/* Toolbar Selesaikan Semua Item Disetujui Sekaligus */}
+                    {capabilities.can_process_requests && allCompletableItemsAcrossJob.length > 0 && (
+                        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-300 bg-emerald-50/90 p-4 text-xs dark:border-emerald-800 dark:bg-emerald-950/40 sm:flex-row sm:items-center sm:justify-between shadow-2xs">
+                            <div className="flex items-start gap-3">
+                                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-2xs">
+                                    <CheckCircle2 className="size-5" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-extrabold text-[#0B1F63] dark:text-[#F1F5F9] text-sm">
+                                            Penyelesaian Operasional Item Pengajuan
+                                        </h4>
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-200/80 px-2.5 py-0.5 text-[10px] font-black text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200">
+                                            {allCompletableItemsAcrossJob.length} Item Siap Diselesaikan
+                                        </span>
+                                    </div>
+                                    <p className="mt-0.5 text-[#52658E] dark:text-[#94A3B8] leading-relaxed max-w-2xl">
+                                        Pak Ryan (Direktur) telah menyetujui item pengajuan di bawah ini. Klik tombol di samping untuk langsung menyelesaikan pemenuhan seluruh item sekaligus menjadi status <strong>Selesai</strong>.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="shrink-0">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="primary"
+                                    leftIcon={<CheckCircle2 className="size-4" />}
+                                    isLoading={batchCompleting}
+                                    onClick={handleCompleteAllApprovedAcrossJob}
+                                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 font-bold text-white shadow-xs min-h-10 px-4"
+                                >
+                                    Selesaikan Semua Item Sekaligus ({allCompletableItemsAcrossJob.length})
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Toolbar Aksi Sekaligus (Batch Actions ke Direktur) */}
                     {canUseAdminActions && allEditableItemsAcrossJob.length > 0 && (
                         <div className="space-y-3 rounded-2xl border border-[#BCE0FD] bg-[#E0F0FF]/90 p-4 shadow-sm dark:border-[#1E3A5F] dark:bg-[#0C1D36]">
@@ -1922,12 +2343,12 @@ export default function RequestShow({
                                         <span>Pilih Semua Item Lintas REQ ({totalSelectedCount} dari {allEditableItemsAcrossJob.length} dipilih)</span>
                                     </label>
 
-                                    {totalUrgentCount > 0 && (
+                                    {/* {totalUrgentCount > 0 && (
                                         <span className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100 px-2.5 py-0.5 text-xs font-black text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300">
                                             <Flame className="size-3.5 animate-pulse fill-rose-600 text-rose-600 motion-reduce:animate-none" />
                                             {totalUrgentCount} Item Mendesak
                                         </span>
-                                    )}
+                                    )} */}
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2">
@@ -1952,25 +2373,66 @@ export default function RequestShow({
                                         onClick={handleBatchForwardAllToDirector}
                                         className="bg-[#0060F4] font-bold shadow-xs hover:bg-[#082870]"
                                     >
-                                        Ajukan Sekaligus ke Direktur ({totalSelectedCount} Item)
+                                        {allEditableItemsAcrossJob.some(({ item }) => item.director_notes || item.status === 'pending')
+                                            ? `Ajukan Ulang ke Direktur (${totalSelectedCount} Item)`
+                                            : `Ajukan Sekaligus ke Direktur (${totalSelectedCount} Item)`}
                                     </Button>
                                 </div>
                             </div>
 
-                            <Textarea
-                                id="job-admin-forward-notes"
-                                name="admin_notes"
-                                autoComplete="off"
-                                label="Catatan untuk Direktur (Opsional)"
-                                helperText="Berlaku untuk seluruh item yang dipilih dan tetap terlihat pada halaman approval."
-                                rows={2}
-                                maxLength={1000}
-                                showCharCount
-                                value={batchAdminNotes}
-                                onChange={(event) => setBatchAdminNotes(event.target.value)}
-                                disabled={activeAction !== null}
-                                placeholder="Contoh: Taktis tidak menggunakan vendor; HPP telah ditinjau…"
-                            />
+                            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 pt-1">
+                                <div>
+                                    <label className="block text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                        Tanggal Pengajuan ke Pak Ryan (Direktur)
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="date"
+                                            value={submissionDate}
+                                            onChange={(e) => setSubmissionDate(e.target.value)}
+                                            className="h-9 rounded-lg border border-[#BCE0FD] bg-white px-3 text-xs font-bold text-[#0B1F63] shadow-xs focus:border-[#0060F4] focus:ring-1 focus:ring-[#0060F4] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setSubmissionDate(new Date().toISOString().split('T')[0])}
+                                            className="h-9 px-2.5 rounded-lg border border-[#DCEAF8] bg-white text-[11px] font-bold text-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0E223F] dark:text-[#38BDF8]"
+                                        >
+                                            Hari Ini
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const d = new Date();
+                                                d.setDate(d.getDate() + 1);
+                                                setSubmissionDate(d.toISOString().split('T')[0]);
+                                            }}
+                                            className="h-9 px-2.5 rounded-lg border border-[#DCEAF8] bg-white text-[11px] font-bold text-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#0E223F] dark:text-[#38BDF8]"
+                                        >
+                                            Besok
+                                        </button>
+                                    </div>
+                                    <p className="mt-1 text-[10.5px] text-[#52658E] dark:text-[#94A3B8]">
+                                        Tanggal pengajuan ini dicatat di riwayat pengajuan dan terlihat oleh Pak Ryan (Direktur).
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <Textarea
+                                        id="job-admin-forward-notes"
+                                        name="admin_notes"
+                                        autoComplete="off"
+                                        label="Catatan untuk Direktur (Opsional)"
+                                        helperText="Berlaku untuk seluruh item yang dipilih dan tetap terlihat pada riwayat approval."
+                                        rows={2}
+                                        maxLength={1000}
+                                        showCharCount
+                                        value={batchAdminNotes}
+                                        onChange={(event) => setBatchAdminNotes(event.target.value)}
+                                        disabled={activeAction !== null}
+                                        placeholder="Contoh: Pengajuan ulang item setelah revisi; HPP telah disesuaikan…"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -2023,32 +2485,116 @@ export default function RequestShow({
                                 ]
                                 : []),
                             {
+                                key: 'action',
+                                header: 'Aksi',
+                                align: 'center',
+                                width: '230px',
+                                render: ({ request: req, item, isFirstForRequest }) => {
+                                    const isEditable =
+                                        !['Selesai', 'Dibatalkan'].includes(req.status) &&
+                                        item.director_status !== 'approved' &&
+                                        item.status !== 'diajukan_ke_direktur' &&
+                                        !item.is_invoiced;
+                                    const canAddItem =
+                                        capabilities.can_create_requests &&
+                                        !['Selesai', 'Dibatalkan'].includes(req.status);
+                                    const canCreateClearanceInvoice =
+                                        canUseAdminActions &&
+                                        req.service_type === 'clearance_in' &&
+                                        (req.items || []).some(
+                                            (requestItem) =>
+                                                requestItem.director_status === 'approved' &&
+                                                !requestItem.is_invoiced
+                                        );
+
+                                    return (
+                                        <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                            <RequestItemWorkflowAction
+                                                requestId={req.id}
+                                                requestNumber={req.request_number}
+                                                serviceType={req.service_type}
+                                                item={item}
+                                                canProcess={capabilities.can_process_requests}
+                                                compact
+                                            />
+
+                                            {!isCompanyExpense && isTaktisItem(item) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openTaktisSupplementModal(req, item)}
+                                                    title="Ajukan kekurangan biaya taktis (ngebon/realisasi lapangan)"
+                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#0060F4]/30 bg-[#F0F8FF] px-2 text-xs font-bold text-[#0060F4] hover:bg-[#0060F4] hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                >
+                                                    <Plus className="size-3" aria-hidden="true" />
+                                                    Tambahan Taktis
+                                                </button>
+                                            )}
+
+                                            {canUseAdminActions && isEditable && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSaveItemPrice(req.id, item.id)}
+                                                    disabled={savingItemId === item.id}
+                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#E0F0FF] px-2.5 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-50 dark:bg-[#132847] dark:text-[#60A5FA]"
+                                                >
+                                                    <Save className="size-3" aria-hidden="true" />
+                                                    {savingItemId === item.id ? 'Menyimpan…' : 'Simpan'}
+                                                </button>
+                                            )}
+
+                                            {isFirstForRequest && canCreateClearanceInvoice && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        runAction(
+                                                            `clearance-invoice-${req.id}`,
+                                                            route('requests.clearance-in-invoice', req.id)
+                                                        )
+                                                    }
+                                                    disabled={activeAction !== null}
+                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#0060F4] px-2.5 text-xs font-bold text-white hover:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-50"
+                                                >
+                                                    <FileText className="size-3" aria-hidden="true" />
+                                                    Invoice
+                                                </button>
+                                            )}
+
+                                        </div>
+                                    );
+                                },
+                            },
+                            {
                                 key: 'item',
                                 header: 'Item',
                                 width: '230px',
                                 render: ({ item }) => (
                                     <div className="space-y-1">
-                                        <p className="text-pretty font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
-                                            {item.item_name}
-                                        </p>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <p className="text-pretty font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                                {item.item_name}
+                                            </p>
+                                            <ItemSubmissionHistoryBadge item={item} />
+                                        </div>
                                         <RequirementDate value={item.required_date} />
                                         <ItemEvidenceLinks
                                             item={item}
                                             onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
                                         />
                                         {item.surplus_amount && Number(item.surplus_amount) > 0 && (
-                                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-1.5 text-[10.5px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-                                                <span className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                            <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
                                                     🔄 Pengalihan Kelebihan Dana
-                                                </span>
-                                                <span className="block mt-0.5">
-                                                    Dialihkan <strong className="font-mono">{formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong>.
-                                                </span>
-                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
-                                                    <span className="block text-[10px] text-amber-700 dark:text-amber-400 mt-0.5">
-                                                        Total Nota: {formatRupiah(item.original_hpp_price)} → Real Diajukan: {formatRupiah(item.hpp_price)}
-                                                    </span>
-                                                )}
+                                                </div>
+                                                <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                    <div>Total Biaya Nota ({item.quantity} {item.unit || 'Item'}): <strong className="font-mono">{formatRupiah(Number(item.original_hpp_price || item.hpp_price) * Number(item.quantity))}</strong></div>
+                                                    <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong></div>
+                                                    <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                        Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(item.hpp_price) * Number(item.quantity))}</strong>
+                                                        <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                            (Hanya bayar {formatRupiah(Number(item.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatRupiah(item.surplus_amount)} dari item {item.surplus_source_item_name || 'lain'})
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
                                         {item.is_urgent && (
@@ -2082,9 +2628,9 @@ export default function RequestShow({
                             },
                             {
                                 key: 'hpp',
-                                header: 'HPP',
+                                header: 'HPP Awal',
                                 align: 'right',
-                                width: '160px',
+                                width: '150px',
                                 render: ({ request: req, item }) => {
                                     const isEditable =
                                         !['Selesai', 'Dibatalkan'].includes(req.status) &&
@@ -2125,9 +2671,40 @@ export default function RequestShow({
                                     }
 
                                     return (
-                                        <span className="whitespace-nowrap font-mono font-bold tabular-nums">
-                                            {formatRupiah(item.hpp_price)}
-                                        </span>
+                                        <div className="text-right">
+                                            <span className="whitespace-nowrap font-mono font-bold tabular-nums">
+                                                {formatRupiah(item.hpp_price)}
+                                            </span>
+                                            {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                <span className="block text-[10px] line-through text-[#8A9EB5]">
+                                                    {formatRupiah(item.original_hpp_price)}
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                },
+                            },
+                            {
+                                key: 'total_hpp',
+                                header: 'Total HPP',
+                                align: 'right',
+                                width: '150px',
+                                render: ({ item }) => {
+                                    if (!capabilities.can_view_hpp) {
+                                        return '-';
+                                    }
+
+                                    const currentHpp = priceDrafts[item.id]?.hpp_price !== undefined
+                                        ? Number(priceDrafts[item.id]?.hpp_price || 0)
+                                        : Number(item.hpp_price || 0);
+                                    const total = currentHpp * Number(item.quantity || 1);
+
+                                    return (
+                                        <div className="text-right">
+                                            <span className="whitespace-nowrap font-mono font-bold tabular-nums text-[#0060F4] dark:text-[#38BDF8]">
+                                                {formatRupiah(total)}
+                                            </span>
+                                        </div>
                                     );
                                 },
                             },
@@ -2141,6 +2718,7 @@ export default function RequestShow({
                                         <DirectorStatus
                                             status={item.director_status}
                                             itemStatus={item.status}
+                                            directorNotes={item.director_notes}
                                         />
                                         <p className="text-pretty text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
                                             {requestStatusLabel(req.status)}
@@ -2148,101 +2726,11 @@ export default function RequestShow({
                                     </div>
                                 ),
                             },
-                            {
-                                key: 'action',
-                                header: 'Aksi',
-                                align: 'center',
-                                width: '230px',
-                                render: ({ request: req, item, isFirstForRequest }) => {
-                                    const isEditable =
-                                        !['Selesai', 'Dibatalkan'].includes(req.status) &&
-                                        item.director_status !== 'approved' &&
-                                        item.status !== 'diajukan_ke_direktur' &&
-                                        !item.is_invoiced;
-                                    const canAddItem =
-                                        capabilities.can_create_requests &&
-                                        !['Selesai', 'Dibatalkan'].includes(req.status);
-                                    const canCreateClearanceInvoice =
-                                        canUseAdminActions &&
-                                        req.service_type === 'clearance_in' &&
-                                        (req.items || []).some(
-                                            (requestItem) =>
-                                                requestItem.director_status === 'approved' &&
-                                                !requestItem.is_invoiced
-                                        );
-
-                                    return (
-                                        <div className="flex flex-wrap items-center justify-center gap-1.5">
-                                            <RequestItemWorkflowAction
-                                                requestId={req.id}
-                                                requestNumber={req.request_number}
-                                                serviceType={req.service_type}
-                                                item={item}
-                                                canProcess={capabilities.can_process_requests}
-                                                compact
-                                            />
-
-                                            {isTaktisItem(item) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openTaktisSupplementModal(req, item)}
-                                                    title="Ajukan kekurangan biaya taktis (ngebon/realisasi lapangan)"
-                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#0060F4]/30 bg-[#F0F8FF] px-2 text-xs font-bold text-[#0060F4] hover:bg-[#0060F4] hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:bg-[#132847] dark:text-[#60A5FA]"
-                                                >
-                                                    <Plus className="size-3" aria-hidden="true" />
-                                                    Tambahan Taktis
-                                                </button>
-                                            )}
-
-                                            {canUseAdminActions && isEditable && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSaveItemPrice(req.id, item.id)}
-                                                    disabled={savingItemId === item.id}
-                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#E0F0FF] px-2.5 text-xs font-bold text-[#0060F4] hover:bg-[#BCE0FD] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-50 dark:bg-[#132847] dark:text-[#60A5FA]"
-                                                >
-                                                    <Save className="size-3" aria-hidden="true" />
-                                                    {savingItemId === item.id ? 'Menyimpan…' : 'Simpan'}
-                                                </button>
-                                            )}
-
-                                            {/* {isFirstForRequest && canAddItem && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setAddItemTargetReqId(req.id)}
-                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-[#0B1F63] hover:bg-[#F0F8FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] dark:text-[#F1F5F9] dark:hover:bg-[#132847]"
-                                                >
-                                                    <Plus className="size-3" aria-hidden="true" />
-                                                    Tambah
-                                                </button>
-                                            )} */}
-
-                                            {isFirstForRequest && canCreateClearanceInvoice && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                        runAction(
-                                                            `clearance-invoice-${req.id}`,
-                                                            route('requests.clearance-in-invoice', req.id)
-                                                        )
-                                                    }
-                                                    disabled={activeAction !== null}
-                                                    className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#0060F4] px-2.5 text-xs font-bold text-white hover:bg-[#082870] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4] disabled:opacity-50"
-                                                >
-                                                    <FileText className="size-3" aria-hidden="true" />
-                                                    Invoice
-                                                </button>
-                                            )}
-
-                                        </div>
-                                    );
-                                },
-                            },
                         ]}
                         data={activeDesktopRows}
                         keyExtractor={(row) => row.item.id}
                         compact
-                        minWidth="1320px"
+                        minWidth="1450px"
                         emptyMessage="Belum ada item pada pengajuan ini"
                         rowClassName={(row) => {
                             if (canUseAdminActions && row.item.director_status === 'approved') {
@@ -2443,7 +2931,7 @@ export default function RequestShow({
                                                         </Button>
                                                     )}
 
-                                                    {(reqItems.some(isTaktisItem) || req.service_type === 'clearance_in') && (
+                                                    {!isCompanyExpense && (reqItems.some(isTaktisItem) || req.service_type === 'clearance_in') && (
                                                         <Button
                                                             type="button"
                                                             size="sm"
@@ -2453,6 +2941,20 @@ export default function RequestShow({
                                                             className="min-h-11 w-full sm:w-auto border-[#0060F4] text-[#0060F4] hover:bg-[#E0F0FF] dark:hover:bg-[#132847]"
                                                         >
                                                             Tambahan Taktis
+                                                        </Button>
+                                                    )}
+
+                                                    {canUseAdminActions && reqItems.some((it) => it.director_status === 'approved' && it.status !== 'selesai') && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="primary"
+                                                            leftIcon={<CheckCircle2 className="size-3.5" />}
+                                                            isLoading={batchCompleting}
+                                                            onClick={() => handleCompleteAllInRequest(req.id)}
+                                                            className="min-h-11 w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                                                        >
+                                                            Selesaikan Semua Item ({reqItems.filter((it) => it.director_status === 'approved' && it.status !== 'selesai').length})
                                                         </Button>
                                                     )}
                                                 </div>
@@ -2555,6 +3057,39 @@ export default function RequestShow({
                                                             ]
                                                             : []),
                                                         {
+                                                            key: 'action',
+                                                            header: 'Aksi',
+                                                            align: 'center' as const,
+                                                            width: '120px',
+                                                            render: (item) => {
+                                                                const isEditable = editableItems.some(
+                                                                    (editable) => editable.id === item.id
+                                                                );
+                                                                return (
+                                                                    <div className="flex flex-col items-center gap-1">
+                                                                        {canUseAdminActions && isEditable && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    handleSaveItemPrice(
+                                                                                        req.id,
+                                                                                        item.id
+                                                                                    )
+                                                                                }
+                                                                                disabled={
+                                                                                    savingItemId === item.id
+                                                                                }
+                                                                                className="inline-flex min-h-9 items-center gap-1 rounded-[10px] bg-[#E0F0FF] px-3 font-bold text-[#0060F4] hover:bg-[#BCE0FD] disabled:opacity-50"
+                                                                            >
+                                                                                <Save className="size-3" />
+                                                                                Simpan
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            },
+                                                        },
+                                                        {
                                                             key: 'item',
                                                             header: 'Item / Vendor',
                                                             width: '280px',
@@ -2562,6 +3097,7 @@ export default function RequestShow({
                                                                 <div className="space-y-1">
                                                                     <div className="flex flex-wrap items-center gap-1.5">
                                                                         <strong>{item.item_name}</strong>
+                                                                        <ItemSubmissionHistoryBadge item={item} />
                                                                         {itemNeedsAction(item) && (
                                                                             <span className="rounded-full bg-[#0060F4] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
                                                                                 Baru
@@ -2580,6 +3116,23 @@ export default function RequestShow({
                                                                         item={item}
                                                                         onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
                                                                     />
+                                                                    {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                                                        <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                                            <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                                                🔄 Pengalihan Kelebihan Dana
+                                                                            </div>
+                                                                            <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                                                <div>Total Biaya Nota ({item.quantity} {item.unit || 'Item'}): <strong className="font-mono">{formatRupiah(Number(item.original_hpp_price || item.hpp_price) * Number(item.quantity))}</strong></div>
+                                                                                <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong></div>
+                                                                                <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                                                    Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(item.hpp_price) * Number(item.quantity))}</strong>
+                                                                                    <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                                                        (Hanya bayar {formatRupiah(Number(item.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatRupiah(item.surplus_amount)} dari item {item.surplus_source_item_name || 'lain'})
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                     {item.notes && (
                                                                         <p className="text-[11px] text-[#52658E]">
                                                                             {item.notes}
@@ -2603,9 +3156,9 @@ export default function RequestShow({
                                                             ? [
                                                                 {
                                                                     key: 'hpp',
-                                                                    header: 'HPP',
+                                                                    header: 'HPP Awal',
                                                                     align: 'right' as const,
-                                                                    width: '180px',
+                                                                    width: '150px',
                                                                     render: (item: RequestItem) => {
                                                                         const isEditable = editableItems.some(
                                                                             (editable) =>
@@ -2660,10 +3213,33 @@ export default function RequestShow({
                                                                             );
                                                                         }
                                                                         return (
-                                                                            <span className="whitespace-nowrap font-mono font-bold">
-                                                                                {formatRupiah(
-                                                                                    item.hpp_price
+                                                                            <div className="text-right">
+                                                                                <span className="whitespace-nowrap font-mono font-bold">
+                                                                                    {formatRupiah(item.hpp_price)}
+                                                                                </span>
+                                                                                {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                                                    <span className="block text-[10px] line-through text-[#8A9EB5]">
+                                                                                        {formatRupiah(item.original_hpp_price)}
+                                                                                    </span>
                                                                                 )}
+                                                                            </div>
+                                                                        );
+                                                                    },
+                                                                },
+                                                                {
+                                                                    key: 'total_hpp',
+                                                                    header: 'Total HPP',
+                                                                    align: 'right' as const,
+                                                                    width: '150px',
+                                                                    render: (item: RequestItem) => {
+                                                                        const currentHpp = priceDrafts[item.id]?.hpp_price !== undefined
+                                                                            ? Number(priceDrafts[item.id]?.hpp_price || 0)
+                                                                            : Number(item.hpp_price || 0);
+                                                                        const total = currentHpp * Number(item.quantity || 1);
+
+                                                                        return (
+                                                                            <span className="whitespace-nowrap font-mono font-bold text-[#0060F4] dark:text-[#38BDF8]">
+                                                                                {formatRupiah(total)}
                                                                             </span>
                                                                         );
                                                                     },
@@ -2680,6 +3256,7 @@ export default function RequestShow({
                                                                     <DirectorStatus
                                                                         status={item.director_status}
                                                                         itemStatus={item.status}
+                                                                        directorNotes={item.director_notes}
                                                                     />
                                                                     {item.director_notes && (
                                                                         <p className="mt-1 text-[11px] text-[#52658E]">
@@ -2689,44 +3266,11 @@ export default function RequestShow({
                                                                 </div>
                                                             ),
                                                         },
-                                                        {
-                                                            key: 'action',
-                                                            header: 'Aksi',
-                                                            align: 'center' as const,
-                                                            width: '120px',
-                                                            render: (item) => {
-                                                                const isEditable = editableItems.some(
-                                                                    (editable) => editable.id === item.id
-                                                                );
-                                                                return (
-                                                                    <div className="flex flex-col items-center gap-1">
-                                                                        {canUseAdminActions && isEditable && (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    handleSaveItemPrice(
-                                                                                        req.id,
-                                                                                        item.id
-                                                                                    )
-                                                                                }
-                                                                                disabled={
-                                                                                    savingItemId === item.id
-                                                                                }
-                                                                                className="inline-flex min-h-9 items-center gap-1 rounded-[10px] bg-[#E0F0FF] px-3 font-bold text-[#0060F4] hover:bg-[#BCE0FD] disabled:opacity-50"
-                                                                            >
-                                                                                <Save className="size-3" />
-                                                                                Simpan
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            },
-                                                        },
                                                     ]}
                                                     data={sortedReqItems}
                                                     keyExtractor={(item) => item.id}
                                                     compact
-                                                    minWidth="1210px"
+                                                    minWidth="1340px"
                                                     emptyMessage="Data Tidak Ditemukan"
                                                     rowClassName={(item) => {
                                                         if (canUseAdminActions && item.director_status === 'approved') {
@@ -2774,6 +3318,25 @@ export default function RequestShow({
                                                             <span className="shrink-0 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                                                 {selectedIds.length} dipilih
                                                             </span>
+                                                        </div>
+                                                    )}
+
+                                                    {canUseAdminActions && reqItems.some((it) => it.director_status === 'approved' && it.status !== 'selesai') && (
+                                                        <div className="flex min-h-11 items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/40">
+                                                            <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                                                                {reqItems.filter((it) => it.director_status === 'approved' && it.status !== 'selesai').length} item siap diselesaikan
+                                                            </span>
+                                                            <Button
+                                                                type="button"
+                                                                size="sm"
+                                                                variant="primary"
+                                                                leftIcon={<CheckCircle2 className="size-3.5" />}
+                                                                isLoading={batchCompleting}
+                                                                onClick={() => handleCompleteAllInRequest(req.id)}
+                                                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                                                            >
+                                                                Selesaikan Semua
+                                                            </Button>
                                                         </div>
                                                     )}
 
@@ -2837,6 +3400,7 @@ export default function RequestShow({
                                                                                 <h4 className="break-words text-sm font-extrabold leading-5 text-[#0B1F63] dark:text-[#F1F5F9]">
                                                                                     {item.item_name}
                                                                                 </h4>
+                                                                                <ItemSubmissionHistoryBadge item={item} />
                                                                             </div>
                                                                             <div className="flex items-center gap-1 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
                                                                                 <Building2 aria-hidden="true" className="size-3 shrink-0 text-[#0060F4]" />
@@ -2847,6 +3411,23 @@ export default function RequestShow({
                                                                                 item={item}
                                                                                 onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
                                                                             />
+                                                                            {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                                                                <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                                                    <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                                                        🔄 Pengalihan Kelebihan Dana
+                                                                                    </div>
+                                                                                    <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                                                        <div>Total Biaya Nota ({item.quantity} {item.unit || 'Item'}): <strong className="font-mono">{formatRupiah(Number(item.original_hpp_price || item.hpp_price) * Number(item.quantity))}</strong></div>
+                                                                                        <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong></div>
+                                                                                        <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                                                            Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(item.hpp_price) * Number(item.quantity))}</strong>
+                                                                                            <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                                                                (Hanya bayar {formatRupiah(Number(item.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatRupiah(item.surplus_amount)} dari item {item.surplus_source_item_name || 'lain'})
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
                                                                             {item.notes && (
                                                                                 <p className="text-[11px] italic text-[#52658E] dark:text-[#94A3B8]">
                                                                                     "{item.notes}"
@@ -2867,7 +3448,11 @@ export default function RequestShow({
                                                                 <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-[#DCEAF8]/60 dark:border-[#1E3A5F]/60 text-xs">
                                                                     <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8] font-medium">Status:</span>
                                                                     <div className="flex items-center gap-1.5">
-                                                                        <DirectorStatus status={item.director_status} itemStatus={item.status} />
+                                                                        <DirectorStatus
+                                                                            status={item.director_status}
+                                                                            itemStatus={item.status}
+                                                                            directorNotes={item.director_notes}
+                                                                        />
                                                                     </div>
                                                                 </div>
                                                                 {item.director_notes && (
@@ -2893,7 +3478,7 @@ export default function RequestShow({
                                                                                     htmlFor={`mobile-hpp-${item.id}`}
                                                                                     className="shrink-0 text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]"
                                                                                 >
-                                                                                    HPP:
+                                                                                    HPP Awal:
                                                                                 </label>
                                                                                 <div className={`flex min-h-11 w-44 max-w-[68%] items-center rounded-lg border bg-white px-2.5 shadow-2xs focus-within:border-[#0060F4] focus-within:ring-2 focus-within:ring-[#0060F4]/20 dark:bg-[#0C1D36] ${isSelected && itemHpp <= 0 ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-[#DCEAF8] dark:border-[#1E3A5F]'
                                                                                     }`}>
@@ -2920,12 +3505,23 @@ export default function RequestShow({
                                                                             </div>
                                                                         ) : (
                                                                             <div className="flex items-center justify-between text-xs">
-                                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">HPP:</span>
+                                                                                <span className="text-[11px] text-[#52658E] dark:text-[#94A3B8]">HPP Awal:</span>
                                                                                 <span className="font-mono text-xs font-bold text-[#0B1F63] dark:text-[#F1F5F9]">
                                                                                     {formatRupiah(item.hpp_price)}
+                                                                                    {item.original_hpp_price && Number(item.original_hpp_price) > Number(item.hpp_price) && (
+                                                                                        <span className="block text-[10px] font-normal line-through text-[#8A9EB5]">
+                                                                                            {formatRupiah(item.original_hpp_price)}
+                                                                                        </span>
+                                                                                    )}
                                                                                 </span>
                                                                             </div>
                                                                         )}
+                                                                        <div className="flex items-center justify-between border-t border-[#DCEAF8] pt-1.5 text-xs dark:border-[#1E3A5F]">
+                                                                            <span className="text-[11px] font-bold text-[#52658E] dark:text-[#94A3B8]">Total HPP:</span>
+                                                                            <span className="font-mono text-xs font-black text-[#0060F4] dark:text-[#38BDF8]">
+                                                                                {formatRupiah(Number(priceDrafts[item.id]?.hpp_price ?? item.hpp_price ?? 0) * Number(item.quantity))}
+                                                                            </span>
+                                                                        </div>
                                                                     </div>
                                                                 )}
 
@@ -2940,7 +3536,7 @@ export default function RequestShow({
                                                                             canProcess={capabilities.can_process_requests}
                                                                             className="w-full min-[390px]:w-auto"
                                                                         />
-                                                                        {isTaktisItem(item) && (
+                                                                        {!isCompanyExpense && isTaktisItem(item) && (
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => openTaktisSupplementModal(req, item)}
@@ -3041,6 +3637,23 @@ export default function RequestShow({
                                                                                 item={item}
                                                                                 onEditSupplierInvoice={canEditSupplierInvoice(item) ? () => openSupplierInvoiceModal(item) : undefined}
                                                                             />
+                                                                            {item.surplus_amount && Number(item.surplus_amount) > 0 && (
+                                                                                <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] leading-tight text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                                                                    <div className="font-bold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                                                        🔄 Pengalihan Kelebihan Dana
+                                                                                    </div>
+                                                                                    <div className="mt-1 space-y-0.5 text-[10.5px]">
+                                                                                        <div>Total Biaya Nota ({item.quantity} {item.unit || 'Item'}): <strong className="font-mono">{formatRupiah(Number(item.original_hpp_price || item.hpp_price) * Number(item.quantity))}</strong></div>
+                                                                                        <div className="text-emerald-700 dark:text-emerald-400">Pengalihan Sisa: <strong className="font-mono">- {formatRupiah(item.surplus_amount)}</strong> dari item <strong>{item.surplus_source_item_name || 'lain'}</strong></div>
+                                                                                        <div className="font-bold text-[#0B1F63] dark:text-white pt-1 border-t border-amber-200 dark:border-amber-800">
+                                                                                            Pembayaran Riil Kas: <strong className="font-mono text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(item.hpp_price) * Number(item.quantity))}</strong>
+                                                                                            <span className="font-normal text-amber-800 dark:text-amber-300 block text-[10px] mt-0.5">
+                                                                                                (Hanya bayar {formatRupiah(Number(item.hpp_price) * Number(item.quantity))} karena ada sisa pembayaran {formatRupiah(item.surplus_amount)} dari item {item.surplus_source_item_name || 'lain'})
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
 
                                                                         <div className="flex flex-wrap items-center gap-2">
@@ -3161,7 +3774,7 @@ export default function RequestShow({
                 onClose={closeSupplierInvoiceModal}
                 title="Nota Invoice Supplier"
                 subtitle={supplierInvoiceItem ? `Lengkapi dokumen biaya untuk ${supplierInvoiceItem.item_name} sebelum diajukan ke Direktur.` : undefined}
-                size="lg"
+                size="xl"
                 footer={(
                     <>
                         <Button type="button" variant="outline" onClick={closeSupplierInvoiceModal} disabled={supplierInvoiceForm.processing}>
@@ -3176,11 +3789,30 @@ export default function RequestShow({
                 <form id="supplier-invoice-form" noValidate onSubmit={submitSupplierInvoice} className="space-y-4">
                     <FormErrorSummary errors={supplierInvoiceForm.errors} />
 
-                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                        <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{supplierInvoiceItem?.item_name}</p>
-                        <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
-                            Nota ini menjadi dasar HPP dan otomatis dibuat sebagai invoice vendor siap dibayar setelah disetujui Direktur.
-                        </p>
+                    <div className="rounded-xl border border-[#BCE0FD] bg-[#F0F8FF] p-3.5 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="font-bold text-[#0B1F63] dark:text-[#F1F5F9]">{supplierInvoiceItem?.item_name}</p>
+                                <p className="mt-0.5 text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                    Setelah tersimpan, item otomatis dipilih dan siap dikirim ke Direktur.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0 rounded-lg bg-white/90 dark:bg-[#0B1F38] px-3 py-1.5 border border-[#BCE0FD] dark:border-[#1E3A5F] shadow-2xs">
+                                <div>
+                                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#52658E] dark:text-[#94A3B8]">Quantity</span>
+                                    <span className="font-mono text-xs sm:text-sm font-extrabold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                        {supplierInvoiceItem?.quantity} {supplierInvoiceItem?.unit || 'Item'}
+                                    </span>
+                                </div>
+                                <div className="h-6 w-px bg-[#DCEAF8] dark:bg-[#1E3A5F]" />
+                                <div>
+                                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#0060F4] dark:text-[#38BDF8]">Total HPP Nota</span>
+                                    <span className="font-mono text-xs sm:text-sm font-extrabold text-[#0060F4] dark:text-[#38BDF8]">
+                                        {formatRupiah(Number(supplierInvoiceItem?.quantity || 1) * Number(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0))}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -3195,14 +3827,20 @@ export default function RequestShow({
                             ]}
                             error={supplierInvoiceForm.errors.vendor_id}
                         />
-                        <MoneyInput
-                            required
-                            id="supplier_hpp_price"
-                            label="HPP per Satuan (Nilai Total Nota)"
-                            value={supplierInvoiceForm.data.hpp_price}
-                            onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
-                            error={supplierInvoiceForm.errors.hpp_price}
-                        />
+                        <div>
+                            <MoneyInput
+                                required
+                                id="supplier_hpp_price"
+                                label="HPP per Satuan"
+                                value={supplierInvoiceForm.data.hpp_price}
+                                onChange={(value) => supplierInvoiceForm.setData('hpp_price', value)}
+                                error={supplierInvoiceForm.errors.hpp_price}
+                            />
+                            <div className="mt-1 flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                <span>Qty: <strong className="font-mono text-[#0B1F63] dark:text-[#F1F5F9]">{supplierInvoiceItem?.quantity} {supplierInvoiceItem?.unit || 'Item'}</strong></span>
+                                <span>Total HPP: <strong className="font-mono font-bold text-[#0060F4] dark:text-[#38BDF8]">{formatRupiah(Number(supplierInvoiceItem?.quantity || 1) * Number(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0))}</strong></span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Pengalihan Kelebihan Biaya dari Item Lain (Kapal Sama) — Opsional */}
@@ -3228,12 +3866,31 @@ export default function RequestShow({
                                     {allRequests
                                         .flatMap((req) => req.items || [])
                                         .filter((it) => it.id !== supplierInvoiceItem?.id)
-                                        .map((it) => (
-                                            <option key={it.id} value={it.id}>
-                                                {it.item_name} ({formatRupiah(it.hpp_price)})
-                                            </option>
-                                        ))}
+                                        .map((it) => {
+                                            const totalHpp = Number(it.quantity || 1) * Number(it.hpp_price || 0);
+                                            const qtyInfo = Number(it.quantity) > 1 ? `(${it.quantity} ${it.unit || 'Item'}) ` : '';
+                                            return (
+                                                <option key={it.id} value={it.id}>
+                                                    {it.item_name} {qtyInfo}— Total HPP: {formatRupiah(totalHpp)}
+                                                </option>
+                                            );
+                                        })}
                                 </select>
+                                {(() => {
+                                    const srcItem = allRequests
+                                        .flatMap((req) => req.items || [])
+                                        .find((it) => it.id === supplierInvoiceForm.data.surplus_source_item_id);
+                                    if (!srcItem) return null;
+                                    const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                                    return (
+                                        <div className="mt-2 flex items-center justify-between rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] px-2.5 py-1.5 text-xs text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
+                                            <span className="text-[#52658E] dark:text-[#94A3B8]">Total HPP Sumber ({srcItem.quantity} {srcItem.unit || 'Item'}):</span>
+                                            <strong className="font-mono font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                {formatRupiah(srcTotalHpp)}
+                                            </strong>
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             {supplierInvoiceForm.data.surplus_source_item_id && (
@@ -3249,6 +3906,21 @@ export default function RequestShow({
                                         placeholder="Contoh: 500.000"
                                         error={supplierInvoiceForm.errors.surplus_amount}
                                     />
+                                    {(() => {
+                                        const srcItem = allRequests
+                                            .flatMap((req) => req.items || [])
+                                            .find((it) => it.id === supplierInvoiceForm.data.surplus_source_item_id);
+                                        if (!srcItem) return null;
+                                        const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                                        return (
+                                            <div className="mt-1 flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                <span>Maksimal dana pengalihan:</span>
+                                                <strong className="font-mono text-[#0B1F63] dark:text-white">
+                                                    {formatRupiah(srcTotalHpp)}
+                                                </strong>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             )}
                         </div>
@@ -3256,8 +3928,8 @@ export default function RequestShow({
                         {supplierInvoiceForm.data.surplus_source_item_id && (
                             <div className="mt-3 rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] p-2.5 text-[11px] text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
                                 <div className="flex justify-between font-semibold">
-                                    <span>Total HPP Nota Supplier:</span>
-                                    <span>{formatRupiah(parseRupiah(supplierInvoiceForm.data.hpp_price) || 0)}</span>
+                                    <span>Total HPP Nota Supplier ({supplierInvoiceItem?.quantity} {supplierInvoiceItem?.unit || 'Item'}):</span>
+                                    <span>{formatRupiah((Number(supplierInvoiceItem?.quantity || 1) * (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0)))}</span>
                                 </div>
                                 <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
                                     <span>Pengalihan dari Item Lain:</span>
@@ -3269,8 +3941,8 @@ export default function RequestShow({
                                         {formatRupiah(
                                             Math.max(
                                                 0,
-                                                (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0) -
-                                                    (parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)
+                                                ((Number(supplierInvoiceItem?.quantity || 1) * (parseRupiah(supplierInvoiceForm.data.hpp_price) || 0))) -
+                                                (parseRupiah(supplierInvoiceForm.data.surplus_amount) || 0)
                                             )
                                         )}
                                     </span>
@@ -3557,12 +4229,29 @@ export default function RequestShow({
                                     className="w-full h-10 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-white dark:bg-[#0C1D36] px-2.5 text-xs text-[#0B1F63] dark:text-[#F1F5F9]"
                                 >
                                     <option value="">Tanpa pengalihan (langsung ajukan riil)</option>
-                                    {availableSurplusItems.map((it) => (
-                                        <option key={it.id} value={it.id}>
-                                            {it.item_name} ({formatRupiah(it.hpp_price)})
-                                        </option>
-                                    ))}
+                                    {availableSurplusItems.map((it) => {
+                                        const totalHpp = Number(it.quantity || 1) * Number(it.hpp_price || 0);
+                                        const qtyInfo = Number(it.quantity) > 1 ? `(${it.quantity} ${it.unit || 'Item'}) ` : '';
+                                        return (
+                                            <option key={it.id} value={it.id}>
+                                                {it.item_name} {qtyInfo}— Total HPP: {formatRupiah(totalHpp)}
+                                            </option>
+                                        );
+                                    })}
                                 </select>
+                                {(() => {
+                                    const srcItem = availableSurplusItems.find((it) => it.id === taktisSupplementForm.data.surplus_source_item_id);
+                                    if (!srcItem) return null;
+                                    const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                                    return (
+                                        <div className="mt-2 flex items-center justify-between rounded-lg border border-[#BCE0FD] bg-[#EAF4FE] px-2.5 py-1.5 text-xs text-[#0B1F63] dark:border-[#1E3A5F] dark:bg-[#0D2447] dark:text-[#F1F5F9]">
+                                            <span className="text-[#52658E] dark:text-[#94A3B8]">Total HPP Sumber ({srcItem.quantity} {srcItem.unit || 'Item'}):</span>
+                                            <strong className="font-mono font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                {formatRupiah(srcTotalHpp)}
+                                            </strong>
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             {taktisSupplementForm.data.surplus_source_item_id && (
@@ -3578,9 +4267,60 @@ export default function RequestShow({
                                         placeholder="Contoh: 200.000"
                                         error={taktisSupplementForm.errors.surplus_amount}
                                     />
+                                    {(() => {
+                                        const srcItem = availableSurplusItems.find((it) => it.id === taktisSupplementForm.data.surplus_source_item_id);
+                                        if (!srcItem) return null;
+                                        const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                                        return (
+                                            <div className="mt-1 flex items-center justify-between text-[11px] text-[#52658E] dark:text-[#94A3B8]">
+                                                <span>Maksimal dana pengalihan:</span>
+                                                <strong className="font-mono text-[#0B1F63] dark:text-white">
+                                                    {formatRupiah(srcTotalHpp)}
+                                                </strong>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             )}
                         </div>
+
+                        {(() => {
+                            const srcItem = availableSurplusItems.find((it) => it.id === taktisSupplementForm.data.surplus_source_item_id);
+                            if (!srcItem) return null;
+                            const srcTotalHpp = Number(srcItem.quantity || 1) * Number(srcItem.hpp_price || 0);
+                            const supplementAmount = parseRupiah(taktisSupplementForm.data.amount) || 0;
+                            const transferredAmount = parseRupiah(taktisSupplementForm.data.surplus_amount) || 0;
+                            const netPayable = Math.max(0, supplementAmount - transferredAmount);
+
+                            return (
+                                <div className="mt-3 rounded-xl border border-[#BCE0FD] bg-[#EAF4FE] p-3 text-xs dark:border-[#1E3A5F] dark:bg-[#0D2447]">
+                                    <div className="flex items-center gap-1.5 font-bold text-[#0B1F63] dark:text-[#F1F5F9] mb-2">
+                                        <span>📊 Laporan Pengalihan & Realisasi Kas</span>
+                                    </div>
+                                    <div className="space-y-1.5 text-[11.5px] text-[#0B1F63] dark:text-[#F1F5F9]">
+                                        <div className="flex justify-between">
+                                            <span className="text-[#52658E] dark:text-[#94A3B8]">Total Kebutuhan Tambahan:</span>
+                                            <span className="font-mono font-bold">{formatRupiah(supplementAmount)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                                            <span>Pengalihan Sisa dari {srcItem.item_name} (Total HPP: {formatRupiah(srcTotalHpp)}):</span>
+                                            <span className="font-mono font-bold">- {formatRupiah(transferredAmount)}</span>
+                                        </div>
+                                        <div className="mt-1.5 pt-1.5 border-t border-[#BCE0FD] dark:border-[#1E3A5F] flex justify-between font-extrabold text-xs text-[#0060F4] dark:text-[#60A5FA]">
+                                            <span>Pembayaran Kas yang Diajukan ke Direktur:</span>
+                                            <span className="font-mono text-sm">{formatRupiah(netPayable)}</span>
+                                        </div>
+                                        <p className="mt-1 text-[10.5px] text-[#52658E] dark:text-[#94A3B8] italic">
+                                            {netPayable === 0 ? (
+                                                `Seluruh kekurangan biaya sebesar ${formatRupiah(supplementAmount)} ditutup dari sisa dana item ${srcItem.item_name}, sehingga tidak membutuhkan tambahan pencairan kas baru.`
+                                            ) : (
+                                                `Pembayaran riil kas yang diajukan ke Direktur hanya ${formatRupiah(netPayable)} karena terdapat sisa pembayaran ${formatRupiah(transferredAmount)} yang dialihkan dari item ${srcItem.item_name} (Total HPP ${formatRupiah(srcTotalHpp)}).`
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     <Input
@@ -3610,6 +4350,134 @@ export default function RequestShow({
                         onChange={(file) => taktisSupplementForm.setData('attachment', file)}
                         accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                         helperText="PDF atau Foto struk/kuitansi lapangan jika ada. Maksimal 10 MB."
+                    />
+                </form>
+            </Modal>
+
+            {/* Modal Upload Nota Rampung & Ajukan Kurang Bayar Pelindo */}
+            <Modal
+                isOpen={notaRampungModalOpen}
+                onClose={closeNotaRampungModal}
+                title="Upload Nota Rampung & Ajukan Kurang Bayar Pelindo"
+                subtitle="Dokumen Nota Rampung diunggah dan nominal kurang bayar langsung diajukan ke Pak Ryan (Direktur) untuk persetujuan."
+                size="xl"
+                footer={
+                    <div className="flex w-full items-center justify-end gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={closeNotaRampungModal}
+                            disabled={notaRampungForm.processing}
+                        >
+                            Batal
+                        </Button>
+                        <Button
+                            type="submit"
+                            form="nota-rampung-kurang-bayar-form"
+                            variant="primary"
+                            size="sm"
+                            leftIcon={<Send className="size-3.5" />}
+                            isLoading={notaRampungForm.processing}
+                            className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                        >
+                            Kirim Pengajuan ke Pak Ryan
+                        </Button>
+                    </div>
+                }
+            >
+                <form
+                    id="nota-rampung-kurang-bayar-form"
+                    onSubmit={submitNotaRampung}
+                    className="space-y-4"
+                >
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
+                        <p className="font-bold flex items-center gap-1.5">
+                            <AlertCircle className="size-4 text-amber-600 shrink-0" />
+                            Alur Nota Rampung Pelindo (Bu Titik &rarr; Pak Ryan)
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed">
+                            Pengajuan panjar awal Pelindo memiliki selisih dengan realisasi akhir di Nota Rampung resmi.
+                            Unggah berkas Nota Rampung dan masukkan nominal kekurangan agar Pak Ryan (Direktur) dapat langsung menyetujui pembayaran kekurangan ke Pelindo.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Input
+                            name="document_number"
+                            label="Nomor Dokumen Nota Rampung (Opsional)"
+                            value={notaRampungForm.data.document_number}
+                            onChange={(e) => notaRampungForm.setData('document_number', e.target.value)}
+                            placeholder="Contoh: NR-PLD/2026/04/..."
+                            error={notaRampungForm.errors.document_number}
+                        />
+
+                        <div>
+                            <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9] mb-1">
+                                Nominal Kurang Bayar Pelindo (Rp) <span className="text-rose-500">*</span>
+                            </label>
+                            <MoneyInput
+                                id="shortfall_amount"
+                                name="shortfall_amount"
+                                value={notaRampungForm.data.shortfall_amount}
+                                onChange={(val) => notaRampungForm.setData('shortfall_amount', val)}
+                                placeholder="Contoh: 1.250.000"
+                                error={notaRampungForm.errors.shortfall_amount}
+                            />
+                        </div>
+                    </div>
+
+                    <PhotoUploadPicker
+                        label="Unggah Berkas Nota Rampung Pelindo *"
+                        onChange={(file) => notaRampungForm.setData('document', file)}
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        helperText="PDF atau foto resmi Nota Rampung dari Pelindo. Maksimal 10 MB."
+                    />
+                    {notaRampungForm.errors.document && (
+                        <p className="text-xs text-rose-500">{notaRampungForm.errors.document}</p>
+                    )}
+
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                Tanggal Pengajuan ke Direktur
+                            </label>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => notaRampungForm.setData('submission_date', toDateInputValue())}
+                                    className="rounded px-2 py-0.5 text-[11px] font-semibold text-[#0060F4] hover:bg-[#F0F8FF] dark:text-[#38BDF8] dark:hover:bg-[#1E3A5F]"
+                                >
+                                    Hari Ini
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => notaRampungForm.setData('submission_date', toDateInputValue(1))}
+                                    className="rounded px-2 py-0.5 text-[11px] font-semibold text-[#0060F4] hover:bg-[#F0F8FF] dark:text-[#38BDF8] dark:hover:bg-[#1E3A5F]"
+                                >
+                                    Besok
+                                </button>
+                            </div>
+                        </div>
+                        <Input
+                            type="date"
+                            name="submission_date"
+                            value={notaRampungForm.data.submission_date}
+                            onChange={(e) => notaRampungForm.setData('submission_date', e.target.value)}
+                            error={notaRampungForm.errors.submission_date}
+                        />
+                    </div>
+
+                    <Textarea
+                        name="notes"
+                        label="Catatan untuk Pak Ryan / Keterangan Pelindo"
+                        rows={2}
+                        value={notaRampungForm.data.notes}
+                        onChange={(e) => notaRampungForm.setData('notes', e.target.value)}
+                        placeholder="Jelaskan rincian kekurangan bayar (misal: selisih labuh tambat, pandu tambahan Pelindo, dsb)…"
+                        error={notaRampungForm.errors.notes}
+                        maxLength={1000}
+                        showCharCount
                     />
                 </form>
             </Modal>

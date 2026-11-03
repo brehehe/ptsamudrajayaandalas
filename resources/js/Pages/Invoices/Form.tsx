@@ -750,7 +750,7 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                                         />
                                     </div>
                                     <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_8rem_9rem_minmax(14rem,1.2fr)]">
-                                        <Textarea required name={`lines[${index}][description]`} autoComplete="off" label="Nama / deskripsi item invoice" value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} rows={3} maxLength={255} error={errors[`lines.${index}.description`]} />
+                                        <Textarea required name={`lines[${index}][description]`} autoComplete="off" label="Nama / deskripsi item invoice" value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} rows={3} error={errors[`lines.${index}.description`]} />
                                         <Input required name={`lines[${index}][quantity]`} autoComplete="off" label="Qty" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLineQuantity(index, event.target.value)} error={errors[`lines.${index}.quantity`]} />
                                         <Input required name={`lines[${index}][unit]`} autoComplete="off" label="Satuan" value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} error={errors[`lines.${index}.unit`]} />
                                         <div>

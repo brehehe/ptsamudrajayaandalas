@@ -40,7 +40,7 @@ interface VendorPayment {
     payment_date: string;
     amount: number;
     recipient: string;
-    reference_number: string;
+    reference_number?: string | null;
     proof_path?: string | null;
     verification_status: string;
 }
@@ -49,6 +49,25 @@ interface PaymentAllocation {
     id: string;
     amount: number;
     payment?: VendorPayment | null;
+}
+
+interface InvoiceItem {
+    id: string;
+    description: string;
+    quantity: number | string;
+    unit?: string | null;
+    amount?: number | string;
+    request_item?: {
+        id: string;
+        item_name?: string;
+        quantity?: number | string;
+        unit?: string;
+        request?: {
+            id: string;
+            request_number: string;
+            service_type?: string;
+        };
+    } | null;
 }
 
 interface Invoice {
@@ -66,6 +85,7 @@ interface Invoice {
     vendor?: { name: string };
     port_call?: { job_number?: string; ship?: { name: string }; port?: { name: string } };
     payment_allocations?: PaymentAllocation[];
+    items?: InvoiceItem[];
 }
 
 interface Paginated<T> {
@@ -402,14 +422,60 @@ export default function VendorInvoiceIndex({
             key: 'port_call',
             header: 'Job / Kapal',
             wrap: 'normal',
-            render: (invoice) => (
-                <div>
-                    <p className="break-all" translate="no">
-                        {invoice.port_call?.job_number || '—'}
-                    </p>
-                    <p className="text-[10px] text-[#52658E]">{invoice.port_call?.ship?.name || '—'}</p>
-                </div>
-            ),
+            render: (invoice) => {
+                const firstReq = invoice.items?.find((it) => it.request_item?.request?.request_number)?.request_item?.request;
+                const reqNumber = firstReq?.request_number;
+                const serviceType = firstReq?.service_type || 'Biaya Operasional';
+
+                if (invoice.port_call?.job_number) {
+                    return (
+                        <div>
+                            <p className="break-all font-mono font-bold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
+                                {invoice.port_call.job_number}
+                            </p>
+                            <p className="text-[11px] font-medium text-[#52658E] dark:text-[#94A3B8]">
+                                {invoice.port_call.ship?.name || 'Kapal'}
+                            </p>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div>
+                        <p className="break-all font-mono font-bold text-[#0060F4] dark:text-[#60A5FA]" translate="no">
+                            {reqNumber || 'Biaya Operasional'}
+                        </p>
+                        <p className="text-[11px] font-semibold text-[#52658E] dark:text-[#94A3B8]">
+                            {reqNumber ? serviceType : 'Operasional Kantor'}
+                        </p>
+                    </div>
+                );
+            },
+        },
+        {
+            key: 'items',
+            header: 'Item / Kebutuhan',
+            wrap: 'normal',
+            render: (invoice) => {
+                if (!invoice.items || invoice.items.length === 0) {
+                    return <span className="text-xs text-[#52658E] dark:text-[#94A3B8]">Tanpa rincian item</span>;
+                }
+
+                return (
+                    <div className="space-y-1.5 py-0.5">
+                        {invoice.items.map((it) => (
+                            <div key={it.id} className="text-xs leading-snug">
+                                <span className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">
+                                    {it.description}
+                                </span>
+                                <span className="ml-1.5 inline-block font-mono text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                    ({Number(it.quantity).toLocaleString('id-ID')} {it.unit || 'Item'})
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                );
+            },
         },
         { key: 'verified_total', header: 'Terverifikasi', align: 'right', render: (invoice) => money(invoice.verified_total) },
         { key: 'paid_amount', header: 'Dibayar', align: 'right', render: (invoice) => money(invoice.paid_amount) },
@@ -690,10 +756,15 @@ export default function VendorInvoiceIndex({
                 <ResponsiveTable<Invoice>
                     data={invoices.data}
                     keyExtractor={(invoice) => invoice.id}
-                    desktop={{ columns, compact: true, minWidth: '1040px' }}
+                    desktop={{ columns, compact: true, minWidth: '1120px' }}
                     mobile={{
                         titleRender: (invoice) => invoice.document_number,
-                        subtitleRender: (invoice) => `${invoice.vendor?.name || invoice.issuer_name || 'Tanpa vendor/supplier'} · ${invoice.port_call?.ship?.name || 'Kapal'}`,
+                        subtitleRender: (invoice) => {
+                            const firstReq = invoice.items?.find((it) => it.request_item?.request?.request_number)?.request_item?.request;
+                            const objectLabel = invoice.port_call?.ship?.name || firstReq?.service_type || 'Biaya Operasional';
+                            const vendorLabel = invoice.vendor?.name || invoice.issuer_name || 'Tanpa vendor/supplier';
+                            return `${vendorLabel} · ${objectLabel}`;
+                        },
                         statusRender: (invoice) => (
                             <div className="flex flex-col items-end gap-1">
                                 <StatusBadge status={invoice.status} label={labels[invoice.status] || invoice.status} showDot />
@@ -707,7 +778,39 @@ export default function VendorInvoiceIndex({
                             </div>
                         ),
                         fields: [
-                            { label: 'Job', render: (invoice) => invoice.port_call?.job_number || '—' },
+                            {
+                                label: 'Job / Pengajuan',
+                                render: (invoice) => {
+                                    const firstReq = invoice.items?.find((it) => it.request_item?.request?.request_number)?.request_item?.request;
+                                    return (
+                                        <span className="font-semibold" translate="no">
+                                            {invoice.port_call?.job_number || firstReq?.request_number || 'Biaya Operasional'}
+                                        </span>
+                                    );
+                                },
+                            },
+                            {
+                                label: 'Item / Kebutuhan',
+                                fullWidth: true,
+                                render: (invoice) => {
+                                    if (!invoice.items || invoice.items.length === 0) {
+                                        return <span className="text-xs text-[#52658E] dark:text-[#94A3B8]">Tanpa rincian item</span>;
+                                    }
+
+                                    return (
+                                        <div className="space-y-1">
+                                            {invoice.items.map((it) => (
+                                                <div key={it.id} className="text-xs">
+                                                    <span className="font-semibold text-[#0B1F63] dark:text-[#F1F5F9]">{it.description}</span>
+                                                    <span className="ml-1.5 inline-block font-mono text-[11px] font-bold text-[#0060F4] dark:text-[#60A5FA]">
+                                                        ({Number(it.quantity).toLocaleString('id-ID')} {it.unit || 'Item'})
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                },
+                            },
                             { label: 'Tanggal diterima', render: (invoice) => formatDate(invoice.received_date) },
                             { label: 'Terverifikasi', render: (invoice) => money(invoice.verified_total) },
                             { label: 'Dibayar', render: (invoice) => money(invoice.paid_amount) },
@@ -859,7 +962,7 @@ export default function VendorInvoiceIndex({
                                         <div className="flex items-start justify-between gap-3">
                                             <dt className="text-[#52658E]">Referensi</dt>
                                             <dd className="break-all text-right font-semibold text-[#0B1F63] dark:text-[#F1F5F9]" translate="no">
-                                                {paymentToVerify.payment.reference_number}
+                                                {paymentToVerify.payment.reference_number || 'Cash / Tanpa Referensi'}
                                             </dd>
                                         </div>
                                         <div className="flex items-start justify-between gap-3">

@@ -39,6 +39,10 @@ class MasterVesselController extends Controller
             });
         }
 
+        $user = $request->user();
+        $isOperationalAdmin = $user?->isOperationalAdmin() ?? false;
+        $canManage = $isOperationalAdmin || ($user?->hasAnyRole(['Lapangan', 'Tim Lapangan', 'Staf Operasional', 'Direktur']) ?? false);
+
         return Inertia::render('Master/Vessels/Index', [
             'vessels' => $query->orderBy('name')->orderBy('id')->get(),
             'companies' => ShipCompany::query()
@@ -46,7 +50,9 @@ class MasterVesselController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name', 'code']),
             'search' => $search ?? '',
-            'canManage' => $request->user()?->isOperationalAdmin() ?? false,
+            'canManage' => $canManage,
+            'canEdit' => $isOperationalAdmin,
+            'canDelete' => $isOperationalAdmin,
         ]);
     }
 

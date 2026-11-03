@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Actions\ResolveClearanceProduct;
 use App\Models\CompletionNote;
+use App\Models\OutgoingPayment;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Product;
 use App\Models\ProductPortPrice;
+use App\Models\RequestHistory;
 use App\Models\RequestItem;
 use App\Models\ServiceType;
 use App\Models\Ship;
@@ -16,6 +18,7 @@ use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\WorkOrder;
+use App\Support\RequestItemHistoryBuilder;
 use App\Support\WorkflowNotifier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,7 +29,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -253,7 +255,7 @@ class RequestController extends Controller
         ]);
     }
 
-    public function show(Request $request, string $id): Response
+    public function show(Request $request, string $id): Response|RedirectResponse
     {
         $isUuid = Str::isUuid($id);
 
@@ -262,7 +264,7 @@ class RequestController extends Controller
             'ship.company',
             'port',
             'workOrder',
-            'completionNote:id,port_call_id,document_number,status',
+            'completionNote:id,port_call_id,document_number,status,document_path,actual_amount,notes,uploaded_at',
             'requests' => fn ($query) => $query
                 ->orderByDesc('created_at')
                 ->orderByDesc('id'),
@@ -275,6 +277,7 @@ class RequestController extends Controller
             'requests.items.vendor',
             'requests.items.surplusSourceItem:id,item_name,hpp_price',
             'requests.items.costDocumentItem.costDocument',
+            'requests.histories',
         ]);
 
         $portCall = $isUuid
@@ -301,7 +304,7 @@ class RequestController extends Controller
                 'portCall.port',
                 'portCall.workOrder',
                 'portCall.ship.company',
-                'portCall.completionNote:id,port_call_id,document_number,status',
+                'portCall.completionNote:id,port_call_id,document_number,status,document_path,actual_amount,notes,uploaded_at',
                 'portCall.requests' => fn ($query) => $query
                     ->orderByDesc('created_at')
                     ->orderByDesc('id'),
@@ -311,17 +314,30 @@ class RequestController extends Controller
                 'portCall.requests.items.vendor',
                 'portCall.requests.items.surplusSourceItem:id,item_name,hpp_price',
                 'portCall.requests.items.costDocumentItem.costDocument',
+                'portCall.requests.histories',
                 'creator',
                 'invoices',
                 'items.product.vendor',
                 'items.vendor',
                 'items.surplusSourceItem:id,item_name,hpp_price',
                 'items.costDocumentItem.costDocument',
+                'histories',
             ]);
 
             $shipRequest = $isUuid
                 ? $shipRequestQuery->where('id', $id)->firstOrFail()
-                : $shipRequestQuery->where('request_number', $id)->firstOrFail();
+                : $shipRequestQuery->where('request_number', $id)
+                    ->orderByRaw('CASE WHEN ship_id IS NULL AND port_call_id IS NULL THEN 0 ELSE 1 END')
+                    ->firstOrFail();
+
+            // When a ship request is accessed via /requests/{request_number}/detail,
+            // redirect to its Job detail URL so the user always sees it via its Job / SPK number.
+            if ($shipRequest->portCall && ! empty($shipRequest->portCall->job_number)) {
+                return redirect()->route('requests.detail', [
+                    'id' => $shipRequest->portCall->job_number,
+                    'req' => $shipRequest->request_number,
+                ]);
+            }
 
             $portCall = $shipRequest->portCall;
         }
@@ -418,6 +434,7 @@ class RequestController extends Controller
         $ports = Port::where('is_active', true)->orderBy('name')->get();
         $serviceTypes = ServiceType::where('is_active', true)->orderByDesc('is_default')->orderBy('name')->get();
         $products = Product::where('is_active', true)->with(['vendor', 'portPrices'])->orderBy('item_type')->orderBy('name')->get();
+        $vendors = Vendor::where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
         $users = User::query()
             ->where('is_active', true)
@@ -437,6 +454,7 @@ class RequestController extends Controller
             'ports' => $ports,
             'serviceTypes' => $serviceTypes,
             'products' => $products,
+            'vendors' => $vendors,
             'users' => $users,
         ]);
     }
@@ -644,18 +662,9 @@ class RequestController extends Controller
 
         $validated = $request->validate([
             'ships' => ['required', 'array', 'min:1'],
-            'ships.*.ship_id' => ['required', 'uuid', 'exists:ships,id'],
-            'ships.*.port_call_id' => ['required', 'uuid', 'distinct', 'exists:port_calls,id'],
-            'ships.*.request_type' => [
-                'required',
-                'string',
-                Rule::in([
-                    'Kedatangan (Clearance In)',
-                    'Perpanjangan Surat / Endors Surat Laut',
-                    'Keberangkatan (Clearance Out)',
-                    'Kebutuhan Kapal',
-                ]),
-            ],
+            'ships.*.ship_id' => ['nullable', 'string'],
+            'ships.*.port_call_id' => ['nullable', 'string'],
+            'ships.*.request_type' => ['required', 'string', 'max:255'],
             'ships.*.department' => ['nullable', 'string'],
             'ships.*.order_date' => ['nullable', 'date'],
             'ships.*.requester_name' => ['nullable', 'string', 'max:255'],
@@ -703,6 +712,86 @@ class RequestController extends Controller
                 $createdRequests = [];
 
                 foreach ($validated['ships'] as $shipIndex => $shipData) {
+                    $isCompanyExpense = ($shipData['port_call_id'] ?? null) === '__company_expense__'
+                        || empty($shipData['ship_id'])
+                        || empty($shipData['port_call_id']);
+
+                    if ($isCompanyExpense) {
+                        $reqNumber = $shipIndex === 0
+                            ? $batchCode
+                            : sprintf('PGJ-%s-%04d', $year, $nextNum + $shipIndex);
+                        $serviceType = $shipData['request_type'] ?: 'Operasional Kantor';
+                        $notesPrefix = "Pengajuan {$serviceType}";
+                        if (! empty($shipData['requester_name'])) {
+                            $notesPrefix .= " Pemohon: {$shipData['requester_name']}";
+                        }
+                        $combinedNotes = trim($notesPrefix.(! empty($validated['notes']) ? ' — Catatan: '.$validated['notes'] : ''));
+
+                        $createdBy = (! empty($validated['created_by']) && ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner()))
+                            ? $validated['created_by']
+                            : $request->user()->id;
+
+                        $newRequest = ShipRequest::create([
+                            'request_number' => $reqNumber,
+                            'batch_number' => $batchCode,
+                            'ship_id' => null,
+                            'company_id' => null,
+                            'port_id' => null,
+                            'port_call_id' => null,
+                            'service_type' => $serviceType,
+                            'created_by' => $createdBy,
+                            'status' => 'Menunggu Approval',
+                            'request_date' => $shipData['required_date'] ?? now()->toDateString(),
+                            'notes' => $combinedNotes,
+                        ]);
+
+                        if (! empty($shipData['items']) && is_array($shipData['items'])) {
+                            foreach ($shipData['items'] as $item) {
+                                $productId = $item['product_id'] ?? null;
+                                $prod = null;
+                                if ($productId && $products->has($productId)) {
+                                    $prod = $products->get($productId);
+                                }
+
+                                $hppPrice = 0.00;
+                                if (isset($item['hpp_price']) && is_numeric($item['hpp_price'])) {
+                                    $hppPrice = (float) $item['hpp_price'];
+                                } elseif ($prod) {
+                                    $hppPrice = (float) $prod->hpp_default;
+                                }
+
+                                $attachmentPath = null;
+                                if (isset($item['attachment']) && $item['attachment'] instanceof UploadedFile) {
+                                    $attachmentPath = $item['attachment']->store('sja/request-items', 'local');
+                                    $uploadedPaths[] = $attachmentPath;
+                                }
+
+                                RequestItem::create([
+                                    'request_id' => $newRequest->id,
+                                    'product_id' => $productId,
+                                    'vendor_id' => $prod?->vendor_id ?? ($item['vendor_id'] ?? null),
+                                    'item_type' => $prod?->item_type ?? 'non_jasa',
+                                    'item_name' => $item['item_name'],
+                                    'quantity' => $item['quantity'],
+                                    'unit' => $item['unit'] ?? ($prod?->unit ?? 'Unit'),
+                                    'required_date' => $item['required_date'] ?? ($shipData['required_date'] ?? now()->toDateString()),
+                                    'required_time' => $item['required_time'] ?? ($shipData['required_time'] ?? null),
+                                    'hpp_price' => $hppPrice,
+                                    'selling_price' => 0,
+                                    'attachment_path' => $attachmentPath,
+                                    'status' => 'pending',
+                                    'director_status' => 'pending',
+                                    'is_urgent' => ! empty($item['is_urgent']),
+                                    'notes' => $item['notes'] ?? null,
+                                ]);
+                            }
+                        }
+
+                        $createdRequests[] = $newRequest;
+
+                        continue;
+                    }
+
                     $portCall = PortCall::query()
                         ->with([
                             'ship.company',
@@ -790,8 +879,10 @@ class RequestController extends Controller
                         : null;
 
                     // In multi-ship submissions, all ships share the same PGJ batch number
-                    // while maintaining their own individual request record per vessel
-                    $reqNumber = $batchCode;
+                    // while maintaining their own unique individual request number per vessel
+                    $reqNumber = $shipIndex === 0
+                        ? $batchCode
+                        : sprintf('PGJ-%s-%04d', $year, $nextNum + $shipIndex);
 
                     $serviceType = 'Sandar';
                     if ($isClearanceIn) {
@@ -1104,6 +1195,113 @@ class RequestController extends Controller
     }
 
     /**
+     * Store unified company/office expense request (Pengajuan Biaya Operasional Perusahaan / Lainnya)
+     */
+    public function storeCompanyExpense(Request $request): RedirectResponse
+    {
+        Gate::authorize('create', ShipRequest::class);
+
+        $validated = $request->validate([
+            'category' => ['required', 'string', 'max:100'],
+            'request_date' => ['nullable', 'date'],
+            'vendor_name' => ['nullable', 'string', 'max:255'],
+            'vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
+            'invoice_number' => ['nullable', 'string', 'max:100'],
+            'invoice_document' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.item_name' => ['required', 'string', 'max:255'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+            'items.*.unit' => ['required', 'string', 'max:50'],
+            'items.*.hpp_price' => ['required', 'numeric', 'min:0'],
+            'items.*.notes' => ['nullable', 'string', 'max:1000'],
+            'items.*.attachment' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'max:10240'],
+        ]);
+
+        return DB::transaction(function () use ($validated, $request) {
+            $year = now()->format('Y');
+            $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $lastReq = ShipRequest::where('request_number', $like, "PGJ-{$year}-%")->orderByDesc('created_at')->lockForUpdate()->first();
+            $nextNum = 15;
+            if ($lastReq && preg_match('/PGJ-\d{4}-(\d+)/i', $lastReq->request_number, $matches)) {
+                $nextNum = (int) $matches[1] + 1;
+            }
+            $reqNumber = sprintf('PGJ-%s-%04d', $year, $nextNum);
+
+            // Resolve vendor
+            $vendorId = $validated['vendor_id'] ?? null;
+            if (! $vendorId && ! empty($validated['vendor_name'])) {
+                $vendor = Vendor::firstOrCreate(
+                    ['name' => trim($validated['vendor_name'])],
+                    [
+                        'code' => 'VND-'.strtoupper(Str::random(5)),
+                        'is_active' => true,
+                    ]
+                );
+                $vendorId = $vendor->id;
+            }
+
+            // Upload common invoice if provided
+            $commonAttachmentPath = null;
+            if ($request->hasFile('invoice_document')) {
+                $commonAttachmentPath = $request->file('invoice_document')->store('sja/invoices', 'local');
+            }
+
+            // Create ShipRequest
+            $shipRequest = ShipRequest::create([
+                'request_number' => $reqNumber,
+                'ship_id' => null,
+                'port_call_id' => null,
+                'company_id' => null,
+                'port_id' => null,
+                'service_type' => $validated['category'],
+                'created_by' => $request->user()->id,
+                'status' => 'Menunggu Approval Direktur',
+                'request_date' => $validated['request_date'] ?? now()->toDateString(),
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            foreach ($validated['items'] as $itemData) {
+                $itemAttachmentPath = $commonAttachmentPath;
+                if (isset($itemData['attachment']) && $itemData['attachment'] instanceof UploadedFile) {
+                    $itemAttachmentPath = $itemData['attachment']->store('sja/request-items', 'local');
+                }
+
+                $hasInvoice = ! empty($validated['invoice_number']);
+                $reqDate = $validated['request_date'] ?? now()->toDateString();
+
+                RequestItem::create([
+                    'request_id' => $shipRequest->id,
+                    'vendor_id' => $vendorId,
+                    'item_name' => $itemData['item_name'],
+                    'item_type' => 'non_jasa',
+                    'quantity' => $itemData['quantity'],
+                    'unit' => $itemData['unit'],
+                    'hpp_price' => $itemData['hpp_price'],
+                    'original_hpp_price' => $itemData['hpp_price'],
+                    'selling_price' => 0,
+                    'required_date' => $reqDate,
+                    'supplier_invoice_number' => $hasInvoice ? $validated['invoice_number'] : null,
+                    'supplier_invoice_date' => $hasInvoice ? $reqDate : null,
+                    'supplier_invoice_received_date' => $hasInvoice ? $reqDate : null,
+                    'supplier_invoice_path' => $hasInvoice ? $itemAttachmentPath : null,
+                    'supplier_invoice_uploaded_by' => $hasInvoice ? $request->user()->id : null,
+                    'attachment_path' => $itemAttachmentPath,
+                    'status' => 'diajukan_ke_direktur',
+                    'director_status' => 'pending',
+                    'notes' => $itemData['notes'] ?? null,
+                ]);
+            }
+
+            $this->workflowNotifier->notifySubmission($shipRequest, $request->user());
+
+            return redirect()->route('requests.index')
+                ->with('success', "Pengajuan biaya operasional {$reqNumber} berhasil diajukan dan langsung masuk ke antrean Approval Direktur.")
+                ->with('submitted_request_number', $reqNumber);
+        });
+    }
+
+    /**
      * Backward-compatible simple store
      */
     public function store(Request $request): RedirectResponse
@@ -1178,12 +1376,22 @@ class RequestController extends Controller
             'item_prices.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
             'item_prices.*.vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'admin_notes' => ['nullable', 'string', 'max:1000'],
+            'submission_date' => ['nullable', 'date'],
         ]);
 
         return DB::transaction(function () use ($id, $validated, $request) {
             $shipRequest = ShipRequest::lockForUpdate()
                 ->with(['items.product', 'items.costDocumentItem.costDocument'])
                 ->findOrFail($id);
+
+            $submissionDateStr = ! empty($validated['submission_date'])
+                ? Carbon::parse($validated['submission_date'])->toDateString()
+                : now()->toDateString();
+            $submissionTimestamp = ! empty($validated['submission_date'])
+                ? Carbon::parse($validated['submission_date'])->setTime(now()->hour, now()->minute, now()->second)
+                : now();
+
+            $isResubmission = $shipRequest->forwarded_to_director_at !== null || $shipRequest->histories()->exists();
 
             if (in_array($shipRequest->status, ['Selesai', 'Dibatalkan'], true)) {
                 throw ValidationException::withMessages([
@@ -1264,9 +1472,36 @@ class RequestController extends Controller
 
             $shipRequest->update([
                 'status' => $shipRequest->resolveWorkflowStatus($requestItems),
-                'forwarded_to_director_at' => now(),
+                'forwarded_to_director_at' => $submissionTimestamp,
                 'director_reviewed_at' => null,
                 'admin_forward_notes' => $validated['admin_notes'] ?? null,
+            ]);
+
+            $selectedItems = $shipRequest->items()->whereIn('id', $selectedItemIds)->get();
+            $itemsSnapshot = $selectedItems->map(fn ($it) => [
+                'item_id' => $it->id,
+                'item_name' => $it->item_name,
+                'quantity' => (float) $it->quantity,
+                'unit' => $it->unit,
+                'hpp_price' => (float) $it->hpp_price,
+                'status' => 'diajukan_ke_direktur',
+                'director_status' => 'pending',
+                'director_notes' => null,
+            ])->values()->all();
+
+            RequestHistory::create([
+                'request_id' => $shipRequest->id,
+                'user_id' => $request->user()?->id,
+                'actor_name' => $request->user()?->name ?? 'Bu Titik',
+                'actor_role' => 'Admin',
+                'action' => $isResubmission ? 'resubmitted_to_director' : 'submitted_to_director',
+                'title' => $isResubmission
+                    ? 'Pengajuan Ulang ke Pak Ryan (Direktur)'
+                    : 'Pengajuan Dikirim ke Pak Ryan (Direktur)',
+                'notes' => $validated['admin_notes'] ?? null,
+                'submission_date' => $submissionDateStr,
+                'action_date' => $submissionTimestamp,
+                'items_snapshot' => $itemsSnapshot,
             ]);
 
             if (function_exists('activity')) {
@@ -1595,6 +1830,253 @@ class RequestController extends Controller
         });
     }
 
+    /**
+     * Upload Nota Rampung from Pelindo and submit shortfall (kurang bayar) request directly to Director (Pak Ryan).
+     */
+    public function storeNotaRampungKurangBayar(Request $request, string $id): RedirectResponse
+    {
+        Gate::authorize('create', ShipRequest::class);
+
+        $validated = $request->validate([
+            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'shortfall_amount' => ['required', 'numeric', 'min:1', 'max:9999999999999.99'],
+            'document_number' => ['nullable', 'string', 'max:100'],
+            'submission_date' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $isUuid = Str::isUuid($id);
+        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        // 1. Resolve PortCall and Parent Request
+        $portCall = $isUuid
+            ? PortCall::where('id', $id)->first()
+            : PortCall::where('job_number', $id)->first();
+
+        $parentRequest = null;
+        if ($portCall) {
+            $parentRequest = ShipRequest::where('port_call_id', $portCall->id)->latest('created_at')->first();
+        } else {
+            $parentRequest = $isUuid
+                ? ShipRequest::with('portCall')->where('id', $id)->first()
+                : ShipRequest::with('portCall')->where('request_number', $id)->first();
+            $portCall = $parentRequest?->portCall;
+        }
+
+        if (! $portCall && ! $parentRequest) {
+            abort(404, 'Data Kunjungan Kapal / Pengajuan tidak ditemukan.');
+        }
+
+        $shipId = $portCall?->ship_id ?? $parentRequest?->ship_id;
+        $portCallId = $portCall?->id ?? $parentRequest?->port_call_id;
+
+        $submissionDate = ! empty($validated['submission_date'])
+            ? Carbon::parse($validated['submission_date'])->toDateString()
+            : now()->toDateString();
+        $submissionTimestamp = ! empty($validated['submission_date'])
+            ? Carbon::parse($validated['submission_date'])->setTime(now()->hour, now()->minute, now()->second)
+            : now();
+
+        $docNumber = ! empty($validated['document_number'])
+            ? trim($validated['document_number'])
+            : sprintf('NR-PELINDO-%s-%s', now()->format('ymd'), Str::upper(Str::random(4)));
+
+        $documentPath = $request->file('document')->store('sja/completion-notes', 'local');
+
+        return DB::transaction(function () use (
+            $request,
+            $validated,
+            $portCall,
+            $parentRequest,
+            $shipId,
+            $portCallId,
+            $docNumber,
+            $documentPath,
+            $submissionDate,
+            $submissionTimestamp,
+            $like
+        ) {
+            // 2. Create or update CompletionNote if portCall exists
+            if ($portCall) {
+                $completionNote = CompletionNote::withTrashed()->where('port_call_id', $portCall->id)->first();
+                if (! $completionNote) {
+                    $completionNote = new CompletionNote;
+                    $completionNote->port_call_id = $portCall->id;
+                } elseif ($completionNote->trashed()) {
+                    $completionNote->restore();
+                }
+
+                $completionNote->fill([
+                    'document_number' => $docNumber,
+                    'departed_at' => $portCall->departed_at ?? $portCall->atd_at ?? now(),
+                    'issued_at' => $submissionDate,
+                    'uploaded_at' => now(),
+                    'due_at' => $portCall->completion_note_due_at,
+                    'document_path' => $documentPath,
+                    'actual_amount' => (float) $validated['shortfall_amount'],
+                    'status' => 'uploaded',
+                    'notes' => $validated['notes'] ?? 'Kurang bayar Nota Rampung Pelindo',
+                    'uploaded_by' => $request->user()->id,
+                ]);
+                $completionNote->save();
+
+                // Reconciliation
+                $initialTotal = (float) OutgoingPayment::query()
+                    ->where('port_call_id', $portCall->id)
+                    ->where('verification_status', 'verified')
+                    ->sum('amount');
+                $shortfallVal = (float) $validated['shortfall_amount'];
+
+                $reconciliation = $completionNote->reconciliation()->firstOrNew(['port_call_id' => $portCall->id]);
+                $reconciliation->fill([
+                    'initial_total' => $initialTotal,
+                    'actual_total' => $initialTotal + $shortfallVal,
+                    'variance' => $shortfallVal,
+                    'adjustment' => '0.00',
+                    'status' => 'shortfall',
+                    'notes' => $validated['notes'] ?? 'Kurang bayar Nota Rampung Pelindo',
+                    'reconciled_by' => $request->user()->id,
+                    'reconciled_at' => now(),
+                ]);
+                $reconciliation->save();
+
+                $portCall->update([
+                    'financial_status' => 'reconciliation_shortfall',
+                    'reconciled_at' => now(),
+                ]);
+            }
+
+            // 3. Generate Request Number
+            $year = now()->format('Y');
+            $lastReq = ShipRequest::where('request_number', $like, "PGJ-{$year}-%")->orderByDesc('created_at')->first();
+            $nextNum = 15;
+            if ($lastReq && preg_match('/PGJ-\d{4}-(\d+)/i', $lastReq->request_number, $matches)) {
+                $nextNum = (int) $matches[1] + 1;
+            }
+            $requestNumber = sprintf('PGJ-%s-%04d', $year, $nextNum);
+
+            // 4. Products & Vendors for Pelindo
+            $pelindoProduct = Product::where('code', 'PRD-PLD-ARR')
+                ->orWhere('name', $like, '%pelindo%')
+                ->first();
+            $pelindoVendor = Vendor::where('code', 'VND-PELINDO')
+                ->orWhere('name', $like, '%pelindo%')
+                ->first();
+
+            $shortfallAmount = (float) $validated['shortfall_amount'];
+            $formattedAmount = number_format($shortfallAmount, 0, ',', '.');
+            $refText = $parentRequest ? $parentRequest->request_number : ($portCall ? $portCall->job_number : '-');
+            $reqNote = "Pengajuan Kurang Bayar Nota Rampung Pelindo ({$docNumber}). Ref: {$refText}.";
+            if (! empty($validated['notes'])) {
+                $reqNote .= ' '.$validated['notes'];
+            }
+
+            // 5. Create ShipRequest (Direct to Director Pak Ryan)
+            $newRequest = ShipRequest::create([
+                'request_number' => $requestNumber,
+                'ship_id' => $shipId,
+                'port_call_id' => $portCallId,
+                'service_type' => $parentRequest?->service_type ?? 'clearance_in',
+                'requested_port_call_status' => $parentRequest?->requested_port_call_status ?? 'departed',
+                'operational_occurred_at' => $parentRequest?->operational_occurred_at ?? now(),
+                'status' => 'Menunggu Approval Direktur',
+                'request_date' => $submissionDate,
+                'created_by' => $request->user()->id,
+                'notes' => $reqNote,
+                'admin_forward_notes' => 'Pengajuan kekurangan bayar Nota Rampung Pelindo ke Pak Ryan (Direktur).',
+                'forwarded_to_director_at' => $submissionTimestamp,
+            ]);
+
+            // 6. Create RequestItem
+            $itemName = "Kurang Bayar Nota Rampung Pelindo ({$docNumber})";
+            $itemNotes = "Kekurangan bayar Nota Rampung Pelindo: Rp {$formattedAmount}";
+            if (! empty($validated['notes'])) {
+                $itemNotes .= ' | '.$validated['notes'];
+            }
+
+            $newItem = RequestItem::create([
+                'request_id' => $newRequest->id,
+                'product_id' => $pelindoProduct?->id,
+                'vendor_id' => $pelindoVendor?->id,
+                'item_type' => 'jasa',
+                'item_name' => $itemName,
+                'unit' => 'Dokumen',
+                'quantity' => 1,
+                'hpp_price' => $shortfallAmount,
+                'original_hpp_price' => $shortfallAmount,
+                'selling_price' => 0,
+                'required_date' => $submissionDate,
+                'status' => 'diajukan_ke_direktur',
+                'director_status' => 'pending',
+                'is_urgent' => true,
+                'attachment_path' => $documentPath,
+                'supplier_invoice_number' => $docNumber,
+                'supplier_invoice_date' => $submissionDate,
+                'supplier_invoice_received_date' => $submissionDate,
+                'supplier_invoice_due_date' => Carbon::parse($submissionDate)->addDays(7)->toDateString(),
+                'supplier_invoice_path' => $documentPath,
+                'supplier_invoice_uploaded_by' => $request->user()->id,
+                'notes' => $itemNotes,
+            ]);
+
+            // 7. Create RequestHistory for the new request
+            RequestHistory::create([
+                'request_id' => $newRequest->id,
+                'user_id' => $request->user()->id,
+                'actor_name' => $request->user()->name ?? 'Bu Titik',
+                'actor_role' => 'Admin',
+                'action' => 'submitted_to_director',
+                'title' => 'Pengajuan Kurang Bayar Nota Rampung ke Pak Ryan (Direktur)',
+                'notes' => "Upload Nota Rampung Pelindo ({$docNumber}) dan pengajuan kekurangan bayar sebesar Rp {$formattedAmount} ke Direktur.".(! empty($validated['notes']) ? " Catatan: {$validated['notes']}" : ''),
+                'submission_date' => $submissionDate,
+                'items_snapshot' => [
+                    [
+                        'id' => $newItem->id,
+                        'item_name' => $newItem->item_name,
+                        'quantity' => 1,
+                        'unit' => 'Dokumen',
+                        'hpp_price' => $shortfallAmount,
+                        'status' => 'diajukan_ke_direktur',
+                        'director_status' => 'pending',
+                        'director_notes' => null,
+                    ],
+                ],
+            ]);
+
+            // 8. If parent request exists, log history in parent request as well
+            if ($parentRequest) {
+                RequestHistory::create([
+                    'request_id' => $parentRequest->id,
+                    'user_id' => $request->user()->id,
+                    'actor_name' => $request->user()->name ?? 'Bu Titik',
+                    'actor_role' => 'Admin',
+                    'action' => 'submitted_to_director',
+                    'title' => 'Nota Rampung & Pengajuan Kurang Bayar Diterbitkan',
+                    'notes' => "Nota Rampung ({$docNumber}) diunggah dan pengajuan kurang bayar Pelindo {$newRequest->request_number} (Rp {$formattedAmount}) telah dikirim ke Pak Ryan (Direktur).",
+                    'submission_date' => $submissionDate,
+                ]);
+            }
+
+            if (function_exists('activity')) {
+                activity('request')
+                    ->performedOn($newRequest)
+                    ->causedBy($request->user())
+                    ->withProperties([
+                        'parent_request_id' => $parentRequest?->id,
+                        'port_call_id' => $portCallId,
+                        'document_number' => $docNumber,
+                        'shortfall_amount' => $shortfallAmount,
+                    ])
+                    ->log('Pengajuan Kurang Bayar Nota Rampung Pelindo diajukan ke Pak Ryan');
+            }
+
+            $this->workflowNotifier->notifySubmission($newRequest, $request->user());
+
+            return redirect()->route('requests.detail', $newRequest->request_number)
+                ->with('success', "Nota Rampung berhasil diunggah dan Pengajuan Kurang Bayar {$newRequest->request_number} sebesar Rp {$formattedAmount} berhasil diajukan ke Pak Ryan (Direktur).");
+        });
+    }
+
     public function batchForwardDirector(Request $request): RedirectResponse
     {
         $this->authorizeAdminPricing($request);
@@ -1607,10 +2089,17 @@ class RequestController extends Controller
             'item_prices.*.hpp_price' => ['nullable', 'numeric', 'min:0'],
             'item_prices.*.vendor_id' => ['nullable', 'uuid', 'exists:vendors,id'],
             'admin_notes' => ['nullable', 'string', 'max:1000'],
+            'submission_date' => ['nullable', 'date'],
         ]);
 
         return DB::transaction(function () use ($validated, $request) {
             $selectedItemIds = collect($validated['selected_items'])->unique()->values();
+            $submissionDateStr = ! empty($validated['submission_date'])
+                ? Carbon::parse($validated['submission_date'])->toDateString()
+                : now()->toDateString();
+            $submissionTimestamp = ! empty($validated['submission_date'])
+                ? Carbon::parse($validated['submission_date'])->setTime(now()->hour, now()->minute, now()->second)
+                : now();
             $items = RequestItem::lockForUpdate()
                 ->with(['product', 'request', 'costDocumentItem.costDocument'])
                 ->whereIn('id', $selectedItemIds)
@@ -1657,11 +2146,40 @@ class RequestController extends Controller
                 $requestItems = $shipRequest->items()
                     ->get(['id', 'status', 'director_status']);
 
+                $isResubmission = $shipRequest->forwarded_to_director_at !== null || $shipRequest->histories()->exists();
+
                 $shipRequest->update([
                     'status' => $shipRequest->resolveWorkflowStatus($requestItems),
-                    'forwarded_to_director_at' => now(),
+                    'forwarded_to_director_at' => $submissionTimestamp,
                     'director_reviewed_at' => null,
                     'admin_forward_notes' => $validated['admin_notes'] ?? null,
+                ]);
+
+                $updatedGroupItems = $shipRequest->items()->whereIn('id', $groupItems->pluck('id'))->get();
+                $itemsSnapshot = $updatedGroupItems->map(fn ($it) => [
+                    'item_id' => $it->id,
+                    'item_name' => $it->item_name,
+                    'quantity' => (float) $it->quantity,
+                    'unit' => $it->unit,
+                    'hpp_price' => (float) $it->hpp_price,
+                    'status' => 'diajukan_ke_direktur',
+                    'director_status' => 'pending',
+                    'director_notes' => null,
+                ])->values()->all();
+
+                RequestHistory::create([
+                    'request_id' => $shipRequest->id,
+                    'user_id' => $request->user()?->id,
+                    'actor_name' => $request->user()?->name ?? 'Bu Titik',
+                    'actor_role' => 'Admin',
+                    'action' => $isResubmission ? 'resubmitted_to_director' : 'submitted_to_director',
+                    'title' => $isResubmission
+                        ? 'Pengajuan Ulang ke Pak Ryan (Direktur)'
+                        : 'Pengajuan Dikirim ke Pak Ryan (Direktur)',
+                    'notes' => $validated['admin_notes'] ?? null,
+                    'submission_date' => $submissionDateStr,
+                    'action_date' => $submissionTimestamp,
+                    'items_snapshot' => $itemsSnapshot,
                 ]);
 
                 if (function_exists('activity')) {
@@ -1772,6 +2290,138 @@ class RequestController extends Controller
         });
     }
 
+    /**
+     * Batch complete approved request items (langsung selesaikan semua item).
+     */
+    public function batchCompleteItems(Request $request): RedirectResponse
+    {
+        if (! ($request->user()?->isOperationalAdmin() || $request->user()?->isDirector() || $request->user()?->isOwner())) {
+            abort(403, 'Anda tidak memiliki hak akses untuk menyelesaikan item pengajuan.');
+        }
+
+        $validated = $request->validate([
+            'request_id' => ['nullable', 'uuid', 'exists:requests,id'],
+            'job_number' => ['nullable', 'string'],
+            'item_ids' => ['nullable', 'array'],
+            'item_ids.*' => ['uuid', 'exists:request_items,id'],
+        ]);
+
+        return DB::transaction(function () use ($validated, $request) {
+            $query = RequestItem::lockForUpdate()
+                ->with(['request.portCall', 'request.items'])
+                ->where('director_status', 'approved')
+                ->where('status', '!=', 'selesai');
+
+            if (! empty($validated['item_ids'])) {
+                $query->whereIn('id', $validated['item_ids']);
+            } elseif (! empty($validated['request_id'])) {
+                $query->where('request_id', $validated['request_id']);
+            } elseif (! empty($validated['job_number'])) {
+                $jobNumber = $validated['job_number'];
+                $isUuid = Str::isUuid($jobNumber);
+                $portCall = $isUuid
+                    ? PortCall::where('id', $jobNumber)->first()
+                    : PortCall::where('job_number', $jobNumber)->first();
+
+                if ($portCall) {
+                    $query->whereHas('request', fn ($rq) => $rq->where('port_call_id', $portCall->id));
+                }
+            }
+
+            $items = $query->get();
+
+            if ($items->isEmpty()) {
+                return redirect()->back()->with('error', 'Tidak ada item yang telah disetujui Direktur yang menunggu diselesaikan.');
+            }
+
+            $itemIds = $items->pluck('id')->all();
+            RequestItem::whereIn('id', $itemIds)->update(['status' => 'selesai']);
+
+            // Group by request to resolve workflow status and port call status
+            $requests = $items->pluck('request')->unique('id');
+            foreach ($requests as $shipRequest) {
+                $allItems = $shipRequest->items()->lockForUpdate()->get(['id', 'status', 'director_status']);
+                $nextStatus = $shipRequest->resolveWorkflowStatus($allItems);
+                $isCompleted = $nextStatus === 'Selesai';
+
+                if ($isCompleted && in_array($shipRequest->service_type, ['clearance_in', 'clearance_out'], true)) {
+                    $this->applyOperationalStatusForClearance($shipRequest);
+                }
+
+                $shipRequest->update([
+                    'status' => $nextStatus,
+                    'completed_at' => $isCompleted ? now() : null,
+                ]);
+
+                // Create audit history
+                RequestHistory::create([
+                    'request_id' => $shipRequest->id,
+                    'user_id' => $request->user()->id,
+                    'actor_name' => $request->user()->name ?? 'Bu Titik',
+                    'actor_role' => 'Admin',
+                    'action' => 'completed',
+                    'title' => 'Item Pengajuan Telah Diselesaikan',
+                    'notes' => 'Admin menandai pemenuhan item yang telah disetujui Direktur selesai.',
+                    'submission_date' => now()->toDateString(),
+                ]);
+
+                $this->workflowNotifier->notifyStatusUpdated($shipRequest, $request->user());
+            }
+
+            $count = count($itemIds);
+
+            return redirect()->back()->with('success', "{$count} item berhasil diselesaikan semuanya.");
+        });
+    }
+
+    private function applyOperationalStatusForClearance(ShipRequest $need): void
+    {
+        if (! in_array($need->service_type, ['clearance_in', 'clearance_out'], true)) {
+            return;
+        }
+
+        $portCall = PortCall::lockForUpdate()->find($need->port_call_id);
+        if (! $portCall) {
+            return;
+        }
+
+        $targetStatus = $need->requested_port_call_status;
+        if (! $targetStatus) {
+            $targetStatus = $need->service_type === 'clearance_out'
+                ? 'departed'
+                : ($need->service_type === 'clearance_in' ? 'berthed' : null);
+        }
+
+        if (! $targetStatus || $portCall->status === $targetStatus) {
+            return;
+        }
+
+        $allowedTransitions = [
+            'scheduled' => ['anchored', 'berthed'],
+            'anchored' => ['departed'],
+            'berthed' => ['departed'],
+        ];
+
+        if (! in_array($targetStatus, $allowedTransitions[$portCall->status] ?? [], true)) {
+            return;
+        }
+
+        $occurredAt = $need->operational_occurred_at ?? now();
+        $updateData = ['status' => $targetStatus];
+        if ($portCall->status === 'scheduled') {
+            $updateData['arrived_at'] = $occurredAt;
+        }
+        if ($targetStatus === 'berthed') {
+            $updateData['berthed_at'] = $occurredAt;
+        }
+        if ($targetStatus === 'departed') {
+            $updateData['departed_at'] = $occurredAt;
+            $updateData['financial_status'] = 'waiting_completion_note';
+        }
+
+        $portCall->update($updateData);
+    }
+
     public function downloadItemAttachment(Request $request, RequestItem $requestItem): StreamedResponse
     {
         $requestItem->loadMissing('request');
@@ -1801,6 +2451,10 @@ class RequestController extends Controller
     /** @param Collection<int, ShipRequest> $shipRequests */
     private function prepareRequestItems(Collection $shipRequests): void
     {
+        RequestItemHistoryBuilder::attachHistoryToRequests($shipRequests);
+
+        RequestItemHistoryBuilder::attachHistoryToRequests($shipRequests);
+
         $shipRequests->each(function (ShipRequest $shipRequest): void {
             $shipRequest->items->each(function (RequestItem $item): void {
                 $costDocument = $item->costDocumentItem?->costDocument;

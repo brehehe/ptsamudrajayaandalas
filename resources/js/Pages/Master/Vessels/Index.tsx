@@ -41,6 +41,8 @@ interface MasterVesselsIndexProps {
     companies: VesselCompany[];
     search: string;
     canManage: boolean;
+    canEdit?: boolean;
+    canDelete?: boolean;
 }
 
 interface VesselFormData {
@@ -80,6 +82,8 @@ export default function MasterVesselsIndex({
     companies = [],
     search = '',
     canManage = false,
+    canEdit = false,
+    canDelete = false,
 }: MasterVesselsIndexProps) {
     const [searchTerm, setSearchTerm] = useState(search);
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -159,8 +163,8 @@ export default function MasterVesselsIndex({
     const vesselActions = (vessel: MasterVessel) => (
         <div className="flex flex-wrap justify-end gap-1.5">
             <Link href={`/vessels/${vessel.id}`} className="inline-flex min-h-9 items-center rounded-[10px] border border-[#DCEAF8] px-3 text-xs font-semibold text-[#0060F4] hover:border-[#0060F4]">Detail</Link>
-            {canManage && <Button size="sm" variant="ghost" onClick={() => openEditForm(vessel)} leftIcon={<Pencil aria-hidden="true" className="size-3.5" />}>Edit</Button>}
-            {canManage && <Button size="sm" variant="ghost" className="text-[#C62840] hover:bg-[#FFE7EC] hover:text-[#C62840]" onClick={() => setDeletingVessel(vessel)} leftIcon={<Trash2 aria-hidden="true" className="size-3.5" />}>Hapus</Button>}
+            {canEdit && <Button size="sm" variant="ghost" onClick={() => openEditForm(vessel)} leftIcon={<Pencil aria-hidden="true" className="size-3.5" />}>Edit</Button>}
+            {canDelete && <Button size="sm" variant="ghost" className="text-[#C62840] hover:bg-[#FFE7EC] hover:text-[#C62840]" onClick={() => setDeletingVessel(vessel)} leftIcon={<Trash2 aria-hidden="true" className="size-3.5" />}>Hapus</Button>}
         </div>
     );
 

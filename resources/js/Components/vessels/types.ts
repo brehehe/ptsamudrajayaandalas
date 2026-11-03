@@ -80,6 +80,7 @@ export interface OperationalActivityData {
     longitude?: number | null;
     is_vessel_related: boolean;
     ship_id?: string | null;
+    custom_ship_name?: string | null;
     port_call_id?: string | null;
     request_id?: string | null;
     vessel_position?: 'scheduled' | 'anchored' | 'berthed' | 'departed' | null;

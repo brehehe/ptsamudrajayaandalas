@@ -53,18 +53,27 @@ class VendorInvoiceController extends Controller
                     $query->where('status', $status);
                 }
             })
-            ->when($companyId, fn ($query, $cid) => $query->whereHas('portCall', function ($pq) use ($cid) {
-                $pq->where(function ($sub) use ($cid) {
-                    $sub->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $cid))
-                        ->orWhereHas('workOrder', fn ($wq) => $wq->where('company_id', $cid));
-                });
+            ->when($companyId, fn ($query, $cid) => $query->where(function ($q) use ($cid) {
+                $q->whereHas('portCall', function ($pq) use ($cid) {
+                    $pq->where(function ($sub) use ($cid) {
+                        $sub->whereHas('ship', fn ($sq) => $sq->where('ship_company_id', $cid))
+                            ->orWhereHas('workOrder', fn ($wq) => $wq->where('company_id', $cid));
+                    });
+                })->orWhereHas('items.requestItem.request', fn ($rq) => $rq->where('company_id', $cid));
             }))
             ->when($shipId, fn ($query, $sid) => $query->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $sid)))
-            ->when($job, fn ($query, $val) => $query->whereHas('portCall', function ($pq) use ($like, $val): void {
-                $pq->where('job_number', $like, "%{$val}%");
-                if (Str::isUuid($val)) {
-                    $pq->orWhere('id', $val);
-                }
+            ->when($job, fn ($query, $val) => $query->where(function ($q) use ($like, $val) {
+                $q->whereHas('portCall', function ($pq) use ($like, $val): void {
+                    $pq->where('job_number', $like, "%{$val}%");
+                    if (Str::isUuid($val)) {
+                        $pq->orWhere('id', $val);
+                    }
+                })->orWhereHas('items.requestItem.request', function ($rq) use ($like, $val): void {
+                    $rq->where('request_number', $like, "%{$val}%");
+                    if (Str::isUuid($val)) {
+                        $rq->orWhere('id', $val);
+                    }
+                });
             }))
             ->when($startDate, fn ($query, $val) => $query->whereDate('received_date', '>=', $val))
             ->when($endDate, fn ($query, $val) => $query->whereDate('received_date', '<=', $val))
@@ -72,7 +81,9 @@ class VendorInvoiceController extends Controller
                 $scope->where('document_number', $like, "%{$value}%")
                     ->orWhere('issuer_name', $like, "%{$value}%")
                     ->orWhereHas('vendor', fn ($vendor) => $vendor->where('name', $like, "%{$value}%"))
-                    ->orWhereHas('portCall.ship', fn ($ship) => $ship->where('name', $like, "%{$value}%"));
+                    ->orWhereHas('portCall.ship', fn ($ship) => $ship->where('name', $like, "%{$value}%"))
+                    ->orWhereHas('items', fn ($items) => $items->where('description', $like, "%{$value}%"))
+                    ->orWhereHas('items.requestItem.request', fn ($req) => $req->where('request_number', $like, "%{$value}%")->orWhere('service_type', $like, "%{$value}%"));
             }));
 
         $stats = [
@@ -92,6 +103,9 @@ class VendorInvoiceController extends Controller
                 'portCall.port:id,name',
                 'vendor:id,name',
                 'recorder:id,name',
+                'items:id,cost_document_id,request_item_id,description,quantity,unit,amount',
+                'items.requestItem:id,request_id,item_name,quantity,unit,hpp_price',
+                'items.requestItem.request:id,request_number,service_type',
                 'paymentAllocations:id,outgoing_payment_id,cost_document_id,amount',
                 'paymentAllocations.payment:id,payment_date,amount,recipient,reference_number,proof_path,verification_status,verified_by,verified_at',
             ])

@@ -109,13 +109,13 @@ export function RequestItemWorkflowAction({
               ? 'Tandai Selesai'
               : 'Tandai Terpenuhi';
 
-    const updateItemStatus = () => {
+    const updateItemStatus = (targetStatus: 'dalam_proses' | 'selesai' = 'selesai') => {
         if (processing) return;
 
         setError(null);
         router.patch(
             route('needs.items.update-status', requestId),
-            { status: nextStatus, item_ids: [item.id] },
+            { status: targetStatus, item_ids: [item.id] },
             {
                 preserveScroll: true,
                 onStart: () => setProcessing(true),
@@ -129,25 +129,33 @@ export function RequestItemWorkflowAction({
     };
 
     return (
-        <div className={`flex min-w-0 flex-col items-stretch gap-1 ${className}`}>
+        <div className={`flex min-w-0 flex-wrap items-center justify-center gap-1.5 ${className}`}>
             <Button
                 type="button"
                 size="sm"
-                variant={isInProgress ? 'primary' : 'secondary'}
-                className="min-h-11 w-full touch-manipulation justify-center sm:min-h-9 sm:w-auto"
-                leftIcon={
-                    isStartable ? (
-                        <Play className="size-3.5" aria-hidden="true" />
-                    ) : (
-                        <CircleCheckBig className="size-3.5" aria-hidden="true" />
-                    )
-                }
+                variant="primary"
+                className="min-h-9 touch-manipulation justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                leftIcon={<CircleCheckBig className="size-3.5" aria-hidden="true" />}
                 isLoading={processing}
-                aria-label={`${actionLabel} untuk ${item.item_name || `item ${requestNumber}`}`}
-                onClick={updateItemStatus}
+                aria-label={`Selesaikan ${item.item_name || `item ${requestNumber}`}`}
+                onClick={() => updateItemStatus('selesai')}
             >
-                {actionLabel}
+                Selesaikan
             </Button>
+            {isStartable && !compact && (
+                <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="min-h-9 touch-manipulation justify-center"
+                    leftIcon={<Play className="size-3.5" aria-hidden="true" />}
+                    isLoading={processing}
+                    aria-label={`Mulai proses ${item.item_name || `item ${requestNumber}`}`}
+                    onClick={() => updateItemStatus('dalam_proses')}
+                >
+                    Mulai Proses
+                </Button>
+            )}
             {error && (
                 <p
                     role="alert"

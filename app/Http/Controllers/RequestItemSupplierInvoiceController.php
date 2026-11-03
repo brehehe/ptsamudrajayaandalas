@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CreateVendorInvoiceFromApprovedItem;
 use App\Http\Requests\StoreRequestItemSupplierInvoiceRequest;
 use App\Models\RequestItem;
 use Illuminate\Http\RedirectResponse;
@@ -16,12 +17,12 @@ class RequestItemSupplierInvoiceController extends Controller
 {
     public function store(StoreRequestItemSupplierInvoiceRequest $request, RequestItem $requestItem): RedirectResponse
     {
-        $requestItem->loadMissing('request');
+        $requestItem->loadMissing(['request', 'costDocumentItem.costDocument']);
         Gate::authorize('reviewPricing', $requestItem->request);
 
-        if ($requestItem->isLocked() || $requestItem->status === 'diajukan_ke_direktur' || $requestItem->is_invoiced) {
+        if ($requestItem->isLocked() || $requestItem->costDocumentItem?->costDocument || $requestItem->is_invoiced) {
             throw ValidationException::withMessages([
-                'supplier_invoice_document' => 'Nota supplier tidak dapat diubah setelah item dikirim atau disetujui Direktur.',
+                'supplier_invoice_document' => 'Nota supplier tidak dapat diubah setelah invoice vendor diterbitkan.',
             ]);
         }
 
@@ -33,10 +34,10 @@ class RequestItemSupplierInvoiceController extends Controller
 
         try {
             DB::transaction(function () use ($request, $requestItem, $validated, $newPath): void {
-                $lockedItem = RequestItem::query()->lockForUpdate()->findOrFail($requestItem->id);
-                if ($lockedItem->isLocked() || $lockedItem->status === 'diajukan_ke_direktur' || $lockedItem->is_invoiced) {
+                $lockedItem = RequestItem::query()->with('costDocumentItem.costDocument')->lockForUpdate()->findOrFail($requestItem->id);
+                if ($lockedItem->isLocked() || $lockedItem->costDocumentItem?->costDocument || $lockedItem->is_invoiced) {
                     throw ValidationException::withMessages([
-                        'supplier_invoice_document' => 'Nota supplier tidak dapat diubah setelah item dikirim atau disetujui Direktur.',
+                        'supplier_invoice_document' => 'Nota supplier tidak dapat diubah setelah invoice vendor diterbitkan.',
                     ]);
                 }
 
@@ -82,6 +83,14 @@ class RequestItemSupplierInvoiceController extends Controller
                 }
 
                 $lockedItem->update($updateData);
+
+                if ($lockedItem->director_status === 'approved' && ! $lockedItem->costDocumentItem?->costDocument) {
+                    try {
+                        app(CreateVendorInvoiceFromApprovedItem::class)->handle($lockedItem->fresh(), $request->user());
+                    } catch (\Throwable $e) {
+                        logger()->warning('Invoice vendor otomatis tidak dapat dibuat saat melengkapi nota approved item: '.$e->getMessage());
+                    }
+                }
 
                 activity('request-item-supplier-invoice')
                     ->performedOn($lockedItem)

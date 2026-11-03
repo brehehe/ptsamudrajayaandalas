@@ -45,16 +45,23 @@ final class ReportExportManager
             'margin' => $this->generateMarginReport($format, $from, $to, $companyId, $shipId, $job, $status, $search),
             'invoices' => $this->generateInvoiceReport($format, $from, $to, $companyId, $shipId, $job, $status, $search),
             'receivables' => $this->generateReceivableReport($format, $from, $to, $companyId, $shipId, $job, $search),
-            'expenses' => $this->generateExpenseReport($format, $from, $to, $companyId, $shipId, $job, $status, $search),
+            'expenses' => $this->generateExpenseReport($format, $from, $to, $companyId, $shipId, $job, $status, $search, $parameters),
             'activities' => $this->generateActivityReport($format, $from, $to, $companyId, $shipId, $job, $search),
             'requests' => $this->generateRequestReport($format, $from, $to, $companyId, $shipId, $job, $status, $search),
             default => throw new RuntimeException("Tipe laporan {$reportType} tidak didukung."),
         };
     }
 
-    /** @return array{filename: string, file_path: string} */
-    private function generateVesselDailyExpenses(
-        string $format,
+    /**
+     * @return array{
+     *     sections: list<array<string, mixed>>,
+     *     rows: list<list<mixed>>,
+     *     grand_total: float,
+     *     total_items: int,
+     *     vessels_count: int
+     * }
+     */
+    private function getVesselExpenseData(
         CarbonImmutable $from,
         CarbonImmutable $to,
         ?string $shipId,
@@ -72,7 +79,13 @@ final class ReportExportManager
                 'workOrder.company:id,name',
                 'port:id,name',
                 'requests' => fn ($q) => $q->with([
-                    'items' => fn ($iq) => $iq->orderBy('required_date')->orderBy('created_at'),
+                    'items' => fn ($iq) => $iq
+                        ->where(function ($query) {
+                            $query->where('director_status', 'approved')
+                                ->orWhereIn('status', ['disetujui', 'selesai']);
+                        })
+                        ->orderBy('required_date')
+                        ->orderBy('created_at'),
                 ]),
             ])
             ->when($shipId, fn ($q) => $q->where('ship_id', $shipId))
@@ -96,7 +109,7 @@ final class ReportExportManager
         $sections = [];
         $rows = [];
         $seq = 1;
-        $grandTotal = 0;
+        $grandTotal = 0.0;
         $totalItems = 0;
         $vesselsCount = 0;
 
@@ -114,12 +127,19 @@ final class ReportExportManager
                 $stayInfo = "Sandar: {$sandar} · {$keluar} ({$stayDays})";
             }
 
-            $callTotal = 0;
+            $callTotal = 0.0;
             $sectionRows = [];
             $itemSeq = 1;
 
             foreach ($call->requests as $req) {
                 foreach ($req->items as $item) {
+                    $isApproved = $item->director_status === 'approved'
+                        || in_array(strtolower($item->status ?? ''), ['disetujui', 'selesai'], true);
+
+                    if (! $isApproved) {
+                        continue;
+                    }
+
                     $itemCost = (float) $item->hpp_price * (float) $item->quantity;
                     $itemDate = $item->required_date
                         ? CarbonImmutable::parse($item->required_date)->toDateString()
@@ -174,7 +194,7 @@ final class ReportExportManager
                 }
             }
 
-            if (! empty($sectionRows) || $job !== null) {
+            if (! empty($sectionRows)) {
                 $vesselsCount++;
                 $statusText = match ($call->status) {
                     'berthed' => 'Sandar',
@@ -195,9 +215,154 @@ final class ReportExportManager
                     'total_expense' => $callTotal,
                     'item_count' => count($sectionRows),
                     'rows' => $sectionRows,
+                    'is_vessel' => true,
                 ];
             }
         }
+
+        // Include non-vessel requests (biaya operasional / kantor) when not strictly filtering by ship
+        if ($shipId === null) {
+            $nonVesselRequests = ShipRequest::query()
+                ->with([
+                    'company:id,name',
+                    'port:id,name',
+                    'items' => fn ($iq) => $iq
+                        ->where(function ($query) {
+                            $query->where('director_status', 'approved')
+                                ->orWhereIn('status', ['disetujui', 'selesai']);
+                        })
+                        ->orderBy('required_date')
+                        ->orderBy('created_at'),
+                ])
+                ->whereNull('port_call_id')
+                ->when($companyId, fn ($q) => $q->where('company_id', $companyId))
+                ->when($job, fn ($q) => $q->where(function ($jq) use ($like, $job): void {
+                    $jq->where('request_number', $like, "%{$job}%");
+                    if (Str::isUuid($job)) {
+                        $jq->orWhere('id', $job);
+                    }
+                }))
+                ->when($search, fn ($q) => $q->where(function ($sq) use ($like, $search): void {
+                    $sq->where('request_number', $like, "%{$search}%")
+                        ->orWhere('service_type', $like, "%{$search}%")
+                        ->orWhereHas('items', fn ($iq) => $iq->where('item_name', $like, "%{$search}%"));
+                }))
+                ->orderByDesc('created_at')
+                ->get();
+
+            foreach ($nonVesselRequests as $req) {
+                $shipName = $req->service_type ?: 'Biaya Operasional';
+                $companyName = $req->company?->name ?? 'PT Samudra Jaya Andalas';
+                $portName = $req->port?->name ?? 'Kantor / Operasional';
+                $stayInfo = 'Tanggal Pengajuan: '.($req->request_date ? CarbonImmutable::parse($req->request_date)->format('d/m/Y') : ($req->created_at ? $req->created_at->format('d/m/Y') : '-'));
+
+                $callTotal = 0.0;
+                $sectionRows = [];
+                $itemSeq = 1;
+
+                foreach ($req->items as $item) {
+                    $isApproved = $item->director_status === 'approved'
+                        || in_array(strtolower($item->status ?? ''), ['disetujui', 'selesai'], true);
+
+                    if (! $isApproved) {
+                        continue;
+                    }
+
+                    $itemCost = (float) $item->hpp_price * (float) $item->quantity;
+                    $itemDate = $item->required_date
+                        ? CarbonImmutable::parse($item->required_date)->toDateString()
+                        : ($req->request_date ? CarbonImmutable::parse($req->request_date)->toDateString() : $req->created_at?->toDateString());
+
+                    if ($itemDate && ($itemDate < $from->toDateString() || $itemDate > $to->toDateString())) {
+                        continue;
+                    }
+
+                    $callTotal += $itemCost;
+                    $grandTotal += $itemCost;
+                    $totalItems++;
+
+                    $statusLabel = match ($item->director_status) {
+                        'approved' => 'Disetujui',
+                        'rejected' => 'Ditolak',
+                        default => 'Menunggu',
+                    };
+
+                    $itemDateFormatted = $itemDate ? CarbonImmutable::parse($itemDate)->format('d/m/Y') : '-';
+
+                    $sectionRows[] = [
+                        $itemSeq++,
+                        $itemDateFormatted,
+                        $req->request_number,
+                        $item->item_name.($item->notes ? " ({$item->notes})" : ''),
+                        (float) $item->quantity,
+                        $item->unit ?: 'Unit',
+                        (float) $item->hpp_price,
+                        $itemCost,
+                        $callTotal,
+                        $statusLabel,
+                    ];
+
+                    $rows[] = [
+                        $seq++,
+                        $itemDateFormatted,
+                        $req->request_number,
+                        $shipName,
+                        $companyName,
+                        $req->request_number,
+                        $item->item_name.($item->notes ? " ({$item->notes})" : ''),
+                        (float) $item->quantity,
+                        $item->unit ?: 'Unit',
+                        (float) $item->hpp_price,
+                        $itemCost,
+                        $callTotal,
+                        $statusLabel,
+                    ];
+                }
+
+                if (! empty($sectionRows)) {
+                    $vesselsCount++;
+                    $sections[] = [
+                        'job_number' => $req->request_number,
+                        'ship_name' => $shipName,
+                        'company_name' => $companyName,
+                        'port_name' => $portName,
+                        'client_spk' => '-',
+                        'status_label' => $req->status ?? 'Disetujui',
+                        'stay_info' => $stayInfo,
+                        'total_expense' => $callTotal,
+                        'item_count' => count($sectionRows),
+                        'rows' => $sectionRows,
+                        'is_vessel' => false,
+                    ];
+                }
+            }
+        }
+
+        return [
+            'sections' => $sections,
+            'rows' => $rows,
+            'grand_total' => $grandTotal,
+            'total_items' => $totalItems,
+            'vessels_count' => $vesselsCount,
+        ];
+    }
+
+    /** @return array{filename: string, file_path: string} */
+    private function generateVesselDailyExpenses(
+        string $format,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        ?string $shipId,
+        ?string $companyId,
+        ?string $job,
+        ?string $search
+    ): array {
+        $vesselData = $this->getVesselExpenseData($from, $to, $shipId, $companyId, $job, $search);
+        $sections = $vesselData['sections'];
+        $rows = $vesselData['rows'];
+        $grandTotal = $vesselData['grand_total'];
+        $totalItems = $vesselData['total_items'];
+        $vesselsCount = $vesselData['vessels_count'];
 
         $isSingleJob = $job !== null && $job !== '';
         $title = $isSingleJob
@@ -715,7 +880,10 @@ final class ReportExportManager
         return ['filename' => $filename, 'file_path' => $savedPath];
     }
 
-    /** @return array{filename: string, file_path: string} */
+    /**
+     * @param  array<string, mixed>  $parameters
+     * @return array{filename: string, file_path: string}
+     */
     private function generateExpenseReport(
         string $format,
         CarbonImmutable $from,
@@ -724,31 +892,55 @@ final class ReportExportManager
         ?string $shipId,
         ?string $job,
         string $status,
-        ?string $search
+        ?string $search,
+        array $parameters = []
     ): array {
+        $subview = $parameters['subview'] ?? 'all';
+
+        if ($subview === 'kapal') {
+            return $this->generateVesselDailyExpenses($format, $from, $to, $shipId, $companyId, $job, $search);
+        }
+
         $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
         $payments = OutgoingPayment::query()
-            ->with(['portCall.ship:id,name', 'verifier:id,name', 'recorder:id,name'])
+            ->with([
+                'portCall.ship:id,name',
+                'verifier:id,name',
+                'recorder:id,name',
+                'allocations.costDocument.items.requestItem.request:id,request_number,service_type',
+            ])
             ->whereBetween('payment_date', [$from->toDateString(), $to->toDateString()])
             ->when($status !== 'all', fn ($q) => $q->where('verification_status', $status))
             ->when($shipId, fn ($q) => $q->whereHas('portCall', fn ($pq) => $pq->where('ship_id', $shipId)))
-            ->when($job, fn ($q) => $q->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$job}%")))
+            ->when($job, fn ($q) => $q->where(function ($jq) use ($like, $job) {
+                $jq->whereHas('portCall', fn ($pq) => $pq->where('job_number', $like, "%{$job}%"))
+                    ->orWhereHas('allocations.costDocument.items.requestItem.request', fn ($rq) => $rq->where('request_number', $like, "%{$job}%"));
+            }))
             ->when($search, fn ($q) => $q->where(function ($sq) use ($like, $search): void {
                 $sq->where('reference_number', $like, "%{$search}%")
-                    ->orWhere('payment_for', $like, "%{$search}%")
-                    ->orWhere('recipient_name', $like, "%{$search}%");
+                    ->orWhere('payment_type', $like, "%{$search}%")
+                    ->orWhere('recipient', $like, "%{$search}%")
+                    ->orWhere('notes', $like, "%{$search}%")
+                    ->orWhereHas('allocations.costDocument.items.requestItem.request', function ($rq) use ($like, $search): void {
+                        $rq->where('request_number', $like, "%{$search}%")
+                            ->orWhere('service_type', $like, "%{$search}%");
+                    });
             }))
             ->orderByDesc('payment_date')
             ->get();
 
-        $rows = [];
+        $officeRows = [];
         $seq = 1;
-        $totalAmount = 0.0;
+        $totalOfficeAmount = 0.0;
+        $verifiedOfficeAmount = 0.0;
 
         foreach ($payments as $pay) {
             $amt = (float) $pay->amount;
-            $totalAmount += $amt;
+            $totalOfficeAmount += $amt;
+            if ($pay->verification_status === 'verified') {
+                $verifiedOfficeAmount += $amt;
+            }
 
             $statusText = match ($pay->verification_status) {
                 'verified' => 'Terverifikasi',
@@ -758,56 +950,185 @@ final class ReportExportManager
                 default => 'Menunggu Verifikasi',
             };
 
-            $rows[] = [
+            $linkedReq = $pay->allocations
+                ->flatMap(fn ($a) => $a->costDocument?->items?->map(fn ($i) => $i->requestItem?->request))
+                ->filter()
+                ->first();
+
+            $shipOrJob = $pay->portCall
+                ? ($pay->portCall->ship?->name ?: $pay->portCall->job_number)
+                : ($linkedReq ? "{$linkedReq->request_number} · {$linkedReq->service_type}" : '-');
+            $purpose = $pay->notes ?: ($pay->payment_type ?: '-');
+
+            $officeRows[] = [
                 $seq++,
                 $pay->reference_number ?: '-',
                 $pay->payment_date?->format('d/m/Y') ?: '-',
-                $pay->portCall?->ship?->name ?: '-',
-                $pay->portCall?->job_number ?: '-',
-                $pay->recipient_name ?: '-',
-                $pay->payment_for ?: '-',
+                $shipOrJob,
+                $pay->recipient ?: '-',
+                $purpose,
                 $amt,
                 $statusText,
                 $pay->recorder?->name ?: '-',
             ];
         }
 
-        $title = 'LAPORAN REALISASI PENGELUARAN';
+        // Subview 'kantor' only (Kas Keluar & Biaya Kantor)
+        if ($subview === 'kantor') {
+            return $this->generateOfficeExpenseReport(
+                $format,
+                $from,
+                $to,
+                $payments->count(),
+                $totalOfficeAmount,
+                $verifiedOfficeAmount,
+                $officeRows
+            );
+        }
+
+        // Subview 'all' (Default): LAPORAN PENGELUARAN TERPADU (Kapal HPP + Biaya Kantor)
+        $vesselData = $this->getVesselExpenseData($from, $to, $shipId, $companyId, $job, $search);
+        $totalCombinedExpense = $vesselData['grand_total'] + $totalOfficeAmount;
+
+        $title = 'LAPORAN PENGELUARAN TERPADU';
         $metaLines = [
             sprintf('Periode: %s s.d. %s', $from->format('d/m/Y'), $to->format('d/m/Y')),
-            "Total Transaksi: {$payments->count()} Pembayaran",
+            "Total Kapal: {$vesselData['vessels_count']} | Total Kas Keluar: ".count($officeRows).' Transaksi',
+        ];
+
+        $summaryBoxes = [
+            ['label' => 'Total Pengeluaran Terpadu', 'value' => 'Rp '.number_format($totalCombinedExpense, 0, ',', '.')],
+            ['label' => 'Pengeluaran Kapal (HPP)', 'value' => 'Rp '.number_format($vesselData['grand_total'], 0, ',', '.')." ({$vesselData['vessels_count']} Kapal)"],
+            ['label' => 'Biaya Kantor / Kas Keluar', 'value' => 'Rp '.number_format($totalOfficeAmount, 0, ',', '.').' ('.count($officeRows).' Transaksi)'],
+            ['label' => 'Kas Terverifikasi', 'value' => 'Rp '.number_format($verifiedOfficeAmount, 0, ',', '.')],
+        ];
+
+        $sectionColumns = [
+            ['header' => 'No.', 'width' => 4, 'align' => 'center', 'type' => 'number'],
+            ['header' => 'Tanggal', 'width' => 11, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'No. Pengajuan', 'width' => 15, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Item Kebutuhan & Catatan', 'width' => 30, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Qty', 'width' => 6, 'align' => 'right', 'type' => 'number'],
+            ['header' => 'Satuan', 'width' => 8, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'HPP Satuan', 'width' => 14, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Biaya Item', 'width' => 15, 'align' => 'right', 'type' => 'currency'],
+            ['header' => "Akumulatif\ns/d Hari Ini", 'width' => 17, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Status', 'width' => 11, 'align' => 'center', 'type' => 'text'],
+        ];
+
+        $officeColumns = [
+            ['header' => 'No.', 'width' => 5, 'align' => 'center', 'type' => 'number'],
+            ['header' => 'No. Referensi', 'width' => 16, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Tanggal', 'width' => 12, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'Kapal / Job', 'width' => 18, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Penerima / Vendor', 'width' => 20, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Keperluan / Rincian', 'width' => 26, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Jumlah (Rp)', 'width' => 16, 'align' => 'right', 'type' => 'currency'],
+            ['header' => 'Status', 'width' => 14, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'Dicatat Oleh', 'width' => 14, 'align' => 'left', 'type' => 'text'],
+        ];
+
+        $filename = "laporan-pengeluaran-{$from->toDateString()}-sd-{$to->toDateString()}.{$format}";
+
+        $officeSection = [
+            'title' => 'BIAYA OPERASIONAL KANTOR & KAS KELUAR PERUSAHAAN',
+            'total' => $totalOfficeAmount,
+            'count' => count($officeRows),
+            'columns' => $officeColumns,
+            'rows' => $officeRows,
+        ];
+
+        if ($format === 'xlsx') {
+            $tmpPath = $this->xlsxBuilder->build([
+                'title' => $title,
+                'sheet_name' => 'Pengeluaran Terpadu',
+                'meta_lines' => $metaLines,
+                'sections' => $vesselData['sections'],
+                'section_columns' => $sectionColumns,
+                'rows' => $vesselData['rows'],
+                'office_section' => $officeSection,
+                'summary_boxes' => $summaryBoxes,
+                'summary_row' => [
+                    'label' => 'TOTAL PENGELUARAN TERPADU',
+                    'label_span' => 7,
+                    'totals' => [7 => $totalCombinedExpense],
+                ],
+            ]);
+            $savedPath = $this->saveToExportsStorage($tmpPath, $filename);
+
+            return ['filename' => $filename, 'file_path' => $savedPath];
+        }
+
+        $pdfData = $this->pdfBuilder->build([
+            'title' => $title,
+            'orientation' => 'landscape',
+            'meta_lines' => $metaLines,
+            'sections' => $vesselData['sections'],
+            'section_columns' => $sectionColumns,
+            'rows' => $vesselData['rows'],
+            'office_section' => $officeSection,
+            'summary_boxes' => $summaryBoxes,
+            'signatories' => [
+                'left_label' => 'Dibuat Oleh (Admin/Finance),',
+                'left_name' => 'Staff Keuangan & Operasional',
+                'right_label' => 'Mengetahui (Direktur Operasional),',
+                'right_name' => $this->documentSettings->get('signatory_title'),
+            ],
+        ]);
+        $savedPath = $this->savePdfToExportsStorage($pdfData, $filename);
+
+        return ['filename' => $filename, 'file_path' => $savedPath];
+    }
+
+    /**
+     * @param  list<list<mixed>>  $rows
+     * @return array{filename: string, file_path: string}
+     */
+    private function generateOfficeExpenseReport(
+        string $format,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        int $paymentCount,
+        float $totalAmount,
+        float $verifiedAmount,
+        array $rows
+    ): array {
+        $title = 'LAPORAN REALISASI KAS KELUAR & BIAYA KANTOR';
+        $metaLines = [
+            sprintf('Periode: %s s.d. %s', $from->format('d/m/Y'), $to->format('d/m/Y')),
+            "Total Transaksi: {$paymentCount} Pembayaran",
         ];
 
         $columns = [
             ['header' => 'No.', 'width' => 6, 'align' => 'center', 'type' => 'number'],
             ['header' => 'No. Referensi', 'width' => 18, 'align' => 'left', 'type' => 'text'],
             ['header' => 'Tanggal', 'width' => 12, 'align' => 'center', 'type' => 'text'],
-            ['header' => 'Nama Kapal', 'width' => 18, 'align' => 'left', 'type' => 'text'],
-            ['header' => 'No. Job', 'width' => 16, 'align' => 'left', 'type' => 'text'],
+            ['header' => 'Kapal / Job', 'width' => 18, 'align' => 'left', 'type' => 'text'],
             ['header' => 'Penerima / Vendor', 'width' => 20, 'align' => 'left', 'type' => 'text'],
             ['header' => 'Keperluan / Rincian', 'width' => 26, 'align' => 'left', 'type' => 'text'],
             ['header' => 'Jumlah (Rp)', 'width' => 16, 'align' => 'right', 'type' => 'currency'],
-            ['header' => 'Status Verifikasi', 'width' => 18, 'align' => 'center', 'type' => 'text'],
+            ['header' => 'Status', 'width' => 16, 'align' => 'center', 'type' => 'text'],
             ['header' => 'Dicatat Oleh', 'width' => 16, 'align' => 'left', 'type' => 'text'],
         ];
 
-        $filename = "laporan-pengeluaran-{$from->toDateString()}-sd-{$to->toDateString()}.{$format}";
+        $filename = "laporan-pengeluaran-kantor-{$from->toDateString()}-sd-{$to->toDateString()}.{$format}";
 
         $summaryBoxes = [
             ['label' => 'Total Pengeluaran Kas', 'value' => 'Rp '.number_format($totalAmount, 0, ',', '.')],
-            ['label' => 'Total Bukti Pembayaran', 'value' => (string) $payments->count()],
+            ['label' => 'Total Bukti Pembayaran', 'value' => (string) $paymentCount],
+            ['label' => 'Kas Terverifikasi', 'value' => 'Rp '.number_format($verifiedAmount, 0, ',', '.')],
         ];
 
         $summaryRow = [
-            'label' => 'TOTAL PENGELUARAN',
-            'label_span' => 7,
-            'totals' => [7 => $totalAmount],
+            'label' => 'TOTAL PENGELUARAN KAS',
+            'label_span' => 6,
+            'totals' => [6 => $totalAmount],
         ];
 
         if ($format === 'xlsx') {
             $tmpPath = $this->xlsxBuilder->build([
                 'title' => $title,
-                'sheet_name' => 'Pengeluaran',
+                'sheet_name' => 'Kas Keluar',
                 'meta_lines' => $metaLines,
                 'columns' => $columns,
                 'rows' => $rows,

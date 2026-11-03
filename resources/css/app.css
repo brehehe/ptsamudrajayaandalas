@@ -180,3 +180,30 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   transform-origin: 70% 70%;
   animation: sja-wave 2s infinite ease-in-out;
 }
+
+/* Print Styles */
+@media print {
+  aside,
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  body,
+  #app,
+  main {
+    background: #ffffff !important;
+    color: #0b1f63 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .shadow-sm,
+  .shadow-md,
+  .shadow-lg {
+    box-shadow: none !important;
+  }
+}
