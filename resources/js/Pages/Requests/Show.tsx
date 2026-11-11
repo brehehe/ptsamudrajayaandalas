@@ -26,6 +26,7 @@ import {
     PackagePlus,
     Plus,
     Printer,
+    RotateCcw,
     Save,
     Send,
     Ship as ShipIcon,
@@ -225,6 +226,7 @@ interface RequestShowProps {
         can_create_completion_notes: boolean;
         can_print_request_reports: boolean;
         can_complete_spk?: boolean;
+        can_reopen_spk?: boolean;
         is_spk_completed?: boolean;
     };
 }
@@ -857,6 +859,8 @@ export default function RequestShow({
 
     const [showCompleteSpkModal, setShowCompleteSpkModal] = useState(false);
     const [isCompletingSpk, setIsCompletingSpk] = useState(false);
+    const [showReopenSpkModal, setShowReopenSpkModal] = useState(false);
+    const [isReopeningSpk, setIsReopeningSpk] = useState(false);
 
     const handleCompleteSpk = () => {
         setIsCompletingSpk(true);
@@ -869,6 +873,22 @@ export default function RequestShow({
                 onFinish: () => {
                     setIsCompletingSpk(false);
                     setShowCompleteSpkModal(false);
+                },
+            }
+        );
+    };
+
+    const handleReopenSpk = () => {
+        setIsReopeningSpk(true);
+        const targetId = currentJob?.job_number || currentJob?.id || activeRequest?.request_number || activeRequest?.id;
+        router.post(
+            route('requests.reopen-spk', targetId),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => {
+                    setIsReopeningSpk(false);
+                    setShowReopenSpkModal(false);
                 },
             }
         );
@@ -900,6 +920,15 @@ export default function RequestShow({
                 icon: <CheckCircle className="size-4 text-emerald-600" />,
                 onSelect: () => setShowCompleteSpkModal(true),
                 tone: 'success',
+            });
+        }
+
+        if (capabilities.can_reopen_spk) {
+            primaryItems.push({
+                id: 'reopen-spk-action',
+                label: 'Buka Kembali SPK',
+                icon: <RotateCcw className="size-4 text-amber-600 dark:text-amber-400" />,
+                onSelect: () => setShowReopenSpkModal(true),
             });
         }
 
@@ -1005,6 +1034,7 @@ export default function RequestShow({
         return groups;
     }, [
         capabilities.can_complete_spk,
+        capabilities.can_reopen_spk,
         capabilities.can_create_requests,
         capabilities.can_process_requests,
         capabilities.can_print_request_reports,
@@ -1688,6 +1718,16 @@ export default function RequestShow({
                             Selesai
                         </span>
                     )}
+                    {capabilities.can_reopen_spk && (
+                        <button
+                            type="button"
+                            onClick={() => setShowReopenSpkModal(true)}
+                            className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 text-[11px] font-bold text-amber-800 hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-300 cursor-pointer"
+                        >
+                            <RotateCcw className="size-3 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                            Buka Kembali
+                        </button>
+                    )}
                     <ActionMenu
                         label="Menu Aksi Kegiatan"
                         groups={headerActionGroups}
@@ -1818,6 +1858,16 @@ export default function RequestShow({
                                 <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-400" />
                                 SPK Selesai
                             </span>
+                        )}
+                        {capabilities.can_reopen_spk && (
+                            <button
+                                type="button"
+                                onClick={() => setShowReopenSpkModal(true)}
+                                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3.5 text-xs font-bold text-amber-800 shadow-sm transition hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/40 cursor-pointer"
+                            >
+                                <RotateCcw className="size-4 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                                Buka Kembali SPK
+                            </button>
                         )}
                         <ActionMenu
                             label="Menu Aksi Kegiatan"
@@ -4493,14 +4543,16 @@ export default function RequestShow({
                     </div>
 
                     <PhotoUploadPicker
-                        label="Unggah Berkas Nota Rampung Pelindo *"
+                        required
+                        label="Unggah Berkas Nota Rampung Pelindo"
+                        value={notaRampungForm.data.document}
                         onChange={(file) => notaRampungForm.setData('document', file)}
+                        mode="gallery"
                         accept=".pdf,.jpg,.jpeg,.png"
-                        helperText="PDF atau foto resmi Nota Rampung dari Pelindo. Maksimal 10 MB."
+                        maxSizeMb={10}
+                        error={notaRampungForm.errors.document}
+                        helperText="PDF atau file gambar resmi Nota Rampung dari Pelindo. Maksimal 10 MB."
                     />
-                    {notaRampungForm.errors.document && (
-                        <p className="text-xs text-rose-500">{notaRampungForm.errors.document}</p>
-                    )}
 
                     <div>
                         <div className="flex items-center justify-between mb-1">
@@ -4555,6 +4607,16 @@ export default function RequestShow({
                 title="Selesaikan SPK & Kegiatan Kapal"
                 description={`Apakah Anda yakin ingin menyelesaikan SPK ${currentJob?.work_order?.system_number || currentJob?.job_number || 'ini'}? Setelah diselesaikan, seluruh pengajuan dan kegiatan operasional untuk kapal ini akan ditutup dan statusnya ditandai Selesai.`}
                 confirmLabel="Ya, Selesaikan SPK"
+            />
+
+            <ConfirmDialog
+                isOpen={showReopenSpkModal}
+                onClose={() => setShowReopenSpkModal(false)}
+                onConfirm={handleReopenSpk}
+                processing={isReopeningSpk}
+                title="Buka Kembali SPK & Kegiatan Kapal"
+                description={`Apakah Anda yakin ingin membuka kembali SPK ${currentJob?.work_order?.system_number || currentJob?.job_number || 'ini'}? Status SPK akan dikembalikan menjadi aktif sehingga Anda dapat membuat pengajuan baru, mengunggah berkas, atau merevisi kegiatan kapal ini kembali.`}
+                confirmLabel="Ya, Buka Kembali SPK"
             />
 
             <FileViewer

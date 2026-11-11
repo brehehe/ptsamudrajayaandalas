@@ -382,6 +382,10 @@ class RequestController extends Controller
             && ! $isSpkCompleted
             && ($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem', 'Staf Operasional', 'Tim Lapangan', 'Lapangan']) ?? false);
 
+        $canReopenSpk = $portCall !== null
+            && $isSpkCompleted
+            && ($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem', 'Staf Operasional', 'Tim Lapangan', 'Lapangan']) ?? false);
+
         if (! $canViewHpp) {
             if ($shipRequest) {
                 $shipRequest->items->each->makeHidden('hpp_price');
@@ -410,6 +414,7 @@ class RequestController extends Controller
                 'can_create_completion_notes' => $request->user()?->can('create', CompletionNote::class) ?? false,
                 'can_print_request_reports' => $canPrintRequestReports,
                 'can_complete_spk' => $canCompleteSpk,
+                'can_reopen_spk' => $canReopenSpk,
                 'is_spk_completed' => $isSpkCompleted,
             ],
         ]);
@@ -2520,6 +2525,58 @@ class RequestController extends Controller
         $spkLabel = $portCall->workOrder?->system_number ?? $portCall->job_number;
 
         return redirect()->back()->with('success', "SPK {$spkLabel} berhasil diselesaikan. Seluruh pengajuan dan kegiatan operasional telah ditandai Selesai.");
+    }
+
+    public function reopenSpk(Request $request, string $id): RedirectResponse
+    {
+        $user = $request->user();
+        if (! $user->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem', 'Staf Operasional', 'Tim Lapangan', 'Lapangan'])) {
+            abort(403, 'Anda tidak memiliki hak akses untuk membuka kembali SPK ini.');
+        }
+
+        $isUuid = Str::isUuid($id);
+        $portCall = $isUuid
+            ? PortCall::with(['workOrder', 'ship'])->where('id', $id)->first()
+            : PortCall::with(['workOrder', 'ship'])->where('job_number', $id)->first();
+
+        if (! $portCall) {
+            $shipRequest = $isUuid
+                ? ShipRequest::with(['portCall.workOrder', 'portCall.ship'])->where('id', $id)->first()
+                : ShipRequest::with(['portCall.workOrder', 'portCall.ship'])->where('request_number', $id)->first();
+
+            $portCall = $shipRequest?->portCall;
+        }
+
+        if (! $portCall) {
+            return redirect()->back()->with('error', 'Kunjungan kapal / SPK tidak ditemukan.');
+        }
+
+        DB::transaction(function () use ($portCall, $user): void {
+            $workOrder = $portCall->workOrder;
+            if ($workOrder) {
+                $workOrder->update([
+                    'status' => 'in_progress',
+                    'closed_at' => null,
+                ]);
+            }
+
+            $portCall->update([
+                'status' => 'active',
+            ]);
+
+            if ($portCall->ship && in_array(strtolower((string) $portCall->ship->status), ['completed', 'selesai'], true)) {
+                $portCall->ship->update(['status' => 'active']);
+            }
+
+            activity('spk')
+                ->performedOn($workOrder ?? $portCall)
+                ->causedBy($user)
+                ->log("SPK {$workOrder?->system_number} ({$portCall->job_number}) telah dibuka kembali oleh {$user->name}.");
+        });
+
+        $spkLabel = $portCall->workOrder?->system_number ?? $portCall->job_number;
+
+        return redirect()->back()->with('success', "SPK {$spkLabel} berhasil dibuka kembali. Form pengajuan dan kegiatan operasional kini aktif kembali.");
     }
 
     private function authorizeAdminPricing(Request $request): void

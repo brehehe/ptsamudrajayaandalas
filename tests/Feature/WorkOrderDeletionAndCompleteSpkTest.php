@@ -312,7 +312,31 @@ test('user can complete SPK from requests detail page', function () {
         ->assertInertia(fn ($page) => $page
             ->component('Requests/Show')
             ->where('capabilities.can_complete_spk', false)
+            ->where('capabilities.can_reopen_spk', true)
             ->where('capabilities.is_spk_completed', true)
+        );
+
+    // Call reopen-spk endpoint to reopen the SPK
+    $reopenResp = $this->actingAs($this->admin)
+        ->post(route('requests.reopen-spk', $portCall->job_number));
+
+    $reopenResp->assertRedirect();
+    $reopenResp->assertSessionHas('success');
+
+    expect($workOrder->fresh()->status)->toBe('in_progress')
+        ->and($workOrder->fresh()->closed_at)->toBeNull()
+        ->and($portCall->fresh()->status)->toBe('active')
+        ->and($portCall->fresh()->acceptsNewRequests())->toBeTrue();
+
+    // Now request show page reflects reopened active status
+    $this->actingAs($this->admin)
+        ->get(route('requests.detail', $portCall->job_number))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Requests/Show')
+            ->where('capabilities.can_complete_spk', true)
+            ->where('capabilities.can_reopen_spk', false)
+            ->where('capabilities.is_spk_completed', false)
         );
 });
 

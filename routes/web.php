@@ -102,6 +102,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
     Route::post('/requests/{id}/taktis-supplement', [RequestController::class, 'storeTaktisSupplement'])->name('requests.taktis-supplement');
     Route::post('/requests/{id}/complete-spk', [RequestController::class, 'completeSpk'])->name('requests.complete-spk')->where('id', '.*');
+    Route::post('/requests/{id}/reopen-spk', [RequestController::class, 'reopenSpk'])->name('requests.reopen-spk')->where('id', '.*');
     Route::post('/requests/{id}/nota-rampung-kurang-bayar', [RequestController::class, 'storeNotaRampungKurangBayar'])->name('requests.nota-rampung-kurang-bayar')->where('id', '.*');
     Route::get('/request-items/{requestItem}/attachment', [RequestController::class, 'downloadItemAttachment'])->name('request-items.attachment');
     Route::post('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'store'])->name('request-items.supplier-invoice.store');
