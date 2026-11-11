@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     Activity,
     ArrowLeft,
@@ -14,9 +15,11 @@ import {
     Pencil,
     ReceiptText,
     Ship,
+    Trash2,
     UserRound,
     WalletCards,
 } from 'lucide-react';
+import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
 import MobilePageHero from '../../Components/navigation/MobilePageHero';
 import Table from '../../Components/tables/Table';
 import StatusBadge from '../../Components/ui/StatusBadge';
@@ -208,6 +211,7 @@ interface Props {
     capabilities: {
         can_view_financial: boolean;
         can_update: boolean;
+        can_delete?: boolean;
     };
 }
 
@@ -296,6 +300,20 @@ export default function WorkOrderShow({
         ? route('requests.detail', workOrder.port_call.job_number)
         : route('requests.index', { search: workOrder.port_call?.job_number });
 
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDeleteWorkOrder = () => {
+        setIsDeleting(true);
+        router.delete(route('work-orders.destroy', workOrder.id), {
+            preserveScroll: true,
+            onFinish: () => {
+                setIsDeleting(false);
+                setShowDeleteModal(false);
+            },
+        });
+    };
+
     return (
         <AppLayout
             title={`Riwayat ${workOrder.system_number}`}
@@ -375,6 +393,16 @@ export default function WorkOrderShow({
                                     <FileText aria-hidden="true" className="size-4" />
                                     Dokumen SPK
                                 </FileViewerTrigger>
+                            )}
+                            {capabilities.can_delete && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDeleteModal(true)}
+                                    className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-red-200 px-3 text-sm font-semibold text-red-600 hover:border-red-500 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30 cursor-pointer"
+                                >
+                                    <Trash2 aria-hidden="true" className="size-4" />
+                                    Hapus SPK
+                                </button>
                             )}
                         </div>
                     </div>
@@ -748,6 +776,29 @@ export default function WorkOrderShow({
                     </Link>
                 </div>
             </div>
+
+            <ConfirmDialog
+                isOpen={showDeleteModal}
+                title="Hapus SPK & Seluruh Proses Terkait"
+                description={`Apakah Anda yakin ingin menghapus SPK ${workOrder.system_number}? Tindakan ini akan menghapus permanen SPK beserta seluruh data pengajuan kebutuhan, invoice vendor, tagihan invoice klien, dan riwayat operasional terkait.`}
+                confirmLabel="Ya, Hapus Semua"
+                confirmVariant="danger"
+                onConfirm={handleDeleteWorkOrder}
+                onClose={() => { if (!isDeleting) setShowDeleteModal(false); }}
+                processing={isDeleting}
+            >
+                <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 dark:border-red-900/30 dark:bg-red-950/20">
+                    <p className="font-bold text-red-900 dark:text-red-200" translate="no">
+                        {workOrder.system_number} {workOrder.client_number ? `(${workOrder.client_number})` : ''}
+                    </p>
+                    <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                        {workOrder.company?.name} · {workOrder.ship?.name}
+                    </p>
+                    <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">
+                        ⚠️ Seluruh pengajuan, invoice vendor, tagihan invoice klien, dan data operasional yang terhubung akan ikut dihapus permanen.
+                    </p>
+                </div>
+            </ConfirmDialog>
         </AppLayout>
     );
 }

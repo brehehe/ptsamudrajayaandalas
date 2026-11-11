@@ -12,6 +12,7 @@ import {
     Search,
     Ship,
     SlidersHorizontal,
+    Trash2,
     UserRound,
     X,
 } from 'lucide-react';
@@ -46,6 +47,7 @@ interface WorkOrder {
     planned_etd_at?: string | null;
     next_status?: string | null;
     can_transition: boolean;
+    can_delete?: boolean;
     company?: { name: string };
     ship?: { id: string; name: string; imo_number?: string | null; ship_type?: string | null; image?: string | null };
     port?: { name: string };
@@ -268,6 +270,9 @@ export default function WorkOrdersIndex({ workOrders, stats, companies = [], shi
     const hasActiveFilters = Boolean(
         search || (status && status !== 'all') || companyId || shipId || job || dateRange.startDate || dateRange.endDate
     );
+
+    const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const confirmTransition = () => {
         if (!selectedTransition?.next_status) {
@@ -640,6 +645,17 @@ export default function WorkOrdersIndex({ workOrders, stats, companies = [], shi
                                                     {transitionLabels[item.next_status]}
                                                 </Button>
                                             )}
+                                            {item.can_delete && (
+                                                <button
+                                                    type="button"
+                                                    aria-label={`Hapus ${item.system_number}`}
+                                                    onClick={() => setWorkOrderToDelete(item)}
+                                                    className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-red-200 px-3 text-xs font-bold text-red-600 hover:border-red-500 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30 cursor-pointer"
+                                                >
+                                                    <Trash2 aria-hidden="true" className="size-4" />
+                                                    Hapus
+                                                </button>
+                                            )}
                                         </div>
                                     </Card>
                                 );
@@ -692,6 +708,17 @@ export default function WorkOrdersIndex({ workOrders, stats, companies = [], shi
                                                     {href && <Link aria-label={`Lihat riwayat ${item.system_number}`} href={href} prefetch className="flex size-9 items-center justify-center rounded-[10px] border border-[#DCEAF8] text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F]"><ArrowRight aria-hidden="true" className="size-4" /></Link>}
                                                     {item.document_path && <a aria-label={`Unduh dokumen ${item.system_number}`} className="flex size-9 items-center justify-center rounded-[10px] border border-[#DCEAF8] text-[#0060F4] hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:border-[#1E3A5F]" href={`/work-orders/${item.id}/document`}><Download aria-hidden="true" className="size-4" /></a>}
                                                     {item.can_transition && item.next_status && <Button size="sm" onClick={() => { setTransitionError(null); setSelectedTransition(item); }}>{transitionLabels[item.next_status]}</Button>}
+                                                    {item.can_delete && (
+                                                        <button
+                                                            type="button"
+                                                            aria-label={`Hapus ${item.system_number}`}
+                                                            title={`Hapus ${item.system_number}`}
+                                                            onClick={() => setWorkOrderToDelete(item)}
+                                                            className="flex size-9 items-center justify-center rounded-[10px] border border-red-200 text-red-600 hover:border-red-500 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30 cursor-pointer"
+                                                        >
+                                                            <Trash2 aria-hidden="true" className="size-4" />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             );
                                         },
@@ -728,6 +755,41 @@ export default function WorkOrdersIndex({ workOrders, stats, companies = [], shi
                     </div>
                 )}
                 {transitionError && <p role="alert" className="rounded-xl bg-[#FFE7EC] p-3 text-sm font-semibold text-[#C62840] dark:bg-[#C62840]/20 dark:text-[#FCA5A5]">{transitionError}</p>}
+            </ConfirmDialog>
+
+            <ConfirmDialog
+                isOpen={workOrderToDelete !== null}
+                title="Hapus SPK & Seluruh Proses Terkait"
+                description={`Apakah Anda yakin ingin menghapus SPK ${workOrderToDelete?.system_number}? Tindakan ini akan menghapus permanen SPK beserta seluruh data pengajuan kebutuhan, invoice vendor, tagihan invoice klien, dan riwayat operasional terkait.`}
+                confirmLabel="Ya, Hapus Semua"
+                confirmVariant="danger"
+                onConfirm={() => {
+                    if (!workOrderToDelete) return;
+                    setIsDeleting(true);
+                    router.delete(route('work-orders.destroy', workOrderToDelete.id), {
+                        preserveScroll: true,
+                        onFinish: () => {
+                            setIsDeleting(false);
+                            setWorkOrderToDelete(null);
+                        },
+                    });
+                }}
+                onClose={() => { if (!isDeleting) setWorkOrderToDelete(null); }}
+                processing={isDeleting}
+            >
+                {workOrderToDelete && (
+                    <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 dark:border-red-900/30 dark:bg-red-950/20">
+                        <p className="font-bold text-red-900 dark:text-red-200" translate="no">
+                            {workOrderToDelete.system_number} {workOrderToDelete.client_number ? `(${workOrderToDelete.client_number})` : ''}
+                        </p>
+                        <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                            {workOrderToDelete.company?.name} · {workOrderToDelete.ship?.name}
+                        </p>
+                        <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">
+                            ⚠️ Seluruh pengajuan, invoice vendor, invoice klien, dan data operasional yang terhubung akan ikut dihapus permanen.
+                        </p>
+                    </div>
+                )}
             </ConfirmDialog>
 
             {/* Modal Filter SPK */}

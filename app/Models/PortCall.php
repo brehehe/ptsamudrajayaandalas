@@ -90,16 +90,8 @@ class PortCall extends Model
 
     public function clearanceInBlockReason(): ?string
     {
-        if ($this->status !== 'scheduled') {
-            return 'Clearance In sudah dicatat untuk kunjungan ini.';
-        }
-
-        $hasActiveClearanceIn = $this->relationLoaded('clearanceInRequests')
-            ? $this->clearanceInRequests->isNotEmpty()
-            : $this->clearanceInRequests()->exists();
-
-        if ($hasActiveClearanceIn) {
-            return 'Pengajuan Clearance In untuk kunjungan ini sudah ada dan masih diproses.';
+        if (! $this->acceptsNewRequests()) {
+            return 'SPK / Kunjungan kapal ini telah diselesaikan.';
         }
 
         return null;
@@ -107,6 +99,23 @@ class PortCall extends Model
 
     public function acceptsNewRequests(): bool
     {
+        if (in_array(strtolower((string) $this->status), ['completed', 'selesai'], true)) {
+            return false;
+        }
+
+        $ship = $this->relationLoaded('ship') ? $this->ship : $this->ship()->first();
+        if ($ship && in_array(strtolower((string) $ship->status), ['completed', 'selesai'], true)) {
+            return false;
+        }
+
+        if ($this->relationLoaded('workOrder') && $this->workOrder) {
+            return ! in_array(strtolower((string) $this->workOrder->status), ['completed', 'closed', 'selesai'], true);
+        }
+
+        if ($this->work_order_id && ($wo = $this->workOrder)) {
+            return ! in_array(strtolower((string) $wo->status), ['completed', 'closed', 'selesai'], true);
+        }
+
         return ! in_array(strtolower((string) $this->status), ['departed', 'completed', 'selesai'], true);
     }
 

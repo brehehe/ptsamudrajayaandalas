@@ -143,7 +143,10 @@ export default function MultiplePhotoUploadPicker({
                 {files.length === 0 ? (
                     <button
                         type="button"
-                        onClick={() => setShowSourceModal(true)}
+                        onClick={(e) => {
+                            e.currentTarget.blur();
+                            setShowSourceModal(true);
+                        }}
                         className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 border-dashed border-[#BCE0FD] dark:border-[#1E3A5F] bg-[#F8FBFF] dark:bg-[#071322] hover:bg-[#F0F8FF] hover:border-[#0060F4] transition-colors cursor-pointer group text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
                     >
                         <div className="w-12 h-12 rounded-xl bg-[#E0F0FF] dark:bg-[#0C1D36] flex items-center justify-center text-[#0060F4] dark:text-[#38BDF8] shrink-0 group-hover:scale-105 transition-transform">
@@ -164,7 +167,10 @@ export default function MultiplePhotoUploadPicker({
                         {files.length < maxFiles && (
                             <button
                                 type="button"
-                                onClick={() => setShowSourceModal(true)}
+                                onClick={(e) => {
+                                    e.currentTarget.blur();
+                                    setShowSourceModal(true);
+                                }}
                                 className="w-28 h-20 shrink-0 flex flex-col items-center justify-center gap-1 p-2 rounded-xl border border-dashed border-[#BCE0FD] dark:border-[#1E3A5F] bg-[#F8FBFF] dark:bg-[#071322] hover:bg-[#F0F8FF] hover:border-[#0060F4] transition-colors cursor-pointer group text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
                             >
                                 <ImagePlus aria-hidden="true" className="w-5 h-5 text-[#0060F4] dark:text-[#38BDF8]" />
@@ -248,7 +254,12 @@ export default function MultiplePhotoUploadPicker({
                ───────────────────────────────────────────────────────────────── */}
             <Modal
                 isOpen={showSourceModal}
-                onClose={() => setShowSourceModal(false)}
+                onClose={() => {
+                    if (document.activeElement instanceof HTMLElement) {
+                        document.activeElement.blur();
+                    }
+                    setShowSourceModal(false);
+                }}
                 title="Pilih Sumber Foto"
                 size="sm"
                 asBottomSheetOnMobile={true}
@@ -262,16 +273,19 @@ export default function MultiplePhotoUploadPicker({
                         {/* Opsi Kamera */}
                         <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.currentTarget.blur();
                                 setShowSourceModal(false);
-                                setShowCameraModal(true);
+                                window.setTimeout(() => {
+                                    setShowCameraModal(true);
+                                }, 60);
                             }}
                             className="flex items-center gap-3 p-3.5 rounded-2xl border border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FBFF] dark:bg-[#071322] hover:border-[#0060F4] hover:bg-[#F0F8FF] transition-colors cursor-pointer text-left group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0060F4]"
                         >
                             <div className="w-11 h-11 rounded-xl bg-[#E0F0FF] dark:bg-[#0C1D36] flex items-center justify-center text-[#0060F4] dark:text-[#38BDF8] shrink-0 group-hover:scale-105 transition-transform">
                                 <Camera aria-hidden="true" className="w-6 h-6" />
                             </div>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                                 <span className="font-bold text-xs text-[#082870] dark:text-white block">
                                     Ambil Foto (Kamera)
                                 </span>
@@ -284,7 +298,8 @@ export default function MultiplePhotoUploadPicker({
                         {/* Opsi Galeri / File */}
                         <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.currentTarget.blur();
                                 setShowSourceModal(false);
                                 galleryInputRef.current?.click();
                             }}

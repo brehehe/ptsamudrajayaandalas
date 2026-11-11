@@ -373,6 +373,15 @@ class RequestController extends Controller
         $canPrintRequestReports = ($request->user()?->can('reports.view') ?? false)
             || ($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem']) ?? false);
 
+        $isSpkCompleted = false;
+        if ($portCall) {
+            $isSpkCompleted = in_array(strtolower((string) ($portCall->workOrder?->status ?? $portCall->status)), ['completed', 'closed', 'selesai'], true);
+        }
+
+        $canCompleteSpk = $portCall !== null
+            && ! $isSpkCompleted
+            && ($request->user()?->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem', 'Staf Operasional', 'Tim Lapangan', 'Lapangan']) ?? false);
+
         if (! $canViewHpp) {
             if ($shipRequest) {
                 $shipRequest->items->each->makeHidden('hpp_price');
@@ -400,6 +409,8 @@ class RequestController extends Controller
                 'can_process_requests' => $request->user()?->isOperationalAdmin() ?? false,
                 'can_create_completion_notes' => $request->user()?->can('create', CompletionNote::class) ?? false,
                 'can_print_request_reports' => $canPrintRequestReports,
+                'can_complete_spk' => $canCompleteSpk,
+                'is_spk_completed' => $isSpkCompleted,
             ],
         ]);
     }
@@ -415,7 +426,10 @@ class RequestController extends Controller
         $ships = Ship::where('is_active', true)->with('company')->orderBy('name')->get();
         $portCalls = PortCall::query()
             ->whereHas('ship', fn ($query) => $query->where('is_active', true))
-            ->whereIn('status', ['scheduled', 'anchored', 'berthed'])
+            ->whereNotIn('status', ['completed', 'selesai'])
+            ->whereDoesntHave('workOrder', function ($wq) {
+                $wq->whereIn('status', ['completed', 'closed', 'selesai']);
+            })
             ->with([
                 'ship.company',
                 'port',
@@ -427,8 +441,8 @@ class RequestController extends Controller
             ->get()
             ->each(function (PortCall $portCall): void {
                 $portCall->setAttribute('clearance_in_block_reason', $portCall->clearanceInBlockReason());
-                $portCall->setAttribute('active_clearance_in_request_number', $portCall->clearanceInRequests->first()?->request_number);
-                $portCall->setAttribute('can_clearance_out', in_array($portCall->status, ['anchored', 'berthed'], true));
+                $portCall->setAttribute('active_clearance_in_request_number', null);
+                $portCall->setAttribute('can_clearance_out', $portCall->acceptsNewRequests());
                 $portCall->unsetRelation('clearanceInRequests');
             });
         $ports = Port::where('is_active', true)->orderBy('name')->get();
@@ -837,38 +851,12 @@ class RequestController extends Controller
                         ]);
                     }
 
-                    if ($isClearanceOut && ! in_array($portCall->status, ['anchored', 'berthed'], true)) {
-                        throw ValidationException::withMessages([
-                            "ships.{$shipIndex}.request_type" => 'Clearance Out hanya dapat diajukan ketika kapal berstatus Labuh atau Sandar.',
-                        ]);
-                    }
-
                     if (($isClearanceIn || $isClearanceOut) && empty($shipData['operational_occurred_at'])) {
-                        throw ValidationException::withMessages([
-                            "ships.{$shipIndex}.operational_occurred_at" => $isClearanceIn
-                                ? 'Tanggal kedatangan aktual wajib diisi.'
-                                : 'Tanggal keberangkatan aktual wajib diisi.',
-                        ]);
+                        $shipData['operational_occurred_at'] = now()->toDateString();
                     }
 
-                    if ($isClearanceIn && ! in_array($shipData['requested_port_call_status'] ?? null, ['anchored', 'berthed'], true)) {
-                        throw ValidationException::withMessages([
-                            "ships.{$shipIndex}.requested_port_call_status" => 'Pilih target status Labuh atau Sandar.',
-                        ]);
-                    }
-
-                    if ($isClearanceOut) {
-                        $hasActiveClearanceOut = ShipRequest::query()
-                            ->where('port_call_id', $portCall->id)
-                            ->whereIn('service_type', ['clearance_out', 'Keberangkatan (Clearance Out)'])
-                            ->whereNotIn('status', ['Ditolak', 'Dibatalkan'])
-                            ->exists();
-
-                        if ($hasActiveClearanceOut) {
-                            throw ValidationException::withMessages([
-                                "ships.{$shipIndex}.request_type" => 'Pengajuan Clearance Out untuk kunjungan ini sudah ada dan masih diproses.',
-                            ]);
-                        }
+                    if ($isClearanceIn && empty($shipData['requested_port_call_status'])) {
+                        $shipData['requested_port_call_status'] = 'berthed';
                     }
 
                     $requestedPortCallStatus = $isClearanceIn
@@ -2482,6 +2470,56 @@ class RequestController extends Controller
                 $item->makeHidden(['selling_price', 'attachment_path', 'supplier_invoice_path']);
             });
         });
+    }
+
+    public function completeSpk(Request $request, string $id): RedirectResponse
+    {
+        $user = $request->user();
+        if (! $user->hasAnyRole(['Owner', 'Direktur', 'Admin', 'Admin Sistem', 'Staf Operasional', 'Tim Lapangan', 'Lapangan'])) {
+            abort(403, 'Anda tidak memiliki hak akses untuk menyelesaikan SPK ini.');
+        }
+
+        $isUuid = Str::isUuid($id);
+        $portCall = $isUuid
+            ? PortCall::with('workOrder')->where('id', $id)->first()
+            : PortCall::with('workOrder')->where('job_number', $id)->first();
+
+        if (! $portCall) {
+            $shipRequest = $isUuid
+                ? ShipRequest::with('portCall.workOrder')->where('id', $id)->first()
+                : ShipRequest::with('portCall.workOrder')->where('request_number', $id)->first();
+
+            $portCall = $shipRequest?->portCall;
+        }
+
+        if (! $portCall) {
+            return redirect()->back()->with('error', 'Kunjungan kapal / SPK tidak ditemukan.');
+        }
+
+        DB::transaction(function () use ($portCall, $user): void {
+            $workOrder = $portCall->workOrder;
+            if ($workOrder) {
+                $workOrder->update([
+                    'status' => 'completed',
+                    'operational_completed_at' => $workOrder->operational_completed_at ?? now(),
+                    'closed_at' => now(),
+                ]);
+            }
+
+            $portCall->update([
+                'status' => 'completed',
+                'departed_at' => $portCall->departed_at ?? now(),
+            ]);
+
+            activity('spk')
+                ->performedOn($workOrder ?? $portCall)
+                ->causedBy($user)
+                ->log("SPK {$workOrder?->system_number} ({$portCall->job_number}) telah diselesaikan secara manual oleh {$user->name}.");
+        });
+
+        $spkLabel = $portCall->workOrder?->system_number ?? $portCall->job_number;
+
+        return redirect()->back()->with('success', "SPK {$spkLabel} berhasil diselesaikan. Seluruh pengajuan dan kegiatan operasional telah ditandai Selesai.");
     }
 
     private function authorizeAdminPricing(Request $request): void

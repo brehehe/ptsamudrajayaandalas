@@ -429,17 +429,8 @@ export default function RequestsCreate({
     const requestTypeBlockReason = (requestType: string): string | null => {
         if (!activeVisit) return 'Pilih kunjungan / job terlebih dahulu.';
 
-        if (requestType === CLEARANCE_IN) {
-            if (activeVisit.clearance_in_block_reason) {
-                return activeVisit.active_clearance_in_request_number
-                    ? `Pengajuan Clearance In untuk kunjungan ini sudah ada (${activeVisit.active_clearance_in_request_number}) dan masih diproses.`
-                    : activeVisit.clearance_in_block_reason;
-            }
-            return null;
-        }
-
-        if (requestType === CLEARANCE_OUT && !activeVisit.can_clearance_out) {
-            return 'Clearance Out tersedia setelah kapal berstatus Labuh atau Sandar.';
+        if (activeVisit.status === 'completed' || activeVisit.status === 'selesai') {
+            return 'SPK / Kunjungan kapal ini telah diselesaikan.';
         }
 
         return null;
@@ -893,11 +884,6 @@ export default function RequestsCreate({
                                                     <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-bold ${visitStatusClasses(visit.status)}`}>
                                                         {visitStatusLabel(visit.status)}
                                                     </span>
-                                                    {visit.clearance_in_block_reason && visit.status === 'scheduled' && (
-                                                        <span className="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[9.5px] font-bold bg-[#FEF3C7] text-[#D97706] dark:bg-amber-950/45 dark:text-amber-300">
-                                                            Clearance In Diproses
-                                                        </span>
-                                                    )}
                                                 </>
                                             )}
                                             <svg aria-hidden="true" className="size-4 text-[#8C9BB9]" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">

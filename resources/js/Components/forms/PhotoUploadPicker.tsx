@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
     AlertCircle,
     Camera,
@@ -292,6 +292,9 @@ export default function PhotoUploadPicker({
 
     function handleFrameClick() {
         if (isOptimizing) return;
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
         if (isBoth) {
             setShowSourceModal(true);
         } else if (isOnlyCamera) {
@@ -299,6 +302,16 @@ export default function PhotoUploadPicker({
         } else if (isOnlyGallery) {
             galleryInputRef.current?.click();
         }
+    }
+
+    function handleSelectCameraFromModal() {
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
+        setShowSourceModal(false);
+        window.setTimeout(() => {
+            setShowCameraModal(true);
+        }, 60);
     }
 
     const displayedError = error || validationError;
@@ -385,7 +398,8 @@ export default function PhotoUploadPicker({
                             </FileViewerTrigger>
                             <button
                                 type="button"
-                                onClick={() => {
+                                onClick={(e) => {
+                                    e.currentTarget.blur();
                                     if (isBoth) setShowSourceModal(true);
                                     else if (isOnlyCamera) setShowCameraModal(true);
                                     else galleryInputRef.current?.click();
@@ -425,11 +439,13 @@ export default function PhotoUploadPicker({
                 {isBoth && (
                     <PhotoSourceModal
                         show={showSourceModal}
-                        onClose={() => setShowSourceModal(false)}
-                        onSelectCamera={() => {
+                        onClose={() => {
+                            if (document.activeElement instanceof HTMLElement) {
+                                document.activeElement.blur();
+                            }
                             setShowSourceModal(false);
-                            setShowCameraModal(true);
                         }}
+                        onSelectCamera={handleSelectCameraFromModal}
                         onSelectGallery={handleGalleryFileSelected}
                         accept={accept}
                     />
@@ -457,10 +473,14 @@ export default function PhotoUploadPicker({
                 </label>
             )}
             <div
-                onClick={isOnlyGallery ? undefined : handleFrameClick}
+                onClick={isOnlyGallery ? undefined : (e) => {
+                    e.currentTarget.blur();
+                    handleFrameClick();
+                }}
                 onKeyDown={isOnlyGallery ? undefined : (e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
+                        e.currentTarget.blur();
                         handleFrameClick();
                     }
                 }}
@@ -574,11 +594,13 @@ export default function PhotoUploadPicker({
             {isBoth && (
                 <PhotoSourceModal
                     show={showSourceModal}
-                    onClose={() => setShowSourceModal(false)}
-                    onSelectCamera={() => {
+                    onClose={() => {
+                        if (document.activeElement instanceof HTMLElement) {
+                            document.activeElement.blur();
+                        }
                         setShowSourceModal(false);
-                        setShowCameraModal(true);
                     }}
+                    onSelectCamera={handleSelectCameraFromModal}
                     onSelectGallery={handleGalleryFileSelected}
                     accept={accept}
                 />
@@ -612,10 +634,17 @@ function PhotoSourceModal({
     onSelectGallery,
     accept,
 }: PhotoSourceModalProps) {
+    const handleClose = () => {
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
+        onClose();
+    };
+
     return (
         <Modal
             show={show}
-            onClose={onClose}
+            onClose={handleClose}
             maxWidth="sm"
             asBottomSheetOnMobile={true}
             panelClassName="rounded-t-[28px] sm:rounded-2xl p-0 overflow-hidden"
@@ -638,7 +667,7 @@ function PhotoSourceModal({
                     </div>
                     <button
                         type="button"
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="rounded-lg p-1.5 text-[#52658E] hover:bg-slate-100 hover:text-slate-700 dark:text-[#94A3B8] dark:hover:bg-[#1E3A5F]/50 transition-colors cursor-pointer"
                         aria-label="Tutup modal"
                     >
@@ -651,7 +680,10 @@ function PhotoSourceModal({
                     {/* Opsi 1: Kamera Langsung (Membuka Kamera Perangkat) */}
                     <button
                         type="button"
-                        onClick={onSelectCamera}
+                        onClick={(e) => {
+                            e.currentTarget.blur();
+                            onSelectCamera();
+                        }}
                         className="group flex w-full items-center gap-3.5 rounded-2xl border-2 border-[#DCEAF8] dark:border-[#1E3A5F] bg-[#F8FAFC] dark:bg-[#081B38] p-4 text-left transition-[border-color,background-color,transform] duration-150 hover:border-[#0060F4] hover:bg-[#F0F8FF] dark:hover:bg-[#0E284D] active:scale-[0.99] cursor-pointer shadow-xs"
                     >
                         <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-[#0060F4] text-white shadow-sm transition-transform group-hover:scale-105 md:bg-gradient-to-br md:from-[#0060F4] md:to-[#082870]">
@@ -675,7 +707,12 @@ function PhotoSourceModal({
                         <input
                             type="file"
                             accept={accept}
-                            onChange={onSelectGallery}
+                            onChange={(e) => {
+                                if (document.activeElement instanceof HTMLElement) {
+                                    document.activeElement.blur();
+                                }
+                                onSelectGallery(e);
+                            }}
                             title="Pilih dari galeri atau file"
                             className="absolute inset-0 h-full w-full opacity-0 cursor-pointer z-10"
                         />
@@ -700,7 +737,7 @@ function PhotoSourceModal({
                 <div className="pt-2">
                     <button
                         type="button"
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="w-full py-3 rounded-xl border border-[#DCEAF8] dark:border-[#1E3A5F] text-xs font-semibold text-[#52658E] dark:text-[#94A3B8] hover:bg-slate-100 dark:hover:bg-[#1E3A5F]/40 transition-colors cursor-pointer"
                     >
                         Batal
@@ -733,13 +770,17 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
     const [isLoading, setIsLoading] = useState(true);
 
     async function stopStream() {
+        if (videoRef.current) {
+            videoRef.current.pause();
+            videoRef.current.srcObject = null;
+        }
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track) => track.stop());
             streamRef.current = null;
         }
     }
 
-    async function initCamera(mode: 'environment' | 'user') {
+    const initCamera = useCallback(async (mode: 'environment' | 'user') => {
         setIsLoading(true);
         setCameraError(null);
         await stopStream();
@@ -771,11 +812,23 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
             streamRef.current = stream;
 
             if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
+                const video = videoRef.current;
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    if (videoRef.current) {
+                        video.play().catch((playErr) => {
+                            if (playErr.name !== 'AbortError') {
+                                console.warn('Video play warning:', playErr);
+                            }
+                        });
+                    }
+                };
             }
             setIsLoading(false);
         } catch (err: any) {
+            if (err.name === 'AbortError') {
+                return;
+            }
             console.error('Error membuka kamera:', err);
             let msg = 'Tidak dapat mengakses kamera perangkat.';
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -788,20 +841,21 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
             setCameraError(msg);
             setIsLoading(false);
         }
-    }
+    }, []);
 
     useEffect(() => {
         if (show) {
             setCapturedImage(null);
             setCapturedBlob(null);
-            initCamera(facingMode);
+            void initCamera(facingMode);
         } else {
-            stopStream();
+            void stopStream();
         }
+
         return () => {
-            stopStream();
+            void stopStream();
         };
-    }, [show, facingMode]);
+    }, [show, facingMode, initCamera]);
 
     function handleSwitchCamera() {
         setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
@@ -810,6 +864,7 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
     function handleTakePhoto() {
         if (!videoRef.current) return;
         const video = videoRef.current;
+        video.pause();
 
         const sourceWidth = video.videoWidth || 1280;
         const sourceHeight = video.videoHeight || 720;
@@ -849,7 +904,11 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
         setCapturedBlob(null);
         // Pastikan video tetap berjalan
         if (videoRef.current && streamRef.current) {
-            videoRef.current.play().catch(() => {});
+            videoRef.current.play().catch((err) => {
+                if (err.name !== 'AbortError') {
+                    console.warn('Retake play warning:', err);
+                }
+            });
         }
     }
 
@@ -858,13 +917,16 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
             const file = new File([capturedBlob], `foto-form-${Date.now()}.jpg`, {
                 type: 'image/jpeg',
             });
-            stopStream();
+            void stopStream();
             onCapture(file);
         }
     }
 
     function handleClose() {
-        stopStream();
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
+        void stopStream();
         setCapturedImage(null);
         setCapturedBlob(null);
         setCameraError(null);
@@ -874,7 +936,7 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
     function handleFallbackFile(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
         if (file) {
-            stopStream();
+            void stopStream();
             onCapture(file);
         }
     }
@@ -942,7 +1004,6 @@ export function LiveCameraModal({ show, onClose, onCapture }: LiveCameraModalPro
                             {/* Live Video */}
                             <video
                                 ref={videoRef}
-                                autoPlay
                                 playsInline
                                 muted
                                 className={`w-full h-full max-h-[65vh] object-cover sm:object-contain ${

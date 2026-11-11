@@ -571,7 +571,7 @@ test('request pages keep separate jobs for the same vessel', function () {
     ]);
 });
 
-test('request wizard disables duplicate clearance in and omits completed visits', function () {
+test('request wizard allows repeatable clearance in for active visits and omits completed visits', function () {
     $user = User::factory()->create();
     $user->assignRole(Role::firstOrCreate(['name' => 'Lapangan', 'guard_name' => 'web']));
     $company = ShipCompany::create([
@@ -635,7 +635,7 @@ test('request wizard disables duplicate clearance in and omits completed visits'
             ->component('Requests/Create')
             ->has('portCalls', 2)
             ->where('portCalls.0.id', $pendingVisit->id)
-            ->where('portCalls.0.clearance_in_block_reason', 'Pengajuan Clearance In untuk kunjungan ini sudah ada dan masih diproses.')
+            ->where('portCalls.0.clearance_in_block_reason', null)
             ->where('portCalls.1.id', $availableVisit->id)
             ->where('portCalls.1.clearance_in_block_reason', null)
         );
@@ -653,8 +653,7 @@ test('request wizard disables duplicate clearance in and omits completed visits'
                 'items' => [],
             ]],
         ])
-        ->assertRedirect(route('requests.create'))
-        ->assertSessionHasErrors('ships.0.request_type');
+        ->assertRedirect(route('requests.index'));
 
     $completedVisitPayload = [
         'ship_id' => $ship->id,
@@ -695,7 +694,7 @@ test('request wizard disables duplicate clearance in and omits completed visits'
     expect(ShipRequest::query()
         ->where('port_call_id', $pendingVisit->id)
         ->where('service_type', 'clearance_in')
-        ->count())->toBe(1);
+        ->count())->toBe(2);
     expect(ShipRequest::query()->where('port_call_id', $completedVisit->id)->count())->toBe(0);
 });
 

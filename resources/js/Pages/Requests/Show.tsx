@@ -8,6 +8,7 @@ import {
     Building2,
     CalendarDays,
     Check,
+    CheckCircle,
     CheckCircle2,
     CirclePause,
     CircleX,
@@ -39,6 +40,7 @@ import Card from '../../Components/ui/Card';
 import StatusBadge from '../../Components/ui/StatusBadge';
 import { playSjaChime } from '../../Components/feedback/AudioNotification';
 import Modal from '../../Components/overlays/Modal';
+import ConfirmDialog from '../../Components/overlays/ConfirmDialog';
 import ActionMenu, { type ActionMenuGroup, type ActionMenuItem } from '../../Components/ui/ActionMenu';
 import { formatRupiahInput, normalizeRupiahInput } from '../../Components/forms/MoneyInput';
 import MoneyInput from '../../Components/forms/MoneyInput';
@@ -222,6 +224,8 @@ interface RequestShowProps {
         can_process_requests: boolean;
         can_create_completion_notes: boolean;
         can_print_request_reports: boolean;
+        can_complete_spk?: boolean;
+        is_spk_completed?: boolean;
     };
 }
 
@@ -851,6 +855,25 @@ export default function RequestShow({
         notaRampungForm.clearErrors();
     };
 
+    const [showCompleteSpkModal, setShowCompleteSpkModal] = useState(false);
+    const [isCompletingSpk, setIsCompletingSpk] = useState(false);
+
+    const handleCompleteSpk = () => {
+        setIsCompletingSpk(true);
+        const targetId = currentJob?.job_number || currentJob?.id || activeRequest?.request_number || activeRequest?.id;
+        router.post(
+            route('requests.complete-spk', targetId),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => {
+                    setIsCompletingSpk(false);
+                    setShowCompleteSpkModal(false);
+                },
+            }
+        );
+    };
+
     const submitNotaRampung = (event: FormEvent) => {
         event.preventDefault();
         const targetId = currentJob?.job_number || currentJob?.id || activeRequest?.request_number || activeRequest?.id;
@@ -869,6 +892,16 @@ export default function RequestShow({
     const headerActionGroups = useMemo<ActionMenuGroup[]>(() => {
         const primaryItems: ActionMenuItem[] = [];
         const documentItems: ActionMenuItem[] = [];
+
+        if (capabilities.can_complete_spk) {
+            primaryItems.push({
+                id: 'complete-spk-action',
+                label: 'Selesaikan SPK',
+                icon: <CheckCircle className="size-4 text-emerald-600" />,
+                onSelect: () => setShowCompleteSpkModal(true),
+                tone: 'success',
+            });
+        }
 
         if (capabilities.can_create_requests) {
             primaryItems.push({
@@ -971,6 +1004,7 @@ export default function RequestShow({
 
         return groups;
     }, [
+        capabilities.can_complete_spk,
         capabilities.can_create_requests,
         capabilities.can_process_requests,
         capabilities.can_print_request_reports,
@@ -1639,6 +1673,21 @@ export default function RequestShow({
                 </h1>
 
                 <div className="flex items-center gap-1.5 shrink-0">
+                    {capabilities.can_complete_spk && (
+                        <button
+                            type="button"
+                            onClick={() => setShowCompleteSpkModal(true)}
+                            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 cursor-pointer"
+                        >
+                            <CheckCircle className="size-3.5" aria-hidden="true" />
+                            Selesaikan
+                        </button>
+                    )}
+                    {capabilities.is_spk_completed && (
+                        <span className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            Selesai
+                        </span>
+                    )}
                     <ActionMenu
                         label="Menu Aksi Kegiatan"
                         groups={headerActionGroups}
@@ -1754,6 +1803,22 @@ export default function RequestShow({
                     </Link>
 
                     <div className="flex items-center gap-2">
+                        {capabilities.can_complete_spk && (
+                            <button
+                                type="button"
+                                onClick={() => setShowCompleteSpkModal(true)}
+                                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 cursor-pointer"
+                            >
+                                <CheckCircle className="size-4" aria-hidden="true" />
+                                Selesaikan SPK
+                            </button>
+                        )}
+                        {capabilities.is_spk_completed && (
+                            <span className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 text-xs font-bold text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-400" />
+                                SPK Selesai
+                            </span>
+                        )}
                         <ActionMenu
                             label="Menu Aksi Kegiatan"
                             buttonLabel="Aksi Kegiatan"
@@ -4481,6 +4546,16 @@ export default function RequestShow({
                     />
                 </form>
             </Modal>
+
+            <ConfirmDialog
+                isOpen={showCompleteSpkModal}
+                onClose={() => setShowCompleteSpkModal(false)}
+                onConfirm={handleCompleteSpk}
+                processing={isCompletingSpk}
+                title="Selesaikan SPK & Kegiatan Kapal"
+                description={`Apakah Anda yakin ingin menyelesaikan SPK ${currentJob?.work_order?.system_number || currentJob?.job_number || 'ini'}? Setelah diselesaikan, seluruh pengajuan dan kegiatan operasional untuk kapal ini akan ditutup dan statusnya ditandai Selesai.`}
+                confirmLabel="Ya, Selesaikan SPK"
+            />
 
             <FileViewer
                 isOpen={viewingDocument !== null}

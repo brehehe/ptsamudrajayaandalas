@@ -5,10 +5,23 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreWorkOrderRequest;
 use App\Http\Requests\UpdateWorkOrderRequest;
 use App\Http\Requests\UpdateWorkOrderStatusRequest;
+use App\Models\ClientReceiptAllocation;
+use App\Models\CompletionNote;
+use App\Models\CostDocument;
+use App\Models\CostDocumentItem;
+use App\Models\CostReconciliation;
+use App\Models\DailyReport;
+use App\Models\ExpenseRequest;
+use App\Models\ExpenseRequestItem;
+use App\Models\Invoice;
+use App\Models\InvoiceItemSource;
+use App\Models\OperationalActivity;
+use App\Models\OutgoingPayment;
 use App\Models\Port;
 use App\Models\PortCall;
 use App\Models\Ship;
 use App\Models\ShipCompany;
+use App\Models\ShipRequest;
 use App\Models\User;
 use App\Models\WorkOrder;
 use Illuminate\Http\RedirectResponse;
@@ -99,6 +112,10 @@ class WorkOrderController extends Controller
             $workOrder->setAttribute(
                 'can_transition',
                 $nextStatus !== null && Gate::forUser($user)->allows('transition', [$workOrder, $nextStatus]),
+            );
+            $workOrder->setAttribute(
+                'can_delete',
+                $user ? Gate::forUser($user)->allows('delete', $workOrder) : false,
             );
         });
 
@@ -317,8 +334,183 @@ class WorkOrderController extends Controller
             'capabilities' => [
                 'can_view_financial' => $canViewFinancial,
                 'can_update' => Gate::forUser($user)->allows('update', $workOrder),
+                'can_delete' => Gate::forUser($user)->allows('delete', $workOrder),
             ],
         ]);
+    }
+
+    public function destroy(Request $request, WorkOrder $workOrder): RedirectResponse
+    {
+        Gate::authorize('delete', $workOrder);
+
+        $spkNumber = $workOrder->system_number;
+        $clientNumber = $workOrder->client_number;
+
+        DB::transaction(function () use ($workOrder): void {
+            // Find all port calls associated with this work order
+            $portCalls = PortCall::withTrashed()
+                ->where('work_order_id', $workOrder->id)
+                ->get();
+
+            foreach ($portCalls as $portCall) {
+                // 1. Invoices (Client Invoices - agency / reimburse / etc)
+                $invoices = Invoice::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($invoices as $invoice) {
+                    foreach ($invoice->items as $item) {
+                        InvoiceItemSource::where('invoice_item_id', $item->id)->forceDelete();
+                        $item->forceDelete();
+                    }
+                    ClientReceiptAllocation::where('invoice_id', $invoice->id)->forceDelete();
+
+                    if ($invoice->signed_document_path) {
+                        Storage::disk('public')->delete($invoice->signed_document_path);
+                    }
+                    if ($invoice->supporting_document_path) {
+                        Storage::disk('public')->delete($invoice->supporting_document_path);
+                    }
+                    if ($invoice->delivery_proof_path) {
+                        Storage::disk('public')->delete($invoice->delivery_proof_path);
+                    }
+
+                    $invoice->forceDelete();
+                }
+
+                // 2. Cost Documents (Vendor Invoices)
+                $costDocuments = CostDocument::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($costDocuments as $costDoc) {
+                    $costDoc->items()->forceDelete();
+                    $costDoc->paymentAllocations()->forceDelete();
+
+                    if ($costDoc->document_path) {
+                        Storage::disk('public')->delete($costDoc->document_path);
+                    }
+
+                    $costDoc->forceDelete();
+                }
+
+                // 3. Outgoing Payments
+                $outgoingPayments = OutgoingPayment::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($outgoingPayments as $op) {
+                    $op->allocations()->forceDelete();
+
+                    if ($op->proof_path) {
+                        Storage::disk('public')->delete($op->proof_path);
+                    }
+                    if ($op->usage_proof_path) {
+                        Storage::disk('public')->delete($op->usage_proof_path);
+                    }
+
+                    $op->forceDelete();
+                }
+
+                // 4. Ship Requests & Request Items & Histories
+                $requests = ShipRequest::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($requests as $shipReq) {
+                    $reqInvoices = Invoice::withTrashed()
+                        ->where('request_id', $shipReq->id)
+                        ->get();
+                    foreach ($reqInvoices as $rInv) {
+                        foreach ($rInv->items as $rItem) {
+                            InvoiceItemSource::where('invoice_item_id', $rItem->id)->forceDelete();
+                            $rItem->forceDelete();
+                        }
+                        ClientReceiptAllocation::where('invoice_id', $rInv->id)->forceDelete();
+                        $rInv->forceDelete();
+                    }
+
+                    foreach ($shipReq->items as $rItem) {
+                        CostDocumentItem::where('request_item_id', $rItem->id)->forceDelete();
+                        InvoiceItemSource::where('request_item_id', $rItem->id)->forceDelete();
+                        ExpenseRequestItem::where('request_item_id', $rItem->id)->forceDelete();
+
+                        if ($rItem->attachment_path) {
+                            Storage::disk('public')->delete($rItem->attachment_path);
+                        }
+                        if ($rItem->supplier_invoice_path) {
+                            Storage::disk('public')->delete($rItem->supplier_invoice_path);
+                        }
+
+                        $rItem->forceDelete();
+                    }
+
+                    $shipReq->histories()->forceDelete();
+                    $shipReq->forceDelete();
+                }
+
+                // 5. Expense Requests
+                $expenseRequests = ExpenseRequest::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($expenseRequests as $exp) {
+                    $exp->items()->forceDelete();
+                    $exp->forceDelete();
+                }
+
+                // 6. Operational Activities
+                $activities = OperationalActivity::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($activities as $act) {
+                    if ($act->photo_path) {
+                        Storage::disk('public')->delete($act->photo_path);
+                    }
+                    $act->forceDelete();
+                }
+
+                // 7. Daily Reports
+                DailyReport::where('port_call_id', $portCall->id)->forceDelete();
+
+                // 8. Completion Notes (Nota Rampung)
+                $completionNotes = CompletionNote::withTrashed()
+                    ->where('port_call_id', $portCall->id)
+                    ->get();
+
+                foreach ($completionNotes as $cn) {
+                    if ($cn->document_path) {
+                        Storage::disk('public')->delete($cn->document_path);
+                    }
+                    if ($cn->reconciliation) {
+                        $cn->reconciliation->forceDelete();
+                    }
+                    $cn->forceDelete();
+                }
+
+                // 9. Cost Reconciliation
+                CostReconciliation::where('port_call_id', $portCall->id)->forceDelete();
+
+                // 10. Delete the PortCall
+                $portCall->forceDelete();
+            }
+
+            // 11. WorkOrder items & files
+            $workOrder->items()->forceDelete();
+
+            if ($workOrder->document_path) {
+                Storage::disk('public')->delete($workOrder->document_path);
+            }
+
+            // 12. Delete the WorkOrder itself
+            $workOrder->forceDelete();
+        });
+
+        $label = $clientNumber ? "{$spkNumber} ({$clientNumber})" : $spkNumber;
+
+        return redirect()->route('work-orders.index')
+            ->with('success', "SPK {$label} beserta seluruh data pengajuan, invoice vendor, tagihan invoice, dan seluruh riwayat operasional terkait berhasil dihapus.");
     }
 
     public function create(Request $request): Response

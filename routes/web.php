@@ -61,6 +61,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/work-orders', [WorkOrderController::class, 'store'])->name('work-orders.store');
     Route::get('/work-orders/{workOrder}/edit', [WorkOrderController::class, 'edit'])->name('work-orders.edit');
     Route::patch('/work-orders/{workOrder}', [WorkOrderController::class, 'update'])->name('work-orders.update');
+    Route::delete('/work-orders/{workOrder}', [WorkOrderController::class, 'destroy'])->name('work-orders.destroy');
     Route::get('/work-orders/{workOrder}/detail', [WorkOrderController::class, 'show'])->name('work-orders.detail');
     Route::patch('/work-orders/{workOrder}/status', [WorkOrderController::class, 'updateStatus'])->name('work-orders.status');
     Route::get('/work-orders/{workOrder}/document', [WorkOrderController::class, 'download'])->name('work-orders.document');
@@ -100,6 +101,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/requests/{id}/split-invoices', [RequestController::class, 'splitInvoices'])->name('requests.split-invoices');
     Route::post('/requests/{id}/items', [RequestController::class, 'addItem'])->name('requests.items.store');
     Route::post('/requests/{id}/taktis-supplement', [RequestController::class, 'storeTaktisSupplement'])->name('requests.taktis-supplement');
+    Route::post('/requests/{id}/complete-spk', [RequestController::class, 'completeSpk'])->name('requests.complete-spk')->where('id', '.*');
     Route::post('/requests/{id}/nota-rampung-kurang-bayar', [RequestController::class, 'storeNotaRampungKurangBayar'])->name('requests.nota-rampung-kurang-bayar')->where('id', '.*');
     Route::get('/request-items/{requestItem}/attachment', [RequestController::class, 'downloadItemAttachment'])->name('request-items.attachment');
     Route::post('/request-items/{requestItem}/supplier-invoice', [RequestItemSupplierInvoiceController::class, 'store'])->name('request-items.supplier-invoice.store');

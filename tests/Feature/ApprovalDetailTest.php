@@ -628,6 +628,8 @@ test('approvals index hpp totals respect date filters and approved hpp only coun
 });
 
 test('bu titik and pak ryan partial approval and resubmission workflow records full audit history', function () {
+    $this->travelTo('2026-11-03 10:00:00');
+
     $adminRole = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
     $directorRole = Role::firstOrCreate(['name' => 'Direktur', 'guard_name' => 'web']);
 
@@ -736,6 +738,7 @@ test('bu titik and pak ryan partial approval and resubmission workflow records f
         );
 
     // Step 4: The next day (2026-11-04), Bu Titik re-submits Item 2 to Pak Ryan with a new date
+    $this->travelTo('2026-11-04 10:00:00');
     $resubmitResponse = $this->actingAs($buTitik)->post(route('requests.forward-director', $shipRequest->id), [
         'selected_items' => [$item2->id],
         'item_prices' => [
@@ -746,7 +749,7 @@ test('bu titik and pak ryan partial approval and resubmission workflow records f
     ]);
     $resubmitResponse->assertRedirect();
 
-    $shipRequest->refresh();
+    $shipRequest->refresh()->load('histories');
     $item2->refresh();
 
     expect($item2->status)->toBe('diajukan_ke_direktur');

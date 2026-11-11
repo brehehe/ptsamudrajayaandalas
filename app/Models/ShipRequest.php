@@ -86,7 +86,9 @@ class ShipRequest extends Model
 
     public function histories(): HasMany
     {
-        return $this->hasMany(RequestHistory::class, 'request_id')->orderBy('action_date', 'asc');
+        return $this->hasMany(RequestHistory::class, 'request_id')
+            ->orderBy('created_at', 'asc')
+            ->orderBy('action_date', 'asc');
     }
 
     /**
