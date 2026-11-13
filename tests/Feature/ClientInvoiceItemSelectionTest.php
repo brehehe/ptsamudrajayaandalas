@@ -195,7 +195,7 @@ test('an item already used by an invoice cannot be billed twice', function () {
     $this->assertDatabaseCount('invoice_items', 0);
 });
 
-test('backend rejects selected items whose billing type does not match the invoice type', function () {
+test('backend allows selecting items regardless of master data billing type and locks them once saved', function () {
     $admin = clientInvoiceAdmin();
     $workflow = clientInvoiceWorkflow($admin);
 
@@ -207,9 +207,21 @@ test('backend rejects selected items whose billing type does not match the invoi
         'due_date' => now()->addDays(14)->toDateString(),
     ]);
 
-    $response->assertSessionHasErrors('lines');
-    $this->assertDatabaseCount('invoices', 0);
-    expect($workflow['reimburseItem']->fresh()->is_invoiced)->toBeFalse();
+    $response->assertSessionHasNoErrors();
+    $this->assertDatabaseCount('invoices', 1);
+    expect($workflow['reimburseItem']->fresh()->is_invoiced)->toBeTrue();
+
+    // Pastikan ketika item sudah terpilih dan disimpan dalam invoice, item tersebut dikunci dan tidak bisa dipakai di invoice lain
+    $secondResponse = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'lines' => [clientInvoiceLine($workflow['reimburseItem'], 150000)],
+        'invoice_type' => 'reimburse',
+        'due_date' => now()->addDays(14)->toDateString(),
+    ]);
+
+    $secondResponse->assertSessionHasErrors('lines');
+    $this->assertDatabaseCount('invoices', 1);
 });
 
 test('admin can open create and edit pages and update a draft item final price', function () {

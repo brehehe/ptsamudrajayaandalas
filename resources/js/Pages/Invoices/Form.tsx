@@ -178,7 +178,6 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
     );
     const itemUnavailableReason = (item: SourceItem): string | null => {
         if (item.unavailable_reason) return item.unavailable_reason;
-        if (item.billing_type !== form.data.invoice_type) return item.billing_type === 'agency' ? 'Khusus invoice Jasa Keagenan' : 'Khusus invoice Reimbursement';
         return null;
     };
     const availableItems = jobItems.filter((item) => !itemUnavailableReason(item));
@@ -579,7 +578,19 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                     <FormErrorSummary errors={form.errors} />
                     <Card title="Jenis dan Job Invoice" titleLevel={2} subtitle="Pilihan Job mengikuti perusahaan dan kapal pada SPK." padding="none">
                         <div className="grid min-w-0 gap-3 p-4 sm:grid-cols-2 sm:p-5 2xl:grid-cols-4">
-                            <SelectSearch required name="invoice_type" label="Tipe Invoice" value={form.data.invoice_type} onChange={(value) => form.setData((data) => ({ ...data, invoice_type: String(value) as 'agency' | 'reimburse', lines: [] }))} options={[{ value: 'agency', label: 'Jasa Keagenan' }, { value: 'reimburse', label: 'Reimbursement' }]} clearable={false} error={form.errors.invoice_type} />
+                            <SelectSearch required name="invoice_type" label="Tipe Invoice" value={form.data.invoice_type} onChange={(value) => {
+                                const nextType = String(value) as 'agency' | 'reimburse';
+                                const oldDefault = defaultSectionTitle(form.data.invoice_type);
+                                const newDefault = defaultSectionTitle(nextType);
+                                form.setData((data) => ({
+                                    ...data,
+                                    invoice_type: nextType,
+                                    lines: data.lines.map((line) => ({
+                                        ...line,
+                                        section_title: (!line.section_title || line.section_title === oldDefault) ? newDefault : line.section_title,
+                                    })),
+                                }));
+                            }} options={[{ value: 'agency', label: 'Jasa Keagenan' }, { value: 'reimburse', label: 'Reimbursement' }]} clearable={false} error={form.errors.invoice_type} />
                             <SelectSearch required name="company_id" label="Perusahaan" value={companyId} onChange={(value) => {
                                 const nextCompanyId = String(value); setCompanyId(nextCompanyId); setShipId('');
                                 form.setData((data) => ({ ...data, company_id: nextCompanyId, port_call_id: '', lines: [] }));
@@ -640,7 +651,16 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
                                 const unavailableReason = itemUnavailableReason(item);
                                 return <div key={item.id} className={`min-w-0 rounded-xl border p-3 ${unavailableReason ? 'border-[#DCEAF8] bg-[#F8FBFF] opacity-70 dark:border-[#1E3A5F] dark:bg-[#071322]' : 'border-[#B9D9FF] bg-white dark:border-[#285585] dark:bg-[#0C1D36]'}`}>
                                     <Checkbox id={`invoice-source-${item.id}`} checked={selectedSourceIds.has(item.id)} disabled={Boolean(unavailableReason)} onChange={(event) => toggleSource(item, event.target.checked)} label={item.item_name} description={`${item.request_number} · ${Number(item.quantity).toLocaleString('id-ID')} ${item.unit}`} />
-                                    <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px]"><span className="min-w-0 whitespace-normal text-[#52658E] [overflow-wrap:anywhere]">{item.vendor_name || 'Tanpa vendor'}</span><span className="shrink-0 whitespace-nowrap font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">HPP {money(item.hpp_total)}</span>{!unavailableReason && <StatusBadge status="Aktif" label="Siap" size="sm" />}</div>
+                                    <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px]">
+                                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                            <span className="min-w-0 whitespace-normal text-[#52658E] [overflow-wrap:anywhere]">{item.vendor_name || 'Tanpa vendor'}</span>
+                                            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[#F0F4F9] text-[#52658E] dark:bg-[#1E3A5F] dark:text-[#94A3B8]">
+                                                {item.billing_type === 'agency' ? 'Jasa' : 'Reimburse'}
+                                            </span>
+                                        </div>
+                                        <span className="shrink-0 whitespace-nowrap font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">HPP {money(item.hpp_total)}</span>
+                                        {!unavailableReason && <StatusBadge status="Aktif" label="Siap" size="sm" />}
+                                    </div>
                                     {unavailableReason && <p className="mt-2 text-[11px] font-semibold text-[#A65300]">{unavailableReason}</p>}
                                 </div>;
                             })}

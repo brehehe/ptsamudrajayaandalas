@@ -430,12 +430,6 @@ class InvoiceController extends Controller
             if ($item->is_invoiced && ! $currentItemIds->contains($item->id)) {
                 throw ValidationException::withMessages(['lines' => "Item {$item->item_name} sudah ditagihkan."]);
             }
-
-            $billingType = $item->isJasa() ? 'agency' : 'reimburse';
-            if ($billingType !== $validated['invoice_type']) {
-                $typeLabel = $billingType === 'agency' ? 'Jasa Keagenan' : 'Reimbursement';
-                throw ValidationException::withMessages(['lines' => "Item {$item->item_name} hanya dapat masuk invoice {$typeLabel}."]);
-            }
         }
 
         $hasCustomAllocations = $lines->contains(
