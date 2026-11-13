@@ -55,3 +55,21 @@ test('daily report returns field-level Laravel validation errors', function () {
             'summary' => 'Ringkasan aktivitas wajib diisi.',
         ]);
 });
+
+test('invoice creation returns clear Indonesian validation messages for missing fields and present rules', function () {
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']));
+
+    $response = $this->actingAs($admin)
+        ->from(route('invoices.create'))
+        ->post(route('invoices.store'), []);
+
+    $response->assertRedirect(route('invoices.create'))
+        ->assertSessionHasErrors([
+            'port_call_id' => 'Pilih Job kunjungan kapal terlebih dahulu.',
+            'company_id' => 'Perusahaan klien wajib dipilih.',
+            'invoice_type' => 'Tipe invoice wajib dipilih.',
+            'due_date' => 'Tanggal jatuh tempo wajib diisi.',
+            'lines' => 'Tambahkan minimal satu baris tagihan.',
+        ]);
+});
