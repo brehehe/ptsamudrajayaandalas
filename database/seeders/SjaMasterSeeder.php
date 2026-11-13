@@ -6,8 +6,6 @@ use App\Models\Port;
 use App\Models\Product;
 use App\Models\ProductPortPrice;
 use App\Models\ServiceType;
-use App\Models\Ship;
-use App\Models\ShipCompany;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Database\Seeder;
@@ -16,7 +14,11 @@ use Spatie\Permission\Models\Role;
 
 class SjaMasterSeeder extends Seeder
 {
-    public function run(): void
+    public function __construct(
+        public bool $withDummyFleet = false
+    ) {}
+
+    public function run(bool $withDummyFleet = false): void
     {
         // 1. Roles: Owner, Direktur, Admin, Lapangan
         $roles = [
@@ -70,37 +72,7 @@ class SjaMasterSeeder extends Seeder
             $user->syncRoles([$u['role']]);
         }
 
-        // 3. Perusahaan / Klien (data pengembangan, bukan data produksi)
-        $companyData = [
-            [
-                'code' => 'DEMO-CLIENT-01',
-                'name' => 'PT Pelayaran Demo Nusantara',
-                'address' => null,
-                'phone' => null,
-                'email' => null,
-                'is_active' => true,
-            ],
-            [
-                'code' => 'DEMO-CLIENT-02',
-                'name' => 'PT Armada Demo Indonesia',
-                'address' => null,
-                'phone' => null,
-                'email' => null,
-                'is_active' => true,
-            ],
-        ];
-
-        $savedCompanies = [];
-        foreach ($companyData as $company) {
-            $savedCompany = ShipCompany::withTrashed()->updateOrCreate(
-                ['code' => $company['code']],
-                $company,
-            );
-            $savedCompany->restore();
-            $savedCompanies[$company['code']] = $savedCompany;
-        }
-
-        // 4. Pelabuhan
+        // 3. Pelabuhan
         $portData = [
             ['code' => 'IDGRS', 'name' => 'Pelabuhan Gresik', 'city' => 'Gresik', 'country' => 'ID', 'timezone' => 'Asia/Jakarta', 'is_active' => true],
             ['code' => 'IDSUB', 'name' => 'Pelabuhan Tanjung Perak', 'city' => 'Surabaya', 'country' => 'ID', 'timezone' => 'Asia/Jakarta', 'is_active' => true],
@@ -118,63 +90,7 @@ class SjaMasterSeeder extends Seeder
             $savedPorts[$port['code']] = $savedPort;
         }
 
-        // 5. Kapal (data pengembangan, tanpa identitas IMO rekaan)
-        $shipData = [
-            [
-                'company_code' => 'DEMO-CLIENT-01',
-                'port_code' => 'IDGRS',
-                'name' => 'MV Demo Nusantara',
-                'ship_type' => 'General Cargo',
-                'flag' => 'Indonesia',
-            ],
-            [
-                'company_code' => 'DEMO-CLIENT-01',
-                'port_code' => 'IDSUB',
-                'name' => 'MT Demo Andalas',
-                'ship_type' => 'Tanker',
-                'flag' => 'Indonesia',
-            ],
-            [
-                'company_code' => 'DEMO-CLIENT-02',
-                'port_code' => 'IDMYR',
-                'name' => 'TB Demo Bahari',
-                'ship_type' => 'Tugboat',
-                'flag' => 'Indonesia',
-            ],
-            [
-                'company_code' => 'DEMO-CLIENT-02',
-                'port_code' => 'IDPKG',
-                'name' => 'KM Demo Samudra',
-                'ship_type' => 'Supply Vessel',
-                'flag' => 'Indonesia',
-            ],
-        ];
-
-        foreach ($shipData as $ship) {
-            $company = $savedCompanies[$ship['company_code']];
-            $port = $savedPorts[$ship['port_code']];
-            $savedShip = Ship::withTrashed()->updateOrCreate(
-                [
-                    'ship_company_id' => $company->id,
-                    'name' => $ship['name'],
-                ],
-                [
-                    'port_id' => $port->id,
-                    'imo_number' => null,
-                    'call_sign' => null,
-                    'flag' => $ship['flag'],
-                    'ship_type' => $ship['ship_type'],
-                    'status' => 'Akan Datang',
-                    'eta' => null,
-                    'agent_name' => null,
-                    'image' => null,
-                    'is_active' => true,
-                ],
-            );
-            $savedShip->restore();
-        }
-
-        // 6. Service Types (Default Sandar & Labuh)
+        // 4. Service Types (Default Sandar & Labuh)
         $serviceTypes = [
             ['code' => 'SDR', 'name' => 'Sandar', 'description' => 'Kegiatan kapal bersandar di dermaga pelabuhan.', 'is_default' => true],
             ['code' => 'LBH', 'name' => 'Labuh', 'description' => 'Kegiatan kapal berlabuh jangkar di area perairan / anchorage.', 'is_default' => true],
@@ -186,7 +102,7 @@ class SjaMasterSeeder extends Seeder
             ServiceType::updateOrCreate(['code' => $st['code']], $st);
         }
 
-        // 7. Vendors
+        // 5. Vendors
         $vendorData = [
             ['code' => 'VND-PELINDO', 'name' => 'PT Pelabuhan Indonesia (Persero)', 'phone' => '031-3298631', 'email' => 'pelayanan@pelindo.co.id', 'address' => 'Jl. Tanjung Perak Timur No. 610, Surabaya'],
             ['code' => 'VND-PERTAMINA', 'name' => 'PT Pertamina Patra Niaga', 'phone' => '135', 'email' => 'bunker@pertamina.com', 'address' => 'Jl. Perak Barat No. 277, Surabaya'],
@@ -197,15 +113,17 @@ class SjaMasterSeeder extends Seeder
 
         $savedVendors = [];
         foreach ($vendorData as $vd) {
-            $savedVendors[$vd['code']] = Vendor::updateOrCreate(['code' => $vd['code']], $vd);
+            $savedVendor = Vendor::withTrashed()->updateOrCreate(['code' => $vd['code']], $vd);
+            $savedVendor->restore();
+            $savedVendors[$vd['code']] = $savedVendor;
         }
 
-        // 8. Ports for product price references
+        // 6. Ports for product price references
         $ports = Port::where('is_active', true)->get();
         $gresikPort = $ports->firstWhere('code', 'IDGRS') ?? $ports->first();
         $perakPort = $ports->firstWhere('code', 'IDSUB') ?? $ports->skip(1)->first();
 
-        // 9. Master Products (Jasa & Non-Jasa)
+        // 7. Master Products (Jasa & Non-Jasa)
         $products = [
             // JASA
             [
@@ -455,6 +373,11 @@ class SjaMasterSeeder extends Seeder
                     ]
                 );
             }
+        }
+
+        // 8. Opsional: Dummy fleet (hanya dijalankan jika diminta secara eksplisit)
+        if ($this->withDummyFleet || $withDummyFleet) {
+            $this->call(SjaDemoFleetSeeder::class);
         }
     }
 }
