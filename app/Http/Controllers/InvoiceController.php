@@ -242,7 +242,6 @@ class InvoiceController extends Controller
                     $query->orWhereKey($editingPortCallId);
                 }
             })
-            ->whereHas('requests.items')
             ->latest('departed_at')
             ->get(['id', 'job_number', 'work_order_id', 'ship_id', 'port_id', 'eta_at', 'etd_at', 'departed_at'])
             ->map(fn (PortCall $portCall): array => [
@@ -379,12 +378,6 @@ class InvoiceController extends Controller
             ->unique()
             ->values();
 
-        if ($selectedIds->isEmpty()) {
-            throw ValidationException::withMessages([
-                'lines' => 'Pilih minimal satu item sumber dari pengajuan agar HPP dan margin tetap dapat ditelusuri.',
-            ]);
-        }
-
         $currentInvoiceItems = $invoice?->items()->with('sources')->get() ?? collect();
         $currentItemIds = $currentInvoiceItems
             ->flatMap(fn ($item) => $item->sources->pluck('request_item_id')->push($item->request_item_id))
@@ -436,9 +429,9 @@ class InvoiceController extends Controller
             fn ($l) => isset($l['allocated_hpp']) && $l['allocated_hpp'] !== null && $l['allocated_hpp'] !== ''
         );
 
-        if ($hasCustomAllocations) {
+        if ($selectedIds->isNotEmpty() && $hasCustomAllocations) {
             $totalAllocatedHpp = BigDecimal::zero();
-            foreach ($lines as $line) {
+            foreach ($lines->filter(fn ($l) => ! empty($l['source_item_ids'])) as $line) {
                 $lineHpp = BigDecimal::of((string) ($line['allocated_hpp'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
                 $totalAllocatedHpp = $totalAllocatedHpp->plus($lineHpp);
             }
@@ -503,7 +496,7 @@ class InvoiceController extends Controller
         $invoiceAttributes = [
             'port_call_id' => $portCall->id,
             'company_id' => $validated['company_id'],
-            'request_id' => $requestItems->first()?->request_id,
+            'request_id' => $requestItems->first()?->request_id ?? $portCall->requests()->first()?->id,
             'invoice_type' => $validated['invoice_type'],
             'subject' => filled($validated['subject'] ?? null) ? trim($validated['subject']) : null,
             'origin_port_name' => filled($validated['origin_port_name'] ?? null) ? trim($validated['origin_port_name']) : null,

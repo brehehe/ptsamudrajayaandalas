@@ -590,3 +590,68 @@ test('invoice line description supports longtext exceeding 255 characters on cre
     $item = $invoice->items()->firstOrFail();
     expect($item->description)->toBe(trim($longDescription));
 });
+
+test('admin can create and update an invoice with custom lines without selecting any source items from pengajuan', function () {
+    $admin = clientInvoiceAdmin();
+    $workflow = clientInvoiceWorkflow($admin);
+
+    $response = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Manual Tanpa Sumber Biaya',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '2000000',
+                'total_price' => '2000000',
+                'source_item_ids' => [],
+            ],
+        ],
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $invoice = Invoice::query()->latest('id')->firstOrFail();
+
+    expect((float) $invoice->subtotal)->toBe(2000000.0)
+        ->and((float) $invoice->grand_total)->toBe(2000000.0);
+
+    $item = $invoice->items()->firstOrFail();
+    expect($item->is_custom)->toBeTrue()
+        ->and($item->request_item_id)->toBeNull()
+        ->and($item->sources)->toBeEmpty();
+
+    // Pastikan tidak ada item pengajuan yang terkunci
+    expect($workflow['agencyItem']->fresh()->is_invoiced)->toBeFalse()
+        ->and($workflow['reimburseItem']->fresh()->is_invoiced)->toBeFalse();
+});
+
+test('admin can create invoice when lines omit source_item_ids entirely like browser FormData does', function () {
+    $admin = clientInvoiceAdmin();
+    $workflow = clientInvoiceWorkflow($admin);
+
+    $response = $this->actingAs($admin)->post(route('invoices.store'), [
+        'port_call_id' => $workflow['portCall']->id,
+        'company_id' => $workflow['company']->id,
+        'invoice_type' => 'agency',
+        'due_date' => now()->addDays(14)->toDateString(),
+        'lines' => [
+            [
+                'section_title' => 'Biaya Keagenan',
+                'description' => 'Jasa Keagenan Manual Omitted Key',
+                'quantity' => '1',
+                'unit' => 'Paket',
+                'unit_price' => '3000000',
+                'total_price' => '3000000',
+                // source_item_ids sengaja tidak disertakan (perilaku browser FormData)
+            ],
+        ],
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $invoice = Invoice::query()->latest('id')->firstOrFail();
+    expect((float) $invoice->subtotal)->toBe(3000000.0);
+});

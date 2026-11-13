@@ -645,315 +645,330 @@ export default function InvoiceForm({ companies, portCalls, shipRequests, invoic
 
                     <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.12fr)_minmax(26rem,0.88fr)]">
                         <div className="min-w-0 space-y-4">
-                    <Card title="Sumber Biaya" titleLevel={2} subtitle="Pilih item pengajuan yang menjadi dasar tagihan. Item yang sudah dipakai invoice lain tidak dapat dipilih." padding="none" actions={availableItems.length > 0 ? <Checkbox id="select-all-invoice-sources" checked={availableItems.every((item) => selectedSourceIds.has(item.id))} onChange={(event) => selectAllSources(event.target.checked)} label="Pilih semua" /> : null}>
-                        <div className="grid min-w-0 gap-2 p-4 sm:grid-cols-2 sm:p-5">
-                            {jobItems.map((item) => {
-                                const unavailableReason = itemUnavailableReason(item);
-                                return <div key={item.id} className={`min-w-0 rounded-xl border p-3 ${unavailableReason ? 'border-[#DCEAF8] bg-[#F8FBFF] opacity-70 dark:border-[#1E3A5F] dark:bg-[#071322]' : 'border-[#B9D9FF] bg-white dark:border-[#285585] dark:bg-[#0C1D36]'}`}>
-                                    <Checkbox id={`invoice-source-${item.id}`} checked={selectedSourceIds.has(item.id)} disabled={Boolean(unavailableReason)} onChange={(event) => toggleSource(item, event.target.checked)} label={item.item_name} description={`${item.request_number} · ${Number(item.quantity).toLocaleString('id-ID')} ${item.unit}`} />
-                                    <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px]">
-                                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                            <span className="min-w-0 whitespace-normal text-[#52658E] [overflow-wrap:anywhere]">{item.vendor_name || 'Tanpa vendor'}</span>
-                                            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[#F0F4F9] text-[#52658E] dark:bg-[#1E3A5F] dark:text-[#94A3B8]">
-                                                {item.billing_type === 'agency' ? 'Jasa' : 'Reimburse'}
-                                            </span>
-                                        </div>
-                                        <span className="shrink-0 whitespace-nowrap font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">HPP {money(item.hpp_total)}</span>
-                                        {!unavailableReason && <StatusBadge status="Aktif" label="Siap" size="sm" />}
-                                    </div>
-                                    {unavailableReason && <p className="mt-2 text-[11px] font-semibold text-[#A65300]">{unavailableReason}</p>}
-                                </div>;
-                            })}
-                            {jobItems.length === 0 && <p className="rounded-xl border border-dashed border-[#DCEAF8] px-4 py-8 text-center text-sm font-semibold text-[#52658E] dark:border-[#1E3A5F] sm:col-span-2">{form.data.port_call_id ? 'Data Tidak Ditemukan' : 'Pilih Job untuk melihat item'}</p>}
-                        </div>
-                    </Card>
-
-                    <Card padding="none" header={<div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><h2 className="text-base font-extrabold leading-snug text-[#0B1F63] dark:text-[#F1F5F9]">Rincian Invoice</h2><p className="mt-0.5 whitespace-normal text-xs text-[#52658E] [overflow-wrap:anywhere] dark:text-[#94A3B8]">Nama, kuantitas, satuan, dan harga jual dapat disesuaikan. Gabungkan atau pecah baris tanpa kehilangan sumber biaya.</p></div><div className="flex min-w-0 flex-wrap justify-end gap-2 sm:shrink-0"><Button className="min-h-11 min-w-[10rem] flex-1 sm:min-w-0 sm:flex-none" type="button" variant="outline" size="sm" onClick={mergeSelectedSources} disabled={form.data.lines.filter((line) => line.source_item_ids.length > 0).length < 2}><Merge aria-hidden="true" className="size-4" /> Gabungkan Terpilih</Button><Button className="min-h-11 min-w-[10rem] flex-1 sm:min-w-0 sm:flex-none" type="button" variant="outline" size="sm" onClick={addCustomLine}><Plus aria-hidden="true" className="size-4" /> Tambah Baris</Button></div></div>}>
-                        <div className="space-y-3 p-4 sm:p-5">
-                            {totalSelectedHpp > 0 && (
-                                <div className="mb-2">
-                                    {isHppBalanced ? (
-                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-                                            <div className="flex items-center gap-2.5">
-                                                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white font-black text-xs">✓</span>
-                                                <div>
-                                                    <p className="font-extrabold text-sm text-emerald-900 dark:text-emerald-100">Alokasi HPP Sumber Seimbang (100% Pas)</p>
-                                                    <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
-                                                        Total HPP baris ({money(totalAllocatedHpp)}) sama persis dengan total HPP item pengajuan terpilih ({money(totalSelectedHpp)}).
-                                                    </p>
+                            <Card title="Sumber Biaya" titleLevel={2} subtitle="Opsional: Pilih item pengajuan sebagai dasar tagihan, atau lewati bagian ini jika ingin langsung menambahkan baris tagihan manual di bawah." padding="none" actions={availableItems.length > 0 ? <Checkbox id="select-all-invoice-sources" checked={availableItems.every((item) => selectedSourceIds.has(item.id))} onChange={(event) => selectAllSources(event.target.checked)} label="Pilih semua" /> : null}>
+                                <div className="grid min-w-0 gap-2 p-4 sm:grid-cols-2 sm:p-5">
+                                    {jobItems.map((item) => {
+                                        const unavailableReason = itemUnavailableReason(item);
+                                        return <div key={item.id} className={`min-w-0 rounded-xl border p-3 ${unavailableReason ? 'border-[#DCEAF8] bg-[#F8FBFF] opacity-70 dark:border-[#1E3A5F] dark:bg-[#071322]' : 'border-[#B9D9FF] bg-white dark:border-[#285585] dark:bg-[#0C1D36]'}`}>
+                                            <Checkbox id={`invoice-source-${item.id}`} checked={selectedSourceIds.has(item.id)} disabled={Boolean(unavailableReason)} onChange={(event) => toggleSource(item, event.target.checked)} label={item.item_name} description={`${item.request_number} · ${Number(item.quantity).toLocaleString('id-ID')} ${item.unit}`} />
+                                            <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px]">
+                                                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                    <span className="min-w-0 whitespace-normal text-[#52658E] [overflow-wrap:anywhere]">{item.vendor_name || 'Tanpa vendor'}</span>
+                                                    <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[#F0F4F9] text-[#52658E] dark:bg-[#1E3A5F] dark:text-[#94A3B8]">
+                                                        {item.billing_type === 'agency' ? 'Jasa' : 'Reimburse'}
+                                                    </span>
                                                 </div>
+                                                <span className="shrink-0 whitespace-nowrap font-bold tabular-nums text-[#0B1F63] dark:text-[#F1F5F9]">HPP {money(item.hpp_total)}</span>
+                                                {!unavailableReason && <StatusBadge status="Aktif" label="Siap" size="sm" />}
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="rounded-lg bg-emerald-200/70 px-2.5 py-1 text-xs font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
-                                                    Selisih: Rp 0
-                                                </span>
-                                                <Button type="button" variant="ghost" size="sm" onClick={resetHppToDefault} className="text-xs text-emerald-800 hover:bg-emerald-100 dark:text-emerald-200">
-                                                    Reset Proporsional
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ) : hppDifference > 0 ? (
-                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-rose-400 bg-rose-50 px-4 py-3 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-100">
-                                            <div className="flex items-center gap-2.5">
-                                                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-600 text-white font-black text-xs">!</span>
-                                                <div>
-                                                    <p className="font-black text-sm text-rose-900 dark:text-rose-100">
-                                                        Kelebihan Alokasi HPP ({money(hppDifference)}) — Tidak Boleh Lebih!
-                                                    </p>
-                                                    <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
-                                                        Total baris: <strong>{money(totalAllocatedHpp)}</strong> &gt; Item terpilih: <strong>{money(totalSelectedHpp)}</strong>. Sesuaikan HPP pada baris agar pas.
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <Button type="button" variant="outline" size="sm" onClick={autoBalanceHpp} className="bg-white text-xs font-bold text-rose-800 border-rose-300 hover:bg-rose-100 dark:bg-slate-900">
-                                                    Seimbangkan Otomatis
-                                                </Button>
-                                                <Button type="button" variant="ghost" size="sm" onClick={resetHppToDefault} className="text-xs text-rose-800 hover:bg-rose-100 dark:text-rose-200">
-                                                    Reset Proporsional
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
-                                            <div className="flex items-center gap-2.5">
-                                                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-white font-black text-xs">!</span>
-                                                <div>
-                                                    <p className="font-black text-sm text-amber-900 dark:text-amber-100">
-                                                        Kekurangan Alokasi HPP ({money(Math.abs(hppDifference))}) — Tidak Boleh Kurang!
-                                                    </p>
-                                                    <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
-                                                        Total baris: <strong>{money(totalAllocatedHpp)}</strong> &lt; Item terpilih: <strong>{money(totalSelectedHpp)}</strong>. Tambahkan ke salah satu baris agar pas.
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <Button type="button" variant="outline" size="sm" onClick={autoBalanceHpp} className="bg-white text-xs font-bold text-amber-900 border-amber-300 hover:bg-amber-100 dark:bg-slate-900">
-                                                    Seimbangkan Otomatis
-                                                </Button>
-                                                <Button type="button" variant="ghost" size="sm" onClick={resetHppToDefault} className="text-xs text-amber-900 hover:bg-amber-100 dark:text-amber-200">
-                                                    Reset Proporsional
-                                                </Button>
-                                            </div>
-                                        </div>
+                                            {unavailableReason && <p className="mt-2 text-[11px] font-semibold text-[#A65300]">{unavailableReason}</p>}
+                                        </div>;
+                                    })}
+                                    {jobItems.length === 0 && (
+                                        <p className="rounded-xl border border-dashed border-[#DCEAF8] px-4 py-8 text-center text-sm font-semibold text-[#52658E] dark:border-[#1E3A5F] sm:col-span-2">
+                                            {form.data.port_call_id
+                                                ? 'Tidak ada item pengajuan pada Job ini. Anda dapat melewati bagian ini dan langsung menggunakan tombol "Tambah Baris" di bawah.'
+                                                : 'Pilih Job untuk melihat item pengajuan (opsional)'}
+                                        </p>
                                     )}
                                 </div>
-                            )}
+                            </Card>
 
-                            {form.data.lines.map((line, index) => {
-                                const sourceNames = line.source_item_ids.map((sourceId) => jobItems.find((item) => item.id === sourceId)?.item_name).filter(Boolean);
-                                const lineTotal = invoiceLineTotal(line);
-                                const unitPrice = Number(line.quantity || 0) > 0 ? (lineTotal / Number(line.quantity)) : lineTotal;
-                                const hpp = lineHpp(line);
-                                const margin = lineTotal - hpp;
-                                return <section key={line.key} className="rounded-2xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:p-4">
-                                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                                        <div className="min-w-0"><p className="text-xs font-extrabold text-[#0B1F63] dark:text-white">Baris {index + 1}</p><p className="mt-0.5 whitespace-normal text-[11px] text-[#52658E] [overflow-wrap:anywhere]">{sourceNames.length > 0 ? `Sumber: ${sourceNames.join(', ')}` : 'Baris tambahan tanpa sumber biaya baru'}</p></div>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {index > 0 && <Button type="button" variant="ghost" size="sm" onClick={() => mergeWithPrevious(index)} aria-label={`Gabungkan baris ${index + 1} dengan baris sebelumnya`}><Merge aria-hidden="true" className="size-4" /> Gabung</Button>}
-                                            {line.source_item_ids.length > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => expandSourceLine(index)} aria-label={`Jadikan baris ${index + 1} rincian per item`}><ListTree aria-hidden="true" className="size-4" /> Jadikan Rinci</Button>}
-                                            <Button type="button" variant="ghost" size="sm" onClick={() => splitLine(index)} aria-label={`Pecah baris ${index + 1} menjadi dua tanpa mengubah total harga jual`}><CopyPlus aria-hidden="true" className="size-4" /> Pecah</Button>
-                                            <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(index)} aria-label={`Hapus baris ${index + 1}`}><Trash2 aria-hidden="true" className="size-4" /> Hapus</Button>
-                                        </div>
-                                    </div>
-                                    <div className="mb-3 max-w-xl">
-                                        <Input
-                                            name={`lines[${index}][section_title]`}
-                                            autoComplete="off"
-                                            label="Bagian dokumen"
-                                            value={line.section_title}
-                                            onChange={(event) => updateLine(index, 'section_title', event.target.value)}
-                                            list="invoice-section-suggestions"
-                                            placeholder={`Contoh: ${defaultSectionTitle(form.data.invoice_type)}…`}
-                                            maxLength={100}
-                                            error={errors[`lines.${index}.section_title`]}
-                                        />
-                                    </div>
-                                    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_8rem_9rem_minmax(14rem,1.2fr)]">
-                                        <Textarea required name={`lines[${index}][description]`} autoComplete="off" label="Nama / deskripsi item invoice" value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} rows={3} error={errors[`lines.${index}.description`]} />
-                                        <Input required name={`lines[${index}][quantity]`} autoComplete="off" label="Qty" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLineQuantity(index, event.target.value)} error={errors[`lines.${index}.quantity`]} />
-                                        <Input required name={`lines[${index}][unit]`} autoComplete="off" label="Satuan" value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} error={errors[`lines.${index}.unit`]} />
-                                        <div>
-                                            <MoneyInput
-                                                required
-                                                name={`lines[${index}][total_price]`}
-                                                autoComplete="off"
-                                                label="Harga Jual (Rp)"
-                                                value={line.total_price !== undefined && line.total_price !== '' ? line.total_price : (lineTotal ? String(lineTotal) : '')}
-                                                onChange={(value) => updateLineTotalPrice(index, value)}
-                                                error={errors[`lines.${index}.total_price`] || errors[`lines.${index}.unit_price`]}
-                                            />
-                                            <p className="mt-1.5 rounded-lg bg-[#EBF3FB] px-2.5 py-1 text-[11px] font-semibold text-[#0B1F63] dark:bg-[#102B4A] dark:text-[#E0F0FF]">
-                                                {Number(line.quantity || 0) > 1 ? (
-                                                    <span>
-                                                        Total: <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
-                                                        {' '}<span className="text-[#52658E] dark:text-[#94A3B8]">(setara {money(unitPrice)} / {line.unit || 'Satuan'})</span>
-                                                    </span>
-                                                ) : (
-                                                    <span>
-                                                        Total Harga Jual: <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
-                                                    </span>
-                                                )}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
-                                        <div className="sm:col-span-2">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <label className="text-xs font-bold text-[#0B1F63] dark:text-white">
-                                                    Alokasi HPP Sumber (Rp)
-                                                </label>
-                                                <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">
-                                                    Bisa diubah saat pecah/gabung baris
-                                                </span>
-                                            </div>
-                                            <MoneyInput
-                                                name={`lines[${index}][allocated_hpp]`}
-                                                autoComplete="off"
-                                                value={line.allocated_hpp !== undefined && line.allocated_hpp !== '' ? line.allocated_hpp : String(lineHpp(line))}
-                                                onChange={(value) => updateLine(index, 'allocated_hpp', value)}
-                                                error={errors[`lines.${index}.allocated_hpp`]}
-                                            />
-                                        </div>
-                                        <div>
-                                            <p className="text-[10px] font-semibold text-[#52658E]">Total Jual Baris</p>
-                                            <p className="text-sm font-extrabold tabular-nums text-[#0060F4] mt-1">{money(lineTotal)}</p>
-                                            <p className="text-[10px] text-[#52658E]">
-                                                {Number(line.quantity || 0) > 1 ? `${line.quantity || 0} ${line.unit} (setara ${money(unitPrice)}/${line.unit})` : `${line.unit || 'Paket'}`}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-[10px] font-semibold text-[#52658E]">Estimasi Margin Baris</p>
-                                            <p className={`text-sm font-extrabold tabular-nums mt-1 ${margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>
-                                                {money(margin)}
-                                            </p>
-                                            <p className="text-[10px] text-[#52658E]">
-                                                {lineTotal > 0 ? `${((margin / lineTotal) * 100).toFixed(1)}% margin` : '0%'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </section>;
-                            })}
-                            {form.data.lines.length === 0 && <p className="rounded-xl border border-dashed border-[#DCEAF8] px-4 py-8 text-center text-sm font-semibold text-[#52658E] dark:border-[#1E3A5F]">Pilih sumber biaya atau tambahkan baris invoice.</p>}
-                            {form.errors.lines && <p role="alert" className="text-xs font-semibold text-[#C62840]">{form.errors.lines}</p>}
-                            <datalist id="invoice-section-suggestions">
-                                <option value="Biaya Keagenan" />
-                                <option value="Pengurusan Keagenan" />
-                                <option value="Permintaan Kapal" />
-                                <option value="Rincian Reimbursement" />
-                            </datalist>
-                        </div>
-                    </Card>
-
-                    <div className="grid min-w-0 items-start gap-4 2xl:grid-cols-2">
-                        <Card title="Ringkasan Tagihan" titleLevel={2} subtitle="Tambahan, jatuh tempo, dan total akhir." padding="none"><div className="p-4 sm:p-5">
-                            <div className="grid gap-3 sm:grid-cols-2">
-                                <MoneyInput name="addon_total" autoComplete="off" label="Materai / Addon" value={form.data.addon_total} onChange={(value) => form.setData('addon_total', value)} error={form.errors.addon_total} />
-                                
-                                <div className="space-y-1.5">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-[#0B1F63] dark:text-white">Pajak</label>
-                                        <div className="inline-flex rounded-lg border border-[#DCEAF8] p-0.5 text-[11px] font-bold dark:border-[#1E3A5F]">
-                                            <button
-                                                type="button"
-                                                onClick={() => setTaxMode('nominal')}
-                                                className={`rounded-md px-2 py-0.5 transition-colors ${taxMode === 'nominal' ? 'bg-[#0060F4] text-white shadow-xs' : 'text-[#52658E] hover:text-[#0B1F63] dark:text-[#94A3B8]'}`}
-                                            >
-                                                Rupiah (Rp)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setTaxMode('percent');
-                                                    if (subtotal > 0 && Number(form.data.tax) > 0) {
-                                                        const p = ((Number(form.data.tax) / subtotal) * 100).toFixed(1);
-                                                        setTaxPercent(p);
-                                                    }
-                                                }}
-                                                className={`rounded-md px-2 py-0.5 transition-colors ${taxMode === 'percent' ? 'bg-[#0060F4] text-white shadow-xs' : 'text-[#52658E] hover:text-[#0B1F63] dark:text-[#94A3B8]'}`}
-                                            >
-                                                Persen (%)
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {taxMode === 'nominal' ? (
-                                        <div>
-                                            <MoneyInput
-                                                name="tax"
-                                                autoComplete="off"
-                                                value={form.data.tax}
-                                                onChange={(value) => form.setData('tax', value)}
-                                                error={form.errors.tax}
-                                            />
-                                            {subtotal > 0 && Number(form.data.tax) > 0 && (
-                                                <p className="mt-1 text-[11px] text-[#52658E]">
-                                                    Setara {((Number(form.data.tax) / subtotal) * 100).toFixed(2)}% dari subtotal ({money(subtotal)})
-                                                </p>
+                            <Card padding="none" header={<div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><h2 className="text-base font-extrabold leading-snug text-[#0B1F63] dark:text-[#F1F5F9]">Rincian Invoice</h2><p className="mt-0.5 whitespace-normal text-xs text-[#52658E] [overflow-wrap:anywhere] dark:text-[#94A3B8]">Nama, kuantitas, satuan, dan harga jual dapat disesuaikan. Anda dapat menambahkan baris baru kapan saja meskipun tanpa memilih dari Sumber Biaya.</p></div><div className="flex min-w-0 flex-wrap justify-end gap-2 sm:shrink-0"><Button className="min-h-11 min-w-[10rem] flex-1 sm:min-w-0 sm:flex-none" type="button" variant="outline" size="sm" onClick={mergeSelectedSources} disabled={form.data.lines.filter((line) => line.source_item_ids.length > 0).length < 2}><Merge aria-hidden="true" className="size-4" /> Gabungkan Terpilih</Button><Button className="min-h-11 min-w-[10rem] flex-1 sm:min-w-0 sm:flex-none" type="button" variant="outline" size="sm" onClick={addCustomLine}><Plus aria-hidden="true" className="size-4" /> Tambah Baris</Button></div></div>}>
+                                <div className="space-y-3 p-4 sm:p-5">
+                                    {totalSelectedHpp > 0 && (
+                                        <div className="mb-2">
+                                            {isHppBalanced ? (
+                                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-xs text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white font-black text-xs">✓</span>
+                                                        <div>
+                                                            <p className="font-extrabold text-sm text-emerald-900 dark:text-emerald-100">Alokasi HPP Sumber Seimbang (100% Pas)</p>
+                                                            <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                                                                Total HPP baris ({money(totalAllocatedHpp)}) sama persis dengan total HPP item pengajuan terpilih ({money(totalSelectedHpp)}).
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="rounded-lg bg-emerald-200/70 px-2.5 py-1 text-xs font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
+                                                            Selisih: Rp 0
+                                                        </span>
+                                                        <Button type="button" variant="ghost" size="sm" onClick={resetHppToDefault} className="text-xs text-emerald-800 hover:bg-emerald-100 dark:text-emerald-200">
+                                                            Reset Proporsional
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            ) : hppDifference > 0 ? (
+                                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-rose-400 bg-rose-50 px-4 py-3 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-100">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-600 text-white font-black text-xs">!</span>
+                                                        <div>
+                                                            <p className="font-black text-sm text-rose-900 dark:text-rose-100">
+                                                                Kelebihan Alokasi HPP ({money(hppDifference)}) — Tidak Boleh Lebih!
+                                                            </p>
+                                                            <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
+                                                                Total baris: <strong>{money(totalAllocatedHpp)}</strong> &gt; Item terpilih: <strong>{money(totalSelectedHpp)}</strong>. Sesuaikan HPP pada baris agar pas.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <Button type="button" variant="outline" size="sm" onClick={autoBalanceHpp} className="bg-white text-xs font-bold text-rose-800 border-rose-300 hover:bg-rose-100 dark:bg-slate-900">
+                                                            Seimbangkan Otomatis
+                                                        </Button>
+                                                        <Button type="button" variant="ghost" size="sm" onClick={resetHppToDefault} className="text-xs text-rose-800 hover:bg-rose-100 dark:text-rose-200">
+                                                            Reset Proporsional
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-white font-black text-xs">!</span>
+                                                        <div>
+                                                            <p className="font-black text-sm text-amber-900 dark:text-amber-100">
+                                                                Kekurangan Alokasi HPP ({money(Math.abs(hppDifference))}) — Tidak Boleh Kurang!
+                                                            </p>
+                                                            <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+                                                                Total baris: <strong>{money(totalAllocatedHpp)}</strong> &lt; Item terpilih: <strong>{money(totalSelectedHpp)}</strong>. Tambahkan ke salah satu baris agar pas.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <Button type="button" variant="outline" size="sm" onClick={autoBalanceHpp} className="bg-white text-xs font-bold text-amber-900 border-amber-300 hover:bg-amber-100 dark:bg-slate-900">
+                                                            Seimbangkan Otomatis
+                                                        </Button>
+                                                        <Button type="button" variant="ghost" size="sm" onClick={resetHppToDefault} className="text-xs text-amber-900 hover:bg-amber-100 dark:text-amber-200">
+                                                            Reset Proporsional
+                                                        </Button>
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
-                                    ) : (
-                                        <div className="space-y-1.5">
-                                            <div className="relative">
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    max="100"
-                                                    value={taxPercent}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        setTaxPercent(val);
-                                                        const num = parseFloat(val) || 0;
-                                                        const nominal = Math.max(0, Math.round((subtotal * num) / 100));
-                                                        form.setData('tax', String(nominal));
-                                                    }}
-                                                    placeholder="Contoh: 11"
-                                                    className="h-10 w-full rounded-xl border border-[#DCEAF8] bg-white px-3 pr-8 text-sm font-semibold text-[#0B1F63] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/30 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
+                                    )}
+
+                                    {form.data.lines.map((line, index) => {
+                                        const sourceNames = line.source_item_ids.map((sourceId) => jobItems.find((item) => item.id === sourceId)?.item_name).filter(Boolean);
+                                        const lineTotal = invoiceLineTotal(line);
+                                        const unitPrice = Number(line.quantity || 0) > 0 ? (lineTotal / Number(line.quantity)) : lineTotal;
+                                        const hpp = lineHpp(line);
+                                        const margin = lineTotal - hpp;
+                                        return <section key={line.key} className="rounded-2xl border border-[#DCEAF8] bg-white p-3 dark:border-[#1E3A5F] dark:bg-[#0C1D36] sm:p-4">
+                                            <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                                                <div className="min-w-0"><p className="text-xs font-extrabold text-[#0B1F63] dark:text-white">Baris {index + 1}</p><p className="mt-0.5 whitespace-normal text-[11px] text-[#52658E] [overflow-wrap:anywhere]">{sourceNames.length > 0 ? `Sumber: ${sourceNames.join(', ')}` : 'Baris tambahan tanpa sumber biaya baru'}</p></div>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {index > 0 && <Button type="button" variant="ghost" size="sm" onClick={() => mergeWithPrevious(index)} aria-label={`Gabungkan baris ${index + 1} dengan baris sebelumnya`}><Merge aria-hidden="true" className="size-4" /> Gabung</Button>}
+                                                    {line.source_item_ids.length > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => expandSourceLine(index)} aria-label={`Jadikan baris ${index + 1} rincian per item`}><ListTree aria-hidden="true" className="size-4" /> Jadikan Rinci</Button>}
+                                                    <Button type="button" variant="ghost" size="sm" onClick={() => splitLine(index)} aria-label={`Pecah baris ${index + 1} menjadi dua tanpa mengubah total harga jual`}><CopyPlus aria-hidden="true" className="size-4" /> Pecah</Button>
+                                                    <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(index)} aria-label={`Hapus baris ${index + 1}`}><Trash2 aria-hidden="true" className="size-4" /> Hapus</Button>
+                                                </div>
+                                            </div>
+                                            <div className="mb-3 max-w-xl">
+                                                <Input
+                                                    name={`lines[${index}][section_title]`}
+                                                    autoComplete="off"
+                                                    label="Bagian dokumen"
+                                                    value={line.section_title}
+                                                    onChange={(event) => updateLine(index, 'section_title', event.target.value)}
+                                                    list="invoice-section-suggestions"
+                                                    placeholder={`Contoh: ${defaultSectionTitle(form.data.invoice_type)}…`}
+                                                    maxLength={100}
+                                                    error={errors[`lines.${index}.section_title`]}
                                                 />
-                                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#52658E]">
-                                                    %
-                                                </span>
                                             </div>
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                {[0, 1.1, 11, 12].map((preset) => (
-                                                    <button
-                                                        key={preset}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setTaxPercent(String(preset));
-                                                            const nominal = Math.max(0, Math.round((subtotal * preset) / 100));
-                                                            form.setData('tax', String(nominal));
-                                                        }}
-                                                        className={`rounded-md px-2 py-0.5 text-[11px] font-bold border transition-colors ${
-                                                            parseFloat(taxPercent) === preset
-                                                                ? 'border-[#0060F4] bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]'
-                                                                : 'border-[#DCEAF8] bg-white text-[#52658E] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8]'
-                                                        }`}
-                                                    >
-                                                        {preset}%
-                                                    </button>
-                                                ))}
-                                                <span className="ml-auto text-[11px] font-bold text-[#0060F4]">
-                                                    = {money(form.data.tax)}
-                                                </span>
+                                            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(0,2fr)_8rem_9rem_minmax(14rem,1.2fr)]">
+                                                <Textarea required name={`lines[${index}][description]`} autoComplete="off" label="Nama / deskripsi item invoice" value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} rows={3} error={errors[`lines.${index}.description`]} />
+                                                <Input required name={`lines[${index}][quantity]`} autoComplete="off" label="Qty" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLineQuantity(index, event.target.value)} error={errors[`lines.${index}.quantity`]} />
+                                                <Input required name={`lines[${index}][unit]`} autoComplete="off" label="Satuan" value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} error={errors[`lines.${index}.unit`]} />
+                                                <div>
+                                                    <MoneyInput
+                                                        required
+                                                        name={`lines[${index}][total_price]`}
+                                                        autoComplete="off"
+                                                        label="Harga Jual (Rp)"
+                                                        value={line.total_price !== undefined && line.total_price !== '' ? line.total_price : (lineTotal ? String(lineTotal) : '')}
+                                                        onChange={(value) => updateLineTotalPrice(index, value)}
+                                                        error={errors[`lines.${index}.total_price`] || errors[`lines.${index}.unit_price`]}
+                                                    />
+                                                    <p className="mt-1.5 rounded-lg bg-[#EBF3FB] px-2.5 py-1 text-[11px] font-semibold text-[#0B1F63] dark:bg-[#102B4A] dark:text-[#E0F0FF]">
+                                                        {Number(line.quantity || 0) > 1 ? (
+                                                            <span>
+                                                                Total: <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
+                                                                {' '}<span className="text-[#52658E] dark:text-[#94A3B8]">(setara {money(unitPrice)} / {line.unit || 'Satuan'})</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span>
+                                                                Total Harga Jual: <span className="font-extrabold text-[#0060F4] dark:text-[#60A5FA]">{money(lineTotal)}</span>
+                                                            </span>
+                                                        )}
+                                                    </p>
+                                                </div>
                                             </div>
+                                            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end rounded-xl border border-[#DCEAF8] bg-[#F8FBFF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]">
+                                                <div className="sm:col-span-2">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <label className="text-xs font-bold text-[#0B1F63] dark:text-white">
+                                                            Alokasi HPP Sumber (Rp)
+                                                        </label>
+                                                        <span className="text-[10px] text-[#52658E] dark:text-[#94A3B8]">
+                                                            Bisa diubah saat pecah/gabung baris
+                                                        </span>
+                                                    </div>
+                                                    <MoneyInput
+                                                        name={`lines[${index}][allocated_hpp]`}
+                                                        autoComplete="off"
+                                                        value={line.allocated_hpp !== undefined && line.allocated_hpp !== '' ? line.allocated_hpp : String(lineHpp(line))}
+                                                        onChange={(value) => updateLine(index, 'allocated_hpp', value)}
+                                                        error={errors[`lines.${index}.allocated_hpp`]}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-semibold text-[#52658E]">Total Jual Baris</p>
+                                                    <p className="text-sm font-extrabold tabular-nums text-[#0060F4] mt-1">{money(lineTotal)}</p>
+                                                    <p className="text-[10px] text-[#52658E]">
+                                                        {Number(line.quantity || 0) > 1 ? `${line.quantity || 0} ${line.unit} (setara ${money(unitPrice)}/${line.unit})` : `${line.unit || 'Paket'}`}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-semibold text-[#52658E]">Estimasi Margin Baris</p>
+                                                    <p className={`text-sm font-extrabold tabular-nums mt-1 ${margin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>
+                                                        {money(margin)}
+                                                    </p>
+                                                    <p className="text-[10px] text-[#52658E]">
+                                                        {lineTotal > 0 ? `${((margin / lineTotal) * 100).toFixed(1)}% margin` : '0%'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </section>;
+                                    })}
+                                    {form.data.lines.length === 0 && (
+                                        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#DCEAF8] px-4 py-8 text-center dark:border-[#1E3A5F]">
+                                            <p className="text-sm font-semibold text-[#52658E] dark:text-[#94A3B8]">Belum ada baris tagihan.</p>
+                                            <p className="mt-1 text-xs text-[#52658E]/80 dark:text-[#94A3B8]/80">
+                                                Pilih item dari Sumber Biaya di atas, atau lewati dan langsung buat baris baru secara manual.
+                                            </p>
+                                            <Button type="button" variant="outline" size="sm" onClick={addCustomLine} className="mt-3">
+                                                <Plus aria-hidden="true" className="size-4 mr-1.5" /> Tambah Baris Manual
+                                            </Button>
                                         </div>
                                     )}
+                                    {form.errors.lines && <p role="alert" className="text-xs font-semibold text-[#C62840]">{form.errors.lines}</p>}
+                                    <datalist id="invoice-section-suggestions">
+                                        <option value="Biaya Keagenan" />
+                                        <option value="Pengurusan Keagenan" />
+                                        <option value="Permintaan Kapal" />
+                                        <option value="Rincian Reimbursement" />
+                                    </datalist>
                                 </div>
+                            </Card>
 
-                                <div className="sm:col-span-2">
-                                    <Input required name="due_date" autoComplete="off" label="Tanggal Jatuh Tempo" type="date" value={form.data.due_date} onChange={(event) => form.setData('due_date', event.target.value)} error={form.errors.due_date} />
-                                </div>
+                            <div className="grid min-w-0 items-start gap-4 2xl:grid-cols-2">
+                                <Card title="Ringkasan Tagihan" titleLevel={2} subtitle="Tambahan, jatuh tempo, dan total akhir." padding="none"><div className="p-4 sm:p-5">
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <MoneyInput name="addon_total" autoComplete="off" label="Materai / Addon" value={form.data.addon_total} onChange={(value) => form.setData('addon_total', value)} error={form.errors.addon_total} />
+
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-xs font-bold text-[#0B1F63] dark:text-white">Pajak</label>
+                                                <div className="inline-flex rounded-lg border border-[#DCEAF8] p-0.5 text-[11px] font-bold dark:border-[#1E3A5F]">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setTaxMode('nominal')}
+                                                        className={`rounded-md px-2 py-0.5 transition-colors ${taxMode === 'nominal' ? 'bg-[#0060F4] text-white shadow-xs' : 'text-[#52658E] hover:text-[#0B1F63] dark:text-[#94A3B8]'}`}
+                                                    >
+                                                        Rupiah (Rp)
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setTaxMode('percent');
+                                                            if (subtotal > 0 && Number(form.data.tax) > 0) {
+                                                                const p = ((Number(form.data.tax) / subtotal) * 100).toFixed(1);
+                                                                setTaxPercent(p);
+                                                            }
+                                                        }}
+                                                        className={`rounded-md px-2 py-0.5 transition-colors ${taxMode === 'percent' ? 'bg-[#0060F4] text-white shadow-xs' : 'text-[#52658E] hover:text-[#0B1F63] dark:text-[#94A3B8]'}`}
+                                                    >
+                                                        Persen (%)
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {taxMode === 'nominal' ? (
+                                                <div>
+                                                    <MoneyInput
+                                                        name="tax"
+                                                        autoComplete="off"
+                                                        value={form.data.tax}
+                                                        onChange={(value) => form.setData('tax', value)}
+                                                        error={form.errors.tax}
+                                                    />
+                                                    {subtotal > 0 && Number(form.data.tax) > 0 && (
+                                                        <p className="mt-1 text-[11px] text-[#52658E]">
+                                                            Setara {((Number(form.data.tax) / subtotal) * 100).toFixed(2)}% dari subtotal ({money(subtotal)})
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-1.5">
+                                                    <div className="relative">
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            max="100"
+                                                            value={taxPercent}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                setTaxPercent(val);
+                                                                const num = parseFloat(val) || 0;
+                                                                const nominal = Math.max(0, Math.round((subtotal * num) / 100));
+                                                                form.setData('tax', String(nominal));
+                                                            }}
+                                                            placeholder="Contoh: 11"
+                                                            className="h-10 w-full rounded-xl border border-[#DCEAF8] bg-white px-3 pr-8 text-sm font-semibold text-[#0B1F63] focus-visible:border-[#0060F4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0060F4]/30 dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-white"
+                                                        />
+                                                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#52658E]">
+                                                            %
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        {[0, 1.1, 11, 12].map((preset) => (
+                                                            <button
+                                                                key={preset}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setTaxPercent(String(preset));
+                                                                    const nominal = Math.max(0, Math.round((subtotal * preset) / 100));
+                                                                    form.setData('tax', String(nominal));
+                                                                }}
+                                                                className={`rounded-md px-2 py-0.5 text-[11px] font-bold border transition-colors ${parseFloat(taxPercent) === preset
+                                                                    ? 'border-[#0060F4] bg-[#E0F0FF] text-[#0060F4] dark:bg-[#132847] dark:text-[#38BDF8]'
+                                                                    : 'border-[#DCEAF8] bg-white text-[#52658E] hover:bg-[#F0F8FF] dark:border-[#1E3A5F] dark:bg-[#071322] dark:text-[#94A3B8]'
+                                                                    }`}
+                                                            >
+                                                                {preset}%
+                                                            </button>
+                                                        ))}
+                                                        <span className="ml-auto text-[11px] font-bold text-[#0060F4]">
+                                                            = {money(form.data.tax)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="sm:col-span-2">
+                                            <Input required name="due_date" autoComplete="off" label="Tanggal Jatuh Tempo" type="date" value={form.data.due_date} onChange={(event) => form.setData('due_date', event.target.value)} error={form.errors.due_date} />
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#DCEAF8] bg-[#DCEAF8] sm:grid-cols-3 dark:border-[#1E3A5F] dark:bg-[#1E3A5F]"><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Baris</p><p className="mt-1 font-bold tabular-nums">{form.data.lines.length}</p></div><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Subtotal</p><p className="mt-1 font-bold tabular-nums">{money(subtotal)}</p></div><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Tambahan</p><p className="mt-1 font-bold tabular-nums">{money(Number(form.data.addon_total || 0) + Number(form.data.tax || 0))}</p></div><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Total Alokasi HPP</p><p className="mt-1 font-bold tabular-nums">{money(totalAllocatedHpp)}</p>{totalSelectedHpp > 0 && <p className="text-[10px] text-[#52658E]">Sumber: {money(totalSelectedHpp)}</p>}</div><div aria-live="polite" className="bg-[#E0F0FF] p-3 dark:bg-[#0060F4]/15"><p className="text-[11px] text-[#52658E]">Total Invoice</p><p className="mt-1 font-extrabold tabular-nums text-[#0060F4]">{money(grandTotal)}</p></div><div aria-live="polite" className={`${estimatedMargin >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-red-50 dark:bg-red-950/30'} p-3`}><p className="text-[11px] text-[#52658E]">Estimasi Margin</p><p className={`mt-1 font-extrabold tabular-nums ${estimatedMargin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>{money(estimatedMargin)}</p></div></div>
+                                </div></Card>
+                                <Card title="Catatan dan Dokumen Pendukung" titleLevel={2} subtitle="Dokumen tambahan bersifat opsional." padding="none"><div className="space-y-4 p-4 sm:p-5">
+                                    <Textarea name="notes" autoComplete="off" label="Keterangan" value={form.data.notes} onChange={(event) => form.setData('notes', event.target.value)} rows={3} maxLength={1000} showCharCount error={form.errors.notes} />
+                                    {invoice?.supporting_document_path && <div className="rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]"><p className="mb-2 text-xs font-semibold text-[#0B1F63] dark:text-white">Dokumen pendukung saat ini</p><DocumentActions viewHref={`/invoices/${invoice.id}/documents/supporting?view=1`} downloadHref={`/invoices/${invoice.id}/documents/supporting`} /></div>}
+                                    <PhotoUploadPicker label={invoice?.supporting_document_path ? 'Ganti dokumen pendukung (opsional)' : 'Dokumen pendukung (opsional)'} value={form.data.supporting_document} onChange={(file) => form.setData('supporting_document', file)} mode="gallery" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={form.errors.supporting_document} helperText="PDF, Word, JPG, JPEG, atau PNG. Maksimal 10 MB." />
+                                </div></Card>
                             </div>
-                            <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#DCEAF8] bg-[#DCEAF8] sm:grid-cols-3 dark:border-[#1E3A5F] dark:bg-[#1E3A5F]"><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Baris</p><p className="mt-1 font-bold tabular-nums">{form.data.lines.length}</p></div><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Subtotal</p><p className="mt-1 font-bold tabular-nums">{money(subtotal)}</p></div><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Tambahan</p><p className="mt-1 font-bold tabular-nums">{money(Number(form.data.addon_total || 0) + Number(form.data.tax || 0))}</p></div><div className="bg-[#F0F8FF] p-3 dark:bg-[#071322]"><p className="text-[11px] text-[#52658E]">Total Alokasi HPP</p><p className="mt-1 font-bold tabular-nums">{money(totalAllocatedHpp)}</p>{totalSelectedHpp > 0 && <p className="text-[10px] text-[#52658E]">Sumber: {money(totalSelectedHpp)}</p>}</div><div aria-live="polite" className="bg-[#E0F0FF] p-3 dark:bg-[#0060F4]/15"><p className="text-[11px] text-[#52658E]">Total Invoice</p><p className="mt-1 font-extrabold tabular-nums text-[#0060F4]">{money(grandTotal)}</p></div><div aria-live="polite" className={`${estimatedMargin >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-red-50 dark:bg-red-950/30'} p-3`}><p className="text-[11px] text-[#52658E]">Estimasi Margin</p><p className={`mt-1 font-extrabold tabular-nums ${estimatedMargin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-[#C62840]'}`}>{money(estimatedMargin)}</p></div></div>
-                        </div></Card>
-                        <Card title="Catatan dan Dokumen Pendukung" titleLevel={2} subtitle="Dokumen tambahan bersifat opsional." padding="none"><div className="space-y-4 p-4 sm:p-5">
-                            <Textarea name="notes" autoComplete="off" label="Keterangan" value={form.data.notes} onChange={(event) => form.setData('notes', event.target.value)} rows={3} maxLength={1000} showCharCount error={form.errors.notes} />
-                            {invoice?.supporting_document_path && <div className="rounded-xl border border-[#DCEAF8] bg-[#F0F8FF] p-3 dark:border-[#1E3A5F] dark:bg-[#071322]"><p className="mb-2 text-xs font-semibold text-[#0B1F63] dark:text-white">Dokumen pendukung saat ini</p><DocumentActions viewHref={`/invoices/${invoice.id}/documents/supporting?view=1`} downloadHref={`/invoices/${invoice.id}/documents/supporting`} /></div>}
-                            <PhotoUploadPicker label={invoice?.supporting_document_path ? 'Ganti dokumen pendukung (opsional)' : 'Dokumen pendukung (opsional)'} value={form.data.supporting_document} onChange={(file) => form.setData('supporting_document', file)} mode="gallery" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" maxSizeMb={10} variant="compact" error={form.errors.supporting_document} helperText="PDF, Word, JPG, JPEG, atau PNG. Maksimal 10 MB." />
-                        </div></Card>
-                    </div>
                         </div>
 
                         <aside className="sticky top-20 hidden min-w-0 xl:block" aria-label="Pratinjau dokumen invoice">

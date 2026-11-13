@@ -38,6 +38,10 @@ class StoreInvoiceRequest extends FormRequest
                         $lines[$i]['total_price'] = (string) round((float) $line['unit_price'] * $qty, 2);
                     }
                 }
+
+                if (! isset($line['source_item_ids']) || ! is_array($line['source_item_ids'])) {
+                    $lines[$i]['source_item_ids'] = [];
+                }
             }
             $this->merge(['lines' => $lines]);
         }
@@ -64,7 +68,7 @@ class StoreInvoiceRequest extends FormRequest
             'lines.*.total_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999999.99'],
             'lines.*.unit_price' => ['required', 'numeric', 'gt:0', 'max:9999999999999.99'],
             'lines.*.allocated_hpp' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
-            'lines.*.source_item_ids' => ['present', 'array', 'max:100'],
+            'lines.*.source_item_ids' => ['nullable', 'array', 'max:100'],
             'lines.*.source_item_ids.*' => ['required', 'uuid', 'exists:request_items,id'],
             'invoice_type' => ['required', 'in:agency,reimburse'],
             'addon_total' => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
